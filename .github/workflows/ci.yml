@@ -3,9 +3,9 @@ name: Continuous Integration
 # 1. Trigger on pushes & PRs to main
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
   pull_request:
-    branches: [ main ]
+    branches: [ master, main ]
 
 jobs:
   test:
