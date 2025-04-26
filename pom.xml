@@ -94,13 +94,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- H2 database for testing/in-memory dev DB -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
         <!-- https://mvnrepository.com/artifact/org.springframework.data/spring-data-jpa -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
