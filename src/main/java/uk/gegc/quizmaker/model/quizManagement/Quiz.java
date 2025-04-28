@@ -40,7 +40,6 @@ public class Quiz {
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
-    @NotBlank
     @Size(min = 3, max = 100, message = "Title length must be between 3 and 100 characters")
     @Column(name = "title", nullable = false, length = 100)
     private String title;
@@ -63,7 +62,7 @@ public class Quiz {
     @Min(value = 1, message = "Estimated time can't be less than 1 minute")
     @Max(value = 180, message = "Estimated time can't be more than 180 minutes")
     @Column(name = "estimated_time_min", nullable = false)
-    private Integer est_time;
+    private Integer estimatedTime;
 
     @NotNull
     @Column(name = "is_repetition_enabled", nullable = false)
