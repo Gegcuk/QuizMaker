@@ -13,6 +13,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 import uk.gegc.quizmaker.model.userManagment.User;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Getter
@@ -25,9 +28,9 @@ import java.time.LocalDateTime;
 public class Quiz {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name="quiz_id")
-    private Long id;
+    private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "creator_id", nullable = false, updatable = false)
@@ -88,6 +91,17 @@ public class Quiz {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    @ManyToMany(
+            fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+    )
+    @JoinTable(
+            name = "quiz_tags",
+            joinColumns = @JoinColumn(name = "quiz_id", nullable = false),
+            inverseJoinColumns = @JoinColumn(name = "tag_id", nullable = false)
+    )
+    private List<Tag> tags = new ArrayList<>();
 
     @PreRemove
     private void onSoftDelete() {
