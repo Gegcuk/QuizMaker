@@ -5,9 +5,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.model.userManagment.User;
-import uk.gegc.quizmaker.repository.UserRepository;
-import uk.gegc.quizmaker.service.impl.UserServiceImpl;
+import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.service.user.impl.UserServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;

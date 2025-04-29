@@ -7,7 +7,7 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.model.quizManagement.Question;
+import uk.gegc.quizmaker.model.question.Question;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
