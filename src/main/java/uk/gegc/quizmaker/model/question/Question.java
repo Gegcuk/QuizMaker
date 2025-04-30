@@ -33,47 +33,27 @@ public class Question {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @ManyToMany(
-            fetch = FetchType.LAZY,
-            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
-    )
-    @JoinTable(
-            name = "quiz_questions",
-            joinColumns = @JoinColumn(name = "question_id", nullable = false),
-            inverseJoinColumns = @JoinColumn(name = "quiz_id", nullable = false)
-    )
-    @NotNull
-    private List<Quiz> quizId = new ArrayList<>();
-
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false, length = 50)
     QuestionType type;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "difficulty", nullable = false, length = 20)
     private Difficulty difficulty;
 
-    @NotBlank
-    @Size(max = 1000, message = "Question text length must be less than 1000 characters")
     @Column(name = "question", nullable = false, length = 1000)
     private String questionText;
 
-    @NotNull
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "content", columnDefinition = "json", nullable = false)
     private String content;
 
-    @Size(max = 500, message = "Hint length must be less than 500 characters")
     @Column(name = "hint", length = 500)
     private String hint;
 
-    @Size(max = 2000, message = "Explanation must be less than 2000 characters")
     @Column(name = "explanation", length = 2000)
     private String explanation;
 
-    @Size(max = 2048, message = "URL length is limited by 2048 characters")
     @Column(name = "attachment_url", length = 2048)
     private String attachmentUrl;
 
@@ -90,6 +70,19 @@ public class Question {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+
+    @ManyToMany(
+            fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+    )
+    @JoinTable(
+            name = "quiz_questions",
+            joinColumns = @JoinColumn(name = "question_id", nullable = false),
+            inverseJoinColumns = @JoinColumn(name = "quiz_id", nullable = false)
+    )
+    private List<Quiz> quizId = new ArrayList<>();
+
 
     @ManyToMany(
             fetch = FetchType.LAZY,
