@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
+import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
 
 
@@ -13,7 +14,7 @@ public class OrderingHandler extends QuestionHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public void validateContent(CreateQuestionRequest req) {
+    public void validateContent(QuestionContentRequest req) {
         JsonNode root;
         try {
             root = objectMapper.readTree(req.getContent());

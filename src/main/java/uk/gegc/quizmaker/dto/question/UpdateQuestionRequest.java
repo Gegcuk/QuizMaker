@@ -16,7 +16,7 @@ import java.util.UUID;
 
 @Getter
 @Setter
-public class UpdateQuestionRequest {
+public class UpdateQuestionRequest implements QuestionContentRequest {
     @NotNull(message = "Type must not be null")
     QuestionType type;
 

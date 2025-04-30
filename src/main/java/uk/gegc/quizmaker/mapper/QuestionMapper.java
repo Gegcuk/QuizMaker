@@ -36,6 +36,7 @@ public class QuestionMapper {
 
     public static Question fromCreate(CreateQuestionRequest request, List<Quiz> quizzes, List<Tag> tags){
         Question question = new Question();
+        question.setType(request.getType());
         question.setDifficulty(request.getDifficulty());
         question.setQuestionText(request.getQuestionText());
         question.setContent(request.getContent());
