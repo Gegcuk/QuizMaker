@@ -8,7 +8,6 @@ import lombok.Getter;
 import lombok.Setter;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.Quiz;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +23,7 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
     @NotNull(message = "Difficulty must not be null")
     private Difficulty difficulty;
 
+    @NotBlank(message="Question text must not be blank")
     @Size(min = 3, max = 1000, message = "Question text length must be between 3 and 1000 characters")
     private String questionText;
 

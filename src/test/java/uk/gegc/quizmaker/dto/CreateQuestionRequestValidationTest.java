@@ -20,6 +20,16 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
+    void questionTextIsNull_thanValidationFails(){
+        CreateQuestionRequest request = new CreateQuestionRequest();
+        request.setQuestionText(null);
+        Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
+
+        assertEquals(1, violations.size());
+        assertEquals("Question text must not be blank", violations.iterator().next().getMessage());
+    }
+
+    @Test
     void questionTextTooLong_thanValidationFails(){
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setQuestionText("x".repeat(1001));

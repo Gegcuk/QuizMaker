@@ -21,6 +21,16 @@ public class UpdateQuestionRequestValidationTest {
         validator = Validation.buildDefaultValidatorFactory().getValidator();
     }
 
+    @Test
+    void questionTextIsNull_thanValidationFails(){
+        UpdateQuestionRequest request = new UpdateQuestionRequest();
+        request.setQuestionText(null);
+        Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
+
+        assertEquals(1, violations.size());
+        assertEquals("Question text must not be blank", violations.iterator().next().getMessage());
+    }
+
 
     @Test
     void questionTextTooLong_thanValidationFails(){

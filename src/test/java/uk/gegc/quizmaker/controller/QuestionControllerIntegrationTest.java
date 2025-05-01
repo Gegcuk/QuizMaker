@@ -115,6 +115,74 @@ public class QuestionControllerIntegrationTest {
         );
     }
 
+    static Stream<Arguments> invalidPayloads() {
+        return Stream.of(
+                // missing required
+                Arguments.of("Missing type", """
+                {"difficulty":"EASY","questionText":"Q?","content":{"answer":true}}
+                """),
+                Arguments.of("Missing difficulty", """
+                {"type":"TRUE_FALSE","questionText":"Q?","content":{"answer":true}}
+                """),
+                Arguments.of("Missing questionText", """
+                {"type":"TRUE_FALSE","difficulty":"EASY","content":{"answer":true}}
+                """),
+                // text too short / too long
+                Arguments.of("questionText too short", """
+                {"type":"TRUE_FALSE","difficulty":"EASY","questionText":"Hi","content":{"answer":true}}
+                """),
+                Arguments.of("questionText too long", """
+                {
+                  "type":"TRUE_FALSE","difficulty":"EASY",
+                  "questionText":"%s","content":{"answer":true}
+                }
+                """.formatted("A".repeat(1001))),
+                // content null
+                Arguments.of("content null", """
+                {"type":"TRUE_FALSE","difficulty":"EASY","questionText":"Q?","content":null}
+                """),
+                // MCQ wrong shape
+                Arguments.of("MCQ_SINGLE missing options", """
+                {"type":"MCQ_SINGLE","difficulty":"EASY","questionText":"Q?","content":{}}
+                """),
+                Arguments.of("MCQ_SINGLE wrong correct-count", """
+                {
+                  "type":"MCQ_SINGLE","difficulty":"EASY","questionText":"Q?",
+                  "content":{"options":[
+                    {"text":"A","correct":false},
+                    {"text":"B","correct":false}
+                  ]}
+                }
+                """),
+                // TRUE_FALSE wrong type
+                Arguments.of("TRUE_FALSE non-boolean answer", """
+                {"type":"TRUE_FALSE","difficulty":"EASY","questionText":"Q?","content":{"answer":"yes"}}
+                """),
+                // ORDERING missing items
+                Arguments.of("ORDERING missing items", """
+                {"type":"ORDERING","difficulty":"HARD","questionText":"Q?","content":{}}
+                """),
+                // HOTSPOT missing imageUrl
+                Arguments.of("HOTSPOT missing imageUrl", """
+                {
+                  "type":"HOTSPOT","difficulty":"MEDIUM","questionText":"Q?",
+                  "content":{"regions":[{"x":1,"y":2,"width":3,"height":4}]}
+                }
+                """),
+                // COMPLIANCE no compliant true
+                Arguments.of("COMPLIANCE no compliant", """
+                {
+                  "type":"COMPLIANCE","difficulty":"MEDIUM","questionText":"Q?",
+                  "content":{"statements":[{"text":"X","compliant":false}]}
+                }
+                """),
+                // malformed JSON
+                Arguments.of("Malformed JSON", """
+                {"type":"TRUE_FALSE","difficulty":"EASY","questionText":"Q?","content":{"answer":true
+                """)
+        );
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("happyPathPayloads")
     void createQuestion_HappyPath_thanReturns201(String name, String jsonPayload) throws Exception{
@@ -125,6 +193,16 @@ public class QuestionControllerIntegrationTest {
                 .andExpect(jsonPath("$.questionId").exists());
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidPayloads")
+    void createQuestion_invalidPayloadPath_thanReturns400(String name, String jsonPayload) throws Exception{
+        mockMvc.perform(post("/api/v1/questions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(jsonPayload))
+                .andExpect(status().isBadRequest());
+    }
+
+
     @Test
     void createQuestionUnknownQuizId_thanReturns404() throws Exception{
         String badQuizId = UUID.randomUUID().toString();
@@ -132,7 +210,7 @@ public class QuestionControllerIntegrationTest {
                 {
                     "type":"TRUE_FALSE",
                     "difficulty":"EASY",
-                    "questionText":"Q?",
+                    "questionText":"Question?",
                     "content":{"answer":true},
                     "quizIds":["%s"]
                 }
@@ -144,5 +222,22 @@ public class QuestionControllerIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void createQuestionUnknownTagId_thanReturns404() throws Exception{
+        String badTagId = UUID.randomUUID().toString();
+        String payload = """
+                {
+                    "type":"TRUE_FALSE",
+                    "difficulty":"EASY",
+                    "questionText":"Question?",
+                    "content":{"answer":true},
+                    "tagIds":["%s"]
+                }
+                """.formatted(badTagId);
 
+        mockMvc.perform(post("/api/v1/questions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(payload))
+                .andExpect(status().isNotFound());
+    }
 }
