@@ -7,7 +7,7 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.model.quizManagement.Quiz;
+import uk.gegc.quizmaker.model.quiz.Quiz;
 
 import java.util.Set;
 
