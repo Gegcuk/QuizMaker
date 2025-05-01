@@ -14,11 +14,9 @@ public class McqMultiHandler extends QuestionHandler{
 
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
-        JsonNode root;
-        try {
-            root = objectMapper.readTree(request.getContent());
-        } catch (JsonProcessingException e) {
-            throw new ValidationException("Invalid JSON for MCQ_MULTI");
+        JsonNode root = request.getContent();
+        if (root == null || !root.isObject()) {
+            throw new ValidationException("Invalid JSON for ORDERING question");
         }
 
         JsonNode options = root.get("options");

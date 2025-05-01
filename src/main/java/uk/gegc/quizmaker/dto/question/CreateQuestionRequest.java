@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.dto.question;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -25,8 +26,8 @@ public class CreateQuestionRequest implements QuestionContentRequest{
     @Size(min = 3, max = 1000, message = "Question text length must be between 3 and 1000 characters")
     private String questionText;
 
-    @NotBlank(message = "Content must not be blank")
-    private String content;
+    @NotNull(message = "Content must not be null")
+    private JsonNode content;
 
     @Size(max = 500, message = "Hint length must be less than 500 characters")
     private String hint;

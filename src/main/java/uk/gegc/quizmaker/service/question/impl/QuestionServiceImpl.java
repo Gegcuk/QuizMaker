@@ -101,6 +101,8 @@ public class QuestionServiceImpl implements QuestionService {
 
     @Override
     public void deleteQuestion(UUID questionId) {
-
+        Question question = questionRepository.findById(questionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + "not found"));
+        questionRepository.delete(question);
     }
 }

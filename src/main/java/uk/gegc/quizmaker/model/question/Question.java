@@ -65,7 +65,10 @@ public class Question {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
+    @Column(name = "is_deleted",
+            nullable = false,
+            columnDefinition = "boolean default false",
+            insertable = false)
     private Boolean isDeleted;
 
     @Column(name = "deleted_at")

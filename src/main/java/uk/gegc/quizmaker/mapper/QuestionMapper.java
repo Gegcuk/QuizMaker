@@ -39,7 +39,7 @@ public class QuestionMapper {
         question.setType(request.getType());
         question.setDifficulty(request.getDifficulty());
         question.setQuestionText(request.getQuestionText());
-        question.setContent(request.getContent());
+        question.setContent(request.getContent().toString());
         question.setHint(request.getHint());
         question.setExplanation(request.getExplanation());
         question.setAttachmentUrl(request.getAttachmentUrl());
@@ -55,7 +55,7 @@ public class QuestionMapper {
         question.setType(request.getType());
         question.setDifficulty(request.getDifficulty());
         question.setQuestionText(request.getQuestionText());
-        question.setContent(request.getContent());
+        question.setContent(request.getContent().toString());
         question.setHint(request.getHint());
         question.setExplanation(request.getExplanation());
         question.setAttachmentUrl(request.getAttachmentUrl());

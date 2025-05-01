@@ -9,15 +9,12 @@ import uk.gegc.quizmaker.exception.ValidationException;
 
 @Component
 public class ComplianceHandler extends QuestionHandler{
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
-        JsonNode root;
-        try {
-            root = objectMapper.readTree(request.getContent());
-        } catch (JsonProcessingException e) {
-            throw new ValidationException("Invalid JSON for COMPLIANCE question");
+        JsonNode root = request.getContent();
+        if (root == null || !root.isObject()) {
+            throw new ValidationException("Invalid JSON for ORDERING question");
         }
         JsonNode statements = root.get("statements");
         if(statements == null || !statements.isArray() || statements.isEmpty()){
