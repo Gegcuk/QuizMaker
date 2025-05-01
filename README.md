@@ -41,8 +41,8 @@ QuizMaker lets you create, manage, and deliver quizzes with ease. On the backend
 
 1. Clone the repo  
    ```
-   git clone https://github.com/your-org/quizmaker-backend.git  
-   cd quizmaker-backend  
+   git clone https://github.com/your-org/quizmaker.git  
+   cd quizmaker
    ```
 
 2. Configure environment variables  
