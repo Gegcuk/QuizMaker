@@ -90,16 +90,13 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void contentIsBlank_thanValidationFails(){
-        CreateQuestionRequest request = new CreateQuestionRequest();
-        request.setContent("");
-        Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "content");
+    void contentIsNull_thanValidationFails(){
+        CreateQuestionRequest questionRequest = new CreateQuestionRequest();
+        questionRequest.setContent(null);
+        Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(questionRequest, "content");
 
         assertEquals(1, violations.size());
-        assertEquals("Content must not be blank", violations.iterator().next().getMessage());
+        assertEquals("Content must not be null", violations.iterator().next().getMessage());
     }
-
-
-
 
 }
