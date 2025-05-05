@@ -79,7 +79,7 @@ public class Quiz {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @Column(name = "is_deleted")
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
     private Boolean isDeleted;
 
     @Column(name = "deleted_at")
@@ -106,6 +106,13 @@ public class Quiz {
             inverseJoinColumns = @JoinColumn(name = "question_id", nullable = false)
     )
     private List<Question> questions = new ArrayList<>();
+
+    @PrePersist
+    public void prePersist() {
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+    }
 
     @PreRemove
     private void onSoftDelete() {

@@ -32,21 +32,6 @@ public class QuizMapper {
         return quiz;
     }
 
-    public Quiz toEntity(CreateQuizRequest req, Category category, List<Tag> tags) {
-        Quiz quiz = new Quiz();
-        quiz.setCategory(category);
-        quiz.setTitle(req.title());
-        quiz.setDescription(req.description());
-        quiz.setVisibility(req.visibility());
-        quiz.setDifficulty(req.difficulty());
-        quiz.setEstimatedTime(req.estimatedTime());
-        quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
-        quiz.setTimerEnabled(req.timerEnabled());
-        quiz.setTimerDuration(req.timerDuration());
-        quiz.setTags(tags);
-        return quiz;
-    }
-
     public void updateEntity(Quiz quiz, UpdateQuizRequest req, Category category, List<Tag> tags) {
         if (category != null) {
             quiz.setCategory(category);

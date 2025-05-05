@@ -12,6 +12,7 @@ import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
@@ -33,6 +34,8 @@ public class QuizServiceImpl implements QuizService {
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
 
+    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+
     @Override
     public UUID createQuiz(CreateQuizRequest request) {
         var category = Optional.ofNullable(request.categoryId())
@@ -45,7 +48,10 @@ public class QuizServiceImpl implements QuizService {
                         .orElseThrow(()-> new ResourceNotFoundException("Tag " + id + " not found")))
                 .toList();
 
-        var quiz = quizMapper.toEntity(request, category, tags);
+        User defaultUser = new User();
+        defaultUser.setId(DEFAULT_USER_ID);
+
+        var quiz = quizMapper.toEntity(request, defaultUser, category, tags);
         return quizRepository.save(quiz).getId();
     }
 
