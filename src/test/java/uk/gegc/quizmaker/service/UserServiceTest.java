@@ -31,7 +31,7 @@ public class UserServiceTest {
         user.setHashedPassword("password");
 
         User savedUser = new User();
-        savedUser.setUserId(1L);
+        savedUser.setId(1L);
         savedUser.setUsername("johnDoe");
         savedUser.setEmail("john@example.com");
         savedUser.setActive(true);
@@ -41,7 +41,7 @@ public class UserServiceTest {
 
         User resultUser = userService.createUser(user);
 
-        assertNotNull(resultUser.getUserId());
+        assertNotNull(resultUser.getId());
         assertEquals("johnDoe", resultUser.getUsername());
         assertEquals("john@example.com", resultUser.getEmail());
     }

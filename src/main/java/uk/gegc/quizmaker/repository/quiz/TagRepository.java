@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.model.quiz.Tag;
 
 import java.util.UUID;
+import java.util.function.Function;
 
 @Repository
 public interface TagRepository extends JpaRepository<Tag, UUID> {
