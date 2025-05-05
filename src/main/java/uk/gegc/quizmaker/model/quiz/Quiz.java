@@ -11,6 +11,8 @@ import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 import uk.gegc.quizmaker.model.question.Difficulty;
+import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.LocalDateTime;
@@ -41,31 +43,24 @@ public class Quiz {
     @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
-    @Size(min = 3, max = 100, message = "Title length must be between 3 and 100 characters")
     @Column(name = "title", nullable = false, length = 100)
     private String title;
 
-    @Size(max = 1000, message = "Description must be at most 1000 characters long")
-    @Column(name = "description")
+    @Column(name = "description", length = 1000)
     private String description;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "visibility", nullable = false, length = 20)
     private Visibility visibility;
 
-    @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "difficulty", nullable = false, length = 20)
     private Difficulty difficulty;
 
-    @NotNull
-    @Min(value = 1, message = "Estimated time can't be less than 1 minute")
-    @Max(value = 180, message = "Estimated time can't be more than 180 minutes")
+
     @Column(name = "estimated_time_min", nullable = false)
     private Integer estimatedTime;
 
-    @NotNull
     @Column(name = "is_repetition_enabled", nullable = false)
     private Boolean isRepetitionEnabled;
 
@@ -73,8 +68,6 @@ public class Quiz {
     @Column(name = "is_timer_enabled", nullable = false)
     private Boolean timerEnabled;
 
-    @Min(value = 1, message = "Timer duration must be at least 1 minute")
-    @Max(value = 180, message = "Timer duration must be at most 180 minutes")
     @Column(name = "timer_duration_min")
     private Integer timerDuration;
 
@@ -86,7 +79,7 @@ public class Quiz {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    @Column(name = "is_deleted")
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
     private Boolean isDeleted;
 
     @Column(name = "deleted_at")
@@ -102,6 +95,24 @@ public class Quiz {
             inverseJoinColumns = @JoinColumn(name = "tag_id", nullable = false)
     )
     private List<Tag> tags = new ArrayList<>();
+
+    @ManyToMany(
+            fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+    )
+    @JoinTable(
+            name = "quiz_questions",
+            joinColumns = @JoinColumn(name = "quiz_id", nullable = false),
+            inverseJoinColumns = @JoinColumn(name = "question_id", nullable = false)
+    )
+    private List<Question> questions = new ArrayList<>();
+
+    @PrePersist
+    public void prePersist() {
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+    }
 
     @PreRemove
     private void onSoftDelete() {

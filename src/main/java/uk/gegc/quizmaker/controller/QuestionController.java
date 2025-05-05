@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("api/v1/questions")
+@RequestMapping("/api/v1/questions")
 @RequiredArgsConstructor
 public class QuestionController {
     private final QuestionService questionService;
@@ -56,7 +56,7 @@ public class QuestionController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable UUID id){
+    public void deleteQuestion(@PathVariable UUID id){
         questionService.deleteQuestion(id);
     }
 }

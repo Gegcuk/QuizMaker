@@ -9,6 +9,8 @@ import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.user.impl.UserServiceImpl;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.when;
@@ -22,6 +24,9 @@ public class UserServiceTest {
     @InjectMocks
     private UserServiceImpl userService;
 
+    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+
+
     @Test
     public void testCreateUser(){
         User user = new User();
@@ -31,7 +36,7 @@ public class UserServiceTest {
         user.setHashedPassword("password");
 
         User savedUser = new User();
-        savedUser.setUserId(1L);
+        savedUser.setId(DEFAULT_USER_ID);
         savedUser.setUsername("johnDoe");
         savedUser.setEmail("john@example.com");
         savedUser.setActive(true);
@@ -41,7 +46,7 @@ public class UserServiceTest {
 
         User resultUser = userService.createUser(user);
 
-        assertNotNull(resultUser.getUserId());
+        assertNotNull(resultUser.getId());
         assertEquals("johnDoe", resultUser.getUsername());
         assertEquals("john@example.com", resultUser.getEmail());
     }

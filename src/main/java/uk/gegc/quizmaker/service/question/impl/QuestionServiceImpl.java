@@ -50,7 +50,7 @@ public class QuestionServiceImpl implements QuestionService {
                         .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + "not found")))
                 .toList();
 
-        Question question = QuestionMapper.fromCreate(questionDto, quizzes, tags);
+        Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
         questionRepository.save(question);
 
         return question.getId();
