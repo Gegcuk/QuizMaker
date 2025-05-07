@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.dto.category.CategoryDto;
 import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
-import uk.gegc.quizmaker.model.quiz.Category;
+import uk.gegc.quizmaker.model.category.Category;
 
 import java.util.UUID;
 

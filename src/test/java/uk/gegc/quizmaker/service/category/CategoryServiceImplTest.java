@@ -9,7 +9,7 @@ import org.springframework.data.domain.*;
 import uk.gegc.quizmaker.dto.category.*;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.CategoryMapper;
-import uk.gegc.quizmaker.model.quiz.Category;
+import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
 import uk.gegc.quizmaker.service.category.impl.CategoryServiceImpl;
 

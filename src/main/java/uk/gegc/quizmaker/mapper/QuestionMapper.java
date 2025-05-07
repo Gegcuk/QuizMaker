@@ -6,7 +6,7 @@ import uk.gegc.quizmaker.dto.question.QuestionDto;
 import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.util.List;
 import java.util.stream.Collectors;

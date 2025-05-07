@@ -1,7 +1,6 @@
-package uk.gegc.quizmaker.model.quiz;
+package uk.gegc.quizmaker.model.category;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

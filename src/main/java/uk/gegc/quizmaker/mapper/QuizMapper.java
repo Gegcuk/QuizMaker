@@ -4,9 +4,9 @@ import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
-import uk.gegc.quizmaker.model.quiz.Category;
+import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.util.List;
@@ -66,7 +66,7 @@ public class QuizMapper {
     }
 
     public QuizDto toDto(Quiz quiz) {
-        QuizDto dto = new QuizDto(
+        return new QuizDto(
                 quiz.getId(),
                 quiz.getCreator().getId(),
                 quiz.getCategory().getId(),
@@ -82,6 +82,5 @@ public class QuizMapper {
                 quiz.getCreatedAt(),
                 quiz.getUpdatedAt()
         );
-        return dto;
     }
 }

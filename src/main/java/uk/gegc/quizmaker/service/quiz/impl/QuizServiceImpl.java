@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
-import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.CategoryRepository;

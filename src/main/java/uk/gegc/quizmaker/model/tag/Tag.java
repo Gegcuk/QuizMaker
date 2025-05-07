@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.quiz;
+package uk.gegc.quizmaker.model.tag;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Size;
