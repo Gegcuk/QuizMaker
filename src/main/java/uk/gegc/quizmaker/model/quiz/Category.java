@@ -22,11 +22,9 @@ public class Category {
     @Column(name = "category_id")
     private UUID id;
 
-    @Size(min = 3, max = 100, message = "Category name length must be between 3 and 100 characters")
-    @Column(name = "category_name", nullable = false)
+    @Column(name = "category_name", nullable = false, unique = true)
     private String name;
 
-    @Size(max = 1000, message = "Category description length must be between less than 1000 characters")
     @Column(name = "category_description")
     private String description;
 

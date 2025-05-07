@@ -2,7 +2,7 @@ package uk.gegc.quizmaker.dto.category;
 
 import jakarta.validation.constraints.Size;
 
-public record CreateCategoryRequest(
+public record UpdateCategoryRequest(
         @Size(min = 3, max = 100, message = "Category name length must be between 3 and 100 characters")
         String name,
 
