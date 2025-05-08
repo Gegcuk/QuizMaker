@@ -1,9 +1,6 @@
 package uk.gegc.quizmaker.model.question;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,7 +10,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;

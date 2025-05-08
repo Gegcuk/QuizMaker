@@ -8,6 +8,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
@@ -15,25 +16,26 @@ import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.Category;
-import uk.gegc.quizmaker.model.quiz.Tag;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
-import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
+import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.TagRepository;
+import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
+import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.ANY)
+@DirtiesContext(classMode = AFTER_CLASS)
 @TestPropertySource(properties = {
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.hibernate.ddl-auto=create"
@@ -90,8 +92,8 @@ class QuizControllerIntegrationTest {
         categoryId = c.getId();
 
         Tag t = new Tag();
-        t.setTagName("tag-one");
-        t.setTagDescription("desc");
+        t.setName("tag-one");
+        t.setDescription("desc");
         tagRepository.save(t);
         tagId = t.getId();
 

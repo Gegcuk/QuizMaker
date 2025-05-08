@@ -10,9 +10,10 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
+import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.LocalDateTime;

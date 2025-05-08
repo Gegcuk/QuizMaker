@@ -1,4 +1,6 @@
 package uk.gegc.quizmaker.dto.tag;
 
-public class TagDto {
+import java.util.UUID;
+
+public record TagDto (UUID id, String name, String description) {
 }

@@ -1,12 +1,12 @@
-package uk.gegc.quizmaker.dto.tag;
+package uk.gegc.quizmaker.dto.category;
 
 import jakarta.validation.constraints.Size;
 
-public record CreateTagRequest(
-        @Size(min = 3, max = 50, message = "Tag length must be between 3 and 50 characters")
+public record UpdateCategoryRequest(
+        @Size(min = 3, max = 100, message = "Category name length must be between 3 and 100 characters")
         String name,
 
         @Size(max = 1000, message = "Category description must be less than 1000 characters")
         String description
-        ) {
+) {
 }
