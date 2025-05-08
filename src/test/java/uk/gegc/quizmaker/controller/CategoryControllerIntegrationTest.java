@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
+import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 
 import java.util.UUID;
 
@@ -39,9 +40,12 @@ public class CategoryControllerIntegrationTest {
     ObjectMapper objectMapper;
     @Autowired
     CategoryRepository categoryRepository;
+    @Autowired
+    QuizRepository quizRepository;
 
     @BeforeEach
     void setUp(){
+        quizRepository.deleteAll();
         categoryRepository.deleteAll();
     }
 
