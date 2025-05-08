@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.repository.category;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;

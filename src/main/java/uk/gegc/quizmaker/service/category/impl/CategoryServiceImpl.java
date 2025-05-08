@@ -10,7 +10,7 @@ import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.CategoryMapper;
-import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
+import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.service.category.CategoryService;
 
 import java.util.UUID;

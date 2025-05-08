@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.model.category.Category;
-import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
+import uk.gegc.quizmaker.repository.category.CategoryRepository;
 
 import java.util.UUID;
 

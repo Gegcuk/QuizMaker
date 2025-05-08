@@ -1,11 +1,10 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.repository.tag;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
-import uk.gegc.quizmaker.model.quiz.Tag;
+import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.util.UUID;
-import java.util.function.Function;
 
 @Repository
 public interface TagRepository extends JpaRepository<Tag, UUID> {

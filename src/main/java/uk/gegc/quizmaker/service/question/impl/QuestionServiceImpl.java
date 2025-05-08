@@ -15,7 +15,7 @@ import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.TagRepository;
+import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.question.QuestionService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;

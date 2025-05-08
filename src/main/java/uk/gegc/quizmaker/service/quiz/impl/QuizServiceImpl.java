@@ -14,9 +14,9 @@ import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
-import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
+import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.TagRepository;
+import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.List;

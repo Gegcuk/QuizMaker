@@ -18,9 +18,9 @@ import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
-import uk.gegc.quizmaker.repository.quiz.CategoryRepository;
+import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.TagRepository;
+import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.util.List;
@@ -89,8 +89,8 @@ class QuizControllerIntegrationTest {
         categoryId = c.getId();
 
         Tag t = new Tag();
-        t.setTagName("tag-one");
-        t.setTagDescription("desc");
+        t.setName("tag-one");
+        t.setDescription("desc");
         tagRepository.save(t);
         tagId = t.getId();
 
