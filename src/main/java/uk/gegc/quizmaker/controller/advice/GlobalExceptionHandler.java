@@ -93,6 +93,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 List.of("Entity already exists")
         );
     }
+
+    @ExceptionHandler(UnsupportedOperationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleUnsupported(UnsupportedOperationException ex) {
+        String msg = ex.getMessage() != null
+                ? ex.getMessage()
+                : "Unsupported question type";
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad request",
+                List.of(msg)
+        );
+    }
 }
 
 

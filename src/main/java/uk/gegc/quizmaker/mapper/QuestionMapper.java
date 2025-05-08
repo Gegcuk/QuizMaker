@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.mapper;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.question.QuestionDto;
@@ -14,18 +16,34 @@ import java.util.stream.Collectors;
 @Component
 public class QuestionMapper {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     public static QuestionDto toDto(Question question) {
         QuestionDto dto = new QuestionDto();
         dto.setId(question.getId());
         dto.setType(question.getType());
         dto.setDifficulty(question.getDifficulty());
         dto.setQuestionText(question.getQuestionText());
-        dto.setContent(question.getContent());
+
+        String raw = question.getContent();
+        if (raw != null && !raw.isBlank()) {
+            try {
+                dto.setContent(MAPPER.readTree(raw));
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(
+                        "Failed to parse JSON content for question " + question.getId(), e
+                );
+            }
+        } else {
+            dto.setContent(null);
+        }
+
         dto.setHint(question.getHint());
         dto.setExplanation(question.getExplanation());
         dto.setAttachmentUrl(question.getAttachmentUrl());
         dto.setCreatedAt(question.getCreatedAt());
         dto.setUpdatedAt(question.getUpdatedAt());
+
         dto.setQuizIds(
                 question.getQuizId()
                         .stream()
@@ -38,6 +56,7 @@ public class QuestionMapper {
                         .map(Tag::getId)
                         .collect(Collectors.toList())
         );
+
         return dto;
     }
 
@@ -55,8 +74,10 @@ public class QuestionMapper {
         return question;
     }
 
-    public static void updateEntity(Question question, UpdateQuestionRequest req,
-                                    List<Quiz> quizzes, List<Tag> tags) {
+    public static void updateEntity(Question question,
+                                    UpdateQuestionRequest req,
+                                    List<Quiz> quizzes,
+                                    List<Tag> tags) {
         if (req.getType() != null) {
             question.setType(req.getType());
         }
@@ -79,10 +100,12 @@ public class QuestionMapper {
             question.setAttachmentUrl(req.getAttachmentUrl());
         }
         if (quizzes != null) {
-            question.setQuizId(quizzes);
+            question.getQuizId().clear();
+            question.getQuizId().addAll(quizzes);
         }
         if (tags != null) {
-            question.setTags(tags);
+            question.getTags().clear();
+            question.getTags().addAll(tags);
         }
     }
 }

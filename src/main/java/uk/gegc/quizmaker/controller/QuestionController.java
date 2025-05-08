@@ -45,7 +45,7 @@ public class QuestionController {
         return ResponseEntity.ok(questionService.getQuestion(id));
     }
 
-    @PutMapping("/{id}")
+    @PatchMapping("/{id}")
     public ResponseEntity<QuestionDto> updateQuestion(
             @PathVariable UUID id,
             @RequestBody @Valid UpdateQuestionRequest request

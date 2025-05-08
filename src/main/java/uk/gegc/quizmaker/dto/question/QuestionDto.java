@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.dto.question;
 
+import com.fasterxml.jackson.annotation.JsonRawValue;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -18,7 +20,7 @@ public class QuestionDto {
     private QuestionType type;
     private Difficulty difficulty;
     private String questionText;
-    private String content;
+    private JsonNode content;
     private String hint;
     private String explanation;
     private String attachmentUrl;
