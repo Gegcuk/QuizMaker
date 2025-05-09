@@ -28,10 +28,12 @@ public class Question {
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false, length = 50)
     QuestionType type;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "difficulty", nullable = false, length = 20)
     private Difficulty difficulty;
