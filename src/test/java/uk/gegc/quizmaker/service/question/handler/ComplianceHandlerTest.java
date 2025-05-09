@@ -8,7 +8,8 @@ import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.question.QuestionType;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ComplianceHandlerTest {
     private ComplianceHandler handler;
@@ -17,28 +18,26 @@ class ComplianceHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new ComplianceHandler();
-        mapper  = new ObjectMapper();
+        mapper = new ObjectMapper();
     }
 
-    record FakeReq(JsonNode content) implements QuestionContentRequest {
-        @Override public QuestionType getType()    { return QuestionType.COMPLIANCE; }
-        @Override public JsonNode     getContent() { return content;                  }
-    }
-
-    @Test void validOneStatement_doesNotThrow() throws Exception {
+    @Test
+    void validOneStatement_doesNotThrow() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"statements":[{"text":"T","compliant":true}]}
-        """);
+                  {"statements":[{"text":"T","compliant":true}]}
+                """);
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void missingStatements_throws() {
+    @Test
+    void missingStatements_throws() {
         JsonNode p = mapper.createObjectNode();
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void emptyStatements_throws() throws Exception {
+    @Test
+    void emptyStatements_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"statements":[]}
                 """);
@@ -46,27 +45,42 @@ class ComplianceHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void missingTextInStatement_throws() throws Exception {
+    @Test
+    void missingTextInStatement_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"statements":[{"compliant":true}]}
-        """);
+                  {"statements":[{"compliant":true}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void blankTextInStatement_throws() throws Exception {
+    @Test
+    void blankTextInStatement_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"statements":[{"text":" ","compliant":true}]}
-        """);
+                  {"statements":[{"text":" ","compliant":true}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void noneCompliant_throws() throws Exception {
+    @Test
+    void noneCompliant_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"statements":[{"text":"T","compliant":false}]}
-        """);
+                  {"statements":[{"text":"T","compliant":false}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    record FakeReq(JsonNode content) implements QuestionContentRequest {
+        @Override
+        public QuestionType getType() {
+            return QuestionType.COMPLIANCE;
+        }
+
+        @Override
+        public JsonNode getContent() {
+            return content;
+        }
     }
 }

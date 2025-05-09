@@ -12,7 +12,7 @@ import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -25,15 +25,13 @@ import java.util.UUID;
 @Table(name = "questions")
 public class Question {
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", nullable = false, length = 50)
+    QuestionType type;
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "type", nullable = false, length = 50)
-    QuestionType type;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "difficulty", nullable = false, length = 20)
     private Difficulty difficulty;
@@ -56,11 +54,11 @@ public class Question {
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     @Column(name = "is_deleted",
             nullable = false,
@@ -69,7 +67,7 @@ public class Question {
     private Boolean isDeleted;
 
     @Column(name = "deleted_at")
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 
 
     @ManyToMany(

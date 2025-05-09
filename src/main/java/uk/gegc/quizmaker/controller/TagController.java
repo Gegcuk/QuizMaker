@@ -29,21 +29,21 @@ public class TagController {
     @GetMapping
     public ResponseEntity<Page<TagDto>> getTags(
             @PageableDefault(page = 0, size = 20)
-            @SortDefault(sort =  "name", direction = Sort.Direction.ASC)
+            @SortDefault(sort = "name", direction = Sort.Direction.ASC)
             Pageable pageable
-    ){
+    ) {
         Page<TagDto> tagDtosPage = tagService.getTags(pageable);
         return ResponseEntity.ok(tagDtosPage);
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createTag(@RequestBody @Valid CreateTagRequest request){
+    public ResponseEntity<Map<String, UUID>> createTag(@RequestBody @Valid CreateTagRequest request) {
         UUID tagId = tagService.createTag(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("tagId", tagId));
     }
 
     @GetMapping("/{tagId}")
-    public ResponseEntity<TagDto> getTagById(@PathVariable UUID tagId){
+    public ResponseEntity<TagDto> getTagById(@PathVariable UUID tagId) {
         return ResponseEntity.ok(tagService.getTagById(tagId));
     }
 
@@ -51,13 +51,13 @@ public class TagController {
     public ResponseEntity<TagDto> updateTag(
             @PathVariable UUID tagId,
             @RequestBody @Valid UpdateTagRequest request
-    ){
+    ) {
         return ResponseEntity.ok(tagService.updateTagById(tagId, request));
     }
 
     @DeleteMapping("/{tagId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTag(@PathVariable UUID tagId){
+    public void deleteTag(@PathVariable UUID tagId) {
         tagService.deleteTagById(tagId);
     }
 

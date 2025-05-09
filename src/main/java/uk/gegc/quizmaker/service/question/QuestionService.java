@@ -11,8 +11,12 @@ import java.util.UUID;
 
 public interface QuestionService {
     UUID createQuestion(CreateQuestionRequest questionDto);
+
     Page<QuestionDto> listQuestions(UUID quizId, Pageable pageable);
+
     QuestionDto getQuestion(UUID questionId);
+
     QuestionDto updateQuestion(UUID questionId, UpdateQuestionRequest updateQuestionRequest);
+
     void deleteQuestion(UUID questionId);
 }

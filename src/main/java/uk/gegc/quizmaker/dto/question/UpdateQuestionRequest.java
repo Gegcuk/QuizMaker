@@ -23,7 +23,7 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
     @NotNull(message = "Difficulty must not be null")
     private Difficulty difficulty;
 
-    @NotBlank(message="Question text must not be blank")
+    @NotBlank(message = "Question text must not be blank")
     @Size(min = 3, max = 1000, message = "Question text length must be between 3 and 1000 characters")
     private String questionText;
 

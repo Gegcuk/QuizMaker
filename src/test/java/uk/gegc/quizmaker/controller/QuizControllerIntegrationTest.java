@@ -1,4 +1,5 @@
 package uk.gegc.quizmaker.controller;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,13 +14,13 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
+import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
@@ -27,10 +28,11 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import java.util.List;
 import java.util.UUID;
 
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -43,19 +45,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class QuizControllerIntegrationTest {
 
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired JdbcTemplate jdbc;
-
-    @Autowired UserRepository      userRepository;
-    @Autowired CategoryRepository  categoryRepository;
-    @Autowired TagRepository       tagRepository;
-    @Autowired QuestionRepository  questionRepository;
-    @Autowired QuizRepository      quizRepository;
-
     private static final UUID DEFAULT_USER_ID =
             UUID.fromString("00000000-0000-0000-0000-000000000000");
-
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
+    @Autowired
+    JdbcTemplate jdbc;
+    @Autowired
+    UserRepository userRepository;
+    @Autowired
+    CategoryRepository categoryRepository;
+    @Autowired
+    TagRepository tagRepository;
+    @Autowired
+    QuestionRepository questionRepository;
+    @Autowired
+    QuizRepository quizRepository;
     private UUID categoryId;
     private UUID tagId;
     private UUID questionId;
@@ -71,11 +78,11 @@ class QuizControllerIntegrationTest {
 
         // 2) Seed the default user via plain JDBC
         jdbc.update("""
-            INSERT INTO users(
-                user_id, username, email, password,
-                created_at, is_active, is_deleted
-            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
-            """,
+                        INSERT INTO users(
+                            user_id, username, email, password,
+                            created_at, is_active, is_deleted
+                        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+                        """,
                 DEFAULT_USER_ID,
                 "defaultUser",
                 "def@ex.com",
@@ -135,7 +142,7 @@ class QuizControllerIntegrationTest {
 
         // --- 2) GET list, should contain 1 ---
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("page","0").param("size","20"))
+                        .param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)));
 
@@ -149,8 +156,8 @@ class QuizControllerIntegrationTest {
         // --- 4) PATCH update title ---
         UpdateQuizRequest update = new UpdateQuizRequest(
                 "New Title",
-                null,null,null,
-                null,null,
+                null, null, null,
+                null, null,
                 15, 3,
                 null, null
         );

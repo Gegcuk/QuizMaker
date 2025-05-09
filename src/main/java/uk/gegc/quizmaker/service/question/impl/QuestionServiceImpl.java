@@ -20,7 +20,10 @@ import uk.gegc.quizmaker.service.question.QuestionService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @Transactional

@@ -1,6 +1,9 @@
 package uk.gegc.quizmaker.dto.quiz;
 
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
@@ -8,7 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 
-public record CreateQuizRequest (
+public record CreateQuizRequest(
         @NotBlank(message = "Title must not be blank")
         @Size(min = 3, max = 100, message = "Title length must be between 3 and 100 characters")
         String title,

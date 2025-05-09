@@ -69,13 +69,13 @@ public class User {
     private List<Role> roles;
 
     @PrePersist
-    protected void onCreate(){
+    protected void onCreate() {
         createdAt = LocalDateTime.now();
     }
 
     @PreUpdate
-    protected void onUpdate(){
-        if(!isDeleted) {
+    protected void onUpdate() {
+        if (!isDeleted) {
             updatedAt = LocalDateTime.now();
         } else {
             deletedAt = LocalDateTime.now();

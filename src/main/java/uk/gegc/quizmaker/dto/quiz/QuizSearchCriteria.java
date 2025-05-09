@@ -6,8 +6,9 @@ import java.util.List;
 
 public record QuizSearchCriteria(
         List<String> category,
-        List <String> tag,
+        List<String> tag,
         String authorName,
         String search,
         Difficulty difficulty
-) {}
+) {
+}

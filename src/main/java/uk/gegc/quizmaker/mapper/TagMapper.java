@@ -9,7 +9,7 @@ import uk.gegc.quizmaker.model.tag.Tag;
 @Component
 public class TagMapper {
 
-    public Tag toEntity(CreateTagRequest request){
+    public Tag toEntity(CreateTagRequest request) {
         Tag tag = new Tag();
         tag.setName(request.name());
         tag.setDescription(request.description());
@@ -21,7 +21,7 @@ public class TagMapper {
         tag.setDescription(request.description());
     }
 
-    public TagDto toDto(Tag tag){
+    public TagDto toDto(Tag tag) {
         return new TagDto(
                 tag.getId(),
                 tag.getName(),

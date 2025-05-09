@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.service.user.impl;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;

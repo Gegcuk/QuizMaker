@@ -45,14 +45,14 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public CategoryDto updateCategoryById(UUID categoryId, UpdateCategoryRequest request) {
         var existingCategory = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category " + categoryId + " not found" ));
+                .orElseThrow(() -> new ResourceNotFoundException("Category " + categoryId + " not found"));
         categoryMapper.updateCategory(existingCategory, request);
         return categoryMapper.toDto(categoryRepository.save(existingCategory));
     }
 
     @Override
     public void deleteCategoryById(UUID categoryId) {
-        if(!categoryRepository.existsById(categoryId)){
+        if (!categoryRepository.existsById(categoryId)) {
             throw new ResourceNotFoundException("Category " + categoryId + " not found");
         }
         categoryRepository.deleteById(categoryId);

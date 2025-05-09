@@ -1,10 +1,8 @@
 package uk.gegc.quizmaker.service.question.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
 
@@ -31,9 +29,9 @@ public class HotspotHandler extends QuestionHandler {
         }
 
         for (JsonNode region : regions) {
-            for (String field : new String[]{"x","y","width","height"}) {
+            for (String field : new String[]{"x", "y", "width", "height"}) {
                 if (!region.has(field) || !region.get(field).canConvertToInt()) {
-                    throw new ValidationException("Each region must have integer '"+ field +"'");
+                    throw new ValidationException("Each region must have integer '" + field + "'");
                 }
             }
         }

@@ -13,8 +13,8 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
+import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
@@ -28,13 +28,12 @@ import java.util.stream.Collectors;
 @Transactional
 @RequiredArgsConstructor
 public class QuizServiceImpl implements QuizService {
+    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
     private final QuizRepository quizRepository;
     private final QuestionRepository questionRepository;
     private final TagRepository tagRepository;
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
-
-    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     @Override
     public UUID createQuiz(CreateQuizRequest request) {
@@ -45,7 +44,7 @@ public class QuizServiceImpl implements QuizService {
 
         var tags = request.tagIds().stream()
                 .map(id -> tagRepository.findById(id)
-                        .orElseThrow(()-> new ResourceNotFoundException("Tag " + id + " not found")))
+                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
                 .toList();
 
         User defaultUser = new User();

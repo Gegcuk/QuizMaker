@@ -1,12 +1,18 @@
 package uk.gegc.quizmaker.service.question.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.*;
-import uk.gegc.quizmaker.dto.question.*;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
+import uk.gegc.quizmaker.dto.question.QuestionDto;
+import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
@@ -18,19 +24,27 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class QuestionServiceImplTest {
 
-    @Mock QuestionRepository qRepo;
-    @Mock QuizRepository quizRepo;
-    @Mock TagRepository tagRepo;
-    @Mock QuestionHandlerFactory factory;
-    @Mock QuestionHandler handler;
+    @Mock
+    QuestionRepository qRepo;
+    @Mock
+    QuizRepository quizRepo;
+    @Mock
+    TagRepository tagRepo;
+    @Mock
+    QuestionHandlerFactory factory;
+    @Mock
+    QuestionHandler handler;
 
     @InjectMocks
     QuestionServiceImpl svc;
@@ -88,7 +102,7 @@ class QuestionServiceImplTest {
     @Test
     void listQuestions_withQuizId_delegatesToRepo() {
         UUID quizId = UUID.randomUUID();
-        Pageable page = PageRequest.of(0,10);
+        Pageable page = PageRequest.of(0, 10);
         when(qRepo.findAllByQuizId_Id(eq(quizId), eq(page)))
                 .thenReturn(new PageImpl<>(List.of(new Question())));
 
@@ -127,7 +141,8 @@ class QuestionServiceImplTest {
     @Test
     void deleteQuestion_existing_deletes() {
         UUID id = UUID.randomUUID();
-        var q = new Question(); q.setId(id);
+        var q = new Question();
+        q.setId(id);
         when(qRepo.findById(id)).thenReturn(Optional.of(q));
 
         svc.deleteQuestion(id);
@@ -161,7 +176,11 @@ class QuestionServiceImplTest {
 
         // stub save() to assign an ID
         when(qRepo.save(any(Question.class)))
-                .thenAnswer(inv -> { Question q = inv.getArgument(0); q.setId(UUID.randomUUID()); return q; });
+                .thenAnswer(inv -> {
+                    Question q = inv.getArgument(0);
+                    q.setId(UUID.randomUUID());
+                    return q;
+                });
 
         UUID result = svc.createQuestion(req);
 
@@ -205,7 +224,8 @@ class QuestionServiceImplTest {
         req.setTagIds(List.of(tagId));
 
         // quizRepo: no quizzes
-        Tag tag = new Tag(); tag.setId(tagId);
+        Tag tag = new Tag();
+        tag.setId(tagId);
         when(tagRepo.findById(tagId)).thenReturn(Optional.of(tag));
 
         when(qRepo.save(any(Question.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -220,7 +240,8 @@ class QuestionServiceImplTest {
     @Test
     void updateQuestion_unknownTag_throws404() {
         UUID id = UUID.randomUUID(), badTag = UUID.randomUUID();
-        Question existing = new Question(); existing.setId(id);
+        Question existing = new Question();
+        existing.setId(id);
         when(qRepo.findById(id)).thenReturn(Optional.of(existing));
 
         UpdateQuestionRequest req = new UpdateQuestionRequest();

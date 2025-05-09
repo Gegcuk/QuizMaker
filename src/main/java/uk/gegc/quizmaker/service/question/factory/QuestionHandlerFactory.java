@@ -24,7 +24,7 @@ public class QuestionHandlerFactory {
     private final OrderingHandler orderingHandler;
 
     @PostConstruct
-    private void init(){
+    private void init() {
         handlerMap.put(QuestionType.MCQ_SINGLE, mcqSingleHandler);
         handlerMap.put(QuestionType.MCQ_MULTI, mcqMultiHandler);
         handlerMap.put(QuestionType.COMPLIANCE, complianceHandler);
@@ -35,9 +35,9 @@ public class QuestionHandlerFactory {
         handlerMap.put(QuestionType.ORDERING, orderingHandler);
     }
 
-    public QuestionHandler getHandler(QuestionType type){
+    public QuestionHandler getHandler(QuestionType type) {
         QuestionHandler questionHandler = handlerMap.get(type);
-        if(questionHandler == null) {
+        if (questionHandler == null) {
             throw new UnsupportedOperationException("No handler for type " + type);
         }
         return questionHandler;

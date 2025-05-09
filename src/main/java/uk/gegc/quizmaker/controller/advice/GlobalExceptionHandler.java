@@ -21,11 +21,9 @@ import java.util.List;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    public record ErrorResponse(LocalDateTime timestamp, int status, String error, List<String> details){}
-
     @ExceptionHandler(ResourceNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ErrorResponse handleNotFound(ResourceNotFoundException exception){
+    public ErrorResponse handleNotFound(ResourceNotFoundException exception) {
         return new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.NOT_FOUND.value(),
@@ -36,7 +34,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler({ValidationException.class, UnsupportedQuestionTypeException.class, ApiError.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleBadRequest(RuntimeException exception){
+    public ErrorResponse handleBadRequest(RuntimeException exception) {
         return new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -47,7 +45,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(UnauthorizedException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public ErrorResponse handleUnauthorized(UnauthorizedException exception){
+    public ErrorResponse handleUnauthorized(UnauthorizedException exception) {
         return new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.UNAUTHORIZED.value(),
@@ -107,25 +105,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 List.of(msg)
         );
     }
+
+    public record ErrorResponse(LocalDateTime timestamp, int status, String error, List<String> details) {
+    }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

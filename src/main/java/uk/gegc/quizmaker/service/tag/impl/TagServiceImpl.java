@@ -45,14 +45,14 @@ public class TagServiceImpl implements TagService {
     @Override
     public TagDto updateTagById(UUID tagId, UpdateTagRequest request) {
         var existingTag = tagRepository.findById(tagId)
-                .orElseThrow(() -> new ResourceNotFoundException("Tag " + tagId + " not found" ));
+                .orElseThrow(() -> new ResourceNotFoundException("Tag " + tagId + " not found"));
         tagMapper.updateTag(existingTag, request);
         return tagMapper.toDto(tagRepository.save(existingTag));
     }
 
     @Override
     public void deleteTagById(UUID tagId) {
-        if(!tagRepository.existsById(tagId)){
+        if (!tagRepository.existsById(tagId)) {
             throw new ResourceNotFoundException("Tag " + tagId + " not found");
         }
         tagRepository.deleteById(tagId);

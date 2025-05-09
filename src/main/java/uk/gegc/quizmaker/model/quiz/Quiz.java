@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.model.quiz;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +16,7 @@ import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,14 +26,14 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name="quizzes", uniqueConstraints = @UniqueConstraint(columnNames = {"creator_id", "title"}))
+@Table(name = "quizzes", uniqueConstraints = @UniqueConstraint(columnNames = {"creator_id", "title"}))
 @SQLDelete(sql = "UPDATE quizzes SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE quiz_id = ?")
 @SQLRestriction("is_deleted = false")
 public class Quiz {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name="quiz_id")
+    @Column(name = "quiz_id")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -74,17 +74,17 @@ public class Quiz {
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
     private Boolean isDeleted;
 
     @Column(name = "deleted_at")
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 
     @ManyToMany(
             fetch = FetchType.LAZY,
@@ -118,7 +118,7 @@ public class Quiz {
     @PreRemove
     private void onSoftDelete() {
         this.isDeleted = true;
-        this.deletedAt = LocalDateTime.now();
+        this.deletedAt = Instant.now();
     }
 
 }

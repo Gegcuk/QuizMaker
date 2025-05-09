@@ -34,9 +34,9 @@ public record UpdateQuizRequest(
         UUID categoryId,
         List<UUID> tagIds
 ) {
-        public UpdateQuizRequest {
-                visibility = (visibility == null ? Visibility.PRIVATE : visibility);
-                difficulty = (difficulty == null ? Difficulty.MEDIUM  : difficulty);
-                tagIds     = (tagIds     == null ? List.of()          : tagIds);
-        }
+    public UpdateQuizRequest {
+        visibility = (visibility == null ? Visibility.PRIVATE : visibility);
+        difficulty = (difficulty == null ? Difficulty.MEDIUM : difficulty);
+        tagIds = (tagIds == null ? List.of() : tagIds);
+    }
 }

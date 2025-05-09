@@ -5,7 +5,6 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
 
 import java.util.Set;
@@ -17,12 +16,12 @@ public class UpdateQuestionRequestValidationTest {
     private static Validator validator;
 
     @BeforeAll
-    static void setUpValidator(){
+    static void setUpValidator() {
         validator = Validation.buildDefaultValidatorFactory().getValidator();
     }
 
     @Test
-    void questionTextIsNull_thanValidationFails(){
+    void questionTextIsNull_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setQuestionText(null);
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -33,7 +32,7 @@ public class UpdateQuestionRequestValidationTest {
 
 
     @Test
-    void questionTextTooLong_thanValidationFails(){
+    void questionTextTooLong_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setQuestionText("x".repeat(1001));
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -43,7 +42,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void questionTextTooShort_thanValidationFails(){
+    void questionTextTooShort_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setQuestionText("x".repeat(2));
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -53,7 +52,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void hintTooLong_thanValidationFails(){
+    void hintTooLong_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setHint("x".repeat(501));
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "hint");
@@ -63,7 +62,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void explanationTooLong_thanValidationFails(){
+    void explanationTooLong_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setExplanation("x".repeat(2001));
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "explanation");
@@ -73,7 +72,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void attachmentUrlTooLong_thanValidationFails(){
+    void attachmentUrlTooLong_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setAttachmentUrl("x".repeat(2049));
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "attachmentUrl");
@@ -83,7 +82,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void typeIsNull_thanValidationFails(){
+    void typeIsNull_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setType(null);
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "type");
@@ -93,7 +92,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void difficultyIsNull_thanValidationFails(){
+    void difficultyIsNull_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setDifficulty(null);
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "difficulty");
@@ -103,7 +102,7 @@ public class UpdateQuestionRequestValidationTest {
     }
 
     @Test
-    void contentIsNull_thanValidationFails(){
+    void contentIsNull_thanValidationFails() {
         UpdateQuestionRequest request = new UpdateQuestionRequest();
         request.setContent(null);
         Set<ConstraintViolation<UpdateQuestionRequest>> violations = validator.validateProperty(request, "content");
@@ -111,7 +110,6 @@ public class UpdateQuestionRequestValidationTest {
         assertEquals(1, violations.size());
         assertEquals("Content must not be null", violations.iterator().next().getMessage());
     }
-
 
 
 }

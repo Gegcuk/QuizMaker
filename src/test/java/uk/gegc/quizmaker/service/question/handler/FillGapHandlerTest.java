@@ -8,7 +8,8 @@ import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.question.QuestionType;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FillGapHandlerTest {
     private FillGapHandler handler;
@@ -17,22 +18,19 @@ class FillGapHandlerTest {
     @BeforeEach
     void setUp() {
         handler = new FillGapHandler();
-        mapper  = new ObjectMapper();
+        mapper = new ObjectMapper();
     }
 
-    record FakeReq(JsonNode content) implements QuestionContentRequest {
-        @Override public QuestionType getType()    { return QuestionType.FILL_GAP; }
-        @Override public JsonNode     getContent() { return content;              }
-    }
-
-    @Test void validSingleGap_doesNotThrow() throws Exception {
+    @Test
+    void validSingleGap_doesNotThrow() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"text":"Fill here","gaps":[{"id":1,"answer":"X"}]}
-        """);
+                  {"text":"Fill here","gaps":[{"id":1,"answer":"X"}]}
+                """);
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void missingText_throws() throws Exception {
+    @Test
+    void missingText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"gaps":[{"id":1,"answer":"X"}]}
                 """);
@@ -40,7 +38,8 @@ class FillGapHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void blankText_throws() throws Exception {
+    @Test
+    void blankText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"text":"","gaps":[{"id":1,"answer":"X"}]}
                 """);
@@ -48,7 +47,8 @@ class FillGapHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void missingGaps_throws() throws Exception {
+    @Test
+    void missingGaps_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"text":"OK"}
                 """);
@@ -56,7 +56,8 @@ class FillGapHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void emptyGaps_throws() throws Exception {
+    @Test
+    void emptyGaps_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"text":"OK","gaps":[]}
                 """);
@@ -64,35 +65,51 @@ class FillGapHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void gapMissingId_throws() throws Exception {
+    @Test
+    void gapMissingId_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"text":"OK","gaps":[{"answer":"X"}]}
-        """);
+                  {"text":"OK","gaps":[{"answer":"X"}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void gapNonIntId_throws() throws Exception {
+    @Test
+    void gapNonIntId_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"text":"OK","gaps":[{"id":"one","answer":"X"}]}
-        """);
+                  {"text":"OK","gaps":[{"id":"one","answer":"X"}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void gapMissingAnswer_throws() throws Exception {
+    @Test
+    void gapMissingAnswer_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"text":"OK","gaps":[{"id":1}]}
-        """);
+                  {"text":"OK","gaps":[{"id":1}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
-    @Test void gapBlankAnswer_throws() throws Exception {
+    @Test
+    void gapBlankAnswer_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-          {"text":"OK","gaps":[{"id":1,"answer":""}]}
-        """);
+                  {"text":"OK","gaps":[{"id":1,"answer":""}]}
+                """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    record FakeReq(JsonNode content) implements QuestionContentRequest {
+        @Override
+        public QuestionType getType() {
+            return QuestionType.FILL_GAP;
+        }
+
+        @Override
+        public JsonNode getContent() {
+            return content;
+        }
     }
 }

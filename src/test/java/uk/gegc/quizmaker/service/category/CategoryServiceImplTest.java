@@ -3,26 +3,38 @@ package uk.gegc.quizmaker.service.category;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
+import org.mockito.InOrder;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.*;
-import uk.gegc.quizmaker.dto.category.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import uk.gegc.quizmaker.dto.category.CategoryDto;
+import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
+import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.CategoryMapper;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.service.category.impl.CategoryServiceImpl;
 
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class CategoryServiceImplTest {
 
-    @Mock CategoryRepository categoryRepository;
-    @Mock CategoryMapper     categoryMapper;
+    @Mock
+    CategoryRepository categoryRepository;
+    @Mock
+    CategoryMapper categoryMapper;
     @InjectMocks
     CategoryServiceImpl service;
 
@@ -58,7 +70,7 @@ class CategoryServiceImplTest {
 
     @Test
     void createCategory_mapsAndSaves() {
-        CreateCategoryRequest req = new CreateCategoryRequest("Foo","Bar");
+        CreateCategoryRequest req = new CreateCategoryRequest("Foo", "Bar");
         when(categoryMapper.toEntity(req)).thenReturn(entity);
         when(categoryRepository.save(entity)).thenReturn(entity);
 
@@ -91,7 +103,7 @@ class CategoryServiceImplTest {
 
     @Test
     void updateCategoryById_found() {
-        UpdateCategoryRequest req = new UpdateCategoryRequest("New","NewDesc");
+        UpdateCategoryRequest req = new UpdateCategoryRequest("New", "NewDesc");
         when(categoryRepository.findById(id)).thenReturn(Optional.of(entity));
         // categoryMapper.updateCategory is void
         when(categoryRepository.save(entity)).thenReturn(entity);
@@ -110,7 +122,7 @@ class CategoryServiceImplTest {
     @Test
     void updateCategoryById_notFound() {
         when(categoryRepository.findById(id)).thenReturn(Optional.empty());
-        UpdateCategoryRequest req = new UpdateCategoryRequest("X","Y");
+        UpdateCategoryRequest req = new UpdateCategoryRequest("X", "Y");
         assertThrows(ResourceNotFoundException.class,
                 () -> service.updateCategoryById(id, req));
         verify(categoryRepository).findById(id);

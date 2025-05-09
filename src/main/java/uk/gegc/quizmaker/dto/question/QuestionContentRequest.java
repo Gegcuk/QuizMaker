@@ -5,5 +5,6 @@ import uk.gegc.quizmaker.model.question.QuestionType;
 
 public interface QuestionContentRequest {
     QuestionType getType();
+
     JsonNode getContent();
 }

@@ -16,12 +16,12 @@ public class CategoryMapperTest {
     private CategoryMapper categoryMapper;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         categoryMapper = new CategoryMapper();
     }
 
     @Test
-    void toEntity_mapsNameAndDescription(){
+    void toEntity_mapsNameAndDescription() {
         CreateCategoryRequest createCategoryRequest = new CreateCategoryRequest("Category", "Description");
         Category category = categoryMapper.toEntity(createCategoryRequest);
         assertNull(category.getId());
@@ -30,7 +30,7 @@ public class CategoryMapperTest {
     }
 
     @Test
-    void updateCategory_overwritesFields(){
+    void updateCategory_overwritesFields() {
         Category category = new Category(UUID.randomUUID(), "OldName", "OldDescription");
         UpdateCategoryRequest updateCategoryRequest = new UpdateCategoryRequest("NewName", "NewDescription");
         categoryMapper.updateCategory(category, updateCategoryRequest);
@@ -42,11 +42,11 @@ public class CategoryMapperTest {
     @Test
     void toDto_mapsAllFields() {
         UUID id = UUID.randomUUID();
-        Category category = new Category(id, "Name","Desc");
+        Category category = new Category(id, "Name", "Desc");
         CategoryDto categoryDto = categoryMapper.toDto(category);
-        assertEquals(id,            categoryDto.id());
-        assertEquals("Name",        categoryDto.name());
-        assertEquals("Desc",        categoryDto.description());
+        assertEquals(id, categoryDto.id());
+        assertEquals("Name", categoryDto.name());
+        assertEquals("Desc", categoryDto.description());
     }
 
 }

@@ -3,14 +3,11 @@ package uk.gegc.quizmaker.service.question.handler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
 
-import java.io.IOException;
-
 @Component
-public class McqSingleHandler extends QuestionHandler{
+public class McqSingleHandler extends QuestionHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override

@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.dto;
 
-import jakarta.validation.*;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -8,19 +9,19 @@ import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class CreateQuestionRequestValidationTest {
 
     private static Validator validator;
 
     @BeforeAll
-    static void setUpValidator(){
+    static void setUpValidator() {
         validator = Validation.buildDefaultValidatorFactory().getValidator();
     }
 
     @Test
-    void questionTextIsNull_thanValidationFails(){
+    void questionTextIsNull_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setQuestionText(null);
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -30,7 +31,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void questionTextTooLong_thanValidationFails(){
+    void questionTextTooLong_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setQuestionText("x".repeat(1001));
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -40,7 +41,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void questionTextTooShort_thanValidationFails(){
+    void questionTextTooShort_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setQuestionText("x".repeat(2));
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "questionText");
@@ -50,7 +51,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void hintTooLong_thanValidationFails(){
+    void hintTooLong_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setHint("x".repeat(501));
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "hint");
@@ -60,7 +61,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void explanationTooLong_thanValidationFails(){
+    void explanationTooLong_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setExplanation("x".repeat(2001));
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "explanation");
@@ -70,7 +71,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void attachmentUrlTooLong_thanValidationFails(){
+    void attachmentUrlTooLong_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setAttachmentUrl("x".repeat(2049));
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "attachmentUrl");
@@ -80,7 +81,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void typeIsNull_thanValidationFails(){
+    void typeIsNull_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setType(null);
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "type");
@@ -90,7 +91,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void difficultyIsNull_thanValidationFails(){
+    void difficultyIsNull_thanValidationFails() {
         CreateQuestionRequest request = new CreateQuestionRequest();
         request.setDifficulty(null);
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(request, "difficulty");
@@ -100,7 +101,7 @@ public class CreateQuestionRequestValidationTest {
     }
 
     @Test
-    void contentIsNull_thanValidationFails(){
+    void contentIsNull_thanValidationFails() {
         CreateQuestionRequest questionRequest = new CreateQuestionRequest();
         questionRequest.setContent(null);
         Set<ConstraintViolation<CreateQuestionRequest>> violations = validator.validateProperty(questionRequest, "content");

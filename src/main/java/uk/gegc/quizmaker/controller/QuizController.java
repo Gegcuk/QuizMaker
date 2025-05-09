@@ -14,7 +14,6 @@ import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
-import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.Map;
@@ -28,7 +27,7 @@ public class QuizController {
     private final QuizService quizService;
 
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request){
+    public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request) {
         UUID quizId = quizService.createQuiz(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("quizId", quizId));
     }
@@ -39,7 +38,7 @@ public class QuizController {
             @SortDefault(sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
             @ModelAttribute QuizSearchCriteria quizSearchCriteria
-            ){
+    ) {
 
         Page<QuizDto> questionDtoPage = quizService.getQuizzes(pageable, quizSearchCriteria);
         return ResponseEntity.ok((questionDtoPage));

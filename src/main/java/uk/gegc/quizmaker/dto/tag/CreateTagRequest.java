@@ -8,5 +8,5 @@ public record CreateTagRequest(
 
         @Size(max = 1000, message = "Category description must be less than 1000 characters")
         String description
-        ) {
+) {
 }

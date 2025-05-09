@@ -22,7 +22,8 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
 @SpringBootTest
@@ -50,30 +51,30 @@ public class TagControllerIntegrationTest {
     QuizRepository quizRepository;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         quizRepository.deleteAll();
         tagRepository.deleteAll();
     }
 
     @Test
-    void listInitiallyEmpty() throws Exception{
+    void listInitiallyEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/tags")
-                .param("page", "0")
-                .param("size", "20"))
+                        .param("page", "0")
+                        .param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(0)));
     }
 
     @Test
-    void fullTagCrudFlow() throws Exception{
+    void fullTagCrudFlow() throws Exception {
 
         CreateTagRequest createTagRequest = new CreateTagRequest("TestTag", "Desc");
         String createJson = objectMapper.writeValueAsString(createTagRequest);
 
         //Create
         String response = mockMvc.perform(post("/api/v1/tags")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(createJson))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.tagId").exists())
                 .andReturn().getResponse().getContentAsString();
@@ -81,7 +82,7 @@ public class TagControllerIntegrationTest {
 
         //Get
         mockMvc.perform(get("/api/v1/tags")
-                .param("page", "0").param("size", "20"))
+                        .param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)))
                 .andExpect(jsonPath("$.content[0].name", is("TestTag")));
@@ -96,8 +97,8 @@ public class TagControllerIntegrationTest {
         String updateTagJson = objectMapper.writeValueAsString(updateTagRequest);
 
         mockMvc.perform(patch("/api/v1/tags/{id}", id)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(updateTagJson))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateTagJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name", is("NewTag")))
                 .andExpect(jsonPath("$.description", is("NewDesc")));
@@ -116,17 +117,17 @@ public class TagControllerIntegrationTest {
     // -----------------------
 
     @Test
-    void create_BlankName_ShouldReturn400() throws Exception{
+    void create_BlankName_ShouldReturn400() throws Exception {
         CreateTagRequest request = new CreateTagRequest("", "description");
         mockMvc.perform(post("/api/v1/tags")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
     }
 
     @Test
-    void create_TooShortName_ShouldReturn400() throws Exception{
+    void create_TooShortName_ShouldReturn400() throws Exception {
         CreateTagRequest request = new CreateTagRequest("ab", "description");
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -136,7 +137,7 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    void create_TooLongName_ShouldReturn400() throws Exception{
+    void create_TooLongName_ShouldReturn400() throws Exception {
         String longName = "x".repeat(101);
         CreateTagRequest request = new CreateTagRequest(longName, "description");
         mockMvc.perform(post("/api/v1/tags")
@@ -256,7 +257,7 @@ public class TagControllerIntegrationTest {
 
     @Test
     void paginationAndSorting() throws Exception {
-        for (String name : new String[]{"AAAA","BBBB","CCCC"}) {
+        for (String name : new String[]{"AAAA", "BBBB", "CCCC"}) {
             CreateTagRequest r = new CreateTagRequest(name, "");
             mockMvc.perform(post("/api/v1/tags")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -265,9 +266,9 @@ public class TagControllerIntegrationTest {
         }
 
         mockMvc.perform(get("/api/v1/tags")
-                        .param("page","0")
-                        .param("size","2")
-                        .param("sort","name,desc"))
+                        .param("page", "0")
+                        .param("size", "2")
+                        .param("sort", "name,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(3)))
                 .andExpect(jsonPath("$.size", is(2)))

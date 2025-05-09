@@ -11,7 +11,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-
 import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.model.category.Category;
@@ -23,7 +22,8 @@ import java.util.UUID;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -47,7 +47,7 @@ public class CategoryControllerIntegrationTest {
     QuizRepository quizRepository;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         quizRepository.deleteAll();
         categoryRepository.deleteAll();
     }
@@ -62,7 +62,7 @@ public class CategoryControllerIntegrationTest {
     }
 
     @Test
-    void fullCategoryCrudFlow() throws Exception{
+    void fullCategoryCrudFlow() throws Exception {
 
         CreateCategoryRequest createCategoryRequest = new CreateCategoryRequest("TestCategory", "Desc");
         String createJson = objectMapper.writeValueAsString(createCategoryRequest);
@@ -78,7 +78,7 @@ public class CategoryControllerIntegrationTest {
 
         //Get
         mockMvc.perform(get("/api/v1/categories")
-                        .param("page","0").param("size","20"))
+                        .param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)))
                 .andExpect(jsonPath("$.content[0].name", is("TestCategory")));
@@ -94,8 +94,8 @@ public class CategoryControllerIntegrationTest {
         String updatedCategoryJson = objectMapper.writeValueAsString(updateCategoryRequest);
 
         mockMvc.perform(patch("/api/v1/categories/{id}", id)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(updatedCategoryJson))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updatedCategoryJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name", is("UpdatedCategory")))
                 .andExpect(jsonPath("$.description", is("New description")));
@@ -162,7 +162,9 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void update_BlankName_ShouldReturn400() throws Exception {
-        Category c = new Category(); c.setName("OK"); categoryRepository.save(c);
+        Category c = new Category();
+        c.setName("OK");
+        categoryRepository.save(c);
         UpdateCategoryRequest req = new UpdateCategoryRequest("", "d");
         mockMvc.perform(patch("/api/v1/categories/{id}", c.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -173,7 +175,9 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void update_TooShortName_ShouldReturn400() throws Exception {
-        Category c = new Category(); c.setName("OK"); categoryRepository.save(c);
+        Category c = new Category();
+        c.setName("OK");
+        categoryRepository.save(c);
         UpdateCategoryRequest req = new UpdateCategoryRequest("ab", "d");
         mockMvc.perform(patch("/api/v1/categories/{id}", c.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -184,7 +188,9 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void update_TooLongName_ShouldReturn400() throws Exception {
-        Category c = new Category(); c.setName("OK"); categoryRepository.save(c);
+        Category c = new Category();
+        c.setName("OK");
+        categoryRepository.save(c);
         String longName = "x".repeat(101);
         UpdateCategoryRequest req = new UpdateCategoryRequest(longName, "desc");
         mockMvc.perform(patch("/api/v1/categories/{id}", c.getId())
@@ -196,7 +202,9 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void update_TooLongDescription_ShouldReturn400() throws Exception {
-        Category c = new Category(); c.setName("OK"); categoryRepository.save(c);
+        Category c = new Category();
+        c.setName("OK");
+        categoryRepository.save(c);
         String longDesc = "d".repeat(1001);
         UpdateCategoryRequest req = new UpdateCategoryRequest("Valid", longDesc);
         mockMvc.perform(patch("/api/v1/categories/{id}", c.getId())
@@ -231,7 +239,9 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void create_DuplicateName_ShouldReturn409() throws Exception {
-        Category c = new Category(); c.setName("DUP"); categoryRepository.save(c);
+        Category c = new Category();
+        c.setName("DUP");
+        categoryRepository.save(c);
         CreateCategoryRequest req = new CreateCategoryRequest("DUP", "desc");
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -245,7 +255,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     void paginationAndSorting() throws Exception {
-        for (String name : new String[]{"AAAA","BBBB","CCCC"}) {
+        for (String name : new String[]{"AAAA", "BBBB", "CCCC"}) {
             CreateCategoryRequest r = new CreateCategoryRequest(name, "");
             mockMvc.perform(post("/api/v1/categories")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -254,16 +264,15 @@ public class CategoryControllerIntegrationTest {
         }
 
         mockMvc.perform(get("/api/v1/categories")
-                        .param("page","0")
-                        .param("size","2")
-                        .param("sort","name,desc"))
+                        .param("page", "0")
+                        .param("size", "2")
+                        .param("sort", "name,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(3)))
                 .andExpect(jsonPath("$.size", is(2)))
                 .andExpect(jsonPath("$.content[0].name", is("CCCC")))
                 .andExpect(jsonPath("$.content[1].name", is("BBBB")));
     }
-
 
 
 }

@@ -9,7 +9,7 @@ import uk.gegc.quizmaker.model.category.Category;
 @Component
 public class CategoryMapper {
 
-    public Category toEntity(CreateCategoryRequest request){
+    public Category toEntity(CreateCategoryRequest request) {
         Category category = new Category();
         category.setName(request.name());
         category.setDescription(request.description());
@@ -21,7 +21,7 @@ public class CategoryMapper {
         category.setDescription(request.description());
     }
 
-    public CategoryDto toDto(Category category){
+    public CategoryDto toDto(Category category) {
         return new CategoryDto(
                 category.getId(),
                 category.getName(),

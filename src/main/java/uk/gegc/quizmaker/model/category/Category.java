@@ -13,7 +13,7 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name="categories")
+@Table(name = "categories")
 public class Category {
 
     @Id

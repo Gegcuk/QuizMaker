@@ -18,17 +18,14 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 public class UserServiceTest {
 
+    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
     @Mock
     private UserRepository userRepository;
-
     @InjectMocks
     private UserServiceImpl userService;
 
-    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
-
-
     @Test
-    public void testCreateUser(){
+    public void testCreateUser() {
         User user = new User();
         user.setUsername("johnDoe");
         user.setEmail("john@example.com");
