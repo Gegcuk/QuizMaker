@@ -30,7 +30,7 @@ public class Attempt {
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "quiz_id", nullable = false)
-    private Quiz qUiz;
+    private Quiz quiz;
 
     @CreationTimestamp
     @Column(name = "started_at", nullable = false, updatable = false)

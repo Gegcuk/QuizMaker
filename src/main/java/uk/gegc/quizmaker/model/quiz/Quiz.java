@@ -67,7 +67,7 @@ public class Quiz {
 
     @NotNull
     @Column(name = "is_timer_enabled", nullable = false)
-    private Boolean timerEnabled;
+    private Boolean isTimerEnabled;
 
     @Column(name = "timer_duration_min")
     private Integer timerDuration;

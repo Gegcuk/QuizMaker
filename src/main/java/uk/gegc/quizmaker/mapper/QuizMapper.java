@@ -26,7 +26,7 @@ public class QuizMapper {
         quiz.setDifficulty(req.difficulty());
         quiz.setEstimatedTime(req.estimatedTime());
         quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
-        quiz.setTimerEnabled(req.timerEnabled());
+        quiz.setIsTimerEnabled(req.timerEnabled());
         quiz.setTimerDuration(req.timerDuration());
         quiz.setTags(tags);
         return quiz;
@@ -55,7 +55,7 @@ public class QuizMapper {
             quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
         }
         if (req.timerEnabled() != null) {
-            quiz.setTimerEnabled(req.timerEnabled());
+            quiz.setIsTimerEnabled(req.timerEnabled());
         }
         if (req.timerDuration() != null) {
             quiz.setTimerDuration(req.timerDuration());
@@ -76,7 +76,7 @@ public class QuizMapper {
                 quiz.getDifficulty(),
                 quiz.getEstimatedTime(),
                 quiz.getIsRepetitionEnabled(),
-                quiz.getTimerEnabled(),
+                quiz.getIsTimerEnabled(),
                 quiz.getTimerDuration(),
                 quiz.getTags().stream().map(Tag::getId).collect(Collectors.toList()),
                 quiz.getCreatedAt(),
