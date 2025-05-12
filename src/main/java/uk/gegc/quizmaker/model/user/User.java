@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Size;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.domain.Persistable;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,20 +17,17 @@ import java.util.UUID;
 @Entity
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@ToString
+@NoArgsConstructor @AllArgsConstructor
+@EntityListeners(AuditingEntityListener.class)
 @Table(name = "users")
-public class User {
+public class User implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "user_id", updatable = false)
+    @Column(name = "user_id", updatable = false, nullable = false)
     private UUID id;
 
     @NotBlank
-    @Size(min = 4, message = "Username has to be longer than 4 symbols")
-    @Size(max = 20, message = "Username has to be shorter than 20 symbols")
+    @Size(min = 4, max = 20, message = "Username must be 4–20 characters")
     @Column(name = "username", unique = true, nullable = false)
     private String username;
 
@@ -40,15 +39,15 @@ public class User {
     @Column(name = "password", nullable = false)
     private String hashedPassword;
 
-    @Column(name = "created_at", updatable = false, nullable = false)
     @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "last_login")
     private LocalDateTime lastLoginDate;
 
-    @Column(name = "updated_at")
     @LastModifiedDate
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
     @Column(name = "is_active", nullable = false)
@@ -68,19 +67,34 @@ public class User {
     )
     private List<Role> roles;
 
+    // ——— Persistable support ———
+    // if you manually set `id`, JPA will treat this as new:
+    @Transient
+    private boolean isNew = true;
+
+    @Override
+    @Transient
+    public boolean isNew() {
+        return this.isNew;
+    }
+
+    @PostLoad @PostPersist
+    void markNotNew() {
+        this.isNew = false;
+    }
+
     @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
+    void prePersist() {
+        this.createdAt = LocalDateTime.now();
+        this.isNew     = true;
     }
 
     @PreUpdate
-    protected void onUpdate() {
-        if (!isDeleted) {
-            updatedAt = LocalDateTime.now();
+    void preUpdate() {
+        if (!this.isDeleted) {
+            this.updatedAt = LocalDateTime.now();
         } else {
-            deletedAt = LocalDateTime.now();
+            this.deletedAt = LocalDateTime.now();
         }
     }
-
-
 }

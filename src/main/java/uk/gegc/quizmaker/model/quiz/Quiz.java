@@ -17,9 +17,7 @@ import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Entity
 @Getter
@@ -95,18 +93,17 @@ public class Quiz {
             joinColumns = @JoinColumn(name = "quiz_id", nullable = false),
             inverseJoinColumns = @JoinColumn(name = "tag_id", nullable = false)
     )
-    private List<Tag> tags = new ArrayList<>();
+    private Set<Tag> tags = new HashSet<>();
 
     @ManyToMany(
             fetch = FetchType.LAZY,
-            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+            cascade = { CascadeType.PERSIST, CascadeType.MERGE }
     )
     @JoinTable(
             name = "quiz_questions",
-            joinColumns = @JoinColumn(name = "quiz_id", nullable = false),
-            inverseJoinColumns = @JoinColumn(name = "question_id", nullable = false)
-    )
-    private List<Question> questions = new ArrayList<>();
+            joinColumns        = @JoinColumn(name = "quiz_id"),
+            inverseJoinColumns = @JoinColumn(name = "question_id"))
+    private Set<Question> questions = new HashSet<>();
 
     @PrePersist
     public void prePersist() {

@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.service.quiz.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,8 +21,8 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -37,6 +39,9 @@ public class QuizServiceImpl implements QuizService {
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Override
     public UUID createQuiz(CreateQuizRequest request) {
         var category = Optional.ofNullable(request.categoryId())
@@ -44,15 +49,14 @@ public class QuizServiceImpl implements QuizService {
                 .orElseGet(() -> categoryRepository.findByName("General")
                         .orElseThrow(() -> new ResourceNotFoundException("Default category missing")));
 
-        List<Tag> tags = request.tagIds().stream()
+        Set<Tag> tags = request.tagIds().stream()
                 .map(id -> tagRepository.findById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException("Tag " + id + " not found")))
-                .toList();
+                .collect(Collectors.toSet());
 
         // TODO: replace with real user from SecurityContext
-        User defaultUser = new User();
-        defaultUser.setId(DEFAULT_USER_ID);
+        User defaultUser = entityManager.getReference(User.class, DEFAULT_USER_ID);
 
         var quiz = quizMapper.toEntity(request, defaultUser, category, tags);
         return quizRepository.save(quiz).getId();
@@ -85,12 +89,12 @@ public class QuizServiceImpl implements QuizService {
                 .flatMap(categoryRepository::findById)
                 .orElse(null);
 
-        List<Tag> tags = Optional.ofNullable(req.tagIds())
+        Set<Tag> tags = Optional.ofNullable(req.tagIds())
                 .map(ids -> ids.stream()
                         .map(tagId -> tagRepository.findById(tagId)
                                 .orElseThrow(() ->
                                         new ResourceNotFoundException("Tag " + tagId + " not found")))
-                        .collect(Collectors.toList()))
+                        .collect(Collectors.toSet()))
                 .orElse(null);
 
         quizMapper.updateEntity(quiz, req, category, tags);

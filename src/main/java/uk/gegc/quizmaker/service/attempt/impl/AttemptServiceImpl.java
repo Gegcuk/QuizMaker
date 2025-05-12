@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.service.attempt.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,12 +29,10 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
-import uk.gegc.quizmaker.service.repetition.RepetitionService;
 import uk.gegc.quizmaker.service.scoring.ScoringService;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -53,13 +53,15 @@ public class AttemptServiceImpl implements AttemptService {
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
 
+    @PersistenceContext
+    private final EntityManager entityManager;
+
     @Override
-    @Transactional
     public AttemptDto startAttempt(UUID quizId, AttemptMode mode) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        User user = new User(); user.setId(DUMMY_USER_ID);
+        User user = entityManager.getReference(User.class, DUMMY_USER_ID);
 
         Attempt attempt = new Attempt();
         attempt.setQuiz(quiz);
@@ -89,7 +91,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AnswerSubmissionDto submitAnswer(UUID attemptId, AnswerSubmissionRequest request) {
-        Attempt attempt = attemptRepository.findByIdWithAllRelations(attemptId)
+        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
@@ -109,32 +111,26 @@ public class AttemptServiceImpl implements AttemptService {
             }
         }
 
-        // fetch question & delegate scoring to the handler
         Question question = questionRepository.findById(request.questionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + request.questionId() + " not found"));
         QuestionHandler handler = handlerFactory.getHandler(question.getType());
         Answer answer = handler.handle(attempt, question, request);
         answer = answerRepository.save(answer);
 
-        // build the DTO
         AnswerSubmissionDto baseDto = answerMapper.toDto(answer);
 
-        // only for ONE_BY_ONE do we look for the next question
         QuestionDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            // collect already‐answered IDs
             Set<UUID> done = attempt.getAnswers().stream()
                     .map(a -> a.getQuestion().getId())
                     .collect(Collectors.toSet());
-            // find the first unanswered
             nextQuestion = attempt.getQuiz().getQuestions().stream()
                     .filter(q -> !done.contains(q.getId()))
                     .findFirst()
-                    .map(QuestionMapper::toDto)   // <— your existing static mapper
+                    .map(QuestionMapper::toDto)
                     .orElse(null);
         }
 
-        // return a new DTO including nextQuestion
         return new AnswerSubmissionDto(
                 baseDto.answerId(),
                 baseDto.questionId(),
@@ -158,7 +154,6 @@ public class AttemptServiceImpl implements AttemptService {
             throw new UnsupportedOperationException("Batch submissions only allowed in ALL_AT_ONCE mode");
         }
 
-        // simply delegate each submission
         return request.answers().stream()
                 .map(req -> submitAnswer(attemptId, req))
                 .toList();

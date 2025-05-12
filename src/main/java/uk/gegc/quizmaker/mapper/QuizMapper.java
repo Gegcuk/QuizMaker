@@ -9,14 +9,14 @@ import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
-import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
 @Component
 public class QuizMapper {
 
-    public Quiz toEntity(CreateQuizRequest req, User creator, Category category, List<Tag> tags) {
+    public Quiz toEntity(CreateQuizRequest req, User creator, Category category, Set<Tag> tags) {
         Quiz quiz = new Quiz();
         quiz.setCreator(creator);
         quiz.setCategory(category);
@@ -32,7 +32,7 @@ public class QuizMapper {
         return quiz;
     }
 
-    public void updateEntity(Quiz quiz, UpdateQuizRequest req, Category category, List<Tag> tags) {
+    public void updateEntity(Quiz quiz, UpdateQuizRequest req, Category category, Set<Tag> tags) {
         if (category != null) {
             quiz.setCategory(category);
         }
