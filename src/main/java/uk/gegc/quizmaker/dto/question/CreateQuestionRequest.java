@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
@@ -15,6 +17,8 @@ import java.util.UUID;
 
 @Getter
 @Setter
+@AllArgsConstructor
+@NoArgsConstructor
 public class CreateQuestionRequest implements QuestionContentRequest {
     @NotNull(message = "Type must not be null")
     QuestionType type;

@@ -4,6 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.model.question.Question;
+
+import java.util.List;
+import java.util.stream.StreamSupport;
 
 
 @Component
@@ -29,5 +35,25 @@ public class OrderingHandler extends QuestionHandler {
                 throw new ValidationException("Item 'id' must be an integer");
             }
         }
+    }
+
+    @Override
+    protected Answer doHandle(Attempt attempt,
+                              Question question,
+                              JsonNode content,
+                              JsonNode response) {
+        List<Integer> correctOrder = StreamSupport.stream(content.get("items").spliterator(), false)
+                .map(item -> item.get("id").asInt())
+                .toList();
+
+        List<Integer> userOrder = StreamSupport.stream(response.get("itemIds").spliterator(), false)
+                .map(JsonNode::asInt)
+                .toList();
+
+        boolean isCorrect = correctOrder.equals(userOrder);
+        Answer ans        = new Answer();
+        ans.setIsCorrect(isCorrect);
+        ans.setScore(isCorrect ? 1.0 : 0.0);
+        return ans;
     }
 }

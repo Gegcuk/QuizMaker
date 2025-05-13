@@ -1,15 +1,17 @@
 package uk.gegc.quizmaker.service.question.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.model.question.Question;
+
+import java.util.stream.StreamSupport;
 
 @Component
 public class McqSingleHandler extends QuestionHandler {
-    private final ObjectMapper mapper = new ObjectMapper();
-
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         JsonNode root = request.getContent();
@@ -36,5 +38,23 @@ public class McqSingleHandler extends QuestionHandler {
         if (correctCount != 1) {
             throw new ValidationException("MCQ_SINGLE must have exactly one correct answer");
         }
+    }
+
+    @Override
+    protected Answer doHandle(Attempt attempt, Question question, JsonNode content, JsonNode response) {
+        String correctId = StreamSupport.stream(content.get("options").spliterator(), false)
+                .filter(option -> option.path("correct").asBoolean())
+                .map(option -> option.get("id").asText())
+                .findFirst()
+                .orElse("");
+
+        String selected = response.path("selectedOptionId").asText("");
+
+        boolean isCorrect = selected.equals(correctId);
+        Answer answer = new Answer();
+        answer.setIsCorrect(isCorrect);
+        answer.setScore(isCorrect ? 1.0 : 0.0);
+
+        return answer;
     }
 }

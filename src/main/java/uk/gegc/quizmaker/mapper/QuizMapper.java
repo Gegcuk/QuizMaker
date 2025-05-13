@@ -9,14 +9,14 @@ import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
-import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
 @Component
 public class QuizMapper {
 
-    public Quiz toEntity(CreateQuizRequest req, User creator, Category category, List<Tag> tags) {
+    public Quiz toEntity(CreateQuizRequest req, User creator, Category category, Set<Tag> tags) {
         Quiz quiz = new Quiz();
         quiz.setCreator(creator);
         quiz.setCategory(category);
@@ -26,13 +26,13 @@ public class QuizMapper {
         quiz.setDifficulty(req.difficulty());
         quiz.setEstimatedTime(req.estimatedTime());
         quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
-        quiz.setTimerEnabled(req.timerEnabled());
+        quiz.setIsTimerEnabled(req.timerEnabled());
         quiz.setTimerDuration(req.timerDuration());
         quiz.setTags(tags);
         return quiz;
     }
 
-    public void updateEntity(Quiz quiz, UpdateQuizRequest req, Category category, List<Tag> tags) {
+    public void updateEntity(Quiz quiz, UpdateQuizRequest req, Category category, Set<Tag> tags) {
         if (category != null) {
             quiz.setCategory(category);
         }
@@ -55,7 +55,7 @@ public class QuizMapper {
             quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
         }
         if (req.timerEnabled() != null) {
-            quiz.setTimerEnabled(req.timerEnabled());
+            quiz.setIsTimerEnabled(req.timerEnabled());
         }
         if (req.timerDuration() != null) {
             quiz.setTimerDuration(req.timerDuration());
@@ -76,7 +76,7 @@ public class QuizMapper {
                 quiz.getDifficulty(),
                 quiz.getEstimatedTime(),
                 quiz.getIsRepetitionEnabled(),
-                quiz.getTimerEnabled(),
+                quiz.getIsTimerEnabled(),
                 quiz.getTimerDuration(),
                 quiz.getTags().stream().map(Tag::getId).collect(Collectors.toList()),
                 quiz.getCreatedAt(),

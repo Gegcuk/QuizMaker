@@ -14,6 +14,8 @@ import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
+import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.Map;
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class QuizController {
 
     private final QuizService quizService;
+    private final AttemptService attemptService;
 
     @PostMapping
     public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request) {
@@ -108,5 +111,12 @@ public class QuizController {
             @PathVariable UUID categoryId
     ) {
         quizService.changeCategory(quizId, categoryId);
+    }
+
+    @GetMapping("/{quizId}/results")
+    public ResponseEntity<QuizResultSummaryDto> getQuizResults(
+            @PathVariable UUID quizId
+    ) {
+        return ResponseEntity.ok(attemptService.getQuizResultSummary(quizId));
     }
 }

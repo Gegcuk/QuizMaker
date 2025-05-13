@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.service.quiz.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,8 +21,8 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,12 +30,17 @@ import java.util.stream.Collectors;
 @Transactional
 @RequiredArgsConstructor
 public class QuizServiceImpl implements QuizService {
-    private static final UUID DEFAULT_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+    private static final UUID DEFAULT_USER_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000000");
+
     private final QuizRepository quizRepository;
     private final QuestionRepository questionRepository;
     private final TagRepository tagRepository;
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public UUID createQuiz(CreateQuizRequest request) {
@@ -42,13 +49,14 @@ public class QuizServiceImpl implements QuizService {
                 .orElseGet(() -> categoryRepository.findByName("General")
                         .orElseThrow(() -> new ResourceNotFoundException("Default category missing")));
 
-        var tags = request.tagIds().stream()
+        Set<Tag> tags = request.tagIds().stream()
                 .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
-                .toList();
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException("Tag " + id + " not found")))
+                .collect(Collectors.toSet());
 
-        User defaultUser = new User();
-        defaultUser.setId(DEFAULT_USER_ID);
+        // TODO: replace with real user from SecurityContext
+        User defaultUser = entityManager.getReference(User.class, DEFAULT_USER_ID);
 
         var quiz = quizMapper.toEntity(request, defaultUser, category, tags);
         return quizRepository.save(quiz).getId();
@@ -56,37 +64,40 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria quizSearchCriteria) {
-        return quizRepository.findAll(pageable).map(quizMapper::toDto);
+    public Page<QuizDto> getQuizzes(Pageable pageable,
+                                    QuizSearchCriteria criteria) {
+        return quizRepository.findAll(pageable)
+                .map(quizMapper::toDto);
     }
-
 
     @Override
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id) {
-        var quiz = quizRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
+        var quiz = quizRepository.findByIdWithTags(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + id + " not found"));
         return quizMapper.toDto(quiz);
     }
 
-
     @Override
-    public QuizDto updateQuiz(UUID id, UpdateQuizRequest updateQuizRequest) {
-        var quiz = quizRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
+    public QuizDto updateQuiz(UUID id, UpdateQuizRequest req) {
+        var quiz = quizRepository.findByIdWithTags(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + id + " not found"));
 
-        var category = Optional.ofNullable(updateQuizRequest.categoryId())
+        var category = Optional.ofNullable(req.categoryId())
                 .flatMap(categoryRepository::findById)
                 .orElse(null);
 
-        List<Tag> tags = Optional.ofNullable(updateQuizRequest.tagIds())
+        Set<Tag> tags = Optional.ofNullable(req.tagIds())
                 .map(ids -> ids.stream()
                         .map(tagId -> tagRepository.findById(tagId)
-                                .orElseThrow(() -> new ResourceNotFoundException("Tag " + tagId + " not found")))
-                        .collect(Collectors.toList()))
+                                .orElseThrow(() ->
+                                        new ResourceNotFoundException("Tag " + tagId + " not found")))
+                        .collect(Collectors.toSet()))
                 .orElse(null);
 
-        quizMapper.updateEntity(quiz, updateQuizRequest, category, tags);
+        quizMapper.updateEntity(quiz, req, category, tags);
         return quizMapper.toDto(quizRepository.save(quiz));
     }
 
@@ -98,9 +109,11 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public void addQuestionToQuiz(UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
         var question = questionRepository.findById(questionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Question not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Question " + questionId + " not found"));
         quiz.getQuestions().add(question);
         quizRepository.save(quiz);
     }
@@ -108,18 +121,20 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public void removeQuestionFromQuiz(UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
         quiz.getQuestions().removeIf(q -> q.getId().equals(questionId));
         quizRepository.save(quiz);
     }
 
-
     @Override
     public void addTagToQuiz(UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
         var tag = tagRepository.findById(tagId)
-                .orElseThrow(() -> new ResourceNotFoundException("Tag " + tagId + " not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Tag " + tagId + " not found"));
         quiz.getTags().add(tag);
         quizRepository.save(quiz);
     }
@@ -127,17 +142,20 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public void removeTagFromQuiz(UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        quiz.getTags().removeIf(tag -> tag.getId().equals(tagId));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        quiz.getTags().removeIf(t -> t.getId().equals(tagId));
         quizRepository.save(quiz);
     }
 
     @Override
     public void changeCategory(UUID quizId, UUID categoryId) {
         var quiz = quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
         var cat = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Category " + categoryId + " not found"));
         quiz.setCategory(cat);
         quizRepository.save(quiz);
     }
