@@ -1,11 +1,11 @@
 package uk.gegc.quizmaker.controller;
 
 
-import ch.qos.logback.core.encoder.EchoEncoder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mysql.cj.exceptions.RSAException;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -22,8 +22,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
@@ -42,10 +40,12 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.*;
-import static org.springframework.http.MediaType.APPLICATION_JSON;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.junit.jupiter.params.provider.Arguments.of;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static uk.gegc.quizmaker.model.question.QuestionType.TRUE_FALSE;
 
 

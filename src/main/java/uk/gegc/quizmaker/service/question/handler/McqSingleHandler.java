@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.service.question.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
@@ -9,7 +8,6 @@ import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
 
-import java.util.UUID;
 import java.util.stream.StreamSupport;
 
 @Component

@@ -17,7 +17,9 @@ import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Getter
