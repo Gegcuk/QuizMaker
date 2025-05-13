@@ -75,7 +75,6 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional(readOnly = true)
     public Page<AttemptDto> getAttempts(Pageable pageable, UUID quizId, UUID userId) {
-
         return attemptRepository.findAllByQuizAndUserEager(quizId, userId, pageable)
                 .map(attemptMapper::toDto);
     }
@@ -98,12 +97,10 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Cannot submit answer to attempt with status " + attempt.getStatus());
         }
 
-        // handle TIMED mode timeout
         if (attempt.getMode() == AttemptMode.TIMED) {
             var quiz = attempt.getQuiz();
             if (quiz.getIsTimerEnabled() &&
                     Instant.now().isAfter(attempt.getStartedAt().plusSeconds(quiz.getTimerDuration() * 60L))) {
-
                 attempt.setStatus(AttemptStatus.ABANDONED);
                 attempt.setCompletedAt(Instant.now());
                 attemptRepository.save(attempt);
@@ -113,6 +110,23 @@ public class AttemptServiceImpl implements AttemptService {
 
         Question question = questionRepository.findById(request.questionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + request.questionId() + " not found"));
+
+        boolean belongs = attempt.getQuiz().getQuestions()
+                .stream()
+                .map(Question::getId)
+                .anyMatch(id -> id.equals(question.getId()));
+        if(!belongs){
+            throw new ResourceNotFoundException("Question " + question.getId() + " is not part of Quiz " + attempt.getQuiz().getId());
+        }
+
+        boolean alreadyAnswered = attempt.getAnswers()
+                .stream()
+                .map(answer -> answer.getQuestion().getId())
+                .anyMatch(id -> id.equals(question.getId()));
+        if(alreadyAnswered){
+            throw new IllegalStateException("You have already answered question " + question.getId() + " in this attempt");
+        }
+
         QuestionHandler handler = handlerFactory.getHandler(question.getType());
         Answer answer = handler.handle(attempt, question, request);
         answer = answerRepository.save(answer);
@@ -151,7 +165,7 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Cannot submit answers to a non‐in‐progress attempt");
         }
         if (attempt.getMode() != AttemptMode.ALL_AT_ONCE) {
-            throw new UnsupportedOperationException("Batch submissions only allowed in ALL_AT_ONCE mode");
+            throw new IllegalStateException("Batch submissions only allowed in ALL_AT_ONCE mode");
         }
 
         return request.answers().stream()

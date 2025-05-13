@@ -1,14 +1,17 @@
 package uk.gegc.quizmaker.controller;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.attempt.*;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
@@ -21,6 +24,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/attempts")
 @RequiredArgsConstructor
+@Validated
 public class AttemptController {
 
     private final AttemptService attemptService;
@@ -39,14 +43,23 @@ public class AttemptController {
 
     @GetMapping()
     public ResponseEntity<Page<AttemptDto>> listAttempts(
-            @PageableDefault(page = 0, size = 20)
-            @SortDefault(sort = "startedAt", direction = Sort.Direction.DESC)
-            Pageable pageable,
+            @RequestParam(name="page", defaultValue="0")
+            @Min(value = 0, message = "page must be ≥ 0") int page,
+
+            @RequestParam(name="size", defaultValue="20")
+            @Min(value = 1, message = "size must be ≥ 1") int size,
+
             @RequestParam(name = "quizId", required = false) UUID quizId,
             @RequestParam(name = "userId", required = false) UUID userId
-            ) {
-        Page<AttemptDto> page = attemptService.getAttempts(pageable, quizId, userId);
-        return ResponseEntity.ok(page);
+    )  {
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "startedAt")
+        );
+
+        Page<AttemptDto> result = attemptService.getAttempts(pageable, quizId, userId);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/{attemptId}")
