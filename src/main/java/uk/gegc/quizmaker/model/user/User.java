@@ -70,8 +70,6 @@ public class User implements Persistable<UUID> {
     )
     private List<Role> roles;
 
-    // ——— Persistable support ———
-    // if you manually set `id`, JPA will treat this as new:
     @Transient
     private boolean isNew = true;
 

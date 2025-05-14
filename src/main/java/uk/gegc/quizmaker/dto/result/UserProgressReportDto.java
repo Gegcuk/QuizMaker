@@ -1,4 +1,4 @@
 package uk.gegc.quizmaker.dto.result;
 
-public class UserProgressReportDto {
+public record UserProgressReportDto() {
 }

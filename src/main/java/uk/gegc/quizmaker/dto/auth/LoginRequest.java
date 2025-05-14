@@ -1,4 +1,4 @@
 package uk.gegc.quizmaker.dto.auth;
 
-public class LoginRequest {
+public record LoginRequest() {
 }
