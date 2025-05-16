@@ -23,6 +23,7 @@ import java.util.UUID;
 public class User implements Persistable<UUID> {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "user_id", updatable = false, nullable = false)
     private UUID id;
 

@@ -10,12 +10,12 @@ import java.util.List;
 import java.util.UUID;
 
 public interface AttemptService {
-    AttemptDto startAttempt(UUID quizId, AttemptMode mode);
-    Page<AttemptDto> getAttempts(Pageable pageable, UUID quizId, UUID userId);
-    AttemptDetailsDto getAttemptDetail(UUID attemptId);
-    AnswerSubmissionDto submitAnswer(UUID attemptId, AnswerSubmissionRequest request);
-    List<AnswerSubmissionDto> submitBatch(UUID attemptId, BatchAnswerSubmissionRequest request);
-    AttemptResultDto completeAttempt(UUID attemptId);
+    AttemptDto startAttempt(String username, UUID quizId, AttemptMode mode);
+    Page<AttemptDto> getAttempts(String username, Pageable pageable, UUID quizId, UUID userId);
+    AttemptDetailsDto getAttemptDetail(String username, UUID attemptId);
+    AnswerSubmissionDto submitAnswer(String username, UUID attemptId, AnswerSubmissionRequest request);
+    List<AnswerSubmissionDto> submitBatch(String username, UUID attemptId, BatchAnswerSubmissionRequest request);
+    AttemptResultDto completeAttempt(String username, UUID attemptId);
     QuizResultSummaryDto getQuizResultSummary(UUID quizId);
 
 }

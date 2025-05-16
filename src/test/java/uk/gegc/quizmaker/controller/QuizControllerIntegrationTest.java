@@ -53,7 +53,6 @@ class QuizControllerIntegrationTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
-    @Autowired JdbcTemplate jdbc;
     @Autowired UserRepository userRepository;
     @Autowired CategoryRepository categoryRepository;
     @Autowired TagRepository tagRepository;

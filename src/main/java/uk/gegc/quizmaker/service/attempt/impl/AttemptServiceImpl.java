@@ -5,6 +5,7 @@ import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.attempt.*;
@@ -26,6 +27,7 @@ import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
 import uk.gegc.quizmaker.repository.question.AnswerRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
@@ -43,7 +45,7 @@ import java.util.stream.Collectors;
 public class AttemptServiceImpl implements AttemptService {
 
 
-    private static final UUID DUMMY_USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+    private final UserRepository userRepository;
     private final QuizRepository quizRepository;
     private final AttemptRepository attemptRepository;
     private final AttemptMapper attemptMapper;
@@ -53,54 +55,69 @@ public class AttemptServiceImpl implements AttemptService {
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
 
-    @PersistenceContext
-    private final EntityManager entityManager;
-
     @Override
-    public AttemptDto startAttempt(UUID quizId, AttemptMode mode) {
+    public AttemptDto startAttempt(String username, UUID quizId, AttemptMode mode) {
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        User user = entityManager.getReference(User.class, DUMMY_USER_ID);
-
         Attempt attempt = new Attempt();
-        attempt.setQuiz(quiz);
         attempt.setUser(user);
+        attempt.setQuiz(quiz);
         attempt.setMode(mode);
         attempt.setStatus(AttemptStatus.IN_PROGRESS);
+
         Attempt saved = attemptRepository.save(attempt);
         return attemptMapper.toDto(saved);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<AttemptDto> getAttempts(Pageable pageable, UUID quizId, UUID userId) {
-        return attemptRepository.findAllByQuizAndUserEager(quizId, userId, pageable)
+    public Page<AttemptDto> getAttempts(String username,
+                                        Pageable pageable,
+                                        UUID quizId,
+                                        UUID userId) {
+        UUID filterUserId = (userId != null)
+                ? userId
+                : userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"))
+                .getId();
+
+        return attemptRepository
+                .findAllByQuizAndUserEager(quizId, filterUserId, pageable)
                 .map(attemptMapper::toDto);
     }
 
     @Override
-    @Transactional
-    public AttemptDetailsDto getAttemptDetail(UUID attemptId) {
+    @Transactional(readOnly = true)
+    public AttemptDetailsDto getAttemptDetail(String username, UUID attemptId) {
         Attempt attempt = attemptRepository.findByIdWithAnswersAndQuestion(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
         return attemptMapper.toDetailDto(attempt);
     }
 
     @Override
     @Transactional
-    public AnswerSubmissionDto submitAnswer(UUID attemptId, AnswerSubmissionRequest request) {
+    public AnswerSubmissionDto submitAnswer(String username,
+                                            UUID attemptId,
+                                            AnswerSubmissionRequest request) {
         Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot submit answer to attempt with status " + attempt.getStatus());
         }
 
-        if (attempt.getMode() == AttemptMode.TIMED) {
-            var quiz = attempt.getQuiz();
-            if (quiz.getIsTimerEnabled() &&
-                    Instant.now().isAfter(attempt.getStartedAt().plusSeconds(quiz.getTimerDuration() * 60L))) {
+        if (attempt.getMode() == AttemptMode.TIMED && attempt.getQuiz().getIsTimerEnabled()) {
+            Instant timeout = attempt.getStartedAt()
+                    .plusSeconds(attempt.getQuiz().getTimerDuration() * 60L);
+            if (Instant.now().isAfter(timeout)) {
                 attempt.setStatus(AttemptStatus.ABANDONED);
                 attempt.setCompletedAt(Instant.now());
                 attemptRepository.save(attempt);
@@ -109,30 +126,33 @@ public class AttemptServiceImpl implements AttemptService {
         }
 
         Question question = questionRepository.findById(request.questionId())
-                .orElseThrow(() -> new ResourceNotFoundException("Question " + request.questionId() + " not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Question " + request.questionId() + " not found"));
 
-        boolean belongs = attempt.getQuiz().getQuestions()
-                .stream()
+        // ensure question belongs to quiz
+        boolean belongs = attempt.getQuiz().getQuestions().stream()
                 .map(Question::getId)
                 .anyMatch(id -> id.equals(question.getId()));
-        if(!belongs){
-            throw new ResourceNotFoundException("Question " + question.getId() + " is not part of Quiz " + attempt.getQuiz().getId());
+        if (!belongs) {
+            throw new ResourceNotFoundException(
+                    "Question " + question.getId() + " is not part of Quiz " +
+                            attempt.getQuiz().getId());
         }
 
-        boolean alreadyAnswered = attempt.getAnswers()
-                .stream()
-                .map(answer -> answer.getQuestion().getId())
+        // prevent duplicate answers
+        boolean already = attempt.getAnswers().stream()
+                .map(a -> a.getQuestion().getId())
                 .anyMatch(id -> id.equals(question.getId()));
-        if(alreadyAnswered){
-            throw new IllegalStateException("You have already answered question " + question.getId() + " in this attempt");
+        if (already) {
+            throw new IllegalStateException(
+                    "Already answered question " + question.getId() + " in this attempt");
         }
 
-        QuestionHandler handler = handlerFactory.getHandler(question.getType());
+        var handler = handlerFactory.getHandler(question.getType());
         Answer answer = handler.handle(attempt, question, request);
         answer = answerRepository.save(answer);
 
-        AnswerSubmissionDto baseDto = answerMapper.toDto(answer);
-
+        var baseDto = answerMapper.toDto(answer);
         QuestionDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
             Set<UUID> done = attempt.getAnswers().stream()
@@ -157,9 +177,12 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional
-    public List<AnswerSubmissionDto> submitBatch(UUID attemptId, BatchAnswerSubmissionRequest request) {
+    public List<AnswerSubmissionDto> submitBatch(String username,
+                                                 UUID attemptId,
+                                                 BatchAnswerSubmissionRequest request) {
         Attempt attempt = attemptRepository.findByIdWithAllRelations(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot submit answers to a non‐in‐progress attempt");
@@ -169,23 +192,24 @@ public class AttemptServiceImpl implements AttemptService {
         }
 
         return request.answers().stream()
-                .map(req -> submitAnswer(attemptId, req))
-                .toList();
+                .map(req -> submitAnswer(username, attemptId, req))
+                .collect(Collectors.toList());
     }
 
     @Override
     @Transactional
-    public AttemptResultDto completeAttempt(UUID attemptId) {
+    public AttemptResultDto completeAttempt(String username, UUID attemptId) {
         Attempt attempt = attemptRepository.findByIdWithAllRelations(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot complete attempt with status " + attempt.getStatus());
         }
 
-        double totalScore   = scoringService.computeAndPersistScore(attempt);
-        long   correctCount = scoringService.countCorrect(attempt);
-        int    totalQ       = attempt.getQuiz().getQuestions().size();
+        double totalScore = scoringService.computeAndPersistScore(attempt);
+        long correctCount = scoringService.countCorrect(attempt);
+        int totalQ = attempt.getQuiz().getQuestions().size();
 
         attempt.setStatus(AttemptStatus.COMPLETED);
         attempt.setCompletedAt(Instant.now());
@@ -250,4 +274,14 @@ public class AttemptServiceImpl implements AttemptService {
                 questionStats
         );
     }
+
+    // -----------------
+    // helpers
+    // -----------------
+    private void enforceOwnership(Attempt attempt, String username) {
+        if (!attempt.getUser().getUsername().equals(username)) {
+            throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());
+        }
+    }
+
 }

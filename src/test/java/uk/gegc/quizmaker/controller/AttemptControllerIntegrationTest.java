@@ -15,6 +15,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -59,10 +60,8 @@ import static uk.gegc.quizmaker.model.question.QuestionType.TRUE_FALSE;
 })
 
 @DisplayName("AttemptController Integration Tests")
+@WithMockUser(username = "defaultUser", roles = "ADMIN")
 public class AttemptControllerIntegrationTest {
-
-    private static final UUID DEFAULT_USER_ID =
-            UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     @Autowired
     MockMvc mockMvc;
@@ -86,26 +85,13 @@ public class AttemptControllerIntegrationTest {
         quizRepository.deleteAll();
         categoryRepository.deleteAll();
 
-        userRepository.findAll().stream()
-                .filter(user -> !user.getId().equals(DEFAULT_USER_ID))
-                .forEach(user -> userRepository.delete(user));
-
-        boolean defaultUserExists = userRepository.existsById(DEFAULT_USER_ID);
-
-        User defaultUser = null;
-        if (!defaultUserExists) {
-
-            defaultUser = new User();
-            defaultUser.setId(DEFAULT_USER_ID);
-            defaultUser.setUsername("guest");
-            defaultUser.setEmail("guest@quizmaker.local");
-            defaultUser.setHashedPassword("");
-            defaultUser.setActive(true);
-            defaultUser.setDeleted(false);
-            defaultUser = userRepository.save(defaultUser);
-        } else {
-            defaultUser = userRepository.findById(DEFAULT_USER_ID).orElseThrow();
-        }
+        User defaultUser = new User();
+        defaultUser.setUsername("defaultUser");
+        defaultUser.setEmail("def@ex.com");
+        defaultUser.setHashedPassword("pw");
+        defaultUser.setActive(true);
+        defaultUser.setDeleted(false);
+        userRepository.save(defaultUser);
 
         Category cat = new Category();
         cat.setName("General");
