@@ -41,7 +41,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/2fa/setup",
                                 "/api/v1/auth/2fa/verify"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/v1/quizzes/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/v1/categories/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/v1/questions/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(
                         new JwtAuthenticationFilter(jwtTokenProvider),
