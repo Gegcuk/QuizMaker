@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -9,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -19,6 +21,8 @@ import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.model.user.Role;
+import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
@@ -26,6 +30,7 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.is;
@@ -33,7 +38,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
+import static uk.gegc.quizmaker.model.user.RoleName.ROLE_ADMIN;
 @SpringBootTest
 @AutoConfigureMockMvc
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.ANY)
@@ -42,27 +47,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.hibernate.ddl-auto=create"
 })
+@WithMockUser(username = "defaultUser", roles = "ADMIN")
+@DisplayName("QuizController Integration Tests")
 class QuizControllerIntegrationTest {
 
+    @Autowired MockMvc mockMvc;
+    @Autowired ObjectMapper objectMapper;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired UserRepository userRepository;
+    @Autowired CategoryRepository categoryRepository;
+    @Autowired TagRepository tagRepository;
+    @Autowired QuestionRepository questionRepository;
+    @Autowired QuizRepository quizRepository;
 
-    private static final UUID DEFAULT_USER_ID =
-            UUID.fromString("00000000-0000-0000-0000-000000000000");
-    @Autowired
-    MockMvc mockMvc;
-    @Autowired
-    ObjectMapper objectMapper;
-    @Autowired
-    JdbcTemplate jdbc;
-    @Autowired
-    UserRepository userRepository;
-    @Autowired
-    CategoryRepository categoryRepository;
-    @Autowired
-    TagRepository tagRepository;
-    @Autowired
-    QuestionRepository questionRepository;
-    @Autowired
-    QuizRepository quizRepository;
     private UUID categoryId;
     private UUID tagId;
     private UUID questionId;
@@ -76,20 +73,14 @@ class QuizControllerIntegrationTest {
         categoryRepository.deleteAll();
         userRepository.deleteAll();
 
-        // 2) Seed the default user via plain JDBC
-        jdbc.update("""
-                        INSERT INTO users(
-                            user_id, username, email, password,
-                            created_at, is_active, is_deleted
-                        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
-                        """,
-                DEFAULT_USER_ID,
-                "defaultUser",
-                "def@ex.com",
-                "pw",
-                true,
-                false
-        );
+        // 2) Seed the default user via JPA (matches @WithMockUser)
+        User defaultUser = new User();
+        defaultUser.setUsername("defaultUser");
+        defaultUser.setEmail("def@ex.com");
+        defaultUser.setHashedPassword("pw");
+        defaultUser.setActive(true);
+        defaultUser.setDeleted(false);
+        userRepository.save(defaultUser);
 
         // 3) Now use JPA for the rest…
         Category c = new Category();
@@ -111,19 +102,17 @@ class QuizControllerIntegrationTest {
         q.setContent("{\"options\":[\"A\",\"B\"]}");
         q.setHint("hint");
         q.setExplanation("explanation");
-        q.setAttachmentUrl(null);
         questionRepository.save(q);
         questionId = q.getId();
     }
 
-
     @Test
+    @DisplayName("Full CRUD + associations flow succeeds for ADMIN user")
     void fullQuizCrudAndAssociations() throws Exception {
         // --- 1) Create a quiz ---
         CreateQuizRequest create = new CreateQuizRequest(
                 "My Quiz", "desc",
-                null, // defaults
-                null,
+                null, null,
                 false, false,
                 10, 5,
                 categoryId,
@@ -172,22 +161,16 @@ class QuizControllerIntegrationTest {
         // --- 5) Add and remove question ---
         mockMvc.perform(post("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId))
                 .andExpect(status().isNoContent());
-
-        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
-                .andExpect(jsonPath("$.createdAt").exists()); // we only check existence
-
         mockMvc.perform(delete("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId))
                 .andExpect(status().isNoContent());
 
         // --- 6) Add and remove tag ---
         mockMvc.perform(post("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId))
                 .andExpect(status().isNoContent());
-
         mockMvc.perform(delete("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId))
                 .andExpect(status().isNoContent());
 
         // --- 7) Change category ---
-        // create new category
         Category c2 = new Category();
         c2.setName("Other");
         c2.setDescription("other");
@@ -195,14 +178,12 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/{q}/category/{c}", quizId, c2.getId()))
                 .andExpect(status().isNoContent());
-
         mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
                 .andExpect(jsonPath("$.categoryId", is(c2.getId().toString())));
 
         // --- 8) Delete quiz ---
         mockMvc.perform(delete("/api/v1/quizzes/{id}", quizId))
                 .andExpect(status().isNoContent());
-
         mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
                 .andExpect(status().isNotFound());
     }

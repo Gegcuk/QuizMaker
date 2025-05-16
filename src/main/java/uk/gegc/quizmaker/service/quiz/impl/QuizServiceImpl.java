@@ -13,12 +13,15 @@ import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
+import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.Optional;
@@ -30,21 +33,24 @@ import java.util.stream.Collectors;
 @Transactional
 @RequiredArgsConstructor
 public class QuizServiceImpl implements QuizService {
-    private static final UUID DEFAULT_USER_ID =
-            UUID.fromString("00000000-0000-0000-0000-000000000000");
 
     private final QuizRepository quizRepository;
     private final QuestionRepository questionRepository;
     private final TagRepository tagRepository;
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
+    private final UserRepository userRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
 
     @Override
-    public UUID createQuiz(CreateQuizRequest request) {
-        var category = Optional.ofNullable(request.categoryId())
+    public UUID createQuiz(String username, CreateQuizRequest request) {
+        User creator = userRepository.findByUsername(username)
+                .or(()->userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        Category category = Optional.ofNullable(request.categoryId())
                 .flatMap(categoryRepository::findById)
                 .orElseGet(() -> categoryRepository.findByName("General")
                         .orElseThrow(() -> new ResourceNotFoundException("Default category missing")));
@@ -55,10 +61,7 @@ public class QuizServiceImpl implements QuizService {
                                 new ResourceNotFoundException("Tag " + id + " not found")))
                 .collect(Collectors.toSet());
 
-        // TODO: replace with real user from SecurityContext
-        User defaultUser = entityManager.getReference(User.class, DEFAULT_USER_ID);
-
-        var quiz = quizMapper.toEntity(request, defaultUser, category, tags);
+        Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
         return quizRepository.save(quiz).getId();
     }
 
@@ -80,7 +83,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public QuizDto updateQuiz(UUID id, UpdateQuizRequest req) {
+    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
         var quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
@@ -102,12 +105,12 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public void deleteQuizById(UUID id) {
+    public void deleteQuizById(String username, UUID id) {
         quizRepository.deleteById(id);
     }
 
     @Override
-    public void addQuestionToQuiz(UUID quizId, UUID questionId) {
+    public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
@@ -119,7 +122,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public void removeQuestionFromQuiz(UUID quizId, UUID questionId) {
+    public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
@@ -128,7 +131,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public void addTagToQuiz(UUID quizId, UUID tagId) {
+    public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
@@ -140,7 +143,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public void removeTagFromQuiz(UUID quizId, UUID tagId) {
+    public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
@@ -149,7 +152,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    public void changeCategory(UUID quizId, UUID categoryId) {
+    public void changeCategory(String username, UUID quizId, UUID categoryId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));

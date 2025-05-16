@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
@@ -25,6 +26,7 @@ public class QuestionController {
     private final QuestionService questionService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, UUID>> createQuestion(@RequestBody @Valid CreateQuestionRequest request,
                                                             Authentication authentication) {
         UUID id = questionService.createQuestion(authentication.getName(), request);
@@ -48,6 +50,7 @@ public class QuestionController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<QuestionDto> updateQuestion(
             @PathVariable UUID id,
             @RequestBody @Valid UpdateQuestionRequest request,
@@ -58,6 +61,7 @@ public class QuestionController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteQuestion(@PathVariable UUID id, Authentication authentication) {
         questionService.deleteQuestion(authentication.getName(), id);
