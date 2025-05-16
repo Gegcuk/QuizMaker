@@ -10,13 +10,13 @@ import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
 import java.util.UUID;
 
 public interface QuestionService {
-    UUID createQuestion(CreateQuestionRequest questionDto);
+    UUID createQuestion(String username, CreateQuestionRequest questionDto);
 
     Page<QuestionDto> listQuestions(UUID quizId, Pageable pageable);
 
     QuestionDto getQuestion(UUID questionId);
 
-    QuestionDto updateQuestion(UUID questionId, UpdateQuestionRequest updateQuestionRequest);
+    QuestionDto updateQuestion(String username, UUID questionId, UpdateQuestionRequest updateQuestionRequest);
 
-    void deleteQuestion(UUID questionId);
+    void deleteQuestion(String username, UUID questionId);
 }
