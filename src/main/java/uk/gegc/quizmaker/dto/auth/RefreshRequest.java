@@ -1,4 +1,6 @@
 package uk.gegc.quizmaker.dto.auth;
 
-public class RefreshRequest {
+public record RefreshRequest(
+        String refreshToken
+) {
 }

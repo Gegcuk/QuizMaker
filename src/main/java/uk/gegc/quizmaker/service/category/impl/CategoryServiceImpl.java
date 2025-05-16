@@ -28,7 +28,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public UUID createCategory(CreateCategoryRequest request) {
+    public UUID createCategory(String username, CreateCategoryRequest request) {
         var category = categoryMapper.toEntity(request);
         return categoryRepository.save(category).getId();
 
@@ -43,7 +43,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public CategoryDto updateCategoryById(UUID categoryId, UpdateCategoryRequest request) {
+    public CategoryDto updateCategoryById(String username, UUID categoryId, UpdateCategoryRequest request) {
         var existingCategory = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category " + categoryId + " not found"));
         categoryMapper.updateCategory(existingCategory, request);
@@ -51,7 +51,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public void deleteCategoryById(UUID categoryId) {
+    public void deleteCategoryById(String username, UUID categoryId) {
         if (!categoryRepository.existsById(categoryId)) {
             throw new ResourceNotFoundException("Category " + categoryId + " not found");
         }

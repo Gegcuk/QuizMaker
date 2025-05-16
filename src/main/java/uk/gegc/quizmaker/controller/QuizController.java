@@ -9,6 +9,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
@@ -30,8 +32,10 @@ public class QuizController {
     private final AttemptService attemptService;
 
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request) {
-        UUID quizId = quizService.createQuiz(request);
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request,
+                                                        Authentication authentication) {
+        UUID quizId = quizService.createQuiz(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("quizId", quizId));
     }
 
@@ -53,64 +57,78 @@ public class QuizController {
     }
 
     @PatchMapping("/{quizId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<QuizDto> updateQuiz(
             @PathVariable UUID quizId,
-            @RequestBody @Valid UpdateQuizRequest req
+            @RequestBody @Valid UpdateQuizRequest request,
+            Authentication authentication
     ) {
         return ResponseEntity.ok(
-                quizService.updateQuiz(quizId, req)
+                quizService.updateQuiz(authentication.getName(), quizId, request)
         );
     }
 
     @DeleteMapping("/{quizId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteQuiz(@PathVariable UUID quizId) {
-        quizService.deleteQuizById(quizId);
+    @PreAuthorize("hasRole('ADMIN')")
+    public void deleteQuiz(@PathVariable UUID quizId,
+                           Authentication authentication) {
+        quizService.deleteQuizById(authentication.getName(), quizId);
     }
 
     @PostMapping("/{quizId}/questions/{questionId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addQuestion(
             @PathVariable UUID quizId,
-            @PathVariable UUID questionId
+            @PathVariable UUID questionId,
+            Authentication authentication
     ) {
-        quizService.addQuestionToQuiz(quizId, questionId);
+        quizService.addQuestionToQuiz(authentication.getName(), quizId, questionId);
     }
 
     @DeleteMapping("/{quizId}/questions/{questionId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeQuestion(
             @PathVariable UUID quizId,
-            @PathVariable UUID questionId
+            @PathVariable UUID questionId,
+            Authentication authentication
     ) {
-        quizService.removeQuestionFromQuiz(quizId, questionId);
+        quizService.removeQuestionFromQuiz(authentication.getName(), quizId, questionId);
     }
 
     @PostMapping("/{quizId}/tags/{tagId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addTag(
             @PathVariable UUID quizId,
-            @PathVariable UUID tagId
+            @PathVariable UUID tagId,
+            Authentication authentication
     ) {
-        quizService.addTagToQuiz(quizId, tagId);
+        quizService.addTagToQuiz(authentication.getName(), quizId, tagId);
     }
 
     @DeleteMapping("/{quizId}/tags/{tagId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeTag(
             @PathVariable UUID quizId,
-            @PathVariable UUID tagId
+            @PathVariable UUID tagId,
+            Authentication authentication
     ) {
-        quizService.removeTagFromQuiz(quizId, tagId);
+        quizService.removeTagFromQuiz(authentication.getName(), quizId, tagId);
     }
 
     @PatchMapping("/{quizId}/category/{categoryId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changeCategory(
             @PathVariable UUID quizId,
-            @PathVariable UUID categoryId
+            @PathVariable UUID categoryId,
+            Authentication authentication
     ) {
-        quizService.changeCategory(quizId, categoryId);
+        quizService.changeCategory(authentication.getName(), quizId, categoryId);
     }
 
     @GetMapping("/{quizId}/results")

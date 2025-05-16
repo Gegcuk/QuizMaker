@@ -9,6 +9,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.category.CategoryDto;
 import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
@@ -36,8 +37,8 @@ public class CategoryController {
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createCategory(@RequestBody @Valid CreateCategoryRequest request) {
-        UUID categoryId = categoryService.createCategory(request);
+    public ResponseEntity<Map<String, UUID>> createCategory(@RequestBody @Valid CreateCategoryRequest request, Authentication authentication) {
+        UUID categoryId = categoryService.createCategory(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("categoryId", categoryId));
     }
 
@@ -49,15 +50,16 @@ public class CategoryController {
     @PatchMapping("/{categoryId}")
     public ResponseEntity<CategoryDto> updateCategory(
             @PathVariable UUID categoryId,
-            @RequestBody @Valid UpdateCategoryRequest request
+            @RequestBody @Valid UpdateCategoryRequest request,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(categoryService.updateCategoryById(categoryId, request));
+        return ResponseEntity.ok(categoryService.updateCategoryById(authentication.getName(), categoryId, request));
     }
 
     @DeleteMapping("/{categoryId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteCategory(@PathVariable UUID categoryId) {
-        categoryService.deleteCategoryById(categoryId);
+    public void deleteCategory(@PathVariable UUID categoryId, Authentication authentication) {
+        categoryService.deleteCategoryById(authentication.getName(), categoryId);
     }
 
 }

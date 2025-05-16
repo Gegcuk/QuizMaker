@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.service.tag;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -54,6 +55,7 @@ class TagServiceImplTest {
     }
 
     @Test
+    @DisplayName("getTags returns mapped page")
     void getTags_returnsMappedPage() {
         Pageable pageReq = PageRequest.of(0, 10);
         List<Tag> list = List.of(entity);
@@ -70,12 +72,13 @@ class TagServiceImplTest {
     }
 
     @Test
-    void createCategory_mapsAndSaves() {
+    @DisplayName("createTag maps and saves")
+    void createTag_mapsAndSaves() {
         CreateTagRequest req = new CreateTagRequest("Foo", "Bar");
         when(tagMapper.toEntity(req)).thenReturn(entity);
         when(tagRepository.save(entity)).thenReturn(entity);
 
-        UUID ret = service.createTag(req);
+        UUID ret = service.createTag("adminUser", req);
         assertEquals(id, ret);
 
         InOrder inOrder = inOrder(tagMapper, tagRepository);
@@ -84,6 +87,7 @@ class TagServiceImplTest {
     }
 
     @Test
+    @DisplayName("getTagById returns dto when found")
     void getTagById_found() {
         when(tagRepository.findById(id)).thenReturn(Optional.of(entity));
         when(tagMapper.toDto(entity)).thenReturn(dto);
@@ -95,6 +99,7 @@ class TagServiceImplTest {
     }
 
     @Test
+    @DisplayName("getTagById throws when not found")
     void getTagById_notFound() {
         when(tagRepository.findById(id)).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class, () -> service.getTagById(id));
@@ -103,13 +108,14 @@ class TagServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateTagById updates when found")
     void updateTagById_found() {
         UpdateTagRequest req = new UpdateTagRequest("New", "NewDesc");
         when(tagRepository.findById(id)).thenReturn(Optional.of(entity));
         when(tagRepository.save(entity)).thenReturn(entity);
         when(tagMapper.toDto(entity)).thenReturn(dto);
 
-        TagDto ret = service.updateTagById(id, req);
+        TagDto ret = service.updateTagById("adminUser", id, req);
         assertEquals(dto, ret);
 
         InOrder ord = inOrder(tagRepository, tagMapper);
@@ -120,29 +126,32 @@ class TagServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateTagById throws when not found")
     void updateTagById_notFound() {
         when(tagRepository.findById(id)).thenReturn(Optional.empty());
         UpdateTagRequest req = new UpdateTagRequest("X", "Y");
         assertThrows(ResourceNotFoundException.class,
-                () -> service.updateTagById(id, req));
+                () -> service.updateTagById("adminUser", id, req));
         verify(tagRepository).findById(id);
         verifyNoMoreInteractions(tagMapper);
     }
 
     @Test
+    @DisplayName("deleteTagById deletes when exists")
     void deleteTagById_exists() {
         when(tagRepository.existsById(id)).thenReturn(true);
         // no exception
-        service.deleteTagById(id);
+        service.deleteTagById("adminUser", id);
         verify(tagRepository).existsById(id);
         verify(tagRepository).deleteById(id);
     }
 
     @Test
+    @DisplayName("deleteTagById throws when not exists")
     void deleteTagById_notExists() {
         when(tagRepository.existsById(id)).thenReturn(false);
         assertThrows(ResourceNotFoundException.class,
-                () -> service.deleteTagById(id));
+                () -> service.deleteTagById("adminUser", id));
         verify(tagRepository).existsById(id);
         verify(tagRepository, never()).deleteById(any());
     }

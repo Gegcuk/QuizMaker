@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -187,6 +188,7 @@ public class QuestionControllerIntegrationTest {
     }
 
     @ParameterizedTest(name = "{0}")
+    @WithMockUser(roles = "ADMIN")
     @MethodSource("happyPathPayloads")
     void createQuestion_HappyPath_thanReturns201(String name, String jsonPayload) throws Exception {
         mockMvc.perform(post("/api/v1/questions")
@@ -197,6 +199,7 @@ public class QuestionControllerIntegrationTest {
     }
 
     @ParameterizedTest(name = "{0}")
+    @WithMockUser(roles = "ADMIN")
     @MethodSource("invalidPayloads")
     void createQuestion_invalidPayloadPath_thanReturns400(String name, String jsonPayload) throws Exception {
         mockMvc.perform(post("/api/v1/questions")
@@ -207,6 +210,7 @@ public class QuestionControllerIntegrationTest {
 
 
     @Test
+    @WithMockUser(roles = "ADMIN")
     void createQuestionUnknownQuizId_thanReturns404() throws Exception {
         String badQuizId = UUID.randomUUID().toString();
         String payload = """
@@ -226,6 +230,7 @@ public class QuestionControllerIntegrationTest {
     }
 
     @Test
+    @WithMockUser(roles = "ADMIN")
     void createQuestionUnknownTagId_thanReturns404() throws Exception {
         String badTagId = UUID.randomUUID().toString();
         String payload = """

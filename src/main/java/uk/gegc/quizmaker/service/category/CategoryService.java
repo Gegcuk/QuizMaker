@@ -11,11 +11,11 @@ import java.util.UUID;
 public interface CategoryService {
     Page<CategoryDto> getCategories(Pageable pageable);
 
-    UUID createCategory(CreateCategoryRequest request);
+    UUID createCategory(String username, CreateCategoryRequest request);
 
     CategoryDto getCategoryById(UUID categoryId);
 
-    CategoryDto updateCategoryById(UUID categoryId, UpdateCategoryRequest request);
+    CategoryDto updateCategoryById(String username, UUID categoryId, UpdateCategoryRequest request);
 
-    void deleteCategoryById(UUID categoryId);
+    void deleteCategoryById(String username, UUID categoryId);
 }
