@@ -12,23 +12,23 @@ import java.util.UUID;
 
 public interface QuizService {
 
-    UUID createQuiz(@Valid CreateQuizRequest request);
+    UUID createQuiz(String username, CreateQuizRequest request);
 
     Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria quizSearchCriteria);
 
     QuizDto getQuizById(UUID id);
 
-    QuizDto updateQuiz(UUID id, UpdateQuizRequest updateQuizRequest);
+    QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest updateQuizRequest);
 
-    void deleteQuizById(UUID quizId);
+    void deleteQuizById(String username, UUID quizId);
 
-    void addQuestionToQuiz(UUID quizId, UUID questionId);
+    void addQuestionToQuiz(String username, UUID quizId, UUID questionId);
 
-    void removeQuestionFromQuiz(UUID quizId, UUID questionId);
+    void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId);
 
-    void addTagToQuiz(UUID quizId, UUID tagId);
+    void addTagToQuiz(String username, UUID quizId, UUID tagId);
 
-    void removeTagFromQuiz(UUID quizId, UUID tagId);
+    void removeTagFromQuiz(String username, UUID quizId, UUID tagId);
 
-    void changeCategory(UUID quizId, UUID categoryId);
+    void changeCategory(String username, UUID quizId, UUID categoryId);
 }

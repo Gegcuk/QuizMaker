@@ -10,6 +10,8 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
 import uk.gegc.quizmaker.dto.tag.TagDto;
@@ -36,9 +38,10 @@ public class TagController {
         return ResponseEntity.ok(tagDtosPage);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createTag(@RequestBody @Valid CreateTagRequest request) {
-        UUID tagId = tagService.createTag(request);
+    public ResponseEntity<Map<String, UUID>> createTag(@RequestBody @Valid CreateTagRequest request, Authentication authentication) {
+        UUID tagId = tagService.createTag(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("tagId", tagId));
     }
 
@@ -47,18 +50,21 @@ public class TagController {
         return ResponseEntity.ok(tagService.getTagById(tagId));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{tagId}")
     public ResponseEntity<TagDto> updateTag(
             @PathVariable UUID tagId,
-            @RequestBody @Valid UpdateTagRequest request
+            @RequestBody @Valid UpdateTagRequest request,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(tagService.updateTagById(tagId, request));
+        return ResponseEntity.ok(tagService.updateTagById(authentication.getName(), tagId, request));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{tagId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTag(@PathVariable UUID tagId) {
-        tagService.deleteTagById(tagId);
+    public void deleteTag(@PathVariable UUID tagId, Authentication authentication) {
+        tagService.deleteTagById(authentication.getName(), tagId);
     }
 
 }

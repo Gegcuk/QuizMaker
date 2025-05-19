@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.service.category;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -24,19 +25,16 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("CategoryServiceImpl Unit Tests")
 class CategoryServiceImplTest {
 
-    @Mock
-    CategoryRepository categoryRepository;
-    @Mock
-    CategoryMapper categoryMapper;
-    @InjectMocks
-    CategoryServiceImpl service;
+    @Mock private CategoryRepository categoryRepository;
+    @Mock private CategoryMapper categoryMapper;
+    @InjectMocks private CategoryServiceImpl service;
 
     private Category entity;
     private CategoryDto dto;
@@ -53,10 +51,10 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("getCategories: returns mapped page")
     void getCategories_returnsMappedPage() {
         Pageable pageReq = PageRequest.of(0, 10);
-        List<Category> list = List.of(entity);
-        Page<Category> page = new PageImpl<>(list, pageReq, 1);
+        Page<Category> page = new PageImpl<>(List.of(entity), pageReq, 1);
         when(categoryRepository.findAll(pageReq)).thenReturn(page);
         when(categoryMapper.toDto(entity)).thenReturn(dto);
 
@@ -69,12 +67,13 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("createCategory: maps and saves entity")
     void createCategory_mapsAndSaves() {
         CreateCategoryRequest req = new CreateCategoryRequest("Foo", "Bar");
         when(categoryMapper.toEntity(req)).thenReturn(entity);
         when(categoryRepository.save(entity)).thenReturn(entity);
 
-        UUID ret = service.createCategory(req);
+        UUID ret = service.createCategory("adminUser", req);
         assertEquals(id, ret);
 
         InOrder inOrder = inOrder(categoryMapper, categoryRepository);
@@ -83,6 +82,7 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("getCategoryById: returns DTO when found")
     void getCategoryById_found() {
         when(categoryRepository.findById(id)).thenReturn(Optional.of(entity));
         when(categoryMapper.toDto(entity)).thenReturn(dto);
@@ -94,6 +94,7 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("getCategoryById: throws when not found")
     void getCategoryById_notFound() {
         when(categoryRepository.findById(id)).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class, () -> service.getCategoryById(id));
@@ -102,14 +103,14 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateCategoryById: updates and returns DTO when found")
     void updateCategoryById_found() {
         UpdateCategoryRequest req = new UpdateCategoryRequest("New", "NewDesc");
         when(categoryRepository.findById(id)).thenReturn(Optional.of(entity));
-        // categoryMapper.updateCategory is void
         when(categoryRepository.save(entity)).thenReturn(entity);
         when(categoryMapper.toDto(entity)).thenReturn(dto);
 
-        CategoryDto ret = service.updateCategoryById(id, req);
+        CategoryDto ret = service.updateCategoryById("adminUser", id, req);
         assertEquals(dto, ret);
 
         InOrder ord = inOrder(categoryRepository, categoryMapper);
@@ -120,29 +121,31 @@ class CategoryServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateCategoryById: throws when not found")
     void updateCategoryById_notFound() {
         when(categoryRepository.findById(id)).thenReturn(Optional.empty());
         UpdateCategoryRequest req = new UpdateCategoryRequest("X", "Y");
         assertThrows(ResourceNotFoundException.class,
-                () -> service.updateCategoryById(id, req));
+                () -> service.updateCategoryById("adminUser", id, req));
         verify(categoryRepository).findById(id);
         verifyNoMoreInteractions(categoryMapper);
     }
 
     @Test
+    @DisplayName("deleteCategoryById: deletes when exists")
     void deleteCategoryById_exists() {
         when(categoryRepository.existsById(id)).thenReturn(true);
-        // no exception
-        service.deleteCategoryById(id);
+        assertDoesNotThrow(() -> service.deleteCategoryById("adminUser", id));
         verify(categoryRepository).existsById(id);
         verify(categoryRepository).deleteById(id);
     }
 
     @Test
+    @DisplayName("deleteCategoryById: throws when not exists")
     void deleteCategoryById_notExists() {
         when(categoryRepository.existsById(id)).thenReturn(false);
         assertThrows(ResourceNotFoundException.class,
-                () -> service.deleteCategoryById(id));
+                () -> service.deleteCategoryById("adminUser", id));
         verify(categoryRepository).existsById(id);
         verify(categoryRepository, never()).deleteById(any());
     }

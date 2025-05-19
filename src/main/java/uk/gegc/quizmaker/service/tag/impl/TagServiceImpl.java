@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.service.tag.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
@@ -28,7 +29,7 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
-    public UUID createTag(CreateTagRequest request) {
+    public UUID createTag(String username, CreateTagRequest request) {
         var tag = tagMapper.toEntity(request);
         return tagRepository.save(tag).getId();
 
@@ -43,7 +44,7 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
-    public TagDto updateTagById(UUID tagId, UpdateTagRequest request) {
+    public TagDto updateTagById(String username, UUID tagId, UpdateTagRequest request) {
         var existingTag = tagRepository.findById(tagId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tag " + tagId + " not found"));
         tagMapper.updateTag(existingTag, request);
@@ -51,7 +52,7 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
-    public void deleteTagById(UUID tagId) {
+    public void deleteTagById(String username, UUID tagId) {
         if (!tagRepository.existsById(tagId)) {
             throw new ResourceNotFoundException("Tag " + tagId + " not found");
         }

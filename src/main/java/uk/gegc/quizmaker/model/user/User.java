@@ -1,9 +1,6 @@
 package uk.gegc.quizmaker.model.user;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -14,7 +11,7 @@ import org.springframework.data.domain.Persistable;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -26,16 +23,13 @@ import java.util.UUID;
 public class User implements Persistable<UUID> {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "user_id", updatable = false, nullable = false)
     private UUID id;
 
-    @NotBlank
-    @Size(min = 4, max = 20, message = "Username must be 4–20 characters")
     @Column(name = "username", unique = true, nullable = false)
     private String username;
 
-    @NotBlank
-    @Email
     @Column(name = "email", nullable = false)
     private String email;
 
@@ -68,10 +62,8 @@ public class User implements Persistable<UUID> {
             joinColumns = @JoinColumn(name = "user_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id")
     )
-    private List<Role> roles;
+    private Set<Role> roles;
 
-    // ——— Persistable support ———
-    // if you manually set `id`, JPA will treat this as new:
     @Transient
     private boolean isNew = true;
 

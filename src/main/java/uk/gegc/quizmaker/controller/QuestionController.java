@@ -8,6 +8,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.question.QuestionDto;
@@ -24,8 +26,10 @@ public class QuestionController {
     private final QuestionService questionService;
 
     @PostMapping
-    public ResponseEntity<Map<String, UUID>> createQuestion(@RequestBody @Valid CreateQuestionRequest request) {
-        UUID id = questionService.createQuestion(request);
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, UUID>> createQuestion(@RequestBody @Valid CreateQuestionRequest request,
+                                                            Authentication authentication) {
+        UUID id = questionService.createQuestion(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("questionId", id));
     }
 
@@ -46,17 +50,20 @@ public class QuestionController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<QuestionDto> updateQuestion(
             @PathVariable UUID id,
-            @RequestBody @Valid UpdateQuestionRequest request
+            @RequestBody @Valid UpdateQuestionRequest request,
+            Authentication authentication
     ) {
 
-        return ResponseEntity.ok(questionService.updateQuestion(id, request));
+        return ResponseEntity.ok(questionService.updateQuestion(authentication.getName(), id, request));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteQuestion(@PathVariable UUID id) {
-        questionService.deleteQuestion(id);
+    public void deleteQuestion(@PathVariable UUID id, Authentication authentication) {
+        questionService.deleteQuestion(authentication.getName(), id);
     }
 }

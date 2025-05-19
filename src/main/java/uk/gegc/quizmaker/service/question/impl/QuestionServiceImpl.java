@@ -35,7 +35,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final QuestionHandlerFactory handlerFactory;
 
     @Override
-    public UUID createQuestion(CreateQuestionRequest questionDto) {
+    public UUID createQuestion(String username, CreateQuestionRequest questionDto) {
 
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
         questionHandler.validateContent(questionDto);
@@ -76,7 +76,7 @@ public class QuestionServiceImpl implements QuestionService {
     }
 
     @Override
-    public QuestionDto updateQuestion(UUID questionId, UpdateQuestionRequest request) {
+    public QuestionDto updateQuestion(String username, UUID questionId, UpdateQuestionRequest request) {
         QuestionHandler questionHandler = handlerFactory.getHandler(request.getType());
         questionHandler.validateContent(request);
 
@@ -103,7 +103,7 @@ public class QuestionServiceImpl implements QuestionService {
     }
 
     @Override
-    public void deleteQuestion(UUID questionId) {
+    public void deleteQuestion(String username, UUID questionId) {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + "not found"));
         questionRepository.delete(question);
