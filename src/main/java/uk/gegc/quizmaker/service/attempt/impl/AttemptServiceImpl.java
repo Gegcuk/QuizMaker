@@ -1,7 +1,5 @@
 package uk.gegc.quizmaker.service.attempt.impl;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,7 +28,6 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.scoring.ScoringService;
 
 import java.time.Instant;

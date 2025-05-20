@@ -12,7 +12,6 @@ import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 

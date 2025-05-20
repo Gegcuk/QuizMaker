@@ -9,7 +9,6 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -21,7 +20,6 @@ import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
@@ -30,7 +28,6 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.is;
@@ -38,7 +35,6 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static uk.gegc.quizmaker.model.user.RoleName.ROLE_ADMIN;
 @SpringBootTest
 @AutoConfigureMockMvc
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.ANY)
@@ -65,14 +61,12 @@ class QuizControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // 1) Clear everything
         quizRepository.deleteAll();
         questionRepository.deleteAll();
         tagRepository.deleteAll();
         categoryRepository.deleteAll();
         userRepository.deleteAll();
 
-        // 2) Seed the default user via JPA (matches @WithMockUser)
         User defaultUser = new User();
         defaultUser.setUsername("defaultUser");
         defaultUser.setEmail("def@ex.com");
@@ -81,7 +75,6 @@ class QuizControllerIntegrationTest {
         defaultUser.setDeleted(false);
         userRepository.save(defaultUser);
 
-        // 3) Now use JPA for the rest…
         Category c = new Category();
         c.setName("General");
         c.setDescription("Default");

@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
@@ -148,15 +149,17 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("login: invalid credentials yields 401")
-    void login_badCreds() {
+    @DisplayName("login: invalid credentials yields UnauthorizedException")
+    void login_badCredits() {
         var req = new LoginRequest("john","wrong");
         when(authManager.authenticate(any()))
-                .thenThrow(BadCredentialsException.class);
+                .thenThrow(new BadCredentialsException("Bad creds"));
 
-        var ex = assertThrows(ResponseStatusException.class,
-                () -> authService.login(req));
-        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        UnauthorizedException ex = assertThrows(
+                UnauthorizedException.class,
+                () -> authService.login(req)
+        );
+        assertEquals("Invalid username or password", ex.getMessage());
     }
 
     @Test
