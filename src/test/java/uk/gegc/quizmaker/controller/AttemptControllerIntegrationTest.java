@@ -23,6 +23,10 @@ import org.springframework.test.web.servlet.ResultActions;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
+import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.attempt.AttemptMode;
+import uk.gegc.quizmaker.model.attempt.AttemptStatus;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
@@ -43,6 +47,8 @@ import java.util.stream.Stream;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.params.provider.Arguments.of;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -59,7 +65,7 @@ import static uk.gegc.quizmaker.model.question.QuestionType.TRUE_FALSE;
         "spring.jpa.hibernate.ddl-auto=create"
 })
 
-@DisplayName("AttemptController Integration Tests")
+@DisplayName("Integration Tests AttemptController")
 @WithMockUser(username = "defaultUser", roles = "ADMIN")
 public class AttemptControllerIntegrationTest {
 
@@ -205,7 +211,6 @@ public class AttemptControllerIntegrationTest {
             String responseJson,
             boolean expectedCorrect
     ) throws Exception {
-        // --- CREATE question ---
         CreateQuestionRequest qr = new CreateQuestionRequest();
         qr.setType(type);
         qr.setDifficulty(Difficulty.EASY);
@@ -224,13 +229,11 @@ public class AttemptControllerIntegrationTest {
                 .getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(qresp).get("questionId").asText());
 
-        // --- START attempt ---
         String startResp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(startResp).get("attemptId").asText());
 
-        // --- SUBMIT answer ---
         var submission = new AnswerSubmissionRequest(
                 questionId,
                 objectMapper.readTree(responseJson)
@@ -243,14 +246,13 @@ public class AttemptControllerIntegrationTest {
                 .andExpect(jsonPath("$.questionId", is(questionId.toString())))
                 .andExpect(jsonPath("$.isCorrect", is(expectedCorrect)));
 
-        // --- COMPLETE ---
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.correctCount", is(expectedCorrect ? 1 : 0)));
     }
 
     @Test
-    @DisplayName("SubmitAnswer with invalid attemptId → 404")
+    @DisplayName("SubmitAnswer with invalid attemptId → returns 404 NOT_FOUND")
     void submitWithBadAttemptId() throws Exception {
         UUID fakeId = UUID.randomUUID();
         var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode());
@@ -261,7 +263,15 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Validation error on missing response -> 400")
+    @DisplayName("POST /api/v1/attempts/quizzes/{quizId} without authentication → returns 403 FORBIDDEN")
+    void startAttempt_anonymous_returns403() throws Exception {
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(anonymous()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("SubmitAnswer with missing response → returns 400 BAD_REQUEST")
     void submitValidationError() throws Exception{
         CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest();
         createQuestionRequest.setType(TRUE_FALSE);
@@ -290,7 +300,174 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Batch submission in ONE_BY_ONE mode -> 409 Conflict")
+    @DisplayName("GET /api/v1/attempts without authentication → returns 401 UNAUTHORIZED")
+    void listAttempts_anonymousReturns401() throws Exception {
+        mockMvc.perform(get("/api/v1/attempts")
+                        .with(anonymous()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/attempts without authentication → returns 401 UNAUTHORIZED")
+    void listAttempts_anonymous_returns401() throws Exception {
+        mockMvc.perform(get("/api/v1/attempts")
+                        .with(anonymous()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/attempts/{id} as non-owner → returns 403 FORBIDDEN")
+    void getAttempt_nonOwner_returns403() throws Exception {
+        String resp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID attemptId = UUID.fromString(objectMapper.readTree(resp).get("attemptId").asText());
+
+        mockMvc.perform(get("/api/v1/attempts/{id}", attemptId)
+                        .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers without authentication → returns 401 UNAUTHORIZED")
+    void submitAnswer_anonymous_returns401() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        String payload = """
+        {
+          "questionId":"%s",
+          "response":{}
+        }
+        """.formatted(UUID.randomUUID());
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                        .with(anonymous()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers as non-owner → returns 403 FORBIDDEN")
+    void submitAnswer_nonOwner_returns403() throws Exception {
+        var defaultUser = userRepository.findByUsername("defaultUser").get();
+        var quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        Attempt attempt = new Attempt();
+        attempt.setUser(defaultUser);
+        attempt.setQuiz(quiz);
+        attempt.setMode(AttemptMode.ALL_AT_ONCE);
+        attempt.setStatus(AttemptStatus.IN_PROGRESS);
+        attemptRepository.save(attempt);
+
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+        String payload = """
+        {
+          "questionId":"%s",
+          "response":{"answer":true}
+        }
+        """.formatted(questionId);
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload)
+                .with(user("admin").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers after attempt completed → returns 409 CONFLICT")
+    void submitAnswer_afterComplete_returns409() throws Exception {
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+        UUID attemptId  = startAttempt();
+
+        postAnswer(attemptId, questionId, "{\"answer\":true}")
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId))
+                .andExpect(status().isOk());
+
+        postAnswer(attemptId, questionId, "{\"answer\":true}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error", is("Conflict")))
+                .andExpect(jsonPath("$.details[0]", containsString("Cannot submit answer to attempt with status COMPLETED")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers/batch without authentication → returns 403 FORBIDDEN")
+    void submitBatch_anonymous_returns403() throws Exception {
+        UUID attemptId = startAttempt();
+        String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(anonymous())
+                        .contentType(APPLICATION_JSON)
+                        .content(batchJson))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers/batch by non-owner → returns 403 FORBIDDEN")
+    void submitBatch_nonOwner_returns403() throws Exception {
+        User other = new User();
+        other.setUsername("otherUser");
+        other.setEmail("other@ex.com");
+        other.setHashedPassword("pw");
+        other.setActive(true);
+        other.setDeleted(false);
+        userRepository.save(other);
+
+        UUID attemptId = startAttempt();
+        String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(user("otherUser").roles("ADMIN"))
+                        .contentType(APPLICATION_JSON)
+                        .content(batchJson))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers/batch with invalid attemptId → returns 404 NOT_FOUND")
+    void submitBatch_invalidAttemptId_returns404() throws Exception {
+        UUID fakeId = UUID.randomUUID();
+        String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", fakeId)
+                        .contentType(APPLICATION_JSON)
+                        .content(batchJson))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/complete without authentication → returns 403 FORBIDDEN")
+    void completeAttempt_anonymous_returns403() throws Exception {
+        UUID attemptId = startAttempt();
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(anonymous()))
+                .andExpect(status().isForbidden());
+    }
+
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/complete by non-owner → returns 403 FORBIDDEN")
+    void completeAttempt_nonOwner_returns403() throws Exception {
+        User other = new User();
+        other.setUsername("otherUser");
+        other.setEmail("other@ex.com");
+        other.setHashedPassword("password");
+        other.setActive(true);
+        other.setDeleted(false);
+        userRepository.save(other);
+
+        UUID attemptId = startAttempt();
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user("otherUser").roles("ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/complete with nonexistent ID → returns 404 NOT_FOUND")
+    void completeAttempt_invalidAttemptId_returns404() throws Exception {
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Batch submission in ONE_BY_ONE mode → returns 409 CONFLICT")
     void batchInOneByOneMode() throws Exception{
         String startJson = "{\"mode\":\"ONE_BY_ONE\"}";
         String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
@@ -321,7 +498,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Completing an already completer attempt -> 409 Conflict")
+    @DisplayName("Completing an already completed attempt → returns 409 CONFLICT")
     void completeTwice() throws Exception{
 
         String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)).andReturn().getResponse().getContentAsString();
@@ -332,7 +509,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Pagination and Sorting on listAttempts")
+    @DisplayName("GET /api/v1/attempts → returns paginated and sorted attempts")
     void paginationAndSorting() throws Exception {
         for (int i = 0; i < 3; i++) {
             mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
@@ -350,7 +527,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Filtering listAttempts by quizId and userId")
+    @DisplayName("GET /api/v1/attempts?quizId={quizId}&userId={userId} → returns filtered attempts by quizId and userId")
     void filteringByQuizIdAndUserId() throws Exception{
 
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId));
@@ -368,7 +545,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("TIMED mode timeout -> 409")
+    @DisplayName("Timed mode attempt timeout → returns 409 CONFLICT")
     void timedModeTimeout() throws Exception{
         CreateQuizRequest timedQuiz = new CreateQuizRequest(
                 "Timed",
@@ -442,7 +619,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Batch submission in ALL_AT_ONCE mode (happy + sad)")
+    @DisplayName("Batch submission in ALL_AT_ONCE mode (happy + sad) → succeeds for valid and fails for invalid as expected")
     void batchSubmissionHappyAndSad() throws Exception{
 
         UUID question1 = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
@@ -484,14 +661,14 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Get /attempts/{id} -> 404 if not found")
+    @DisplayName("GET /api/v1/attempts/{id} when ID not found → returns 404 NOT_FOUND")
     void getAttemptNotFound() throws Exception{
         mockMvc.perform(get("/api/v1/attempts/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("Get /attempts/{id} -> details")
+    @DisplayName("GET /api/v1/attempts/{id} → returns attempt details")
     void getAttemptDetails() throws Exception{
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
@@ -506,14 +683,14 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Start attempt -> 404 not found")
+    @DisplayName("Start attempt for non-existent quiz → returns 404 NOT_FOUND")
     void startAttemptBadQuiz() throws Exception{
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("Paging params negative -> 400")
+    @DisplayName("GET /api/v1/attempts with negative paging params → returns 400 BAD_REQUEST")
     void badPagingParams() throws Exception{
         mockMvc.perform(get("/api/v1/attempts")
                 .param("page","-1")
@@ -522,7 +699,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Submit answer for question not in the quiz -> 404")
+    @DisplayName("SubmitAnswer for question not in quiz → returns 404 NOT_FOUND")
     void submitWrongQuestion() throws Exception{
         UUID otherQuiz = createAnotherQuiz();
         UUID questionId = createDummyQuestion( TRUE_FALSE, "{ \"answer\": true }", otherQuiz );
@@ -532,7 +709,7 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Duplicate answer to same question allowed")
+    @DisplayName("Submitting duplicate answer to same question → allowed")
     void duplicateAnswerBehavior() throws Exception{
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
@@ -540,7 +717,7 @@ public class AttemptControllerIntegrationTest {
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isConflict());
     }
 
-    @Test @DisplayName("Batch with empty list → 400")
+    @DisplayName("Batch submission with empty list → returns 400 BAD_REQUEST")
     void batchEmptyList() throws Exception {
         UUID attemptId = startAttempt();
         String bad = "{\"answers\":[]}";
@@ -548,7 +725,6 @@ public class AttemptControllerIntegrationTest {
                         .contentType(APPLICATION_JSON).content(bad))
                 .andExpect(status().isBadRequest());
     }
-
 
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception{
         var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson));

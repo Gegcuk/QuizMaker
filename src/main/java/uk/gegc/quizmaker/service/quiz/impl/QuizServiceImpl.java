@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
@@ -84,13 +85,18 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
-        var quiz = quizRepository.findByIdWithTags(id)
+        Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
 
-        var category = Optional.ofNullable(req.categoryId())
-                .flatMap(categoryRepository::findById)
-                .orElse(null);
+        Category category = null;
+        if (req.categoryId() != null) {
+            category = categoryRepository.findById(req.categoryId())
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Category " + req.categoryId() + " not found"));
+        } else {
+            category = quiz.getCategory();  // keep existing category when none provided
+        }
 
         Set<Tag> tags = Optional.ofNullable(req.tagIds())
                 .map(ids -> ids.stream()
@@ -106,6 +112,9 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     public void deleteQuizById(String username, UUID id) {
+        if (!quizRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Quiz " + id + " not found");
+        }
         quizRepository.deleteById(id);
     }
 

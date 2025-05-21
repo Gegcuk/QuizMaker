@@ -41,6 +41,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/2fa/setup",
                                 "/api/v1/auth/2fa/verify"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET,"/api/v1/quizzes/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/v1/categories/**").permitAll()

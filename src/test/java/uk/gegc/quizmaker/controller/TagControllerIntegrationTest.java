@@ -38,13 +38,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "spring.jpa.hibernate.ddl-auto=create"
         }
 )
-@DisplayName("TagController Integration Tests")
+@DisplayName("Integration Tests TagController")
 public class TagControllerIntegrationTest {
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired TagRepository tagRepository;
-    @Autowired QuizRepository quizRepository;
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
+    @Autowired
+    TagRepository tagRepository;
+    @Autowired
+    QuizRepository quizRepository;
 
     @BeforeEach
     void setUp() {
@@ -53,7 +57,7 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /tags → empty page (public)")
+    @DisplayName("GET /api/v1/tags as public → returns empty page")
     void listInitiallyEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/tags")
                         .param("page", "0")
@@ -63,7 +67,7 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /tags forbidden for USER role")
+    @DisplayName("POST /api/v1/tags with USER role → returns 403 FORBIDDEN")
     @WithMockUser(roles = "USER")
     void create_forbiddenForUser() throws Exception {
         CreateTagRequest req = new CreateTagRequest("TestUser", "Description");
@@ -74,13 +78,12 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("Full CRUD flow succeeds for ADMIN role")
+    @DisplayName("Full CRUD flow as ADMIN → succeeds")
     @WithMockUser(roles = "ADMIN")
     void fullTagCrudFlow() throws Exception {
         CreateTagRequest createTagRequest = new CreateTagRequest("TestTag", "Desc");
         String createJson = objectMapper.writeValueAsString(createTagRequest);
 
-        // Create
         String response = mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createJson))
@@ -89,20 +92,17 @@ public class TagControllerIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         UUID id = UUID.fromString(objectMapper.readTree(response).get("tagId").asText());
 
-        // List
         mockMvc.perform(get("/api/v1/tags")
                         .param("page", "0").param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)))
                 .andExpect(jsonPath("$.content[0].name", is("TestTag")));
 
-        // Get by ID
         mockMvc.perform(get("/api/v1/tags/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name", is("TestTag")))
                 .andExpect(jsonPath("$.description", is("Desc")));
 
-        // Update
         UpdateTagRequest updateTagRequest = new UpdateTagRequest("NewTag", "NewDesc");
         String updateTagJson = objectMapper.writeValueAsString(updateTagRequest);
         mockMvc.perform(patch("/api/v1/tags/{id}", id)
@@ -112,21 +112,15 @@ public class TagControllerIntegrationTest {
                 .andExpect(jsonPath("$.name", is("NewTag")))
                 .andExpect(jsonPath("$.description", is("NewDesc")));
 
-        // Delete
         mockMvc.perform(delete("/api/v1/tags/{id}", id))
                 .andExpect(status().isNoContent());
 
-        // Not Found after delete
         mockMvc.perform(get("/api/v1/tags/{id}", id))
                 .andExpect(status().isNotFound());
     }
 
-    // -----------------------
-    // CREATE: validation errors
-    // -----------------------
-
     @Test
-    @DisplayName("POST /tags with blank name returns 400")
+    @DisplayName("POST /api/v1/tags with blank name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_BlankName_ShouldReturn400() throws Exception {
         CreateTagRequest request = new CreateTagRequest("", "description");
@@ -138,7 +132,7 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /tags with too short name returns 400")
+    @DisplayName("POST /api/v1/tags with too short name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_TooShortName_ShouldReturn400() throws Exception {
         CreateTagRequest request = new CreateTagRequest("ab", "description");
@@ -150,10 +144,10 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /tags with too long name returns 400")
+    @DisplayName("POST /api/v1/tags with too long name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_TooLongName_ShouldReturn400() throws Exception {
-        String longName = "x".repeat(101);
+        String longName = "x" .repeat(101);
         CreateTagRequest request = new CreateTagRequest(longName, "description");
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -163,10 +157,10 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /tags with too long description returns 400")
+    @DisplayName("POST /api/v1/tags with too long description → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_TooLongDescription_ShouldReturn400() throws Exception {
-        String longDesc = "d".repeat(1001);
+        String longDesc = "d" .repeat(1001);
         CreateTagRequest req = new CreateTagRequest("ValidName", longDesc);
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -175,16 +169,13 @@ public class TagControllerIntegrationTest {
                 .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
     }
 
-    // -----------------------
-    // PATCH: validation errors
-    // -----------------------
-
     @Test
-    @DisplayName("PATCH /tags blank name returns 400")
+    @DisplayName("PATCH /api/v1/tags with blank name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void update_BlankName_ShouldReturn400() throws Exception {
         Tag tag = new Tag();
-        tag.setName("OK"); tagRepository.save(tag);
+        tag.setName("OK");
+        tagRepository.save(tag);
         UpdateTagRequest req = new UpdateTagRequest("", "d");
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -194,11 +185,12 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("PATCH /tags too short name returns 400")
+    @DisplayName("PATCH /api/v1/tags with too short name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void update_TooShortName_ShouldReturn400() throws Exception {
         Tag tag = new Tag();
-        tag.setName("OK"); tagRepository.save(tag);
+        tag.setName("OK");
+        tagRepository.save(tag);
         UpdateTagRequest req = new UpdateTagRequest("ab", "d");
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -208,12 +200,13 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("PATCH /tags too long name returns 400")
+    @DisplayName("PATCH /api/v1/tags with too long name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void update_TooLongName_ShouldReturn400() throws Exception {
         Tag tag = new Tag();
-        tag.setName("OK"); tagRepository.save(tag);
-        String longName = "x".repeat(101);
+        tag.setName("OK");
+        tagRepository.save(tag);
+        String longName = "x" .repeat(101);
         UpdateTagRequest req = new UpdateTagRequest(longName, "desc");
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -223,12 +216,13 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("PATCH /tags too long description returns 400")
+    @DisplayName("PATCH /api/v1/tags with too long description → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void update_TooLongDescription_ShouldReturn400() throws Exception {
         Tag tag = new Tag();
-        tag.setName("OK"); tagRepository.save(tag);
-        String longDesc = "d".repeat(1001);
+        tag.setName("OK");
+        tagRepository.save(tag);
+        String longDesc = "d" .repeat(1001);
         UpdateTagRequest req = new UpdateTagRequest("Valid", longDesc);
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -237,12 +231,8 @@ public class TagControllerIntegrationTest {
                 .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
     }
 
-    // -----------------------
-    // NOT-FOUND scenarios
-    // -----------------------
-
     @Test
-    @DisplayName("PATCH /tags non-existent ID returns 404")
+    @DisplayName("PATCH /api/v1/tags/{id} when ID does not exist → returns 404 NOT_FOUND")
     @WithMockUser(roles = "ADMIN")
     void update_NotFound_ShouldReturn404() throws Exception {
         UpdateTagRequest req = new UpdateTagRequest("TESTTAG", "TESTDESCRIPTION");
@@ -253,23 +243,20 @@ public class TagControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("DELETE /tags non-existent ID returns 404")
+    @DisplayName("DELETE /api/v1/tags/{id} when ID does not exist → returns 404 NOT_FOUND")
     @WithMockUser(roles = "ADMIN")
     void delete_NotFound_ShouldReturn404() throws Exception {
         mockMvc.perform(delete("/api/v1/tags/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
-    // -----------------------
-    // CONFLICT on duplicate name
-    // -----------------------
-
     @Test
-    @DisplayName("POST /tags duplicate name returns 409")
+    @DisplayName("POST /api/v1/tags with duplicate name → returns 409 CONFLICT")
     @WithMockUser(roles = "ADMIN")
     void create_DuplicateName_ShouldReturn409() throws Exception {
         Tag tag = new Tag();
-        tag.setName("DUP"); tagRepository.save(tag);
+        tag.setName("DUP");
+        tagRepository.save(tag);
         CreateTagRequest req = new CreateTagRequest("DUP", "desc");
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -277,12 +264,8 @@ public class TagControllerIntegrationTest {
                 .andExpect(status().isConflict());
     }
 
-    // -----------------------
-    // PAGINATION & SORTING
-    // -----------------------
-
     @Test
-    @DisplayName("GET /tags supports pagination and sorting")
+    @DisplayName("GET /api/v1/tags?pageNumber={pageNumber}&size={size} → returns paginated and sorted tags")
     @WithMockUser(roles = "ADMIN")
     void paginationAndSorting() throws Exception {
         for (String name : new String[]{"AAAA", "BBBB", "CCCC"}) {

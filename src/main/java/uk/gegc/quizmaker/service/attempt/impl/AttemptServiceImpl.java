@@ -221,11 +221,15 @@ public class AttemptServiceImpl implements AttemptService {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        Object[] agg = attemptRepository.getAttemptAggregateData(quizId);
-        long attemptsCount = ((Number) agg[0]).longValue();
-        double averageScore = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
-        double bestScore    = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
-        double worstScore   = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
+        List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
+        Object[] agg = rows.isEmpty()
+                ? new Object[]{ 0L, null, null, null }
+                : rows.get(0);
+
+        long    attemptsCount = ((Number) agg[0]).longValue();
+        double  averageScore  = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
+        double    bestScore   = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
+        double   worstScore   = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
 
         List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
                 .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
@@ -272,9 +276,6 @@ public class AttemptServiceImpl implements AttemptService {
         );
     }
 
-    // -----------------
-    // helpers
-    // -----------------
     private void enforceOwnership(Attempt attempt, String username) {
         if (!attempt.getUser().getUsername().equals(username)) {
             throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());

@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.dto.quiz;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.quiz.Visibility;
@@ -10,11 +11,10 @@ import java.util.List;
 import java.util.UUID;
 
 public record UpdateQuizRequest(
-
         @Size(min = 3, max = 100, message = "Title length must be between 3 and 100 characters")
         String title,
 
-        @Size(max = 1000, message = "Description must be at most 1000 characters")
+        @Size(max = 1000, message = "Description must be at most 1000 characters long")
         String description,
 
         Visibility visibility,
@@ -34,9 +34,4 @@ public record UpdateQuizRequest(
         UUID categoryId,
         List<UUID> tagIds
 ) {
-    public UpdateQuizRequest {
-        visibility = (visibility == null ? Visibility.PRIVATE : visibility);
-        difficulty = (difficulty == null ? Difficulty.MEDIUM : difficulty);
-        tagIds = (tagIds == null ? List.of() : tagIds);
-    }
 }
