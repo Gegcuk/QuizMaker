@@ -2,7 +2,6 @@ package uk.gegc.quizmaker.service.tag;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
 import uk.gegc.quizmaker.dto.tag.TagDto;
 import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;

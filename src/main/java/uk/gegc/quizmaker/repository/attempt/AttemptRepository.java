@@ -63,8 +63,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
         WHERE a.quiz.id = :quizId
           AND a.status = 'COMPLETED'
         """)
-    Object[] getAttemptAggregateData(@Param("quizId") UUID quizId);
-
+    List<Object[]> getAttemptAggregateData(@Param("quizId") UUID quizId);
     List<Attempt> findByQuiz_Id(UUID quizId);
 
     @EntityGraph(attributePaths = {

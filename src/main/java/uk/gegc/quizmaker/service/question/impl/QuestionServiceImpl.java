@@ -50,7 +50,7 @@ public class QuestionServiceImpl implements QuestionService {
                 .orElse(Collections.emptyList())
                 .stream()
                 .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + "not found")))
+                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
                 .toList();
 
         Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
@@ -93,7 +93,7 @@ public class QuestionServiceImpl implements QuestionService {
                 .orElse(Collections.emptyList())
                 .stream()
                 .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + "not found")))
+                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
                 .toList();
 
         QuestionMapper.updateEntity(question, request, quizzes, tags);
@@ -105,7 +105,7 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     public void deleteQuestion(String username, UUID questionId) {
         Question question = questionRepository.findById(questionId)
-                .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + "not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
         questionRepository.delete(question);
     }
 }

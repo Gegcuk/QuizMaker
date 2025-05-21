@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 "spring.jpa.hibernate.ddl-auto=create"
         }
 )
-@DisplayName("CategoryController Integration Tests")
+@DisplayName("Integration Tests CategoryController")
 public class CategoryControllerIntegrationTest {
 
     @Autowired MockMvc mockMvc;
@@ -52,7 +52,7 @@ public class CategoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /categories → empty page (public)")
+    @DisplayName("GET /api/v1/categories → returns empty page when no categories present")
     void listInitiallyEmpty() throws Exception {
         mockMvc.perform(get("/api/v1/categories")
                         .param("page", "0")
@@ -63,7 +63,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("Full CRUD flow succeeds for ADMIN role")
+    @DisplayName("Full CRUD flow as ADMIN → succeeds")
     void fullCategoryCrudFlow() throws Exception {
 
         CreateCategoryRequest createCategoryRequest =
@@ -114,13 +114,55 @@ public class CategoryControllerIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
-    // -----------------------
-    // CREATE: validation errors
-    // -----------------------
+    @Test
+    @DisplayName("GET /api/v1/categories → with data -> returns non-empty page")
+    void listCategories_withData_returnsPage() throws Exception {
+        Category c1 = new Category();
+        c1.setName("Cat A");
+        c1.setDescription("Desc A");
+        categoryRepository.save(c1);
+        Category c2 = new Category();
+        c2.setName("Cat B");
+        c2.setDescription("Desc B");
+        categoryRepository.save(c2);
+
+        mockMvc.perform(get("/api/v1/categories")
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(2)))
+                .andExpect(jsonPath("$.content[*].name", containsInAnyOrder("Cat A", "Cat B")));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/categories/{id} existing ID -> returns 200 OK with CategoryDto")
+    void getCategory_existingId_returns200() throws Exception {
+        Category c = new Category();
+        c.setName("TestCat");
+        c.setDescription("TestDesc");
+        categoryRepository.save(c);
+        UUID id = c.getId();
+
+        mockMvc.perform(get("/api/v1/categories/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(id.toString())))
+                .andExpect(jsonPath("$.name", is("TestCat")))
+                .andExpect(jsonPath("$.description", is("TestDesc")));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/categories/{id} non-existent ID -> returns 404 NOT_FOUND")
+    void getCategory_nonexistentId_returns404() throws Exception {
+        UUID missing = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/categories/{id}", missing))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.details", hasItem(containsString("Category " + missing + " not found"))));
+    }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("POST /categories blank name returns 400")
+    @DisplayName("POST /api/v1/categories with blank name → returns 400 BAD_REQUEST")
     void create_BlankName_ShouldReturn400() throws Exception {
         CreateCategoryRequest req = new CreateCategoryRequest("", "desc");
         mockMvc.perform(post("/api/v1/categories")
@@ -132,7 +174,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("POST /categories too short name returns 400")
+    @DisplayName("POST /api/v1/categories with too short name → returns 400 BAD_REQUEST")
     void create_TooShortName_ShouldReturn400() throws Exception {
         CreateCategoryRequest req = new CreateCategoryRequest("ab", "desc");
         mockMvc.perform(post("/api/v1/categories")
@@ -144,7 +186,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("POST /categories too long name returns 400")
+    @DisplayName("POST /api/v1/categories with too long name → returns 400 BAD_REQUEST")
     void create_TooLongName_ShouldReturn400() throws Exception {
         String longName = "x".repeat(101);
         CreateCategoryRequest req = new CreateCategoryRequest(longName, "desc");
@@ -157,7 +199,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("POST /categories too long description returns 400")
+    @DisplayName("POST /api/v1/categories with too long description → returns 400 BAD_REQUEST")
     void create_TooLongDescription_ShouldReturn400() throws Exception {
         String longDesc = "d".repeat(1001);
         CreateCategoryRequest req = new CreateCategoryRequest("ValidName", longDesc);
@@ -168,13 +210,30 @@ public class CategoryControllerIntegrationTest {
                 .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
     }
 
-    // -----------------------
-    // PATCH: validation errors
-    // -----------------------
+    @Test
+    @DisplayName("POST /api/v1/categories without authentication -> returns 403 FORBIDDEN")
+    void createCategory_anonymous_returns403() throws Exception{
+        CreateCategoryRequest createCategoryRequest = new CreateCategoryRequest("ValidName", "Valid description");
+        mockMvc.perform(post("/api/v1/categories")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(createCategoryRequest)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("POST /api/v1/categories with USER role -> returns 403 FORBIDDEN")
+    void createCategory_userRole_returns403() throws Exception {
+        var req = new CreateCategoryRequest("ValidName", "Valid description");
+        mockMvc.perform(post("/api/v1/categories")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("PATCH /categories blank name returns 400")
+    @DisplayName("PATCH /api/v1/categories with blank name → returns 400 BAD_REQUEST")
     void update_BlankName_ShouldReturn400() throws Exception {
         Category c = new Category();
         c.setName("OK");
@@ -190,7 +249,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("PATCH /categories too short name returns 400")
+    @DisplayName("PATCH /api/v1/categories with too short name → returns 400 BAD_REQUEST")
     void update_TooShortName_ShouldReturn400() throws Exception {
         Category c = new Category();
         c.setName("OK");
@@ -206,7 +265,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("PATCH /categories too long name returns 400")
+    @DisplayName("PATCH /api/v1/categories with too long name → returns 400 BAD_REQUEST")
     void update_TooLongName_ShouldReturn400() throws Exception {
         Category c = new Category();
         c.setName("OK");
@@ -223,7 +282,7 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("PATCH /categories too long description returns 400")
+    @DisplayName("PATCH /api/v1/categories with too long description → returns 400 BAD_REQUEST")
     void update_TooLongDescription_ShouldReturn400() throws Exception {
         Category c = new Category();
         c.setName("OK");
@@ -238,13 +297,9 @@ public class CategoryControllerIntegrationTest {
                 .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
     }
 
-    // -----------------------
-    // NOT-FOUND scenarios
-    // -----------------------
-
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("PATCH /categories non-existent ID returns 404")
+    @DisplayName("PATCH /api/v1/categories/{id} when ID does not exist → returns 404 NOT_FOUND")
     void update_NotFound_ShouldReturn404() throws Exception {
         UpdateCategoryRequest req = new UpdateCategoryRequest("TESTCATEGORY", "TESTDESCRIPTION");
         mockMvc.perform(patch("/api/v1/categories/{id}", UUID.randomUUID())
@@ -255,19 +310,71 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("DELETE /categories non-existent ID returns 404")
+    @DisplayName("DELETE /api/v1/categories/{id} when ID does not exist → returns 404 NOT_FOUND")
     void delete_NotFound_ShouldReturn404() throws Exception {
         mockMvc.perform(delete("/api/v1/categories/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
-    // -----------------------
-    // CONFLICT on duplicate name
-    // -----------------------
+    @Test
+    @DisplayName("PATCH /api/v1/categories/{id} anonymous -> returns 403 FORBIDDEN")
+    void updateCategory_anonymous_returns403() throws Exception {
+        Category c = new Category();
+        c.setName("Orig");
+        categoryRepository.save(c);
+        UUID id = c.getId();
+        String body = objectMapper.writeValueAsString(new UpdateCategoryRequest("New", "Desc"));
+
+        mockMvc.perform(patch("/api/v1/categories/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("PATCH /api/v1/categories/{id} with USER role -> returns 403 FORBIDDEN")
+    void updateCategory_userRole_returns403() throws Exception {
+        Category c = new Category();
+        c.setName("Orig");
+        categoryRepository.save(c);
+        UUID id = c.getId();
+        String body = objectMapper.writeValueAsString(new UpdateCategoryRequest("New", "Desc"));
+
+        mockMvc.perform(patch("/api/v1/categories/{id}", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("DELETE /api/v1/categories/{id} anonymous -> returns 403 FORBIDDEN")
+    void deleteCategory_anonymous_returns403() throws Exception {
+        Category c = new Category();
+        c.setName("ToDelete");
+        categoryRepository.save(c);
+        UUID id = c.getId();
+
+        mockMvc.perform(delete("/api/v1/categories/{id}", id))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("DELETE /api/v1/categories/{id} with USER role returns 403 FORBIDDEN")
+    void deleteCategory_userRole_returns403() throws Exception {
+        Category c = new Category();
+        c.setName("ToDelete");
+        categoryRepository.save(c);
+        UUID id = c.getId();
+
+        mockMvc.perform(delete("/api/v1/categories/{id}", id))
+                .andExpect(status().isForbidden());
+    }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("POST /categories duplicate name returns 409")
+    @DisplayName("POST /api/v1/categories with duplicate name → returns 409 CONFLICT")
     void create_DuplicateName_ShouldReturn409() throws Exception {
         Category c = new Category();
         c.setName("DUP");
@@ -280,13 +387,9 @@ public class CategoryControllerIntegrationTest {
                 .andExpect(status().isConflict());
     }
 
-    // -----------------------
-    // PAGINATION & SORTING
-    // -----------------------
-
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /categories supports pagination and sorting")
+    @DisplayName("GET /api/v1/categories?pageNumber={pageNumber}&size={size} → returns paginated and sorted categories")
     void paginationAndSorting() throws Exception {
         for (String name : new String[]{"AAAA", "BBBB", "CCCC"}) {
             CreateCategoryRequest r = new CreateCategoryRequest(name, "");

@@ -9,6 +9,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.category.CategoryDto;
@@ -37,6 +38,7 @@ public class CategoryController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, UUID>> createCategory(@RequestBody @Valid CreateCategoryRequest request, Authentication authentication) {
         UUID categoryId = categoryService.createCategory(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("categoryId", categoryId));
@@ -48,6 +50,7 @@ public class CategoryController {
     }
 
     @PatchMapping("/{categoryId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<CategoryDto> updateCategory(
             @PathVariable UUID categoryId,
             @RequestBody @Valid UpdateCategoryRequest request,
@@ -58,6 +61,7 @@ public class CategoryController {
 
     @DeleteMapping("/{categoryId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasRole('ADMIN')")
     public void deleteCategory(@PathVariable UUID categoryId, Authentication authentication) {
         categoryService.deleteCategoryById(authentication.getName(), categoryId);
     }

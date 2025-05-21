@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,6 +15,7 @@ import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
@@ -24,7 +26,6 @@ import uk.gegc.quizmaker.security.JwtTokenProvider;
 import uk.gegc.quizmaker.service.auth.AuthService;
 
 import java.util.Set;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -49,7 +50,6 @@ public class AuthServiceImpl implements AuthService {
         }
 
         User user = new User();
-        user.setId(UUID.randomUUID());
         user.setUsername(request.username());
         user.setEmail(request.email());
         user.setHashedPassword(passwordEncoder.encode(request.password()));
@@ -76,6 +76,8 @@ public class AuthServiceImpl implements AuthService {
             long refreshExpiresInMs = jwtTokenProvider.getRefreshTokenValidityInMs();
 
             return new JwtResponse(accessToken, refreshToken, accessExpiresInMs, refreshExpiresInMs);
+        } catch (AuthenticationException ex) {
+            throw new UnauthorizedException("Invalid username or password");
         } catch (Exception exception){
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
