@@ -46,6 +46,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/v1/categories/**").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/v1/questions/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/v3/api-docs/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/swagger-ui/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/v1/docs/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(
                         new JwtAuthenticationFilter(jwtTokenProvider),
