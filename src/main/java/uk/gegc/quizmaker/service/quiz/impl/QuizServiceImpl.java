@@ -171,4 +171,13 @@ public class QuizServiceImpl implements QuizService {
         quiz.setCategory(cat);
         quizRepository.save(quiz);
     }
+
+    @Override
+    public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
+
+        Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        quiz.setVisibility(visibility);
+
+        return quizMapper.toDto(quizRepository.save(quiz)) ;
+    }
 }
