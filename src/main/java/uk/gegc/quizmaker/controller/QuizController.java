@@ -4,6 +4,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,11 +21,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.dto.quiz.QuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
-import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
+import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
@@ -224,5 +225,60 @@ public class QuizController {
             @PathVariable UUID quizId
     ) {
         return ResponseEntity.ok(attemptService.getQuizResultSummary(quizId));
+    }
+
+    @Operation(
+            summary     = "Toggle quiz visibility",
+            description = "ADMIN only – switch a quiz between PUBLIC and PRIVATE.",
+            security    = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content  = @Content(schema = @Schema(implementation = VisibilityUpdateRequest.class))
+            ),
+            responses = {
+           @ApiResponse(
+              responseCode = "200",
+              description  = "Quiz successfully updated",
+             content      = @Content(
+                   mediaType = "application/json",
+                    schema    = @Schema(implementation = QuizDto.class)
+         )
+        ),
+        @ApiResponse(
+            responseCode = "400",
+          description  = "Validation failure or malformed JSON",
+            content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+      ),
+        @ApiResponse(
+          responseCode = "401",
+          description  = "Unauthenticated – JWT missing/expired",
+         content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+      ),
+       @ApiResponse(
+           responseCode = "403",
+             description  = "Authenticated but not an ADMIN",
+            content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+    ),
+      @ApiResponse(
+             responseCode = "404",
+             description  = "Quiz not found",
+             content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+    )
+    }
+)
+    @PatchMapping("/{quizId}/visibility")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizDto> updateQuizVisibility(
+            @Parameter(description = "UUID of the quiz to update", required = true)
+            @PathVariable UUID quizId,
+            @RequestBody @Valid VisibilityUpdateRequest request,
+            Authentication authentication
+    ){
+        QuizDto quizDto = quizService.setVisibility(
+                authentication.getName(),
+                quizId,
+                request.isPublic() ? Visibility.PUBLIC : Visibility.PRIVATE
+        );
+        return ResponseEntity.ok(quizDto);
     }
 }

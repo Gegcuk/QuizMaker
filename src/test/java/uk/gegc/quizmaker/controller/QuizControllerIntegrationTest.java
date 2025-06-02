@@ -38,6 +38,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -938,6 +939,62 @@ class QuizControllerIntegrationTest {
                 .andExpect(jsonPath("$.questionStats", hasSize(0)));
     }
 
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/visibility → PUBLIC ▸ returns 200 & updates field")
+    void changeVisibility_validPayload_adminReturns200() throws Exception {
+        UUID quizId = createSampleQuiz();
+
+        String body = """
+        { "isPublic": true }
+        """;
+
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", is(quizId.toString())))
+                .andExpect(jsonPath("$.visibility", is("PUBLIC")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/visibility with non-existent ID → 404 NOT_FOUND")
+    void changeVisibility_nonexistentQuiz_returns404() throws Exception {
+        UUID missing = UUID.randomUUID();
+        String body = """
+        { "isPublic": false }
+        """;
+
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", missing)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/visibility without ADMIN role → 403 FORBIDDEN")
+    void changeVisibility_withoutAdminRole_returns403() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
+                        .with(user("user").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"isPublic\": true }"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/visibility with malformed body → 400 BAD_REQUEST")
+    void changeVisibility_invalidBody_returns400() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details",
+                        hasItem(containsString("isPublic: must not be null"))));
+    }
+
+
     private UUID createSampleQuiz() throws Exception {
         CreateQuizRequest req = new CreateQuizRequest(
                 "Sample", null,
@@ -954,4 +1011,6 @@ class QuizControllerIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
     }
+
+
 }
