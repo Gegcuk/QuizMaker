@@ -36,4 +36,6 @@ public interface QuizService {
     QuizDto setVisibility(String name, UUID quizId, Visibility visibility);
 
     QuizDto setStatus(String name, UUID quizId, QuizStatus status);
+
+    Page<QuizDto> getPublicQuizzes(Pageable pageable);
 }
