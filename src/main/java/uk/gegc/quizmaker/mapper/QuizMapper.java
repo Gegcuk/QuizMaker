@@ -6,6 +6,7 @@ import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
@@ -24,6 +25,7 @@ public class QuizMapper {
         quiz.setDescription(req.description());
         quiz.setVisibility(req.visibility());
         quiz.setDifficulty(req.difficulty());
+        quiz.setStatus(QuizStatus.DRAFT);
         quiz.setEstimatedTime(req.estimatedTime());
         quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
         quiz.setIsTimerEnabled(req.timerEnabled());
@@ -74,6 +76,7 @@ public class QuizMapper {
                 quiz.getDescription(),
                 quiz.getVisibility(),
                 quiz.getDifficulty(),
+                quiz.getStatus(),
                 quiz.getEstimatedTime(),
                 quiz.getIsRepetitionEnabled(),
                 quiz.getIsTimerEnabled(),

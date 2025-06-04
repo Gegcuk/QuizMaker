@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.dto.quiz;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import uk.gegc.quizmaker.model.question.Difficulty;
+import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
 import java.time.Instant;
@@ -31,6 +32,9 @@ public record QuizDto(
 
         @Schema(description = "Difficulty", example = "MEDIUM")
         Difficulty difficulty,
+
+        @Schema(description = "Quiz status", example = "DRAFT")
+        QuizStatus status,
 
         @Schema(description = "Estimated time in minutes", example = "15")
         Integer estimatedTime,

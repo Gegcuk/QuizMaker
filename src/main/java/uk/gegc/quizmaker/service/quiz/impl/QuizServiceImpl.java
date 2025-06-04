@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
@@ -179,5 +180,18 @@ public class QuizServiceImpl implements QuizService {
         quiz.setVisibility(visibility);
 
         return quizMapper.toDto(quizRepository.save(quiz)) ;
+    }
+
+    @Override
+    public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
+        Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        if (status == QuizStatus.PUBLISHED && quiz.getQuestions().isEmpty()) {
+            throw new IllegalArgumentException("Cannot publish quiz without questions");
+        }
+
+        quiz.setStatus(status);
+        return quizMapper.toDto(quizRepository.save(quiz));
     }
 }

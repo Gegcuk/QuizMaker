@@ -6,6 +6,7 @@ import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
 import java.util.UUID;
@@ -33,4 +34,6 @@ public interface QuizService {
     void changeCategory(String username, UUID quizId, UUID categoryId);
 
     QuizDto setVisibility(String name, UUID quizId, Visibility visibility);
+
+    QuizDto setStatus(String name, UUID quizId, QuizStatus status);
 }

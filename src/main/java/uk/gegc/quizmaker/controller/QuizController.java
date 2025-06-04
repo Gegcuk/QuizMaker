@@ -281,4 +281,41 @@ public class QuizController {
         );
         return ResponseEntity.ok(quizDto);
     }
+
+    @Operation(
+            summary = "Change quiz status",
+            description = "ADMIN only - switch a quiz between DRAFT and PUBLISHED",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = QuizStatusUpdateRequest.class))
+            ),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Quiz successfully updated",
+                            content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuizDto.class))),
+                    @ApiResponse(responseCode = "400", description = "Validation failure or illegal status transition",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                    @ApiResponse(responseCode = "401", description = "Unauthenticated",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                    @ApiResponse(responseCode = "403", description = "Authenticated but not ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                    @ApiResponse(responseCode = "404", description = "Quiz not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class)))
+            }
+    )
+    @PatchMapping("/{quizId}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizDto> updateQuizStatus(
+            @Parameter(description = "UUID of the quiz to update", required = true)
+            @PathVariable UUID quizId,
+            @RequestBody @Valid QuizStatusUpdateRequest request,
+            Authentication authentication
+    ){
+        QuizDto quizDto = quizService.setStatus(
+                authentication.getName(),
+                quizId,
+                request.status()
+        );
+        return ResponseEntity.ok(quizDto);
+    }
 }
