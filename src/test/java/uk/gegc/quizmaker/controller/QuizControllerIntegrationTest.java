@@ -1070,6 +1070,47 @@ class QuizControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("GET /api/v1/quizzes/public -> returns only PUBLIC quizzes")
+    void listOnlyPublic() throws Exception {
+        CreateQuizRequest pub = new CreateQuizRequest("Pub", null, Visibility.PUBLIC, null, false, false, 5, 1, categoryId, List.of());
+        CreateQuizRequest priv = new CreateQuizRequest("Priv", null, Visibility.PRIVATE, null, false, false, 5, 1, categoryId, List.of());
+        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(pub)))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(priv)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(get("/api/v1/quizzes/public"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(1)))
+                .andExpect(jsonPath("$.content[0].visibility", is("PUBLIC")))
+                .andExpect(jsonPath("$.content[*].title", not(hasItem("Priv"))));
+    }
+
+
+    @Test
+    @DisplayName("GET /api/v1/quizzes/public -> pagination and sorting works")
+    void paginationAndSorting() throws Exception {
+        for (String title : List.of("Alpha", "Beta", "Gamma")) {
+            CreateQuizRequest req = new CreateQuizRequest(title, null, Visibility.PUBLIC, null, false, false, 5, 1, categoryId, List.of());
+            mockMvc.perform(post("/api/v1/quizzes")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(req)))
+                    .andExpect(status().isCreated());
+        }
+
+        mockMvc.perform(get("/api/v1/quizzes/public")
+                        .param("page", "0")
+                        .param("size", "2")
+                        .param("sort", "title,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements", is(3)))
+                .andExpect(jsonPath("$.size", is(2)))
+                .andExpect(jsonPath("$.content[0].title", is("Gamma")))
+                .andExpect(jsonPath("$.content[1].title", is("Beta")));
+    }
+
+
     private UUID createSampleQuiz() throws Exception {
         CreateQuizRequest req = new CreateQuizRequest(
                 "Sample", null,

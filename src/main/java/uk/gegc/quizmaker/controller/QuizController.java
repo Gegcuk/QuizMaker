@@ -318,4 +318,18 @@ public class QuizController {
         );
         return ResponseEntity.ok(quizDto);
     }
+
+    @Operation(
+            summary = "List public quizzes",
+            description = "Returns a paginated list of quizzes with PUBLIC visibility"
+    )
+    @GetMapping("/public")
+    public ResponseEntity<Page<QuizDto>> getPublicQuizzes(
+            @ParameterObject
+            @PageableDefault(page = 0, size = 20)
+            @SortDefault(sort = "createdAt", direction = Sort.Direction.DESC)
+            Pageable pageable
+    ) {
+        return ResponseEntity.ok(quizService.getPublicQuizzes(pageable));
+    }
 }

@@ -194,4 +194,11 @@ public class QuizServiceImpl implements QuizService {
         quiz.setStatus(status);
         return quizMapper.toDto(quizRepository.save(quiz));
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<QuizDto> getPublicQuizzes(Pageable pageable) {
+        return quizRepository.findAllByVisibility(Visibility.PUBLIC, pageable)
+                .map(quizMapper::toDto);
+    }
 }
