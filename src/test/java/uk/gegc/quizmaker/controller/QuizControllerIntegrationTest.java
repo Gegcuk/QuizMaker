@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
@@ -1110,10 +1111,52 @@ class QuizControllerIntegrationTest {
                 .andExpect(jsonPath("$.content[1].title", is("Beta")));
     }
 
+    @Test
+    @DisplayName("DELETE /api/v1/quizzes?ids=... -> deletes existing and ignores missing")
+    void bulkDelete_mixedIds_returns204() throws Exception {
+        UUID first = createSampleQuiz("Sample1");
+        UUID second = createSampleQuiz("Sample2");
+        UUID missing = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/quizzes")
+                        .param("ids", first + "," + second + "," + missing))
+                .andExpect(status().isNoContent());
+
+        assertFalse(quizRepository.existsById(first));
+        assertFalse(quizRepository.existsById(second));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/v1/quizzes?ids=... without ADMIN role -> 403 FORBIDDEN")
+    void bulkDelete_withoutAdmin_returns403() throws Exception {
+        UUID id = createSampleQuiz();
+        mockMvc.perform(delete("/api/v1/quizzes")
+                        .param("ids", id.toString())
+                        .with(user("user").roles("USER")))
+                .andExpect(status().isForbidden());
+    }
+
 
     private UUID createSampleQuiz() throws Exception {
         CreateQuizRequest req = new CreateQuizRequest(
                 "Sample", null,
+                null, null,
+                false, false,
+                5, 2,
+                categoryId,
+                List.of()
+        );
+        String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+    }
+
+    private UUID createSampleQuiz(String name) throws Exception {
+        CreateQuizRequest req = new CreateQuizRequest(
+                name, null,
                 null, null,
                 false, false,
                 5, 2,

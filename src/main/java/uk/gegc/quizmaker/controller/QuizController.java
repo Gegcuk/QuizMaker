@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -128,6 +129,21 @@ public class QuizController {
             @PathVariable UUID quizId,
                            Authentication authentication) {
         quizService.deleteQuizById(authentication.getName(), quizId);
+    }
+
+    @Operation(
+            summary = "Bulk delete quizzes",
+            description = "ADMIN only. Delete multiple quizzes by comma-separated IDs."
+    )
+    @DeleteMapping(params = "ids")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteQuizzes(
+            @Parameter(description = "Comma-separated quiz IDs", required = true)
+            @RequestParam("ids") List<UUID> quizIds,
+            Authentication authentication
+    ) {
+        quizService.deleteQuizzesByIds(authentication.getName(), quizIds);
     }
 
     @Operation(
