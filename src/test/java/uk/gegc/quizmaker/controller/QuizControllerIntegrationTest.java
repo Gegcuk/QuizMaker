@@ -994,6 +994,81 @@ class QuizControllerIntegrationTest {
                         hasItem(containsString("isPublic: must not be null"))));
     }
 
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status publish with question → 200 OK")
+    void changeStatus_publishWithQuestion_returns200() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+                .andExpect(status().isNoContent());
+
+        String body = "{ \"status\": \"PUBLISHED\" }";
+
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("PUBLISHED")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status publish without questions → 400 BAD_REQUEST")
+    void changeStatus_publishWithoutQuestion_returns400() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"PUBLISHED\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status revert to draft → 200 OK")
+    void changeStatus_revertToDraft_returns200() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"PUBLISHED\" }"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"DRAFT\" }"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("DRAFT")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status nonexistent ID → 404 NOT_FOUND")
+    void changeStatus_nonexistentQuiz_returns404() throws Exception {
+        UUID missing = UUID.randomUUID();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", missing)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"DRAFT\" }"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status without ADMIN role → 403 FORBIDDEN")
+    void changeStatus_withoutAdminRole_returns403() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .with(user("user").roles("USER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"DRAFT\" }"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status malformed body → 400 BAD_REQUEST")
+    void changeStatus_invalidBody_returns400() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+    }
 
     private UUID createSampleQuiz() throws Exception {
         CreateQuizRequest req = new CreateQuizRequest(

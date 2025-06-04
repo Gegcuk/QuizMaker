@@ -58,6 +58,9 @@ public class Quiz {
     @Column(name = "difficulty", nullable = false, length = 20)
     private Difficulty difficulty;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private QuizStatus status;
 
     @Column(name = "estimated_time_min", nullable = false)
     private Integer estimatedTime;
@@ -111,6 +114,9 @@ public class Quiz {
     public void prePersist() {
         if (isDeleted == null) {
             isDeleted = false;
+        }
+        if(status == null){
+            status = QuizStatus.DRAFT;
         }
     }
 
