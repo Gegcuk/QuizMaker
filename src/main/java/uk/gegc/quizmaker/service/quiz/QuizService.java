@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface QuizService {
@@ -38,4 +39,6 @@ public interface QuizService {
     QuizDto setStatus(String name, UUID quizId, QuizStatus status);
 
     Page<QuizDto> getPublicQuizzes(Pageable pageable);
+
+    void deleteQuizzesByIds(String name, List<UUID> quizIds);
 }

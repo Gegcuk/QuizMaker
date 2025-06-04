@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -117,6 +118,17 @@ public class QuizServiceImpl implements QuizService {
             throw new ResourceNotFoundException("Quiz " + id + " not found");
         }
         quizRepository.deleteById(id);
+    }
+
+    @Override
+    public void deleteQuizzesByIds(String username, List<UUID> quizIds) {
+        if (quizIds == null || quizIds.isEmpty()) {
+            return;
+        }
+        var existing = quizRepository.findAllById(quizIds);
+        if (!existing.isEmpty()) {
+            quizRepository.deleteAll(existing);
+        }
     }
 
     @Override
