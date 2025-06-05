@@ -17,7 +17,8 @@ import java.util.UUID;
 @Entity
 @Getter
 @Setter
-@NoArgsConstructor @AllArgsConstructor
+@NoArgsConstructor
+@AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)
 @Table(name = "users")
 public class User implements Persistable<UUID> {
@@ -73,7 +74,8 @@ public class User implements Persistable<UUID> {
         return this.isNew;
     }
 
-    @PostLoad @PostPersist
+    @PostLoad
+    @PostPersist
     void markNotNew() {
         this.isNew = false;
     }
@@ -81,7 +83,7 @@ public class User implements Persistable<UUID> {
     @PrePersist
     void prePersist() {
         this.createdAt = LocalDateTime.now();
-        this.isNew     = true;
+        this.isNew = true;
     }
 
     @PreUpdate

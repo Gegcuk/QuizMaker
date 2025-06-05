@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiConfig {
 
     @Bean
-    public OpenAPI quizMakerOpenApi(){
+    public OpenAPI quizMakerOpenApi() {
         return new OpenAPI()
                 .info(new Info()
                         .title("QuizMaker API")

@@ -40,10 +40,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("Integration Tests CategoryController")
 public class CategoryControllerIntegrationTest {
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired CategoryRepository categoryRepository;
-    @Autowired QuizRepository quizRepository;
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
+    @Autowired
+    CategoryRepository categoryRepository;
+    @Autowired
+    QuizRepository quizRepository;
 
     @BeforeEach
     void setUp() {
@@ -212,11 +216,11 @@ public class CategoryControllerIntegrationTest {
 
     @Test
     @DisplayName("POST /api/v1/categories without authentication -> returns 403 FORBIDDEN")
-    void createCategory_anonymous_returns403() throws Exception{
+    void createCategory_anonymous_returns403() throws Exception {
         CreateCategoryRequest createCategoryRequest = new CreateCategoryRequest("ValidName", "Valid description");
         mockMvc.perform(post("/api/v1/categories")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(createCategoryRequest)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createCategoryRequest)))
                 .andExpect(status().isForbidden());
     }
 

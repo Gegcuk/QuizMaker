@@ -48,4 +48,5 @@ public record QuizSearchCriteria(
         )
         Difficulty difficulty
 
-) {}
+) {
+}

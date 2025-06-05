@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.attempt.*;
 import uk.gegc.quizmaker.dto.question.QuestionDto;
+import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuestionStatsDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
@@ -223,13 +224,13 @@ public class AttemptServiceImpl implements AttemptService {
 
         List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
         Object[] agg = rows.isEmpty()
-                ? new Object[]{ 0L, null, null, null }
+                ? new Object[]{0L, null, null, null}
                 : rows.get(0);
 
-        long    attemptsCount = ((Number) agg[0]).longValue();
-        double  averageScore  = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
-        double    bestScore   = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
-        double   worstScore   = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
+        long attemptsCount = ((Number) agg[0]).longValue();
+        double averageScore = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
+        double bestScore = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
+        double worstScore = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
 
         List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
                 .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
@@ -274,6 +275,26 @@ public class AttemptServiceImpl implements AttemptService {
                 passRate,
                 questionStats
         );
+    }
+
+    @Override
+    @Transactional
+    public List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top) {
+        if(top <= 0){
+            return List.of();
+        }
+
+        quizRepository.findById(quizId).orElseThrow(() ->new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        List<Object[]> rows = attemptRepository.getLeaderboardData(quizId);
+        return rows.stream()
+                .limit(top)
+                .map(r -> new LeaderboardEntryDto(
+                        (UUID) r[0],
+                        (String) r[1],
+                        r[2] != null ? ((Number) r[2]).doubleValue() : 0.0
+                ))
+                .toList();
     }
 
     private void enforceOwnership(Attempt attempt, String username) {

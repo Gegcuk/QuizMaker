@@ -23,14 +23,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class JwtTokenProviderTest {
 
-    private JwtTokenProvider jwtTokenProvider;
-    private SecretKey secretKey;
     private final long accessTokenValidityInMs = 15 * 60 * 1000;
     private final long refreshTokenValidityInMs = 7 * 24 * 60 * 60 * 1000;
+    private JwtTokenProvider jwtTokenProvider;
+    private SecretKey secretKey;
     private String base64Secret;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         secretKey = Jwts.SIG.HS256.key().build();
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
 
@@ -44,7 +44,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("generateAccessToken: valid Authentication produces JWT with type=access, correct subject & TTL")
-    void generateAccessToken_happyPath_containsAccessTypeAndSubjectAndExpiry(){
+    void generateAccessToken_happyPath_containsAccessTypeAndSubjectAndExpiry() {
         Authentication authentication = new UsernamePasswordAuthenticationToken(
                 "Alice", null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
@@ -70,7 +70,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("generateAccessToken: two quick calls yield different issuedAt & expiration timestamps")
-    void generateAccessToken_edge_twoCalls_differentIssuedAtAndExpiry() throws InterruptedException{
+    void generateAccessToken_edge_twoCalls_differentIssuedAtAndExpiry() throws InterruptedException {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Bob", null, List.of());
 
         String token1 = jwtTokenProvider.generateAccessToken(authentication);
@@ -111,7 +111,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("validateToken: valid access token returns true")
-    void validateToken_happyPath_validTokenReturnsTrue(){
+    void validateToken_happyPath_validTokenReturnsTrue() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("John", null, List.of());
         String validToken = jwtTokenProvider.generateAccessToken(authentication);
 
@@ -121,15 +121,15 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("validateToken: malformed token returns false")
-    void validateToken_sad_malformedTokenReturnsFalse(){
+    void validateToken_sad_malformedTokenReturnsFalse() {
         String badToken = "not.a.token";
         assertThat(jwtTokenProvider.validateToken(badToken)).isFalse();
     }
 
     @Test
     @DisplayName("validateToken: expired token returns false")
-    void validateToken_sad_expiredTokenReturnsFalse(){
-        Date past = new Date(System.currentTimeMillis()-1000);
+    void validateToken_sad_expiredTokenReturnsFalse() {
+        Date past = new Date(System.currentTimeMillis() - 1000);
         String expired = Jwts.builder()
                 .subject("Eve")
                 .issuedAt(past)
@@ -143,7 +143,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("validateToken: token signed with wrong key returns false")
-    void validateToken_sad_wrongSignatureReturnsFalse(){
+    void validateToken_sad_wrongSignatureReturnsFalse() {
         SecretKey wrongKey = Jwts.SIG.HS256.key().build();
         Date now = new Date();
         String badSignature = Jwts.builder()
@@ -159,7 +159,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("getUsername: valid token returns correct subject")
-    void getUsername_happyPath_returnsCorrectUsername(){
+    void getUsername_happyPath_returnsCorrectUsername() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Lenny", null, List.of());
 
         String token = jwtTokenProvider.generateRefreshToken(authentication);
@@ -169,7 +169,7 @@ public class JwtTokenProviderTest {
 
     @Test
     @DisplayName("getUsername: invalid token throws JwtException")
-    void getUsername_sad_invalidTokenThrows(){
+    void getUsername_sad_invalidTokenThrows() {
         String badToken = "not.a.token";
         assertThatThrownBy(() -> jwtTokenProvider.getUsername(badToken)).isInstanceOf(JwtException.class);
     }
@@ -194,11 +194,12 @@ public class JwtTokenProviderTest {
         assertThat(result.getName()).isEqualTo("Bill");
         assertThat(result.getAuthorities())
                 .extracting("authority")
-                .containsExactly("ROLE_USER");    }
+                .containsExactly("ROLE_USER");
+    }
 
     @Test
     @DisplayName("getAuthentication: invalid token throws JwtException")
-    void getAuthentication_sad_invalidTokenThrows(){
+    void getAuthentication_sad_invalidTokenThrows() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of());
         JwtTokenProvider provider = new JwtTokenProvider(null, userDetailsService);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);

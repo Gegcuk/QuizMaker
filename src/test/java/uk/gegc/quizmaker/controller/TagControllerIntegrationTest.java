@@ -147,7 +147,7 @@ public class TagControllerIntegrationTest {
     @DisplayName("POST /api/v1/tags with too long name → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_TooLongName_ShouldReturn400() throws Exception {
-        String longName = "x" .repeat(101);
+        String longName = "x".repeat(101);
         CreateTagRequest request = new CreateTagRequest(longName, "description");
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -160,7 +160,7 @@ public class TagControllerIntegrationTest {
     @DisplayName("POST /api/v1/tags with too long description → returns 400 BAD_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void create_TooLongDescription_ShouldReturn400() throws Exception {
-        String longDesc = "d" .repeat(1001);
+        String longDesc = "d".repeat(1001);
         CreateTagRequest req = new CreateTagRequest("ValidName", longDesc);
         mockMvc.perform(post("/api/v1/tags")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -206,7 +206,7 @@ public class TagControllerIntegrationTest {
         Tag tag = new Tag();
         tag.setName("OK");
         tagRepository.save(tag);
-        String longName = "x" .repeat(101);
+        String longName = "x".repeat(101);
         UpdateTagRequest req = new UpdateTagRequest(longName, "desc");
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -222,7 +222,7 @@ public class TagControllerIntegrationTest {
         Tag tag = new Tag();
         tag.setName("OK");
         tagRepository.save(tag);
-        String longDesc = "d" .repeat(1001);
+        String longDesc = "d".repeat(1001);
         UpdateTagRequest req = new UpdateTagRequest("Valid", longDesc);
         mockMvc.perform(patch("/api/v1/tags/{id}", tag.getId())
                         .contentType(MediaType.APPLICATION_JSON)

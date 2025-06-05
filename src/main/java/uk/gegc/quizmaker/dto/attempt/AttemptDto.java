@@ -26,4 +26,5 @@ public record AttemptDto(
 
         @Schema(description = "Mode of the attempt", example = "ALL_AT_ONCE")
         AttemptMode mode
-) {}
+) {
+}

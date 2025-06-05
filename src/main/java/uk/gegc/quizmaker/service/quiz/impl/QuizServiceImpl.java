@@ -44,7 +44,7 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public UUID createQuiz(String username, CreateQuizRequest request) {
         User creator = userRepository.findByUsername(username)
-                .or(()->userRepository.findByEmail(username))
+                .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         Category category = Optional.ofNullable(request.categoryId())
@@ -202,7 +202,7 @@ public class QuizServiceImpl implements QuizService {
         Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
         quiz.setVisibility(visibility);
 
-        return quizMapper.toDto(quizRepository.save(quiz)) ;
+        return quizMapper.toDto(quizRepository.save(quiz));
     }
 
     @Override

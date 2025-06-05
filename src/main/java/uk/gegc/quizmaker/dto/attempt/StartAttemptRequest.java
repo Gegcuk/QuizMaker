@@ -9,4 +9,5 @@ public record StartAttemptRequest(
         @Schema(description = "Mode in which to take the attempt", required = true)
         @NotNull(message = "Mode must be provided")
         AttemptMode mode
-) {}
+) {
+}

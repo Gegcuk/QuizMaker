@@ -86,37 +86,6 @@ public class AttemptControllerIntegrationTest {
     @Autowired
     private AttemptRepository attemptRepository;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        quizRepository.deleteAll();
-        categoryRepository.deleteAll();
-
-        User defaultUser = new User();
-        defaultUser.setUsername("defaultUser");
-        defaultUser.setEmail("def@ex.com");
-        defaultUser.setHashedPassword("pw");
-        defaultUser.setActive(true);
-        defaultUser.setDeleted(false);
-        userRepository.save(defaultUser);
-
-        Category cat = new Category();
-        cat.setName("General");
-        categoryRepository.save(cat);
-
-        CreateQuizRequest cq = new CreateQuizRequest(
-                "Integration Quiz","desc",
-                Visibility.PRIVATE, Difficulty.MEDIUM,
-                false, false, 10, 5,
-                cat.getId(),List.of()
-        );
-        String body = objectMapper.writeValueAsString(cq);
-        String resp = mockMvc.perform(post("/api/v1/quizzes")
-                        .contentType(APPLICATION_JSON).content(body))
-                .andExpect(status().isCreated()).andReturn()
-                .getResponse().getContentAsString();
-        quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
-    }
-
     /**
      * Parameterized happy‐paths for every QuestionType
      */
@@ -202,6 +171,37 @@ public class AttemptControllerIntegrationTest {
         );
     }
 
+    @BeforeEach
+    void setUp() throws Exception {
+        quizRepository.deleteAll();
+        categoryRepository.deleteAll();
+
+        User defaultUser = new User();
+        defaultUser.setUsername("defaultUser");
+        defaultUser.setEmail("def@ex.com");
+        defaultUser.setHashedPassword("pw");
+        defaultUser.setActive(true);
+        defaultUser.setDeleted(false);
+        userRepository.save(defaultUser);
+
+        Category cat = new Category();
+        cat.setName("General");
+        categoryRepository.save(cat);
+
+        CreateQuizRequest cq = new CreateQuizRequest(
+                "Integration Quiz", "desc",
+                Visibility.PRIVATE, Difficulty.MEDIUM,
+                false, false, 10, 5,
+                cat.getId(), List.of()
+        );
+        String body = objectMapper.writeValueAsString(cq);
+        String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn()
+                .getResponse().getContentAsString();
+        quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+    }
+
     @DisplayName("[HAPPY] Parameterized: submit + complete for each QuestionType")
     @ParameterizedTest(name = "[{index}] {0} → correct?={3}")
     @MethodSource("questionScenarios")
@@ -272,7 +272,7 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("SubmitAnswer with missing response → returns 400 BAD_REQUEST")
-    void submitValidationError() throws Exception{
+    void submitValidationError() throws Exception {
         CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest();
         createQuestionRequest.setType(TRUE_FALSE);
         createQuestionRequest.setDifficulty(Difficulty.MEDIUM);
@@ -282,8 +282,8 @@ public class AttemptControllerIntegrationTest {
         createQuestionRequest.setTagIds(List.of());
         String questionRequestJson = objectMapper.writeValueAsString(createQuestionRequest);
         String questionResponse = mockMvc.perform(post("/api/v1/questions")
-                .contentType(APPLICATION_JSON)
-                .content(questionRequestJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(questionRequestJson))
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(questionResponse).get("questionId").asText());
 
@@ -294,8 +294,8 @@ public class AttemptControllerIntegrationTest {
         String badJson = "{\"questionId\":\"" + questionId + "\"}";
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
-                .contentType(APPLICATION_JSON)
-                .content(badJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(badJson))
                 .andExpect(status().isBadRequest());
     }
 
@@ -333,11 +333,11 @@ public class AttemptControllerIntegrationTest {
     void submitAnswer_anonymous_returns401() throws Exception {
         UUID attemptId = UUID.randomUUID();
         String payload = """
-        {
-          "questionId":"%s",
-          "response":{}
-        }
-        """.formatted(UUID.randomUUID());
+                {
+                  "questionId":"%s",
+                  "response":{}
+                }
+                """.formatted(UUID.randomUUID());
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
@@ -359,15 +359,15 @@ public class AttemptControllerIntegrationTest {
 
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
         String payload = """
-        {
-          "questionId":"%s",
-          "response":{"answer":true}
-        }
-        """.formatted(questionId);
+                {
+                  "questionId":"%s",
+                  "response":{"answer":true}
+                }
+                """.formatted(questionId);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                .with(user("admin").roles("ADMIN")))
+                        .with(user("admin").roles("ADMIN")))
                 .andExpect(status().isForbidden());
     }
 
@@ -375,7 +375,7 @@ public class AttemptControllerIntegrationTest {
     @DisplayName("POST /api/v1/attempts/{id}/answers after attempt completed → returns 409 CONFLICT")
     void submitAnswer_afterComplete_returns409() throws Exception {
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
-        UUID attemptId  = startAttempt();
+        UUID attemptId = startAttempt();
 
         postAnswer(attemptId, questionId, "{\"answer\":true}")
                 .andExpect(status().isOk());
@@ -468,26 +468,26 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Batch submission in ONE_BY_ONE mode → returns 409 CONFLICT")
-    void batchInOneByOneMode() throws Exception{
+    void batchInOneByOneMode() throws Exception {
         String startJson = "{\"mode\":\"ONE_BY_ONE\"}";
         String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
-                .contentType(APPLICATION_JSON)
-                .content(startJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(startJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
 
         String batchJson = """
-    {
-      "answers": [
-        {
-          "questionId": "00000000-0000-0000-0000-000000000000",
-          "response": {}
-        }
-      ]
-    }
-    """;
+                {
+                  "answers": [
+                    {
+                      "questionId": "00000000-0000-0000-0000-000000000000",
+                      "response": {}
+                    }
+                  ]
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
                         .contentType(APPLICATION_JSON)
@@ -499,7 +499,7 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Completing an already completed attempt → returns 409 CONFLICT")
-    void completeTwice() throws Exception{
+    void completeTwice() throws Exception {
 
         String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)).andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
@@ -528,13 +528,13 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("GET /api/v1/attempts?quizId={quizId}&userId={userId} → returns filtered attempts by quizId and userId")
-    void filteringByQuizIdAndUserId() throws Exception{
+    void filteringByQuizIdAndUserId() throws Exception {
 
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId));
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId));
 
         mockMvc.perform(get("/api/v1/attempts")
-                .param("quizId", quizId.toString()))
+                        .param("quizId", quizId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(2)));
 
@@ -546,7 +546,7 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Timed mode attempt timeout → returns 409 CONFLICT")
-    void timedModeTimeout() throws Exception{
+    void timedModeTimeout() throws Exception {
         CreateQuizRequest timedQuiz = new CreateQuizRequest(
                 "Timed",
                 "description",
@@ -562,8 +562,8 @@ public class AttemptControllerIntegrationTest {
 
         String timedJson = objectMapper.writeValueAsString(timedQuiz);
         String timedResponse = mockMvc.perform(post("/api/v1/quizzes")
-                .contentType(APPLICATION_JSON)
-                .content(timedJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(timedJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
@@ -581,8 +581,8 @@ public class AttemptControllerIntegrationTest {
                 List.of());
         String questionJson = objectMapper.writeValueAsString(createQuestionRequest);
         String questionResponse = mockMvc.perform(post("/api/v1/questions")
-                .contentType(APPLICATION_JSON)
-                .content(questionJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(questionJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(questionResponse).get("questionId").asText());
@@ -592,8 +592,8 @@ public class AttemptControllerIntegrationTest {
 
         String startJson = "{\"mode\":\"TIMED\"}";
         String attemptResponse = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", timedQuizId)
-                .contentType(APPLICATION_JSON)
-                .content(startJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(startJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
@@ -611,8 +611,8 @@ public class AttemptControllerIntegrationTest {
         );
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
-                .contentType(APPLICATION_JSON)
-                .content(badSubmit))
+                        .contentType(APPLICATION_JSON)
+                        .content(badSubmit))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error", is("Conflict")))
                 .andExpect(jsonPath("$.details[0]", is("Attempt has timed out")));
@@ -620,15 +620,15 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Batch submission in ALL_AT_ONCE mode (happy + sad) → succeeds for valid and fails for invalid as expected")
-    void batchSubmissionHappyAndSad() throws Exception{
+    void batchSubmissionHappyAndSad() throws Exception {
 
         UUID question1 = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID question2 = createDummyQuestion(TRUE_FALSE, "{ \"answer\": false }");
 
         String startJson = "{\"mode\":\"ALL_AT_ONCE\"}";
         String startRequest = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
-                .contentType(APPLICATION_JSON)
-                .content(startJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(startJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(startRequest).get("attemptId").asText());
@@ -644,8 +644,8 @@ public class AttemptControllerIntegrationTest {
         String batchJson = objectMapper.writeValueAsString(batchRequest);
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
-                .contentType(APPLICATION_JSON)
-                .content(batchJson))
+                        .contentType(APPLICATION_JSON)
+                        .content(batchJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].isCorrect", is(true)))
@@ -653,8 +653,8 @@ public class AttemptControllerIntegrationTest {
 
         String badBatch = "{\"answers\":[{\"questionId\":\"" + question1 + "\"}]}";
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
-                .contentType(APPLICATION_JSON)
-                .content(badBatch))
+                        .contentType(APPLICATION_JSON)
+                        .content(badBatch))
                 .andExpect(status().isBadRequest());
 
 
@@ -662,14 +662,14 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("GET /api/v1/attempts/{id} when ID not found → returns 404 NOT_FOUND")
-    void getAttemptNotFound() throws Exception{
+    void getAttemptNotFound() throws Exception {
         mockMvc.perform(get("/api/v1/attempts/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("GET /api/v1/attempts/{id} → returns attempt details")
-    void getAttemptDetails() throws Exception{
+    void getAttemptDetails() throws Exception {
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
 
@@ -684,25 +684,25 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Start attempt for non-existent quiz → returns 404 NOT_FOUND")
-    void startAttemptBadQuiz() throws Exception{
+    void startAttemptBadQuiz() throws Exception {
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("GET /api/v1/attempts with negative paging params → returns 400 BAD_REQUEST")
-    void badPagingParams() throws Exception{
+    void badPagingParams() throws Exception {
         mockMvc.perform(get("/api/v1/attempts")
-                .param("page","-1")
-                .param("size","-5"))
+                        .param("page", "-1")
+                        .param("size", "-5"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("SubmitAnswer for question not in quiz → returns 404 NOT_FOUND")
-    void submitWrongQuestion() throws Exception{
+    void submitWrongQuestion() throws Exception {
         UUID otherQuiz = createAnotherQuiz();
-        UUID questionId = createDummyQuestion( TRUE_FALSE, "{ \"answer\": true }", otherQuiz );
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }", otherQuiz);
         UUID attemptId = startAttempt();
         postAnswer(attemptId, questionId, "{ \"answer\": true }")
                 .andExpect(status().isNotFound());
@@ -710,7 +710,7 @@ public class AttemptControllerIntegrationTest {
 
     @Test
     @DisplayName("Submitting duplicate answer to same question → allowed")
-    void duplicateAnswerBehavior() throws Exception{
+    void duplicateAnswerBehavior() throws Exception {
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isOk());
@@ -726,14 +726,14 @@ public class AttemptControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception{
+    private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {
         var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson));
         return mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt)
                 .contentType(APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
     }
 
-    private UUID startAttempt() throws Exception{
+    private UUID startAttempt() throws Exception {
 
         String startRequest = mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
                 .andReturn().getResponse().getContentAsString();
@@ -769,7 +769,7 @@ public class AttemptControllerIntegrationTest {
         return UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
     }
 
-    private UUID createDummyQuestion(QuestionType type, String contentJson) throws Exception{
+    private UUID createDummyQuestion(QuestionType type, String contentJson) throws Exception {
 
         CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest();
         createQuestionRequest.setType(type);

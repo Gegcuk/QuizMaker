@@ -10,5 +10,6 @@ public record VisibilityUpdateRequest(
                 example = "true"
         )
         @NotNull Boolean isPublic
-) {}
+) {
+}
 

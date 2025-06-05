@@ -43,19 +43,26 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
 
-    @Mock private UserRepository userRepository;
-    @Mock private PasswordEncoder passwordEncoder;
-    @Mock private RoleRepository roleRepository;
-    @Mock private UserMapper userMapper;
-    @Mock private AuthenticationManager authManager;
-    @Mock private JwtTokenProvider jwtTokenProvider;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
+    private RoleRepository roleRepository;
+    @Mock
+    private UserMapper userMapper;
+    @Mock
+    private AuthenticationManager authManager;
+    @Mock
+    private JwtTokenProvider jwtTokenProvider;
 
-    @InjectMocks private AuthServiceImpl authService;
+    @InjectMocks
+    private AuthServiceImpl authService;
 
     @Test
     @DisplayName("register: saves new user and returns UserDto")
     void register_happy() {
-        var req = new RegisterRequest("john","john@example.com","secret123");
+        var req = new RegisterRequest("john", "john@example.com", "secret123");
         when(userRepository.existsByUsername("john")).thenReturn(false);
         when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
 
@@ -104,7 +111,7 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("register: duplicate username yields 409")
     void register_duplicateUsername() {
-        var req = new RegisterRequest("john","john@example.com","secret123");
+        var req = new RegisterRequest("john", "john@example.com", "secret123");
         when(userRepository.existsByUsername("john")).thenReturn(true);
 
         var ex = assertThrows(ResponseStatusException.class,
@@ -115,7 +122,7 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("register: duplicate email yields 409")
     void register_duplicateEmail() {
-        var req = new RegisterRequest("john","john@example.com","secret123");
+        var req = new RegisterRequest("john", "john@example.com", "secret123");
         when(userRepository.existsByUsername("john")).thenReturn(false);
         when(userRepository.existsByEmail("john@example.com")).thenReturn(true);
 
@@ -127,7 +134,7 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("login: correct credentials returns tokens")
     void login_happy() {
-        var req = new LoginRequest("john","pass");
+        var req = new LoginRequest("john", "pass");
         Authentication auth = mock(Authentication.class);
         when(authManager.authenticate(any()))
                 .thenReturn(auth);
@@ -151,7 +158,7 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("login: invalid credentials yields UnauthorizedException")
     void login_badCredits() {
-        var req = new LoginRequest("john","wrong");
+        var req = new LoginRequest("john", "wrong");
         when(authManager.authenticate(any()))
                 .thenThrow(new BadCredentialsException("Bad creds"));
 

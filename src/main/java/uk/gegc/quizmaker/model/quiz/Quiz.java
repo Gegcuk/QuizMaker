@@ -102,11 +102,11 @@ public class Quiz {
 
     @ManyToMany(
             fetch = FetchType.LAZY,
-            cascade = { CascadeType.PERSIST, CascadeType.MERGE }
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
     )
     @JoinTable(
             name = "quiz_questions",
-            joinColumns        = @JoinColumn(name = "quiz_id"),
+            joinColumns = @JoinColumn(name = "quiz_id"),
             inverseJoinColumns = @JoinColumn(name = "question_id"))
     private Set<Question> questions = new HashSet<>();
 
@@ -115,7 +115,7 @@ public class Quiz {
         if (isDeleted == null) {
             isDeleted = false;
         }
-        if(status == null){
+        if (status == null) {
             status = QuizStatus.DRAFT;
         }
     }

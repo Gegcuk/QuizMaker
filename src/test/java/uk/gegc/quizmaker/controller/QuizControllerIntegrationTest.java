@@ -20,6 +20,9 @@ import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 import uk.gegc.quizmaker.dto.quiz.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.attempt.AttemptMode;
+import uk.gegc.quizmaker.model.attempt.AttemptStatus;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
@@ -59,13 +62,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("Integration Tests QuizController")
 class QuizControllerIntegrationTest {
 
-    @Autowired MockMvc mockMvc;
-    @Autowired ObjectMapper objectMapper;
-    @Autowired UserRepository userRepository;
-    @Autowired CategoryRepository categoryRepository;
-    @Autowired TagRepository tagRepository;
-    @Autowired QuestionRepository questionRepository;
-    @Autowired QuizRepository quizRepository;
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
+    @Autowired
+    UserRepository userRepository;
+    @Autowired
+    CategoryRepository categoryRepository;
+    @Autowired
+    TagRepository tagRepository;
+    @Autowired
+    QuestionRepository questionRepository;
+    @Autowired
+    QuizRepository quizRepository;
     @Autowired
     AttemptRepository attemptRepository;
     @Autowired
@@ -206,15 +216,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes with only required fields -> returns 201 CREATED")
     void createQuiz_requiredFields_adminReturns201() throws Exception {
         String json = """
-        {
-          "title":"Quick Quiz",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Quick Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -227,14 +237,14 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes missing title -> returns 400 BAD_REQUEST")
     void createQuiz_missingTitle_returns400() throws Exception {
         String json = """
-        {
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -247,15 +257,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes title too short returns 400 BAD_REQUEST")
     void createQuiz_titleTooShort_returns400() throws Exception {
         String json = """
-        {
-          "title":"ab",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"ab",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -269,15 +279,15 @@ class QuizControllerIntegrationTest {
     void createQuiz_titleTooLong_returns400() throws Exception {
         String longTitle = "x".repeat(101);
         String json = """
-        {
-          "title":"%s",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(longTitle, categoryId);
+                {
+                  "title":"%s",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(longTitle, categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -291,16 +301,16 @@ class QuizControllerIntegrationTest {
     void createQuiz_descriptionTooLong_returns400() throws Exception {
         String longDesc = "d".repeat(1001);
         String json = """
-        {
-          "title":"Valid Quiz",
-          "description":"%s",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(longDesc, categoryId);
+                {
+                  "title":"Valid Quiz",
+                  "description":"%s",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(longDesc, categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -315,15 +325,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes with estimatedTime < 1 -> returns 400 BAD_REQUEST")
     void createQuiz_estimatedTimeTooLow_returns400() throws Exception {
         String json = """
-        {
-          "title":"Valid Quiz",
-          "estimatedTime":0,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Valid Quiz",
+                  "estimatedTime":0,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -338,15 +348,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes with estimatedTime > 180 -> returns 400 BAD_REQUEST")
     void createQuiz_estimatedTimeTooHigh_returns400() throws Exception {
         String json = """
-        {
-          "title":"Valid Quiz",
-          "estimatedTime":181,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Valid Quiz",
+                  "estimatedTime":181,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -361,15 +371,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes with timerDuration < 1 ->  returns 400 BAD_REQUEST")
     void createQuiz_timerDurationTooLow_returns400() throws Exception {
         String json = """
-        {
-          "title":"Valid Quiz",
-          "estimatedTime":10,
-          "timerDuration":0,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Valid Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":0,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -384,15 +394,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes with timerDuration > 180 -> returns 400 BAD_REQUEST")
     void createQuiz_timerDurationTooHigh_returns400() throws Exception {
         String json = """
-        {
-          "title":"Valid Quiz",
-          "estimatedTime":10,
-          "timerDuration":181,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Valid Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":181,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -408,16 +418,16 @@ class QuizControllerIntegrationTest {
     void createQuiz_unknownTagId_returns404() throws Exception {
         UUID badTag = UUID.randomUUID();
         String json = """
-        {
-          "title":"Valid Quiz",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "tagIds":["%s"],
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId, badTag);
+                {
+                  "title":"Valid Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "tagIds":["%s"],
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId, badTag);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -432,15 +442,15 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes anonymous -> returns 401 UNAUTHORIZED")
     void createQuiz_anonymous_returns401() throws Exception {
         String json = """
-        {
-          "title":"Quiz",
-          "estimatedTime":10,
-          "timerDuration":5,
-          "categoryId":"%s",
-          "isRepetitionEnabled":false,
-          "timerEnabled":false
-        }
-        """.formatted(categoryId);
+                {
+                  "title":"Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(categoryId);
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -498,12 +508,13 @@ class QuizControllerIntegrationTest {
                 .andExpect(jsonPath("$.totalElements", is(0)))
                 .andExpect(jsonPath("$.size", is(5)))
                 .andExpect(jsonPath("$.number", is(0)))
-                .andExpect(jsonPath("$.content", hasSize(0)));;
+                .andExpect(jsonPath("$.content", hasSize(0)));
+        ;
     }
 
     @Test
     @DisplayName("GET /api/v1/quizzes/{id} with non existing id -> returns 404 NOT FOUND")
-    void getNonexistingQuiz_returns404() throws Exception{
+    void getNonexistingQuiz_returns404() throws Exception {
         UUID dummyId = UUID.randomUUID();
 
         mockMvc.perform(get("/api/v1/quizzes/{id}", dummyId))
@@ -575,12 +586,12 @@ class QuizControllerIntegrationTest {
         UUID quizId = UUID.fromString(objectMapper.readTree(body).get("quizId").asText());
 
         String partialJson = """
-        {
-          "title":"Updated Title",
-          "estimatedTime":15,
-          "timerDuration":7
-        }
-        """;
+                {
+                  "title":"Updated Title",
+                  "estimatedTime":15,
+                  "timerDuration":7
+                }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(partialJson))
@@ -602,8 +613,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_titleTooShort_returns400() throws Exception {
         UUID id = createSampleQuiz();
         String json = """
-        { "title":"ab" }
-        """;
+                { "title":"ab" }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -617,8 +628,8 @@ class QuizControllerIntegrationTest {
         UUID id = createSampleQuiz();
         String longTitle = "x".repeat(101);
         String json = """
-        { "title":"%s" }
-        """.formatted(longTitle);
+                { "title":"%s" }
+                """.formatted(longTitle);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -632,8 +643,8 @@ class QuizControllerIntegrationTest {
         UUID id = createSampleQuiz();
         String longDesc = "d".repeat(1001);
         String json = """
-        { "description":"%s" }
-        """.formatted(longDesc);
+                { "description":"%s" }
+                """.formatted(longDesc);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -646,8 +657,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_estimatedTimeTooLow_returns400() throws Exception {
         UUID quizId = createSampleQuiz();
         String json = """
-        { "estimatedTime": 0 }
-        """;
+                { "estimatedTime": 0 }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -660,8 +671,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_estimatedTimeTooHigh_returns400() throws Exception {
         UUID quizId = createSampleQuiz();
         String json = """
-        { "estimatedTime": 181 }
-        """;
+                { "estimatedTime": 181 }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -674,8 +685,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_timerDurationTooLow_returns400() throws Exception {
         UUID quizId = createSampleQuiz();
         String json = """
-        { "timerDuration": 0 }
-        """;
+                { "timerDuration": 0 }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -688,8 +699,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_timerDurationTooHigh_returns400() throws Exception {
         UUID quizId = createSampleQuiz();
         String json = """
-        { "timerDuration": 181 }
-        """;
+                { "timerDuration": 181 }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -702,8 +713,8 @@ class QuizControllerIntegrationTest {
     void updateQuiz_nonexistentId_returns404() throws Exception {
         UUID missing = UUID.randomUUID();
         String json = """
-        { "title":"Valid Title" }
-        """;
+                { "title":"Valid Title" }
+                """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", missing)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -717,8 +728,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
         UUID badTag = UUID.randomUUID();
         String json = """
-        { "tagIds":["%s"] }
-        """.formatted(badTag);
+                { "tagIds":["%s"] }
+                """.formatted(badTag);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -732,8 +743,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
         UUID badCat = UUID.randomUUID();
         String json = """
-        { "categoryId":"%s" }
-        """.formatted(badCat);
+                { "categoryId":"%s" }
+                """.formatted(badCat);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -848,7 +859,7 @@ class QuizControllerIntegrationTest {
         String quizBody = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new CreateQuizRequest("ResultsQuiz","desc", null, null, false, false, 5, 2, categoryId, List.of())
+                                new CreateQuizRequest("ResultsQuiz", "desc", null, null, false, false, 5, 2, categoryId, List.of())
                         )))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -948,8 +959,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
 
         String body = """
-        { "isPublic": true }
-        """;
+                { "isPublic": true }
+                """;
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -964,8 +975,8 @@ class QuizControllerIntegrationTest {
     void changeVisibility_nonexistentQuiz_returns404() throws Exception {
         UUID missing = UUID.randomUUID();
         String body = """
-        { "isPublic": false }
-        """;
+                { "isPublic": false }
+                """;
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", missing)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1181,6 +1192,158 @@ class QuizControllerIntegrationTest {
         assertEquals(Difficulty.HARD, quizRepository.findById(valid).get().getDifficulty());
     }
 
+    @Test
+    @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard with participants -> returns ordered list")
+    void getQuizLeaderboard_basic() throws Exception {
+        UUID quizId = createSampleQuiz();
+
+        User alice = new User();
+        alice.setUsername("alice");
+        alice.setEmail("alice@example.com");
+        alice.setHashedPassword("pw");
+        alice.setActive(true);
+        alice.setDeleted(false);
+        userRepository.save(alice);
+
+        User bob = new User();
+        bob.setUsername("bob");
+        bob.setEmail("bob@example.com");
+        bob.setHashedPassword("pw");
+        bob.setActive(true);
+        bob.setDeleted(false);
+        userRepository.save(bob);
+
+        User carol = new User();
+        carol.setUsername("carol");
+        carol.setEmail("carol@example.com");
+        carol.setHashedPassword("pw");
+        carol.setActive(true);
+        carol.setDeleted(false);
+        userRepository.save(carol);
+
+        var quiz = quizRepository.findById(quizId).get();
+
+        Attempt a1 = new Attempt();
+        a1.setUser(alice);
+        a1.setQuiz(quiz);
+        a1.setMode(AttemptMode.ALL_AT_ONCE);
+        a1.setStatus(AttemptStatus.COMPLETED);
+        a1.setTotalScore(95.0);
+
+        Attempt a2 = new Attempt();
+        a2.setUser(bob);
+        a2.setQuiz(quiz);
+        a2.setMode(AttemptMode.ALL_AT_ONCE);
+        a2.setStatus(AttemptStatus.COMPLETED);
+        a2.setTotalScore(85.0);
+
+        Attempt a3 = new Attempt();
+        a3.setUser(carol);
+        a3.setQuiz(quiz);
+        a3.setMode(AttemptMode.ALL_AT_ONCE);
+        a3.setStatus(AttemptStatus.COMPLETED);
+        a3.setTotalScore(75.0);
+
+        attemptRepository.save(a1);
+        attemptRepository.save(a2);
+        attemptRepository.save(a3);
+
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
+                        .param("top", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].userId", is(alice.getId().toString())))
+                .andExpect(jsonPath("$[0].bestScore", is(95.0)))
+                .andExpect(jsonPath("$[1].userId", is(bob.getId().toString())));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard -> handles ties and short list")
+    void getQuizLeaderboard_tiesAndShortList() throws Exception {
+        UUID quizId = createSampleQuiz();
+
+        User u1 = new User();
+        u1.setUsername("u1");
+        u1.setEmail("u1@example.com");
+        u1.setHashedPassword("pw");
+        u1.setActive(true);
+        u1.setDeleted(false);
+        userRepository.save(u1);
+
+        User u2 = new User();
+        u2.setUsername("u2");
+        u2.setEmail("u2@example.com");
+        u2.setHashedPassword("pw");
+        u2.setActive(true);
+        u2.setDeleted(false);
+        userRepository.save(u2);
+
+        var quiz = quizRepository.findById(quizId).get();
+
+        Attempt t1 = new Attempt();
+        t1.setUser(u1);
+        t1.setQuiz(quiz);
+        t1.setMode(AttemptMode.ALL_AT_ONCE);
+        t1.setStatus(AttemptStatus.COMPLETED);
+        t1.setTotalScore(50.0);
+
+        Attempt t2 = new Attempt();
+        t2.setUser(u2);
+        t2.setQuiz(quiz);
+        t2.setMode(AttemptMode.ALL_AT_ONCE);
+        t2.setStatus(AttemptStatus.COMPLETED);
+        t2.setTotalScore(50.0);
+
+        attemptRepository.save(t1);
+        attemptRepository.save(t2);
+
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
+                        .param("top", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[*].bestScore", everyItem(is(50.0))))
+                .andExpect(jsonPath("$[*].userId", containsInAnyOrder(
+                        u1.getId().toString(), u2.getId().toString())));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard when no attempts -> returns empty list")
+    void getQuizLeaderboard_noAttempts_returnsEmpty() throws Exception {
+        UUID quizId = createSampleQuiz();
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard with top<=0 returns empty list")
+    void getQuizLeaderboard_negativeTop_returnsEmpty() throws Exception {
+        UUID quizId = createSampleQuiz();
+        User def = userRepository.findByUsername("defaultUser").get();
+        var quiz = quizRepository.findById(quizId).get();
+
+        Attempt att = new Attempt();
+        att.setUser(def);
+        att.setQuiz(quiz);
+        att.setMode(AttemptMode.ALL_AT_ONCE);
+        att.setStatus(AttemptStatus.COMPLETED);
+        att.setTotalScore(42.0);
+        attemptRepository.save(att);
+
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
+                        .param("top", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard with non-existent quiz -> returns 404")
+    void getQuizLeaderboard_nonexistentQuiz_returns404() throws Exception {
+        UUID missing = UUID.randomUUID();
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", missing))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
+    }
 
     private UUID createSampleQuiz() throws Exception {
         CreateQuizRequest req = new CreateQuizRequest(

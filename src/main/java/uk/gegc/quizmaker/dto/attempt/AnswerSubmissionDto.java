@@ -25,4 +25,5 @@ public record AnswerSubmissionDto(
 
         @Schema(description = "Next question in ONE_BY_ONE mode, if any")
         QuestionDto nextQuestion
-) {}
+) {
+}

@@ -39,12 +39,12 @@ public class JwtTokenProvider {
     private SecretKey key;
 
     @PostConstruct
-    public void init(){
+    public void init() {
         byte[] keyBytes = Decoders.BASE64.decode(base64secret);
         this.key = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    public String generateAccessToken(Authentication authentication){
+    public String generateAccessToken(Authentication authentication) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + accessTokenValidityInMs);
 
@@ -57,7 +57,7 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public String generateRefreshToken(Authentication authentication){
+    public String generateRefreshToken(Authentication authentication) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + refreshTokenValidityInMs);
 
@@ -70,7 +70,7 @@ public class JwtTokenProvider {
                 .compact();
     }
 
-    public Authentication getAuthentication(String token){
+    public Authentication getAuthentication(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
                 .build()
@@ -82,20 +82,20 @@ public class JwtTokenProvider {
         return new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
     }
 
-    public boolean validateToken(String token){
-        try{
+    public boolean validateToken(String token) {
+        try {
             Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
             return true;
-        } catch (JwtException | IllegalArgumentException exception){
+        } catch (JwtException | IllegalArgumentException exception) {
             return false;
         }
     }
 
-    public String getUsername(String token){
+    public String getUsername(String token) {
         return Jwts.parser()
                 .verifyWith(key)
                 .build()
@@ -104,7 +104,7 @@ public class JwtTokenProvider {
                 .getSubject();
     }
 
-    public Claims getClaims(String token){
+    public Claims getClaims(String token) {
         return Jwts.parser()
                 .verifyWith(key)
                 .build()

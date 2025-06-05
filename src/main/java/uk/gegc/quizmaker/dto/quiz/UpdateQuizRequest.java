@@ -3,7 +3,6 @@ package uk.gegc.quizmaker.dto.quiz;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.quiz.Visibility;
@@ -80,4 +79,5 @@ public record UpdateQuizRequest(
         )
         List<UUID> tagIds
 
-) {}
+) {
+}

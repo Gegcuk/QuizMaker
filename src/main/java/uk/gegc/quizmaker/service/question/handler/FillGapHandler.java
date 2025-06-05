@@ -48,13 +48,13 @@ public class FillGapHandler extends QuestionHandler {
                               Question question,
                               JsonNode content,
                               JsonNode response) {
-        Map<Integer,String> correct = StreamSupport.stream(content.get("gaps").spliterator(), false)
+        Map<Integer, String> correct = StreamSupport.stream(content.get("gaps").spliterator(), false)
                 .collect(Collectors.toMap(
                         gap -> gap.get("id").asInt(),
                         gap -> gap.get("answer").asText().trim().toLowerCase()
                 ));
 
-        Map<Integer,String> given = StreamSupport.stream(response.get("gaps").spliterator(), false)
+        Map<Integer, String> given = StreamSupport.stream(response.get("gaps").spliterator(), false)
                 .collect(Collectors.toMap(
                         gap -> gap.get("id").asInt(),
                         gap -> gap.get("answer").asText().trim().toLowerCase()

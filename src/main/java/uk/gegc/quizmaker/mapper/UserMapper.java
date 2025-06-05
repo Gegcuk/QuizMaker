@@ -18,7 +18,7 @@ public class UserMapper {
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
 
-    public UserDto toDto(User user){
+    public UserDto toDto(User user) {
         return new UserDto(
                 user.getId(),
                 user.getUsername(),

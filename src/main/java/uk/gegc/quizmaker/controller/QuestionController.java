@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.service.question.QuestionService;
 
 import java.util.Map;
 import java.util.UUID;
+
 @Tag(
         name = "Questions",
         description = "Operations for managing quiz questions"
@@ -41,7 +42,7 @@ public class QuestionController {
     @Operation(
             summary = "Create a question",
             description = "Add a new question (ADMIN only)",
-            tags = { "Questions" }
+            tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Question created"),
@@ -68,7 +69,7 @@ public class QuestionController {
     @Operation(
             summary = "List questions",
             description = "Get a page of questions, optionally filtered by quizId",
-            tags = { "Questions" }
+            tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page of questions returned")
@@ -103,7 +104,7 @@ public class QuestionController {
     @Operation(
             summary = "Get question by ID",
             description = "Retrieve a single question by its UUID",
-            tags = { "Questions" }
+            tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Question returned"),
@@ -120,7 +121,7 @@ public class QuestionController {
     @Operation(
             summary = "Update a question",
             description = "Modify an existing question (ADMIN only)",
-            tags = { "Questions" }
+            tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Question updated"),
@@ -151,7 +152,7 @@ public class QuestionController {
     @Operation(
             summary = "Delete a question",
             description = "Remove a question by its UUID (ADMIN only)",
-            tags = { "Questions" }
+            tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Question deleted"),

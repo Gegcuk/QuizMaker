@@ -29,7 +29,7 @@ public class QuizUserDetailsServiceTest {
 
     @Test
     @DisplayName("loadUserByUsername: happy when user exists by username")
-    void loadUserByUsername_happy(){
+    void loadUserByUsername_happy() {
         User user = new User();
         user.setUsername("johndoe");
         user.setHashedPassword("hashedPassword");

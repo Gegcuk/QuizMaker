@@ -32,4 +32,5 @@ public record UserDto(
 
         @Schema(description = "Last update timestamp", example = "2025-05-21T16:10:00")
         LocalDateTime updatedAt
-) {}
+) {
+}

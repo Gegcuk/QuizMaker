@@ -14,4 +14,5 @@ public record TagDto(
 
         @Schema(description = "Optional description of the tag", example = "Questions related to mathematics")
         String description
-) {}
+) {
+}

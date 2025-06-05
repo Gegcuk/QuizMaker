@@ -33,4 +33,5 @@ public record AttemptDetailsDto(
 
         @Schema(description = "List of submitted answers")
         List<AnswerSubmissionDto> answers
-) {}
+) {
+}

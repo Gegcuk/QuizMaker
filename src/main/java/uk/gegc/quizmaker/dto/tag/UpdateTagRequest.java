@@ -12,4 +12,5 @@ public record UpdateTagRequest(
         @Schema(description = "New description for the tag", example = "Questions about historical events")
         @Size(max = 1000, message = "Tag description must be less than 1000 characters")
         String description
-) {}
+) {
+}
