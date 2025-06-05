@@ -17,6 +17,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
+import uk.gegc.quizmaker.dto.quiz.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.model.category.Category;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -1134,6 +1136,49 @@ class QuizControllerIntegrationTest {
                         .param("ids", id.toString())
                         .with(user("user").roles("USER")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/bulk-update with valid IDs -> returns successes")
+    void bulkUpdate_allValid_returns200() throws Exception {
+        UUID first = createSampleQuiz("BulkOne");
+        UUID second = createSampleQuiz("BulkTwo");
+
+        String body = objectMapper.writeValueAsString(
+                new BulkQuizUpdateRequest(List.of(first, second),
+                        new UpdateQuizRequest(null, null, null, Difficulty.HARD,
+                                null, null, null, null, null, null)));
+
+        mockMvc.perform(patch("/api/v1/quizzes/bulk-update")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successfulIds", hasSize(2)))
+                .andExpect(jsonPath("$.failures", aMapWithSize(0)));
+
+        assertEquals(Difficulty.HARD, quizRepository.findById(first).get().getDifficulty());
+        assertEquals(Difficulty.HARD, quizRepository.findById(second).get().getDifficulty());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/bulk-update with mix of valid and invalid IDs -> returns partial result")
+    void bulkUpdate_partialFailure_returns200() throws Exception {
+        UUID valid = createSampleQuiz("Valid");
+        UUID missing = UUID.randomUUID();
+
+        String body = objectMapper.writeValueAsString(
+                new BulkQuizUpdateRequest(List.of(valid, missing),
+                        new UpdateQuizRequest(null, null, null, Difficulty.HARD,
+                                null, null, null, null, null, null)));
+
+        mockMvc.perform(patch("/api/v1/quizzes/bulk-update")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successfulIds", hasItem(valid.toString())))
+                .andExpect(jsonPath("$.failures['" + missing + "']", containsString("not found")));
+
+        assertEquals(Difficulty.HARD, quizRepository.findById(valid).get().getDifficulty());
     }
 
 

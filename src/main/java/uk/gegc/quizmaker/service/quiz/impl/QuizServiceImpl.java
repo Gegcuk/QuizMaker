@@ -7,10 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.dto.quiz.QuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
-import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.category.Category;
@@ -26,10 +23,7 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -91,13 +85,13 @@ public class QuizServiceImpl implements QuizService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
 
-        Category category = null;
+        Category category;
         if (req.categoryId() != null) {
             category = categoryRepository.findById(req.categoryId())
                     .orElseThrow(() ->
                             new ResourceNotFoundException("Category " + req.categoryId() + " not found"));
         } else {
-            category = quiz.getCategory();  // keep existing category when none provided
+            category = quiz.getCategory();
         }
 
         Set<Tag> tags = Optional.ofNullable(req.tagIds())
@@ -129,6 +123,23 @@ public class QuizServiceImpl implements QuizService {
         if (!existing.isEmpty()) {
             quizRepository.deleteAll(existing);
         }
+    }
+
+    @Override
+    public BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request) {
+        List<UUID> successes = new ArrayList<>();
+        Map<UUID, String> failures = new HashMap<>();
+
+        for (UUID id : request.quizIds()) {
+            try {
+                updateQuiz(username, id, request.update());
+                successes.add(id);
+            } catch (Exception ex) {
+                failures.put(id, ex.getMessage());
+            }
+        }
+
+        return new BulkQuizUpdateOperationResultDto(successes, failures);
     }
 
     @Override

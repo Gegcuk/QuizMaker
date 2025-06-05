@@ -13,7 +13,7 @@ import java.util.UUID;
 public record AnswerSubmissionRequest(
         @Schema(
                 description = "UUID of the question to answer",
-                required = true,
+                requiredMode = Schema.RequiredMode.REQUIRED,
                 example = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
         )
         @NotNull(message = "Question ID is required")
@@ -21,7 +21,7 @@ public record AnswerSubmissionRequest(
 
         @Schema(
                 description = "The actual response payload for the question",
-                required = true,
+                requiredMode = Schema.RequiredMode.REQUIRED,
                 example = "{\"answer\":true}"
         )
         @NotNull(message = "Response payload must not be null")

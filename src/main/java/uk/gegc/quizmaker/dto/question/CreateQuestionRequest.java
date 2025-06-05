@@ -23,17 +23,17 @@ import java.util.UUID;
 @NoArgsConstructor
 public class CreateQuestionRequest implements QuestionContentRequest {
 
-    @Schema(description = "Type of the question", required = true, example = "TRUE_FALSE")
+    @Schema(description = "Type of the question", requiredMode = Schema.RequiredMode.REQUIRED, example = "TRUE_FALSE")
     @NotNull(message = "Type must not be null")
     private QuestionType type;
 
-    @Schema(description = "Difficulty level", required = true, example = "EASY")
+    @Schema(description = "Difficulty level", requiredMode = Schema.RequiredMode.REQUIRED, example = "EASY")
     @NotNull(message = "Difficulty must not be null")
     private Difficulty difficulty;
 
     @Schema(
             description = "Question text",
-            required = true,
+            requiredMode = Schema.RequiredMode.REQUIRED,
             example = "What is the capital of France?"
     )
     @NotBlank(message = "Question text must not be blank")
@@ -42,7 +42,7 @@ public class CreateQuestionRequest implements QuestionContentRequest {
 
     @Schema(
             description = "Content JSON specific to the question type",
-            required = true,
+            requiredMode = Schema.RequiredMode.REQUIRED,
             type = "object"
     )
     @NotNull(message = "Content must not be null")

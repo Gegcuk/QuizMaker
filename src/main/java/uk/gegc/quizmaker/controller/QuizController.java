@@ -118,6 +118,25 @@ public class QuizController {
     }
 
     @Operation(
+            summary = "Bulk update quizzes",
+            description = "ADMIN only. Update multiple quizzes in one request."
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "Bulk update payload",
+            required = true,
+            content = @Content(schema = @Schema(implementation = BulkQuizUpdateRequest.class))
+    )
+    @PatchMapping("/bulk-update")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BulkQuizUpdateOperationResultDto> bulkUpdateQuizzes(
+            @RequestBody @Valid BulkQuizUpdateRequest request,
+            Authentication authentication
+    ){
+        BulkQuizUpdateOperationResultDto resultDto = quizService.bulkUpdateQuiz(authentication.getName(), request);
+        return ResponseEntity.ok(resultDto);
+    }
+
+    @Operation(
             summary = "Delete a quiz",
             description = "ADMIN only. Permanently deletes the quiz."
     )
