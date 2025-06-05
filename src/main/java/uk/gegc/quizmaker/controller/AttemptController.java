@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.service.attempt.AttemptService;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
 @Tag(name = "Attempts", description = "Endpoints for managing quiz attempts")
 @RestController
 @RequestMapping("/api/v1/attempts")

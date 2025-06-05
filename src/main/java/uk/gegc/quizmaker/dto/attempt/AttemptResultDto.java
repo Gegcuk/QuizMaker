@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+
 @Schema(name = "AttemptResultDto", description = "Summary of results after completing an attempt")
 public record AttemptResultDto(
         @Schema(description = "UUID of the attempt", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
@@ -33,4 +34,5 @@ public record AttemptResultDto(
 
         @Schema(description = "Detailed answers submitted")
         List<AnswerSubmissionDto> answers
-) {}
+) {
+}

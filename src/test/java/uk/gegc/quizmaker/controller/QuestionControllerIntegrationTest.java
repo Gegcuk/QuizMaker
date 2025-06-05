@@ -51,20 +51,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class QuestionControllerIntegrationTest {
 
     @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
     QuestionRepository questionRepository;
-
     @Autowired
     QuizRepository quizRepository;
-
     @Autowired
     CategoryRepository categoryRepository;
-
     @Autowired
     UserRepository userRepository;
-
+    @Autowired
+    private MockMvc mockMvc;
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -260,12 +255,12 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("POST /api/v1/questions missing type returns 400 BAD_REQUEST")
     void createQuestion_missingType_returns400() throws Exception {
         String missingType = """
-            {
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true}
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -279,12 +274,12 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("POST /api/v1/questions missing difficulty returns 400 BAD_REQUEST")
     void createQuestion_missingDifficulty_returns400() throws Exception {
         String missingDifficulty = """
-            {
-              "type":"TRUE_FALSE",
-              "questionText":"Is this correct?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true}
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -298,12 +293,12 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("POST /api/v1/questions missing questionText returns 400 BAD_REQUEST")
     void createQuestion_missingQuestionText_returns400() throws Exception {
         String missingText = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "content":{"answer":true}
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -317,13 +312,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("POST /api/v1/questions questionText too short returns 400 BAD_REQUEST")
     void createQuestion_questionTextTooShort_returns400() throws Exception {
         String tooShort = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Hi",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Hi",
+                  "content":{"answer":true}
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -338,13 +333,13 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_questionTextTooLong_returns400() throws Exception {
         String longText = "A".repeat(1001);
         String tooLong = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"%s",
-              "content":{"answer":true}
-            }
-            """.formatted(longText);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"%s",
+                  "content":{"answer":true}
+                }
+                """.formatted(longText);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -358,13 +353,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("POST /api/v1/questions content null returns 400 BAD_REQUEST")
     void createQuestion_contentNull_returns400() throws Exception {
         String nullContent = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":null
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":null
+                }
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -379,12 +374,12 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_malformedJson_returns400() throws Exception {
         // missing closing brace
         String badJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true}
-        """;
+                    {
+                      "type":"TRUE_FALSE",
+                      "difficulty":"EASY",
+                      "questionText":"Is this correct?",
+                      "content":{"answer":true}
+                """;
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -399,14 +394,14 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_hintTooLong_returns400() throws Exception {
         String longHint = "a".repeat(501);
         String json = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true},
-              "hint":"%s"
-            }
-            """.formatted(longHint);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true},
+                  "hint":"%s"
+                }
+                """.formatted(longHint);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -423,14 +418,14 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_explanationTooLong_returns400() throws Exception {
         String longExplanation = "e".repeat(2001);
         String json = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true},
-              "explanation":"%s"
-            }
-            """.formatted(longExplanation);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true},
+                  "explanation":"%s"
+                }
+                """.formatted(longExplanation);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -447,14 +442,14 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_attachmentUrlTooLong_returns400() throws Exception {
         String longUrl = "http://" + "a".repeat(2050) + ".com";
         String json = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true},
-              "attachmentUrl":"%s"
-            }
-            """.formatted(longUrl);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true},
+                  "attachmentUrl":"%s"
+                }
+                """.formatted(longUrl);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -471,14 +466,14 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_unknownQuizId_returns404() throws Exception {
         String badQuizId = UUID.randomUUID().toString();
         String json = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true},
-              "quizIds":["%s"]
-            }
-            """.formatted(badQuizId);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true},
+                  "quizIds":["%s"]
+                }
+                """.formatted(badQuizId);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -495,14 +490,14 @@ public class QuestionControllerIntegrationTest {
     void createQuestion_unknownTagId_returns404() throws Exception {
         String badTagId = UUID.randomUUID().toString();
         String json = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Is this correct?",
-              "content":{"answer":true},
-              "tagIds":["%s"]
-            }
-            """.formatted(badTagId);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Is this correct?",
+                  "content":{"answer":true},
+                  "tagIds":["%s"]
+                }
+                """.formatted(badTagId);
 
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -655,13 +650,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("GET /api/v1/questions/{id} existing ID as anonymous returns 200 OK with QuestionDto")
     void getQuestion_existingId_anonymousReturns200() throws Exception {
         String payload = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Fetch me!",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Fetch me!",
+                  "content":{"answer":true}
+                }
+                """;
 
         String response = mockMvc.perform(post("/api/v1/questions")
                         .with(user("admin").roles("ADMIN"))
@@ -697,13 +692,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} with all fields returns 200 OK with updated JSON")
     void updateQuestion_allFields_adminReturns200() throws Exception {
         String createJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Original?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Original?",
+                  "content":{"answer":true}
+                }
+                """;
         String createResp = mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createJson))
@@ -712,18 +707,18 @@ public class QuestionControllerIntegrationTest {
         UUID qid = UUID.fromString(objectMapper.readTree(createResp).get("questionId").asText());
 
         String updateJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"HARD",
-              "questionText":"Updated?",
-              "content":{"answer":false},
-              "hint":"New hint",
-              "explanation":"New explanation",
-              "attachmentUrl":"http://example.com/img.png",
-              "quizIds":[],
-              "tagIds":[]
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"HARD",
+                  "questionText":"Updated?",
+                  "content":{"answer":false},
+                  "hint":"New hint",
+                  "explanation":"New explanation",
+                  "attachmentUrl":"http://example.com/img.png",
+                  "quizIds":[],
+                  "tagIds":[]
+                }
+                """;
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updateJson))
@@ -740,13 +735,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} with only required fields returns 200 OK")
     void updateQuestion_requiredFields_adminReturns200() throws Exception {
         String createJson = """
-            {
-              "type":"MCQ_SINGLE",
-              "difficulty":"MEDIUM",
-              "questionText":"Pick one",
-              "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
-            }
-            """;
+                {
+                  "type":"MCQ_SINGLE",
+                  "difficulty":"MEDIUM",
+                  "questionText":"Pick one",
+                  "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
+                }
+                """;
         String createResp = mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createJson))
@@ -755,13 +750,13 @@ public class QuestionControllerIntegrationTest {
         UUID qid = UUID.fromString(objectMapper.readTree(createResp).get("questionId").asText());
 
         String reqJson = """
-            {
-              "type":"MCQ_SINGLE",
-              "difficulty":"MEDIUM",
-              "questionText":"Pick B",
-              "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
-            }
-            """;
+                {
+                  "type":"MCQ_SINGLE",
+                  "difficulty":"MEDIUM",
+                  "questionText":"Pick B",
+                  "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
+                }
+                """;
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(reqJson))
@@ -777,13 +772,13 @@ public class QuestionControllerIntegrationTest {
     void updateQuestion_anonymousReturns401() throws Exception {
         UUID randomId = UUID.randomUUID();
         String body = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Should fail",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Should fail",
+                  "content":{"answer":true}
+                }
+                """;
         mockMvc.perform(patch("/api/v1/questions/{id}", randomId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -795,13 +790,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} with USER role returns 403 FORBIDDEN")
     void updateQuestion_userRoleReturns403() throws Exception {
         String createJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Original?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Original?",
+                  "content":{"answer":true}
+                }
+                """;
         String resp = mockMvc.perform(post("/api/v1/questions")
                         .with(user("admin").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -811,13 +806,13 @@ public class QuestionControllerIntegrationTest {
         UUID qid = UUID.fromString(objectMapper.readTree(resp).get("questionId").asText());
 
         String updateJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"HARD",
-              "questionText":"Should not work",
-              "content":{"answer":false}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"HARD",
+                  "questionText":"Should not work",
+                  "content":{"answer":false}
+                }
+                """;
 
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)
                         .with(user("bob").roles("USER"))
@@ -832,13 +827,13 @@ public class QuestionControllerIntegrationTest {
     void updateQuestion_nonexistentIdReturns404() throws Exception {
         UUID missing = UUID.randomUUID();
         String body = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Doesn't matter",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Doesn't matter",
+                  "content":{"answer":true}
+                }
+                """;
 
         mockMvc.perform(patch("/api/v1/questions/{id}", missing)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -853,13 +848,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} invalid body returns 400 BAD_REQUEST")
     void updateQuestion_invalidPayloadReturns400(String name, String jsonPayload) throws Exception {
         String create = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Foo?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Foo?",
+                  "content":{"answer":true}
+                }
+                """;
         String resp = mockMvc.perform(post("/api/v1/questions")
                         .with(user("admin").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -879,13 +874,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} unknown quizIds returns 404 NOT_FOUND")
     void updateQuestion_unknownQuizIdsReturns404() throws Exception {
         String create = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Question?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Question?",
+                  "content":{"answer":true}
+                }
+                """;
         String resp = mockMvc.perform(post("/api/v1/questions")
                         .with(user("admin").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -896,14 +891,14 @@ public class QuestionControllerIntegrationTest {
 
         UUID badQuiz = UUID.randomUUID();
         String update = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"With bad quiz",
-              "content":{"answer":true},
-              "quizIds":["%s"]
-            }
-            """.formatted(badQuiz);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"With bad quiz",
+                  "content":{"answer":true},
+                  "quizIds":["%s"]
+                }
+                """.formatted(badQuiz);
 
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -917,13 +912,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/questions/{id} unknown tagIds returns 404 NOT_FOUND")
     void updateQuestion_unknownTagIdsReturns404() throws Exception {
         String create = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Question?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Question?",
+                  "content":{"answer":true}
+                }
+                """;
         String resp = mockMvc.perform(post("/api/v1/questions")
                         .with(user("admin").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -934,14 +929,14 @@ public class QuestionControllerIntegrationTest {
 
         UUID badTag = UUID.randomUUID();
         String update = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"With bad tag",
-              "content":{"answer":true},
-              "tagIds":["%s"]
-            }
-            """.formatted(badTag);
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"With bad tag",
+                  "content":{"answer":true},
+                  "tagIds":["%s"]
+                }
+                """.formatted(badTag);
 
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -995,13 +990,13 @@ public class QuestionControllerIntegrationTest {
     @DisplayName("DELETE /api/v1/questions/{id} (ADMIN) existing → 204 and subsequent GET → 404")
     void deleteQuestion_existingId_adminReturns204ThenGet404() throws Exception {
         String createJson = """
-            {
-              "type":"TRUE_FALSE",
-              "difficulty":"EASY",
-              "questionText":"Delete me?",
-              "content":{"answer":true}
-            }
-            """;
+                {
+                  "type":"TRUE_FALSE",
+                  "difficulty":"EASY",
+                  "questionText":"Delete me?",
+                  "content":{"answer":true}
+                }
+                """;
         String resp = mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createJson))

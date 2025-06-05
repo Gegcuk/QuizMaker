@@ -10,8 +10,12 @@ import uk.gegc.quizmaker.dto.user.UserDto;
 
 public interface AuthService {
     UserDto register(@Valid RegisterRequest request);
+
     JwtResponse login(LoginRequest loginRequest);
+
     JwtResponse refresh(RefreshRequest refreshRequest);
+
     void logout(String token);
+
     UserDto getCurrentUser(Authentication authentication);
 }

@@ -24,18 +24,18 @@ public class UtilityController {
     private final HealthEndpoint healthEndpoint;
 
     @Operation(
-            summary     = "Health-check endpoint",
+            summary = "Health-check endpoint",
             description = "Returns 200 with `{ \"status\": \"UP\" }` if the service is alive"
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description  = "Always returns service health",
+                    description = "Always returns service health",
                     content = @Content(
                             mediaType = "application/json",
-                            schema    = @Schema(
+                            schema = @Schema(
                                     implementation = HealthComponent.class,
-                                    example        = "{\"status\":\"UP\"}"
+                                    example = "{\"status\":\"UP\"}"
                             )
                     )
             )

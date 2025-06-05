@@ -15,4 +15,5 @@ public record JwtResponse(
 
         @Schema(description = "Refresh token validity in milliseconds", example = "864000000")
         long refreshExpiresInMs
-) {}
+) {
+}

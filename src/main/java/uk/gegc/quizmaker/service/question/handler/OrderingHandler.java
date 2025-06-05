@@ -51,7 +51,7 @@ public class OrderingHandler extends QuestionHandler {
                 .toList();
 
         boolean isCorrect = correctOrder.equals(userOrder);
-        Answer ans        = new Answer();
+        Answer ans = new Answer();
         ans.setIsCorrect(isCorrect);
         ans.setScore(isCorrect ? 1.0 : 0.0);
         return ans;

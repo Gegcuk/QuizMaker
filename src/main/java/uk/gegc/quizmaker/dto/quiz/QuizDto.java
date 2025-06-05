@@ -60,4 +60,5 @@ public record QuizDto(
         @Schema(description = "Timestamp when the quiz was last updated", example = "2025-05-10T12:00:00Z")
         Instant updatedAt
 
-) {}
+) {
+}

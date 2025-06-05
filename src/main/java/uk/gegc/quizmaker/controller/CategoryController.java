@@ -43,7 +43,7 @@ public class CategoryController {
     @Operation(
             summary = "List categories",
             description = "Get a paginated list of categories, sorted by name ascending",
-            tags = { "Categories" }
+            tags = {"Categories"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page of categories returned")
@@ -61,7 +61,7 @@ public class CategoryController {
     @Operation(
             summary = "Create a category",
             description = "Create a new category. Requires ADMIN role.",
-            tags = { "Categories" }
+            tags = {"Categories"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Category created"),
@@ -88,7 +88,7 @@ public class CategoryController {
     @Operation(
             summary = "Get category by ID",
             description = "Retrieve a category by its UUID",
-            tags = { "Categories" }
+            tags = {"Categories"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Category returned"),
@@ -105,7 +105,7 @@ public class CategoryController {
     @Operation(
             summary = "Update a category",
             description = "Update name and/or description of an existing category. Requires ADMIN role.",
-            tags = { "Categories" }
+            tags = {"Categories"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Category updated"),
@@ -136,7 +136,7 @@ public class CategoryController {
     @Operation(
             summary = "Delete a category",
             description = "Delete a category by its UUID. Requires ADMIN role.",
-            tags = { "Categories" }
+            tags = {"Categories"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Category deleted"),

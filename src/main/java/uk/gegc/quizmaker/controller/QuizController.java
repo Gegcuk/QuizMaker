@@ -23,6 +23,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.quiz.*;
+import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
@@ -81,7 +82,6 @@ public class QuizController {
         return ResponseEntity.ok(quizPage);
     }
 
-
     @Operation(
             summary = "Get a quiz by its ID",
             description = "Returns full QuizDto; 404 if not found."
@@ -131,7 +131,7 @@ public class QuizController {
     public ResponseEntity<BulkQuizUpdateOperationResultDto> bulkUpdateQuizzes(
             @RequestBody @Valid BulkQuizUpdateRequest request,
             Authentication authentication
-    ){
+    ) {
         BulkQuizUpdateOperationResultDto resultDto = quizService.bulkUpdateQuiz(authentication.getName(), request);
         return ResponseEntity.ok(resultDto);
     }
@@ -146,7 +146,7 @@ public class QuizController {
     public void deleteQuiz(
             @Parameter(description = "UUID of the quiz to delete", required = true)
             @PathVariable UUID quizId,
-                           Authentication authentication) {
+            Authentication authentication) {
         quizService.deleteQuizById(authentication.getName(), quizId);
     }
 
@@ -263,44 +263,58 @@ public class QuizController {
     }
 
     @Operation(
-            summary     = "Toggle quiz visibility",
+            summary = "Get quiz leaderboard",
+            description = "Retrieve top participants of a quiz raked by score"
+    )
+    @GetMapping("/{quizId}/leaderboard")
+    public ResponseEntity<List<LeaderboardEntryDto>> getQuizLeaderboard(
+            @Parameter(description = "UUID of the quiz", required = true)
+            @PathVariable UUID quizId,
+            @RequestParam(name = "top", defaultValue = "10") int top
+    ){
+        List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
+        return ResponseEntity.ok(leaderBoardEntryDtos);
+    }
+
+    @Operation(
+            summary = "Toggle quiz visibility",
             description = "ADMIN only – switch a quiz between PUBLIC and PRIVATE.",
-            security    = @SecurityRequirement(name = "bearerAuth"),
+            security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
-                    content  = @Content(schema = @Schema(implementation = VisibilityUpdateRequest.class))
+                    content = @Content(schema = @Schema(implementation = VisibilityUpdateRequest.class))
             ),
             responses = {
-           @ApiResponse(
-              responseCode = "200",
-              description  = "Quiz successfully updated",
-             content      = @Content(
-                   mediaType = "application/json",
-                    schema    = @Schema(implementation = QuizDto.class)
-         )
-        ),
-        @ApiResponse(
-            responseCode = "400",
-          description  = "Validation failure or malformed JSON",
-            content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
-      ),
-        @ApiResponse(
-          responseCode = "401",
-          description  = "Unauthenticated – JWT missing/expired",
-         content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
-      ),
-       @ApiResponse(
-           responseCode = "403",
-             description  = "Authenticated but not an ADMIN",
-            content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
-    ),
-      @ApiResponse(
-             responseCode = "404",
-             description  = "Quiz not found",
-             content      = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Quiz successfully updated",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizDto.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or malformed JSON",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Quiz not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
     )
-    }
-)
     @PatchMapping("/{quizId}/visibility")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<QuizDto> updateQuizVisibility(
@@ -308,7 +322,7 @@ public class QuizController {
             @PathVariable UUID quizId,
             @RequestBody @Valid VisibilityUpdateRequest request,
             Authentication authentication
-    ){
+    ) {
         QuizDto quizDto = quizService.setVisibility(
                 authentication.getName(),
                 quizId,
@@ -345,7 +359,7 @@ public class QuizController {
             @PathVariable UUID quizId,
             @RequestBody @Valid QuizStatusUpdateRequest request,
             Authentication authentication
-    ){
+    ) {
         QuizDto quizDto = quizService.setStatus(
                 authentication.getName(),
                 quizId,

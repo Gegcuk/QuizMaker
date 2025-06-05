@@ -17,19 +17,19 @@ import java.util.UUID;
 public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
 
     @Query(value = """
-        SELECT a
-        FROM Attempt a
-        JOIN FETCH a.quiz q
-        JOIN FETCH a.user u
-        WHERE (:quizId IS NULL OR q.id = :quizId)
-          AND (:userId IS NULL OR u.id = :userId)
-        """,
+            SELECT a
+            FROM Attempt a
+            JOIN FETCH a.quiz q
+            JOIN FETCH a.user u
+            WHERE (:quizId IS NULL OR q.id = :quizId)
+              AND (:userId IS NULL OR u.id = :userId)
+            """,
             countQuery = """
-        SELECT COUNT(a)
-        FROM Attempt a
-        WHERE (:quizId IS NULL OR a.quiz.id = :quizId)
-          AND (:userId IS NULL OR a.user.id = :userId)
-        """
+                    SELECT COUNT(a)
+                    FROM Attempt a
+                    WHERE (:quizId IS NULL OR a.quiz.id = :quizId)
+                      AND (:userId IS NULL OR a.user.id = :userId)
+                    """
     )
     Page<Attempt> findAllByQuizAndUserEager(
             @Param("quizId") UUID quizId,
@@ -38,32 +38,33 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     );
 
     @Query("""
-        SELECT a
-        FROM Attempt a
-        LEFT JOIN FETCH a.answers ans
-        LEFT JOIN FETCH ans.question q
-        WHERE a.id = :id
-        """)
+            SELECT a
+            FROM Attempt a
+            LEFT JOIN FETCH a.answers ans
+            LEFT JOIN FETCH ans.question q
+            WHERE a.id = :id
+            """)
     Optional<Attempt> findByIdWithAnswersAndQuestion(@Param("id") UUID id);
 
     @Query("""
-        SELECT a
-        FROM Attempt a
-        LEFT JOIN FETCH a.answers ans
-        LEFT JOIN FETCH ans.question q
-        LEFT JOIN FETCH a.quiz quiz
-        LEFT JOIN FETCH quiz.questions qlist
-        WHERE a.id = :id
-        """)
+            SELECT a
+            FROM Attempt a
+            LEFT JOIN FETCH a.answers ans
+            LEFT JOIN FETCH ans.question q
+            LEFT JOIN FETCH a.quiz quiz
+            LEFT JOIN FETCH quiz.questions qlist
+            WHERE a.id = :id
+            """)
     Optional<Attempt> findByIdWithAllRelations(@Param("id") UUID id);
 
     @Query("""
-        SELECT COUNT(a), AVG(a.totalScore), MAX(a.totalScore), MIN(a.totalScore)
-        FROM Attempt a
-        WHERE a.quiz.id = :quizId
-          AND a.status = 'COMPLETED'
-        """)
+            SELECT COUNT(a), AVG(a.totalScore), MAX(a.totalScore), MIN(a.totalScore)
+            FROM Attempt a
+            WHERE a.quiz.id = :quizId
+              AND a.status = 'COMPLETED'
+            """)
     List<Object[]> getAttemptAggregateData(@Param("quizId") UUID quizId);
+
     List<Attempt> findByQuiz_Id(UUID quizId);
 
     @EntityGraph(attributePaths = {
@@ -75,4 +76,14 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     @Query("SELECT a FROM Attempt a WHERE a.id = :id")
     Optional<Attempt> findFullyLoadedById(@Param("id") UUID id);
 
+    @Query("""
+        SELECT u.id, u.username, MAX(a.totalScore)
+        FROM Attempt a
+        JOIN a.user u
+        WHERE a.quiz.id = :quizId
+          AND a.status = 'COMPLETED'
+        GROUP BY u.id, u.username
+        ORDER BY MAX(a.totalScore) DESC
+        """)
+    List<Object[]> getLeaderboardData(@Param("quizId") UUID quizId);
 }

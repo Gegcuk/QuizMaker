@@ -66,7 +66,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleIllegalArgument(IllegalArgumentException exception){
+    public ErrorResponse handleIllegalArgument(IllegalArgumentException exception) {
         return new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.BAD_REQUEST.value(),
@@ -119,7 +119,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler({ AccessDeniedException.class, AuthorizationDeniedException.class })
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleAccessDenied(Exception ex) {
         return new ErrorResponse(
@@ -200,5 +200,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             int status,
             String error,
             List<String> details
-    ) {}
+    ) {
+    }
 }

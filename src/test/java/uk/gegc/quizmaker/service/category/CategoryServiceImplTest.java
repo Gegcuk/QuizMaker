@@ -32,9 +32,12 @@ import static org.mockito.Mockito.*;
 @DisplayName("CategoryServiceImpl Unit Tests")
 class CategoryServiceImplTest {
 
-    @Mock private CategoryRepository categoryRepository;
-    @Mock private CategoryMapper categoryMapper;
-    @InjectMocks private CategoryServiceImpl service;
+    @Mock
+    private CategoryRepository categoryRepository;
+    @Mock
+    private CategoryMapper categoryMapper;
+    @InjectMocks
+    private CategoryServiceImpl service;
 
     private Category entity;
     private CategoryDto dto;

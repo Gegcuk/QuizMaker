@@ -41,11 +41,11 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public UserDto register(RegisterRequest request) {
 
-        if(userRepository.existsByUsername(request.username())){
+        if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already in use");
         }
 
-        if(userRepository.existsByEmail(request.email())){
+        if (userRepository.existsByEmail(request.email())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already in use");
         }
 
@@ -65,7 +65,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public JwtResponse login(LoginRequest loginRequest) {
-        try{
+        try {
             Authentication authentication = authManager.authenticate(
                     new UsernamePasswordAuthenticationToken(loginRequest.username(), loginRequest.password())
             );
@@ -78,7 +78,7 @@ public class AuthServiceImpl implements AuthService {
             return new JwtResponse(accessToken, refreshToken, accessExpiresInMs, refreshExpiresInMs);
         } catch (AuthenticationException ex) {
             throw new UnauthorizedException("Invalid username or password");
-        } catch (Exception exception){
+        } catch (Exception exception) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
     }
@@ -88,12 +88,12 @@ public class AuthServiceImpl implements AuthService {
 
         String token = refreshRequest.refreshToken();
 
-        if(!jwtTokenProvider.validateToken(token)){
+        if (!jwtTokenProvider.validateToken(token)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
         }
 
         String type = jwtTokenProvider.getClaims(token).get("type", String.class);
-        if(!"refresh".equals(type)){
+        if (!"refresh".equals(type)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is not a refresh token");
         }
 
@@ -114,7 +114,7 @@ public class AuthServiceImpl implements AuthService {
     public UserDto getCurrentUser(Authentication authentication) {
         String username = authentication.getName();
         User user = userRepository.findByUsername(username)
-                .or(()->userRepository.findByEmail(username))
+                .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User  " + username + " not found"));
         return userMapper.toDto(user);
     }

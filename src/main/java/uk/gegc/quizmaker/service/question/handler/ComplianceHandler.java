@@ -54,7 +54,7 @@ public class ComplianceHandler extends QuestionHandler {
                 .collect(Collectors.toSet());
 
         boolean isCorrect = selected.equals(correct);
-        Answer ans        = new Answer();
+        Answer ans = new Answer();
         ans.setIsCorrect(isCorrect);
         ans.setScore(isCorrect ? 1.0 : 0.0);
         return ans;

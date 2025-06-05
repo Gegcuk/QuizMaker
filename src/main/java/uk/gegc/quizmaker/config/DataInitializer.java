@@ -15,9 +15,9 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        for(RoleName roleName: RoleName.values()){
+        for (RoleName roleName : RoleName.values()) {
             String name = roleName.name();
-            if(roleRepository.findByRole(name).isEmpty()) {
+            if (roleRepository.findByRole(name).isEmpty()) {
                 Role role = new Role();
                 role.setRole(name);
                 roleRepository.save(role);

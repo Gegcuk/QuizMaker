@@ -36,20 +36,20 @@ public class JwtAuthenticationFilterTest {
     JwtAuthenticationFilter authenticationFilter;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         MockitoAnnotations.openMocks(this);
         authenticationFilter = new JwtAuthenticationFilter(jwtTokenProvider);
         SecurityContextHolder.clearContext();
     }
 
     @AfterEach
-    void tearDown(){
+    void tearDown() {
         SecurityContextHolder.clearContext();
     }
 
     @Test
     @DisplayName("No authorizetion header -> filterchain invoked, no Authentication set")
-    void noHeader_shouldNotSetAuthentication() throws ServletException, IOException{
+    void noHeader_shouldNotSetAuthentication() throws ServletException, IOException {
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn(null);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
@@ -60,7 +60,7 @@ public class JwtAuthenticationFilterTest {
 
     @Test
     @DisplayName("Bearer valid-token → filterChain invoked, Authentication set to returned value")
-    void validBearer_shouldSetAuthentication() throws ServletException, IOException{
+    void validBearer_shouldSetAuthentication() throws ServletException, IOException {
         String token = "valid-token";
         Authentication authentication = mock(Authentication.class);
 

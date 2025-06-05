@@ -28,8 +28,10 @@ import java.util.stream.Stream;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
 @SpringBootTest
@@ -40,20 +42,37 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.hibernate.ddl-auto=create"
 })
-@WithMockUser(username = "defaultUser", roles =  "ADMIN")
+@WithMockUser(username = "defaultUser", roles = "ADMIN")
 @DisplayName("Integration Tests AuthController")
 public class AuthControllerIntegrationTest {
 
     @Autowired
     UserRepository userRepository;
     @Autowired
-    private MockMvc mockMvc;
-    @Autowired
     ObjectMapper objectMapper;
+    @Autowired
+    private MockMvc mockMvc;
 
+    static Stream<Arguments> loginBlankFields() {
+        return Stream.of(
+                Arguments.of("", "somePass"),
+                Arguments.of("someUser", "")
+        );
+    }
+
+    private static Stream<Arguments> invalidRegisterDate() {
+        return Stream.of(
+                Arguments.of("", "foo@ex.com", "ValidPass1!", "Username must not be blank"),
+                Arguments.of("as", "foo@ex.com", "ValidPass1!", "Username must be between 4 and 20 characters"),
+                Arguments.of("validUser", "", "ValidPass1!", "Email must not be blank"),
+                Arguments.of("validUser", "not-an-email", "ValidPass1!", "Email must be a valid address"),
+                Arguments.of("validUser", "foo@ex.com", "", "Password must not be blank"),
+                Arguments.of("validUser", "foo@ex.com", "short", "Password length must be at least 8 characters")
+        );
+    }
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         userRepository.deleteAll();
 
         User defaultUser = new User();
@@ -65,34 +84,17 @@ public class AuthControllerIntegrationTest {
         userRepository.save(defaultUser);
     }
 
-    static Stream<Arguments> loginBlankFields() {
-        return Stream.of(
-                Arguments.of("", "somePass"),
-                Arguments.of("someUser", "")
-        );
-    }
-
-    private static Stream<Arguments> invalidRegisterDate(){
-        return Stream.of(
-                Arguments.of("",          "foo@ex.com",       "ValidPass1!", "Username must not be blank"),
-                Arguments.of("as",        "foo@ex.com",       "ValidPass1!", "Username must be between 4 and 20 characters"),
-                Arguments.of("validUser", "",                 "ValidPass1!", "Email must not be blank"),
-                Arguments.of("validUser", "not-an-email",     "ValidPass1!", "Email must be a valid address"),
-                Arguments.of("validUser", "foo@ex.com",       "",             "Password must not be blank"),
-                Arguments.of("validUser", "foo@ex.com",       "short",        "Password length must be at least 8 characters")
-        );    }
-
     @Test
     @DisplayName("POST /api/v1/auth/register → returns 201 CREATED with UserDto")
-    void registerSucceeds() throws Exception{
+    void registerSucceeds() throws Exception {
         RegisterRequest request = new RegisterRequest(
                 "newUser",
                 "newuser@email.com",
                 "newUserPassword"
         );
         mockMvc.perform(post("/api/v1/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNotEmpty())
                 .andExpect(jsonPath("$.username", is("newUser")))
@@ -110,11 +112,11 @@ public class AuthControllerIntegrationTest {
             String email,
             String password,
             String expectedMessage
-    ) throws Exception{
+    ) throws Exception {
         RegisterRequest registerRequest = new RegisterRequest(username, email, password);
         mockMvc.perform(post("/api/v1/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(registerRequest)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItems(containsString(expectedMessage))));
     }
@@ -148,7 +150,7 @@ public class AuthControllerIntegrationTest {
 
     @Test
     @DisplayName("POST /api/v1/auth/login → returns 200 OK with JWTs")
-    void loginSucceed() throws Exception{
+    void loginSucceed() throws Exception {
         RegisterRequest request = new RegisterRequest(
                 "newUser",
                 "newuser@email.com",
@@ -171,8 +173,8 @@ public class AuthControllerIntegrationTest {
         );
 
         mockMvc.perform(post("/api/v1/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(loginWithUserNameRequest)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginWithUserNameRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty())
@@ -193,8 +195,8 @@ public class AuthControllerIntegrationTest {
         RefreshRequest refreshRequest = new RefreshRequest(refreshToken);
 
         mockMvc.perform(post("/api/v1/auth/refresh")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(refreshRequest)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty());
@@ -224,7 +226,7 @@ public class AuthControllerIntegrationTest {
 
     @Test
     @DisplayName("GET /api/v1/auth/me → returns 200 OK with current UserDto")
-    void meSucceeds() throws Exception{
+    void meSucceeds() throws Exception {
         mockMvc.perform(get("/api/v1/auth/me"))
                 .andExpect(status().isOk());
     }
@@ -254,12 +256,12 @@ public class AuthControllerIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/auth/refresh with access token → returns 400 BAD_REQUEST")
     void refreshWithAccessToken_returns400() throws Exception {
-        var reg = new RegisterRequest("user1","u1@ex.com","Password1!");
+        var reg = new RegisterRequest("user1", "u1@ex.com", "Password1!");
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(reg)))
                 .andExpect(status().isCreated());
-        var login = new LoginRequest("user1","Password1!");
+        var login = new LoginRequest("user1", "Password1!");
         String loginJson = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(login)))

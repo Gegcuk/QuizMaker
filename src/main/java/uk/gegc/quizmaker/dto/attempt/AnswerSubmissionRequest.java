@@ -26,4 +26,5 @@ public record AnswerSubmissionRequest(
         )
         @NotNull(message = "Response payload must not be null")
         JsonNode response
-) {}
+) {
+}

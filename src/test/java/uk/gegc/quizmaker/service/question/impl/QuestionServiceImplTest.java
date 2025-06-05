@@ -40,13 +40,19 @@ class QuestionServiceImplTest {
 
     private static final String DUMMY_USER = "testUser";
 
-    @Mock private QuestionRepository questionRepository;
-    @Mock private QuizRepository quizRepository;
-    @Mock private TagRepository tagRepository;
-    @Mock private QuestionHandlerFactory factory;
-    @Mock private QuestionHandler handler;
+    @Mock
+    private QuestionRepository questionRepository;
+    @Mock
+    private QuizRepository quizRepository;
+    @Mock
+    private TagRepository tagRepository;
+    @Mock
+    private QuestionHandlerFactory factory;
+    @Mock
+    private QuestionHandler handler;
 
-    @InjectMocks private QuestionServiceImpl questionService;
+    @InjectMocks
+    private QuestionServiceImpl questionService;
 
     private ObjectMapper objectMapper;
 
@@ -223,7 +229,9 @@ class QuestionServiceImplTest {
         existing.setId(id);
 
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(tagRepository.findById(tagId)).thenReturn(Optional.of(new Tag() {{ setId(tagId); }}));
+        when(tagRepository.findById(tagId)).thenReturn(Optional.of(new Tag() {{
+            setId(tagId);
+        }}));
         when(questionRepository.save(existing)).thenReturn(existing);
 
         var req = new UpdateQuestionRequest();

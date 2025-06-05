@@ -16,20 +16,20 @@ import java.util.UUID;
 public interface QuizRepository extends JpaRepository<Quiz, UUID> {
 
     @Query("""
-      SELECT q
-      FROM Quiz q
-      LEFT JOIN FETCH q.tags
-      WHERE q.id = :id AND q.isDeleted = false
-    """)
+              SELECT q
+              FROM Quiz q
+              LEFT JOIN FETCH q.tags
+              WHERE q.id = :id AND q.isDeleted = false
+            """)
     Optional<Quiz> findByIdWithTags(@Param("id") UUID id);
 
     @Query("""
-      SELECT q
-      FROM Quiz q
-      LEFT JOIN FETCH q.questions
-      WHERE q.id = :id AND q.isDeleted = false
-    """)
+              SELECT q
+              FROM Quiz q
+              LEFT JOIN FETCH q.questions
+              WHERE q.id = :id AND q.isDeleted = false
+            """)
     Optional<Quiz> findByIdWithQuestions(@Param("id") UUID id);
 
-    Page<Quiz>  findAllByVisibility(Visibility visibility, Pageable pageable);
+    Page<Quiz> findAllByVisibility(Visibility visibility, Pageable pageable);
 }

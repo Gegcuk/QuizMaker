@@ -11,4 +11,5 @@ public record BatchAnswerSubmissionRequest(
         @Schema(description = "List of answers to submit", required = true)
         @NotEmpty(message = "At least one answer must be submitted")
         List<@Valid AnswerSubmissionRequest> answers
-) {}
+) {
+}
