@@ -1,11 +1,9 @@
 package uk.gegc.quizmaker.service.quiz;
 
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.dto.quiz.QuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
-import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
@@ -41,4 +39,6 @@ public interface QuizService {
     Page<QuizDto> getPublicQuizzes(Pageable pageable);
 
     void deleteQuizzesByIds(String name, List<UUID> quizIds);
+
+    BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String name, BulkQuizUpdateRequest request);
 }
