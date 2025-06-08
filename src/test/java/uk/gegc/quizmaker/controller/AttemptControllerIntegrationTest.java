@@ -726,6 +726,26 @@ public class AttemptControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("startAttempt returns first question")
+    void startAttempt_returnsFirstQuestion() throws Exception {
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.attemptId").exists())
+                .andExpect(jsonPath("$.firstQuestion.id", is(questionId.toString())));
+    }
+
+    @Test
+    @DisplayName("startAttempt quiz has no questions returns null firstQuestion")
+    void startAttempt_quizHasNoQuestions_returnsNullFirstQuestion() throws Exception {
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.attemptId").exists())
+                .andExpect(jsonPath("$.firstQuestion").value(nullValue()));
+    }
+
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {
         var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson));
         return mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt)

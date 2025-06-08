@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 public interface AttemptService {
-    AttemptDto startAttempt(String username, UUID quizId, AttemptMode mode);
+    StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode);
 
     Page<AttemptDto> getAttempts(String username, Pageable pageable, UUID quizId, UUID userId);
 
