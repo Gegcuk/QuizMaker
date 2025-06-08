@@ -99,7 +99,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Explicit Mockito dependency (can override version if needed) -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
@@ -177,6 +176,15 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- Run JUnit 5 tests in parallel -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Allow the JUnit Platform to manage threads -->
+                    <useUnlimitedThreads>true</useUnlimitedThreads>
+                </configuration>
             </plugin>
         </plugins>
     </build>

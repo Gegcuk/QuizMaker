@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.mapper;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
 import uk.gegc.quizmaker.dto.tag.TagDto;
 import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
@@ -11,6 +13,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Execution(ExecutionMode.CONCURRENT)
 public class TagMapperTest {
 
     private TagMapper tagMapper;

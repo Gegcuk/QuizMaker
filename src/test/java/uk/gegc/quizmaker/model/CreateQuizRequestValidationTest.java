@@ -6,6 +6,8 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.quiz.Visibility;
@@ -16,6 +18,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@Execution(ExecutionMode.CONCURRENT)
 public class CreateQuizRequestValidationTest {
     private static Validator validator;
 

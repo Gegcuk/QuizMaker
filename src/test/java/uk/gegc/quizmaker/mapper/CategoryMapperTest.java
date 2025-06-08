@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.mapper;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.category.CategoryDto;
 import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
@@ -11,6 +13,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Execution(ExecutionMode.CONCURRENT)
 public class CategoryMapperTest {
 
     private CategoryMapper categoryMapper;
