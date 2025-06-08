@@ -54,7 +54,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final ScoringService scoringService;
 
     @Override
-    public AttemptDto startAttempt(String username, UUID quizId, AttemptMode mode) {
+    public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
         User user = userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
@@ -69,7 +69,10 @@ public class AttemptServiceImpl implements AttemptService {
         attempt.setStatus(AttemptStatus.IN_PROGRESS);
 
         Attempt saved = attemptRepository.save(attempt);
-        return attemptMapper.toDto(saved);
+        Question first = quiz.getQuestions().stream().findFirst().orElse(null);
+        QuestionDto dto = first != null ? QuestionMapper.toDto(first) : null;
+
+        return new StartAttemptResponse(saved.getId(), dto);
     }
 
     @Override

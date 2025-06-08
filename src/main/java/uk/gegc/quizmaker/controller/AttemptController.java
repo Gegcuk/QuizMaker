@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -42,17 +43,18 @@ public class AttemptController {
             description = "Creates a new attempt for the given quiz and returns its ID."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Attempt started successfully",
-                    content = @Content(mediaType = "application/json",
-                            schema = @Schema(
-                                    example = "{\"attemptId\":\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"}"
-                            )
-                    )
-            ),
+            @ApiResponse(responseCode = "201", description = "Attempt started",
+                    content = @Content(schema = @Schema(implementation = StartAttemptResponse.class),
+                            examples = @ExampleObject(name = "success", value = """
+                            {
+                              "attemptId":"3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                              "firstQuestion":null
+                            }
+                            """))) ,
             @ApiResponse(responseCode = "404", description = "Quiz not found")
     })
     @PostMapping("/quizzes/{quizId}")
-    public ResponseEntity<Map<String, UUID>> startAttempt(
+    public ResponseEntity<StartAttemptResponse> startAttempt(
             @Parameter(description = "Quiz UUID to start an attempt for", required = true)
             @PathVariable UUID quizId,
 
@@ -71,9 +73,8 @@ public class AttemptController {
         AttemptMode mode = (request != null && request.mode() != null)
                 ? request.mode()
                 : AttemptMode.ALL_AT_ONCE;
-        AttemptDto dto = attemptService.startAttempt(username, quizId, mode);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Map.of("attemptId", dto.attemptId()));
+        StartAttemptResponse dto = attemptService.startAttempt(username, quizId, mode);
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
     @Operation(
