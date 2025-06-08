@@ -5,12 +5,15 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
 
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@Execution(ExecutionMode.CONCURRENT)
 public class CreateQuestionRequestValidationTest {
 
     private static Validator validator;
