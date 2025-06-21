@@ -3,6 +3,8 @@
 Welcome to **QuizMaker** backend! This Spring Boot application powers a flexible, secure, and future-proof quiz platform
 with JSON-based question storage, audit trails, role management, and more.
 
+For a concise overview of the API and example question formats, see [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md).
+
 ---
 
 ## 🚀 Overview
