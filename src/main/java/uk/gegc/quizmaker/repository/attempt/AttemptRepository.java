@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -86,4 +87,6 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
         ORDER BY MAX(a.totalScore) DESC
         """)
     List<Object[]> getLeaderboardData(@Param("quizId") UUID quizId);
+
+    List<Attempt> findByStartedAtBetween(Instant start, Instant end);
 }

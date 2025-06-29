@@ -22,6 +22,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.attempt.*;
+import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 
@@ -220,6 +221,75 @@ public class AttemptController {
         String username = authentication.getName();
         AttemptResultDto result = attemptService.completeAttempt(username, attemptId);
         return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Get attempt statistics", description = "Retrieve detailed statistics for a specific attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt statistics returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptStatsDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found")
+    })
+    @GetMapping("/{attemptId}/stats")
+    public ResponseEntity<AttemptStatsDto> getAttemptStats(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        return ResponseEntity.ok(stats);
+    }
+
+    @Operation(summary = "Pause an attempt", description = "Pause an in-progress attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt paused successfully"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be paused")
+    })
+    @PostMapping("/{attemptId}/pause")
+    public ResponseEntity<AttemptDto> pauseAttempt(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptDto result = attemptService.pauseAttempt(username, attemptId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Resume an attempt", description = "Resume a paused attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt resumed successfully"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be resumed")
+    })
+    @PostMapping("/{attemptId}/resume")
+    public ResponseEntity<AttemptDto> resumeAttempt(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptDto result = attemptService.resumeAttempt(username, attemptId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Get shuffled questions", description = "Get questions for a quiz in randomized order (safe, without answers).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shuffled questions returned")
+    })
+    @GetMapping("/quizzes/{quizId}/questions/shuffled")
+    public ResponseEntity<List<QuestionForAttemptDto>> getShuffledQuestions(
+            @Parameter(description = "UUID of the quiz", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, username);
+        return ResponseEntity.ok(questions);
     }
 
 }
