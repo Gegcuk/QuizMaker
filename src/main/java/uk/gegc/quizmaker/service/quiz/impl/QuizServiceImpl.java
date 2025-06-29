@@ -22,6 +22,12 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.dto.question.EntityQuestionContentRequest;
+import uk.gegc.quizmaker.exception.ValidationException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -37,6 +43,10 @@ public class QuizServiceImpl implements QuizService {
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
     private final UserRepository userRepository;
+    private final QuestionHandlerFactory questionHandlerFactory;
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -210,12 +220,58 @@ public class QuizServiceImpl implements QuizService {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        if (status == QuizStatus.PUBLISHED && quiz.getQuestions().isEmpty()) {
-            throw new IllegalArgumentException("Cannot publish quiz without questions");
+        if (status == QuizStatus.PUBLISHED) {
+            validateQuizForPublishing(quiz);
         }
 
         quiz.setStatus(status);
         return quizMapper.toDto(quizRepository.save(quiz));
+    }
+
+    private void validateQuizForPublishing(Quiz quiz) {
+        List<String> validationErrors = new ArrayList<>();
+
+        // Check if quiz has questions
+        if (quiz.getQuestions().isEmpty()) {
+            validationErrors.add("Cannot publish quiz without questions");
+        }
+
+        // Check minimum estimated time
+        if (quiz.getEstimatedTime() == null || quiz.getEstimatedTime() < MINIMUM_ESTIMATED_TIME_MINUTES) {
+            validationErrors.add("Quiz must have a minimum estimated time of " + MINIMUM_ESTIMATED_TIME_MINUTES + " minute(s)");
+        }
+
+        // Check if all questions have valid correct answers
+        if (!quiz.getQuestions().isEmpty()) {
+            validateQuestionsHaveCorrectAnswers(quiz, validationErrors);
+        }
+
+        if (!validationErrors.isEmpty()) {
+            throw new IllegalArgumentException("Cannot publish quiz: " + String.join("; ", validationErrors));
+        }
+    }
+
+    private void validateQuestionsHaveCorrectAnswers(Quiz quiz, List<String> validationErrors) {
+        for (var question : quiz.getQuestions()) {
+            try {
+                // Get the appropriate handler for this question type
+                QuestionHandler handler = questionHandlerFactory.getHandler(question.getType());
+                
+                // Parse the question content
+                var content = objectMapper.readTree(question.getContent());
+                var contentRequest = new EntityQuestionContentRequest(question.getType(), content);
+                
+                // Validate that the question content has correct answers defined
+                handler.validateContent(contentRequest);
+                
+            } catch (JsonProcessingException e) {
+                validationErrors.add("Question '" + question.getQuestionText() + "' has malformed content JSON");
+            } catch (ValidationException e) {
+                validationErrors.add("Question '" + question.getQuestionText() + "' is invalid: " + e.getMessage());
+            } catch (Exception e) {
+                validationErrors.add("Question '" + question.getQuestionText() + "' failed validation: " + e.getMessage());
+            }
+        }
     }
 
     @Override
