@@ -123,7 +123,7 @@ class QuizControllerIntegrationTest {
         q.setType(QuestionType.MCQ_SINGLE);
         q.setDifficulty(Difficulty.EASY);
         q.setQuestionText("What?");
-        q.setContent("{\"options\":[\"A\",\"B\"]}");
+        q.setContent("{\"options\":[{\"id\":\"1\",\"text\":\"Option A\",\"correct\":true},{\"id\":\"2\",\"text\":\"Option B\",\"correct\":false}]}");
         q.setHint("hint");
         q.setExplanation("explanation");
         questionRepository.save(q);
@@ -1032,7 +1032,112 @@ class QuizControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"status\": \"PUBLISHED\" }"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz")));
+                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz: Cannot publish quiz without questions")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status publish with insufficient estimated time → 400 BAD_REQUEST")
+    void changeStatus_publishWithInsufficientEstimatedTime_returns400() throws Exception {
+        // Create a quiz with valid estimated time first
+        CreateQuizRequest req = new CreateQuizRequest(
+                "Invalid Time Quiz", "Description",
+                null, null, 
+                false, false,
+                5, 2, // Valid estimated time for creation
+                categoryId,
+                List.of()
+        );
+        String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+
+        // Add a question to the quiz
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+                .andExpect(status().isNoContent());
+
+        // Directly update the quiz entity to have 0 estimated time (bypassing DTO validation)
+        var quiz = quizRepository.findById(quizId).orElseThrow();
+        quiz.setEstimatedTime(0);
+        quizRepository.save(quiz);
+
+        // Try to publish - should fail due to insufficient estimated time
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"PUBLISHED\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status publish with multiple validation errors → 400 BAD_REQUEST")
+    void changeStatus_publishWithMultipleValidationErrors_returns400() throws Exception {
+        // Create a quiz with valid estimated time first
+        CreateQuizRequest req = new CreateQuizRequest(
+                "Multiple Errors Quiz", "Description",
+                null, null, 
+                false, false,
+                5, 2, // Valid estimated time for creation
+                categoryId,
+                List.of()
+        );
+        String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+
+        // Directly update the quiz entity to have 0 estimated time (bypassing DTO validation)
+        var quiz = quizRepository.findById(quizId).orElseThrow();
+        quiz.setEstimatedTime(0);
+        quizRepository.save(quiz);
+
+        // Try to publish - should fail with multiple errors (no questions + invalid estimated time)
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"PUBLISHED\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz without questions")))
+                .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/quizzes/{id}/status publish with invalid question content → 400 BAD_REQUEST")
+    void changeStatus_publishWithInvalidQuestionContent_returns400() throws Exception {
+        // Create a quiz with valid estimated time
+        CreateQuizRequest req = new CreateQuizRequest(
+                "Invalid Question Quiz", "Description",
+                null, null, 
+                false, false,
+                10, 5, // Valid estimated time
+                categoryId,
+                List.of()
+        );
+        String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+
+        // Add the valid question to the quiz
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+                .andExpect(status().isNoContent());
+
+        // Directly corrupt the question content to make it invalid (MCQ with no correct answers)
+        var question = questionRepository.findById(questionId).orElseThrow();
+        question.setContent("{\"options\":[{\"id\":\"1\",\"text\":\"Option A\",\"correct\":false},{\"id\":\"2\",\"text\":\"Option B\",\"correct\":false}]}");
+        questionRepository.save(question);
+
+        // Try to publish - should fail due to invalid question content
+        mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"status\": \"PUBLISHED\" }"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]", containsString("Question 'What?' is invalid: MCQ_SINGLE must have exactly one correct answer")));
     }
 
     @Test

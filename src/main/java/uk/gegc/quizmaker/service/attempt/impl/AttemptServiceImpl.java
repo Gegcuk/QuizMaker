@@ -7,14 +7,14 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.attempt.*;
-import uk.gegc.quizmaker.dto.question.QuestionDto;
+import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuestionStatsDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.mapper.AnswerMapper;
 import uk.gegc.quizmaker.mapper.AttemptMapper;
-import uk.gegc.quizmaker.mapper.QuestionMapper;
+import uk.gegc.quizmaker.mapper.SafeQuestionMapper;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.model.attempt.AttemptStatus;
@@ -31,10 +31,10 @@ import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.scoring.ScoringService;
 
+import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.time.LocalDate;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -52,6 +52,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final AnswerRepository answerRepository;
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
+    private final SafeQuestionMapper safeQuestionMapper;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -70,7 +71,8 @@ public class AttemptServiceImpl implements AttemptService {
 
         Attempt saved = attemptRepository.save(attempt);
         Question first = quiz.getQuestions().stream().findFirst().orElse(null);
-        QuestionDto dto = first != null ? QuestionMapper.toDto(first) : null;
+        // 🔒 Use safe mapper to prevent exposing correct answers
+        QuestionForAttemptDto dto = first != null ? safeQuestionMapper.toSafeDto(first) : null;
 
         return new StartAttemptResponse(saved.getId(), dto);
     }
@@ -154,7 +156,7 @@ public class AttemptServiceImpl implements AttemptService {
         answer = answerRepository.save(answer);
 
         var baseDto = answerMapper.toDto(answer);
-        QuestionDto nextQuestion = null;
+        QuestionForAttemptDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
             Set<UUID> done = attempt.getAnswers().stream()
                     .map(a -> a.getQuestion().getId())
@@ -162,7 +164,8 @@ public class AttemptServiceImpl implements AttemptService {
             nextQuestion = attempt.getQuiz().getQuestions().stream()
                     .filter(q -> !done.contains(q.getId()))
                     .findFirst()
-                    .map(QuestionMapper::toDto)
+                    // 🔒 Use safe mapper to prevent exposing correct answers
+                    .map(safeQuestionMapper::toSafeDto)
                     .orElse(null);
         }
 
@@ -298,6 +301,139 @@ public class AttemptServiceImpl implements AttemptService {
                         r[2] != null ? ((Number) r[2]).doubleValue() : 0.0
                 ))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QuestionForAttemptDto> getShuffledQuestions(UUID quizId, String username) {
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        List<Question> questions = new ArrayList<>(quiz.getQuestions());
+        Collections.shuffle(questions);
+
+        return safeQuestionMapper.toSafeDtoList(questions);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttemptStatsDto getAttemptStats(UUID attemptId) {
+        Attempt attempt = attemptRepository.findByIdWithAnswersAndQuestion(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+
+        Duration totalTime = attempt.getCompletedAt() != null && attempt.getStartedAt() != null
+                ? Duration.between(attempt.getStartedAt(), attempt.getCompletedAt())
+                : Duration.ZERO;
+
+        int questionsAnswered = attempt.getAnswers().size();
+        int totalQuestions = attempt.getQuiz().getQuestions().size();
+        long correctAnswers = attempt.getAnswers().stream()
+                .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
+                .count();
+
+        double accuracyPercentage = questionsAnswered > 0 
+                ? (double) correctAnswers / questionsAnswered * 100.0 
+                : 0.0;
+        double completionPercentage = totalQuestions > 0 
+                ? (double) questionsAnswered / totalQuestions * 100.0 
+                : 0.0;
+
+        Duration averageTimePerQuestion = questionsAnswered > 0 
+                ? totalTime.dividedBy(questionsAnswered) 
+                : Duration.ZERO;
+
+        List<QuestionTimingStatsDto> questionTimings = attempt.getAnswers().stream()
+                .map(answer -> {
+                    Duration questionTime = Duration.between(
+                            attempt.getStartedAt(), 
+                            answer.getAnsweredAt()
+                    );
+                    return new QuestionTimingStatsDto(
+                            answer.getQuestion().getId(),
+                            answer.getQuestion().getType(),
+                            answer.getQuestion().getDifficulty(),
+                            questionTime,
+                            answer.getIsCorrect(),
+                            attempt.getStartedAt(),
+                            answer.getAnsweredAt()
+                    );
+                })
+                .collect(Collectors.toList());
+
+        return new AttemptStatsDto(
+                attemptId,
+                totalTime,
+                averageTimePerQuestion,
+                questionsAnswered,
+                Math.toIntExact(correctAnswers),
+                accuracyPercentage,
+                completionPercentage,
+                questionTimings,
+                attempt.getStartedAt(),
+                attempt.getCompletedAt()
+        );
+    }
+
+    @Override
+    @Transactional
+    public AttemptDto pauseAttempt(String username, UUID attemptId) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
+
+        if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Can only pause attempts that are in progress");
+        }
+
+        attempt.setStatus(AttemptStatus.PAUSED);
+        Attempt saved = attemptRepository.save(attempt);
+        return attemptMapper.toDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public AttemptDto resumeAttempt(String username, UUID attemptId) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
+
+        if (attempt.getStatus() != AttemptStatus.PAUSED) {
+            throw new IllegalStateException("Can only resume paused attempts");
+        }
+
+        attempt.setStatus(AttemptStatus.IN_PROGRESS);
+        Attempt saved = attemptRepository.save(attempt);
+        return attemptMapper.toDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end) {
+        Instant startInstant = start.atStartOfDay().atZone(java.time.ZoneOffset.UTC).toInstant();
+        Instant endInstant = end.plusDays(1).atStartOfDay().atZone(java.time.ZoneOffset.UTC).toInstant();
+
+        return attemptRepository.findByStartedAtBetween(startInstant, endInstant)
+                .stream()
+                .map(attemptMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void flagSuspiciousActivity(UUID attemptId, String reason) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+
+        // Log suspicious activity - in a real implementation, this would write to an audit log
+        System.err.println("🚨 SUSPICIOUS ACTIVITY FLAGGED: " + 
+                "Attempt " + attemptId + 
+                " by user " + attempt.getUser().getUsername() + 
+                " - Reason: " + reason);
+
+        // You could also update the attempt status or add a flag
+        // attempt.setFlagged(true);
+        // attempt.setFlagReason(reason);
+        // attemptRepository.save(attempt);
     }
 
     private void enforceOwnership(Attempt attempt, String username) {

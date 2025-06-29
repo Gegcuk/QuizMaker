@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.dto.attempt;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.dto.question.QuestionDto;
+import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -23,7 +23,7 @@ public record AnswerSubmissionDto(
         @Schema(description = "Timestamp when the answer was recorded", example = "2025-05-20T14:35:00Z")
         Instant answeredAt,
 
-        @Schema(description = "Next question in ONE_BY_ONE mode, if any")
-        QuestionDto nextQuestion
+        @Schema(description = "Next question in ONE_BY_ONE mode (safe, without correct answers)")
+        QuestionForAttemptDto nextQuestion
 ) {
 }
