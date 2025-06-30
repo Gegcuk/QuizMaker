@@ -5,9 +5,13 @@ import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.model.user.Role;
 
 import java.util.Optional;
-import java.util.UUID;
 
 @Repository
-public interface RoleRepository extends JpaRepository<Role, UUID> {
-    Optional<Role> findByRole(String name);
+public interface RoleRepository extends JpaRepository<Role, Long> {
+    
+    Optional<Role> findByRoleName(String roleName);
+    
+    boolean existsByRoleName(String roleName);
+    
+    Optional<Role> findByIsDefaultTrue();
 }

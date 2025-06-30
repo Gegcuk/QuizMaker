@@ -26,7 +26,7 @@ public class UserMapper {
                 user.isActive(),
                 user.getRoles()
                         .stream()
-                        .map(Role::getRole)
+                        .map(Role::getRoleName)
                         .map(RoleName::valueOf)
                         .collect(Collectors.toSet()),
                 user.getCreatedAt(),

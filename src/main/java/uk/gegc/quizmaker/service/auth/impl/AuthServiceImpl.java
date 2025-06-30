@@ -55,7 +55,7 @@ public class AuthServiceImpl implements AuthService {
         user.setHashedPassword(passwordEncoder.encode(request.password()));
         user.setActive(true);
 
-        Role userRole = roleRepository.findByRole(RoleName.ROLE_USER.name())
+        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
                 .orElseThrow(() -> new IllegalStateException("ROLE_USER not found"));
         user.setRoles(Set.of(userRole));
 

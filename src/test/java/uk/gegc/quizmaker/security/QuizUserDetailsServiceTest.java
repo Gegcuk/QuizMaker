@@ -36,7 +36,11 @@ public class QuizUserDetailsServiceTest {
         User user = new User();
         user.setUsername("johndoe");
         user.setHashedPassword("hashedPassword");
-        Role role = new Role(1L, "ROLE_USER", null);
+        user.setActive(true);
+        Role role = Role.builder()
+                .roleId(1L)
+                .roleName("ROLE_USER")
+                .build();
         user.setRoles(Set.of(role));
 
         when(userRepository.findByUsername("johndoe")).thenReturn(Optional.of(user));
@@ -61,7 +65,11 @@ public class QuizUserDetailsServiceTest {
         User user = new User();
         user.setUsername("janedoe");
         user.setHashedPassword("hashed2");
-        Role admin = new Role(2L, "ROLE_ADMIN", null);
+        user.setActive(true);
+        Role admin = Role.builder()
+                .roleId(2L)
+                .roleName("ROLE_ADMIN")
+                .build();
         user.setRoles(Set.of(admin));
 
         when(userRepository.findByUsername("jane@example.com"))

@@ -69,8 +69,11 @@ class AuthServiceImplTest {
         when(userRepository.existsByUsername("john")).thenReturn(false);
         when(userRepository.existsByEmail("john@example.com")).thenReturn(false);
 
-        Role userRole = new Role(1L, RoleName.ROLE_USER.name(), null);
-        when(roleRepository.findByRole(RoleName.ROLE_USER.name()))
+        Role userRole = Role.builder()
+                .roleId(1L)
+                .roleName(RoleName.ROLE_USER.name())
+                .build();
+        when(roleRepository.findByRoleName(RoleName.ROLE_USER.name()))
                 .thenReturn(Optional.of(userRole));
 
         when(passwordEncoder.encode("secret123")).thenReturn("hashedPwd");

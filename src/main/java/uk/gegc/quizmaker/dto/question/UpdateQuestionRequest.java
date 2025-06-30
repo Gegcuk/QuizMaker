@@ -22,17 +22,17 @@ import java.util.UUID;
 @Setter
 public class UpdateQuestionRequest implements QuestionContentRequest {
 
-    @Schema(description = "Type of the question", required = true, example = "OPEN")
+    @Schema(description = "Type of the question", requiredMode = Schema.RequiredMode.REQUIRED, example = "OPEN")
     @NotNull(message = "Type must not be null")
     private QuestionType type;
 
-    @Schema(description = "Difficulty level", required = true, example = "HARD")
+    @Schema(description = "Difficulty level",  requiredMode = Schema.RequiredMode.REQUIRED, example = "HARD")
     @NotNull(message = "Difficulty must not be null")
     private Difficulty difficulty;
 
     @Schema(
             description = "Question text",
-            required = true,
+            requiredMode = Schema.RequiredMode.REQUIRED,
             example = "Explain the theory of relativity"
     )
     @NotBlank(message = "Question text must not be blank")
@@ -41,7 +41,7 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
 
     @Schema(
             description = "Content JSON specific to the question type",
-            required = true,
+            requiredMode = Schema.RequiredMode.REQUIRED,
             type = "object"
     )
     @NotNull(message = "Content must not be null")
