@@ -384,6 +384,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.details[0]").value("File storage failed"));
     }
 
+
     private DocumentDto createTestDocumentDto() {
         DocumentDto dto = new DocumentDto();
         dto.setId(UUID.randomUUID());
