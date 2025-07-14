@@ -33,6 +33,7 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -161,30 +162,38 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     /**
-     * Transactional database operation for storing chunks
+     * Transactional database operation for storing chunks with batch optimization
      */
     @Transactional
     public void storeChunksTransactionally(Document document, List<Chunk> chunks) {
-        for (int i = 0; i < chunks.size(); i++) {
-            Chunk chunk = chunks.get(i);
-            DocumentChunk documentChunk = new DocumentChunk();
-            documentChunk.setDocument(document);
-            documentChunk.setChunkIndex(i);
-            documentChunk.setTitle(chunk.getTitle());
-            documentChunk.setContent(chunk.getContent());
-            documentChunk.setStartPage(chunk.getStartPage());
-            documentChunk.setEndPage(chunk.getEndPage());
-            documentChunk.setWordCount(chunk.getWordCount());
-            documentChunk.setCharacterCount(chunk.getCharacterCount());
-            documentChunk.setCreatedAt(LocalDateTime.now());
-            documentChunk.setChapterTitle(chunk.getChapterTitle());
-            documentChunk.setChapterNumber(chunk.getChapterNumber());
-            documentChunk.setSectionTitle(chunk.getSectionTitle());
-            documentChunk.setSectionNumber(chunk.getSectionNumber());
-            documentChunk.setChunkType(mapChunkType(chunk.getChunkType()));
-            
-            chunkRepository.save(documentChunk);
-        }
+        List<DocumentChunk> entities = chunks.stream()
+                .map(chunk -> createDocumentChunk(document, chunk))
+                .collect(Collectors.toList());
+
+        chunkRepository.saveAll(entities);
+    }
+
+    /**
+     * Helper method to create DocumentChunk entity from Chunk
+     */
+    private DocumentChunk createDocumentChunk(Document document, Chunk chunk) {
+        DocumentChunk documentChunk = new DocumentChunk();
+        documentChunk.setDocument(document);
+        documentChunk.setChunkIndex(chunk.getChunkIndex());
+        documentChunk.setTitle(chunk.getTitle());
+        documentChunk.setContent(chunk.getContent());
+        documentChunk.setStartPage(chunk.getStartPage());
+        documentChunk.setEndPage(chunk.getEndPage());
+        documentChunk.setWordCount(chunk.getWordCount());
+        documentChunk.setCharacterCount(chunk.getCharacterCount());
+        documentChunk.setCreatedAt(LocalDateTime.now());
+        documentChunk.setChapterTitle(chunk.getChapterTitle());
+        documentChunk.setChapterNumber(chunk.getChapterNumber());
+        documentChunk.setSectionTitle(chunk.getSectionTitle());
+        documentChunk.setSectionNumber(chunk.getSectionNumber());
+        documentChunk.setChunkType(mapChunkType(chunk.getChunkType()));
+        
+        return documentChunk;
     }
 
     /**

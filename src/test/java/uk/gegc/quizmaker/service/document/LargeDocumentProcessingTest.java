@@ -185,8 +185,8 @@ class LargeDocumentProcessingTest {
         assertEquals(testDocument.getId(), result.getId());
         assertEquals(50, result.getTotalChunks());
         
-        // Verify that chunks were saved
-        verify(chunkRepository, times(50)).save(any(DocumentChunk.class));
+        // Verify that chunks were saved in batch
+        verify(chunkRepository, times(1)).saveAll(anyList());
         // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
         verify(documentRepository, times(4)).save(any(Document.class));
     }
@@ -245,8 +245,8 @@ class LargeDocumentProcessingTest {
         assertEquals(testDocument.getId(), result.getId());
         assertEquals(100, result.getTotalChunks()); // Many small chunks
         
-        // Verify that chunks were saved
-        verify(chunkRepository, times(100)).save(any(DocumentChunk.class));
+        // Verify that chunks were saved in batch
+        verify(chunkRepository, times(1)).saveAll(anyList());
         // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
         verify(documentRepository, times(4)).save(any(Document.class));
     }
@@ -305,8 +305,8 @@ class LargeDocumentProcessingTest {
         assertEquals(testDocument.getId(), result.getId());
         assertEquals(25, result.getTotalChunks()); // Size-based chunks
         
-        // Verify that chunks were saved
-        verify(chunkRepository, times(25)).save(any(DocumentChunk.class));
+        // Verify that chunks were saved in batch
+        verify(chunkRepository, times(1)).saveAll(anyList());
         // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
         verify(documentRepository, times(4)).save(any(Document.class));
     }

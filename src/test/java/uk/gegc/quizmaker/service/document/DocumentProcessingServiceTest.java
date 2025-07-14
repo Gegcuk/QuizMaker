@@ -191,7 +191,7 @@ class DocumentProcessingServiceTest {
         assertEquals(testDocumentDto.getId(), result.getId());
         // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
         verify(documentRepository, times(4)).save(any(Document.class));
-        verify(chunkRepository, times(3)).save(any(DocumentChunk.class));
+        verify(chunkRepository, times(1)).saveAll(anyList());
     }
 
     @Test
