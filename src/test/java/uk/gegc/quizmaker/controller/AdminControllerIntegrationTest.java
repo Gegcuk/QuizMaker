@@ -40,15 +40,19 @@ class AdminControllerIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @SuppressWarnings("deprecation")
     @MockBean
     private RoleService roleService;
 
+    @SuppressWarnings("deprecation")
     @MockBean
     private UserRepository userRepository;
 
+    @SuppressWarnings("deprecation")
     @MockBean
     private PermissionEvaluator permissionEvaluator;
 
+    @SuppressWarnings("deprecation")
     @MockBean
     private uk.gegc.quizmaker.security.PermissionUtil permissionUtil;
 
