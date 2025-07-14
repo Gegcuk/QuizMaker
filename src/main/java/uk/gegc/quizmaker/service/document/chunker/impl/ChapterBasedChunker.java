@@ -1,17 +1,24 @@
 package uk.gegc.quizmaker.service.document.chunker.impl;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
+import uk.gegc.quizmaker.util.ChunkTitleGenerator;
+import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class ChapterBasedChunker implements ContentChunker {
+
+    private final SentenceBoundaryDetector sentenceBoundaryDetector;
+    private final ChunkTitleGenerator titleGenerator;
 
     @Override
     public List<Chunk> chunkDocument(ParsedDocument document, ProcessDocumentRequest request) {
@@ -73,7 +80,7 @@ public class ChapterBasedChunker implements ContentChunker {
                     ProcessDocumentRequest.ChunkingStrategy.SECTION_BASED, chunkIndex);
             chunks.add(chunk);
         } else {
-            // Split section by size
+            // Split section by size with meaningful titles
             chunks.addAll(splitContentBySize(section.getContent(), section.getTitle(), 
                     section.getStartPage(), section.getEndPage(), request, chunkIndex));
         }
@@ -91,25 +98,26 @@ public class ChapterBasedChunker implements ContentChunker {
         // Split content into chunks of specified size
         int maxSize = request.getMaxChunkSize();
         int contentLength = content.length();
+        boolean isMultipleChunks = contentLength > maxSize;
         
         for (int i = 0; i < contentLength; i += maxSize) {
             int endIndex = Math.min(i + maxSize, contentLength);
             String chunkContent = content.substring(i, endIndex);
             
-            // Try to break at sentence boundaries
+            // Try to break at sentence boundaries using enhanced detection
             if (endIndex < contentLength) {
-                int lastSentenceEnd = findLastSentenceEnd(chunkContent);
-                if (lastSentenceEnd > 0) {
-                    endIndex = i + lastSentenceEnd;
+                int bestSplitPoint = sentenceBoundaryDetector.findBestSplitPoint(chunkContent, maxSize);
+                if (bestSplitPoint > 0 && bestSplitPoint < chunkContent.length()) {
+                    endIndex = i + bestSplitPoint;
                     chunkContent = content.substring(i, endIndex);
                 }
             }
             
-            // Only add "(Part X)" if there are multiple chunks or if this is not the first chunk
-            String chunkTitle = title;
-            if (contentLength > maxSize) {
-                chunkTitle = title + " (Part " + (chunkIndex - startChunkIndex + 1) + ")";
-            }
+            // Generate meaningful title using the title generator
+            String chunkTitle = titleGenerator.generateChunkTitle(title, 
+                    chunkIndex - startChunkIndex, 
+                    (int) Math.ceil((double) contentLength / maxSize), 
+                    isMultipleChunks);
             
             Chunk chunk = createChunk(chunkTitle, chunkContent, startPage, endPage,
                     null, null, null, null, 
@@ -121,19 +129,7 @@ public class ChapterBasedChunker implements ContentChunker {
         return chunks;
     }
 
-    private int findLastSentenceEnd(String text) {
-        // Look for sentence endings (. ! ?) followed by whitespace
-        for (int i = text.length() - 1; i >= 0; i--) {
-            char c = text.charAt(i);
-            if (c == '.' || c == '!' || c == '?') {
-                // Check if followed by whitespace or end of text
-                if (i == text.length() - 1 || Character.isWhitespace(text.charAt(i + 1))) {
-                    return i + 1;
-                }
-            }
-        }
-        return -1;
-    }
+
 
     private Chunk createChunk(String title, String content, Integer startPage, Integer endPage,
                              String chapterTitle, String sectionTitle,

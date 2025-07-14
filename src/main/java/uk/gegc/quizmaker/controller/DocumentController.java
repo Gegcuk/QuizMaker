@@ -17,6 +17,7 @@ import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentAccessDeniedException;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 
@@ -62,6 +63,9 @@ public class DocumentController {
                     username, file.getBytes(), file.getOriginalFilename(), request);
             
             return ResponseEntity.status(HttpStatus.CREATED).body(document);
+        } catch (DocumentStorageException e) {
+            log.error("Error uploading document - storage issue", e);
+            throw e; // Re-throw DocumentStorageException as-is
         } catch (Exception e) {
             log.error("Error uploading document", e);
             throw new DocumentProcessingException("Failed to upload document: " + e.getMessage(), e);
@@ -135,6 +139,9 @@ public class DocumentController {
             String username = authentication.getName();
             documentProcessingService.deleteDocument(username, documentId);
             return ResponseEntity.noContent().build();
+        } catch (DocumentStorageException e) {
+            log.error("Error deleting document - storage issue: {}", documentId, e);
+            throw e; // Re-throw DocumentStorageException as-is
         } catch (Exception e) {
             log.error("Error deleting document: {}", documentId, e);
             throw new DocumentProcessingException("Failed to delete document: " + e.getMessage(), e);
@@ -150,6 +157,9 @@ public class DocumentController {
             String username = authentication.getName();
             DocumentDto document = documentProcessingService.reprocessDocument(username, documentId, request);
             return ResponseEntity.ok(document);
+        } catch (DocumentStorageException e) {
+            log.error("Error reprocessing document - storage issue: {}", documentId, e);
+            throw e; // Re-throw DocumentStorageException as-is
         } catch (Exception e) {
             log.error("Error reprocessing document: {}", documentId, e);
             throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);

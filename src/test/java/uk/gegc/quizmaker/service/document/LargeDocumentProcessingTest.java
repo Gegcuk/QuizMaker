@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
 import uk.gegc.quizmaker.service.document.parser.FileParser;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
+import uk.gegc.quizmaker.exception.DocumentStorageException;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -186,6 +187,8 @@ class LargeDocumentProcessingTest {
         
         // Verify that chunks were saved
         verify(chunkRepository, times(50)).save(any(DocumentChunk.class));
+        // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
+        verify(documentRepository, times(4)).save(any(Document.class));
     }
 
     @Test
@@ -244,6 +247,8 @@ class LargeDocumentProcessingTest {
         
         // Verify that chunks were saved
         verify(chunkRepository, times(100)).save(any(DocumentChunk.class));
+        // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
+        verify(documentRepository, times(4)).save(any(Document.class));
     }
 
     @Test
@@ -302,6 +307,8 @@ class LargeDocumentProcessingTest {
         
         // Verify that chunks were saved
         verify(chunkRepository, times(25)).save(any(DocumentChunk.class));
+        // Verify the new transactional structure: createDocumentEntity + updateDocumentStatus + updateDocumentMetadata + updateDocumentStatusToProcessed
+        verify(documentRepository, times(4)).save(any(Document.class));
     }
 
     @Test
@@ -369,8 +376,8 @@ class LargeDocumentProcessingTest {
         // Set up the lists that the service expects
         setupServiceDependencies();
 
-        // Act & Assert - expect exception because file doesn't exist on disk
-        assertThrows(RuntimeException.class, () -> {
+        // Act & Assert - expect DocumentStorageException because file doesn't exist on disk
+        assertThrows(uk.gegc.quizmaker.exception.DocumentStorageException.class, () -> {
             documentProcessingService.reprocessDocument("testuser", documentId, request);
         });
     }

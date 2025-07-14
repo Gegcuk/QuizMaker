@@ -361,6 +361,29 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Custom processing error"));
     }
 
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ServiceThrowsDocumentStorageException_ReturnsStorageError() throws Exception {
+        // Arrange
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.pdf",
+                "application/pdf",
+                "This is test PDF content".getBytes()
+        );
+
+        when(documentProcessingService.uploadAndProcessDocument(
+                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                .thenThrow(new uk.gegc.quizmaker.exception.DocumentStorageException("File storage failed"));
+
+        // Act & Assert
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Document Storage Error"))
+                .andExpect(jsonPath("$.details[0]").value("File storage failed"));
+    }
+
     private DocumentDto createTestDocumentDto() {
         DocumentDto dto = new DocumentDto();
         dto.setId(UUID.randomUUID());
