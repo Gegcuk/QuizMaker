@@ -7,10 +7,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
 import uk.gegc.quizmaker.dto.admin.RoleDto;
@@ -40,20 +40,17 @@ class AdminControllerIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private RoleService roleService;
 
     @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private UserRepository userRepository;
 
-    @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private PermissionEvaluator permissionEvaluator;
 
-    @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private uk.gegc.quizmaker.security.PermissionUtil permissionUtil;
 
     private User testUser;

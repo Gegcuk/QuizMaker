@@ -37,30 +37,22 @@ public class TextFileParser implements FileParser {
 
     @Override
     public ParsedDocument parse(InputStream inputStream, String filename) throws Exception {
-        StringBuilder content = new StringBuilder();
-        
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
-            }
-        }
+        // Read the entire content as a string to preserve original format
+        String content = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
         
         ParsedDocument parsedDocument = new ParsedDocument();
-        parsedDocument.setContent(content.toString());
+        parsedDocument.setContent(content);
         
         // Extract chapters and sections from the text
-        extractChaptersAndSections(parsedDocument, content.toString());
+        extractChaptersAndSections(parsedDocument, content);
         
         return parsedDocument;
     }
 
     private void extractChaptersAndSections(ParsedDocument document, String text) {
-        // Pattern to match chapter headers (e.g., "Chapter 1", "CHAPTER 1", "1. Chapter Title")
+        // Pattern to match chapter headers (e.g., "Chapter 1", "CHAPTER 1", "1. Chapter Title", "chapter 3: conclusion", "## Chapter 1: Title")
         Pattern chapterPattern = Pattern.compile(
-            "(?i)(?:chapter\\s+(\\d+)|(\\d+)\\.\\s*([^\\n]+)|CHAPTER\\s+(\\d+))",
+            "(?i)^\\s*(?:#+\\s*)?(?:chapter\\s+\\d+)\\s*[:.]?\\s*[^\\n]*$",
             Pattern.MULTILINE
         );
         
@@ -77,13 +69,15 @@ public class TextFileParser implements FileParser {
         StringBuilder currentContent = new StringBuilder();
         ParsedDocument.Chapter currentChapterObj = null;
         ParsedDocument.Section currentSectionObj = null;
+        boolean foundAnyChapters = false;
 
         for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
+            String line = lines[i];
             
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
             if (chapterMatcher.find()) {
+                foundAnyChapters = true;
                 // Save previous chapter if exists
                 if (currentChapterObj != null) {
                     currentChapterObj.setContent(currentContent.toString());
@@ -126,26 +120,33 @@ public class TextFileParser implements FileParser {
                 currentContent = new StringBuilder();
             }
             
-            // Add line to current content
-            if (!line.isEmpty()) {
+            // Add line to current content (preserve original line ending)
+            if (i < lines.length - 1) {
                 currentContent.append(line).append("\n");
+            } else {
+                // Don't add newline for the last line
+                currentContent.append(line);
             }
         }
         
-        // Save final chapter and section
-        if (currentSectionObj != null) {
-            currentSectionObj.setContent(currentContent.toString());
-            currentSectionObj.setEndPage(1);
+        // Save final chapter and section only if we found actual chapters
+        if (foundAnyChapters) {
+            if (currentSectionObj != null) {
+                currentSectionObj.setContent(currentContent.toString());
+                currentSectionObj.setEndPage(1);
+                if (currentChapterObj != null) {
+                    currentChapterObj.getSections().add(currentSectionObj);
+                }
+            }
+            
             if (currentChapterObj != null) {
-                currentChapterObj.getSections().add(currentSectionObj);
+                currentChapterObj.setContent(currentContent.toString());
+                currentChapterObj.setEndPage(1);
+                document.getChapters().add(currentChapterObj);
             }
         }
-        
-        if (currentChapterObj != null) {
-            currentChapterObj.setContent(currentContent.toString());
-            currentChapterObj.setEndPage(1);
-            document.getChapters().add(currentChapterObj);
-        }
+        // If no chapters were found, don't create any chapter objects
+        // The document will have an empty chapters list, which is correct for unstructured content
     }
 
     @Override

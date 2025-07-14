@@ -86,6 +86,38 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 List.of(ex.getMessage())
         );
     }
+
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex) {
+        // Handle specific authorization cases
+        if ("Access denied".equals(ex.getMessage())) {
+            ErrorResponse errorResponse = new ErrorResponse(
+                    LocalDateTime.now(),
+                    HttpStatus.FORBIDDEN.value(),
+                    "Access Denied",
+                    List.of(ex.getMessage())
+            );
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+        }
+        // Handle specific not found cases
+        if ("Chunk not found".equals(ex.getMessage())) {
+            ErrorResponse errorResponse = new ErrorResponse(
+                    LocalDateTime.now(),
+                    HttpStatus.NOT_FOUND.value(),
+                    "Not Found",
+                    List.of(ex.getMessage())
+            );
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+        }
+        // For other runtime exceptions, return internal server error
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "Internal Server Error",
+                List.of("An unexpected error occurred")
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    }
     
     @ExceptionHandler(DocumentProcessingException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)

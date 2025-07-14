@@ -1,0 +1,250 @@
+# Introduction to Computer Science
+
+This is the beginning of our journey into computer science.
+
+## Chapter 1: Programming Fundamentals
+
+Programming is the art of telling a computer what to do through a set of instructions called code.
+
+### Variables and Data Types
+
+Variables are containers that store data. In most programming languages, you need to declare the type of data a variable will hold.
+
+Common data types include:
+- Integer: whole numbers like 1, 2, 3
+- Float: decimal numbers like 3.14, 2.5
+- String: text like "Hello World"
+- Boolean: true or false values
+
+### Control Structures
+
+Control structures allow you to make decisions and repeat actions in your code.
+
+#### If Statements
+
+If statements let you execute code conditionally:
+
+```python
+if temperature > 30:
+    print("It's hot!")
+elif temperature > 20:
+    print("It's warm!")
+else:
+    print("It's cool!")
+```
+
+#### Loops
+
+Loops let you repeat actions:
+
+```python
+# For loop
+for i in range(5):
+    print(i)  # Prints 0, 1, 2, 3, 4
+
+# While loop
+count = 0
+while count < 5:
+    print(count)
+    count += 1
+```
+
+## Chapter 2: Object-Oriented Programming
+
+Object-oriented programming (OOP) is a programming paradigm based on the concept of objects.
+
+### Classes and Objects
+
+A class is a blueprint for creating objects. An object is an instance of a class.
+
+```python
+class Car:
+    def __init__(self, brand, model):
+        self.brand = brand
+        self.model = model
+    
+    def start_engine(self):
+        return f"{self.brand} {self.model} engine started!"
+```
+
+### Inheritance
+
+Inheritance allows a class to inherit properties and methods from another class.
+
+```python
+class ElectricCar(Car):
+    def __init__(self, brand, model, battery_capacity):
+        super().__init__(brand, model)
+        self.battery_capacity = battery_capacity
+    
+    def charge(self):
+        return f"Charging {self.brand} {self.model}"
+```
+
+## Chapter 3: Data Structures
+
+Data structures are ways of organizing and storing data for efficient access and modification.
+
+### Arrays and Lists
+
+Arrays and lists store collections of items in a specific order.
+
+```python
+# Python list
+numbers = [1, 2, 3, 4, 5]
+fruits = ["apple", "banana", "orange"]
+
+# Accessing elements
+first_number = numbers[0]  # 1
+last_fruit = fruits[-1]    # "orange"
+```
+
+### Dictionaries and Hash Maps
+
+Dictionaries store key-value pairs for fast lookup.
+
+```python
+student = {
+    "name": "Alice",
+    "age": 20,
+    "grade": "A"
+}
+
+# Accessing values
+name = student["name"]  # "Alice"
+age = student.get("age", 0)  # 20, with default 0
+```
+
+## Chapter 4: Algorithms
+
+Algorithms are step-by-step procedures for solving problems.
+
+### Sorting Algorithms
+
+Sorting algorithms arrange elements in a specific order.
+
+#### Bubble Sort
+
+Bubble sort repeatedly steps through the list, compares adjacent elements, and swaps them if they are in the wrong order.
+
+```python
+def bubble_sort(arr):
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+```
+
+#### Quick Sort
+
+Quick sort uses a divide-and-conquer strategy.
+
+```python
+def quick_sort(arr):
+    if len(arr) <= 1:
+        return arr
+    
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    
+    return quick_sort(left) + middle + quick_sort(right)
+```
+
+### Search Algorithms
+
+Search algorithms find specific elements in a data structure.
+
+#### Linear Search
+
+Linear search checks each element in order until the target is found.
+
+```python
+def linear_search(arr, target):
+    for i, element in enumerate(arr):
+        if element == target:
+            return i
+    return -1  # Not found
+```
+
+#### Binary Search
+
+Binary search works on sorted arrays by repeatedly dividing the search interval in half.
+
+```python
+def binary_search(arr, target):
+    left, right = 0, len(arr) - 1
+    
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    
+    return -1  # Not found
+```
+
+## Chapter 5: Software Development
+
+Software development is the process of creating, deploying, and maintaining software.
+
+### Version Control
+
+Version control systems track changes to source code over time.
+
+#### Git Basics
+
+Git is a distributed version control system.
+
+```bash
+# Initialize a repository
+git init
+
+# Add files to staging
+git add .
+
+# Commit changes
+git commit -m "Initial commit"
+
+# Check status
+git status
+
+# View history
+git log
+```
+
+### Testing
+
+Testing ensures your code works correctly.
+
+#### Unit Testing
+
+Unit tests verify individual components work as expected.
+
+```python
+import unittest
+
+def add(a, b):
+    return a + b
+
+class TestMath(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(add(2, 3), 5)
+        self.assertEqual(add(-1, 1), 0)
+        self.assertEqual(add(0, 0), 0)
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+## Conclusion
+
+Computer science is a vast field that continues to evolve. The concepts covered in this text provide a foundation for further learning and exploration.
+
+Remember: Practice is key to mastering programming. Write code regularly, solve problems, and never stop learning! 

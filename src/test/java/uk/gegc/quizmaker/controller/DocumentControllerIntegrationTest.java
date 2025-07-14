@@ -399,7 +399,7 @@ class DocumentControllerIntegrationTest {
                         .file(file))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("Document Processing Error"))
-                .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Custom processing error"));
+                .andExpect(jsonPath("$.details[0]").value("Custom processing error"));
     }
 
     @Test
