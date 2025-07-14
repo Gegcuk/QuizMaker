@@ -14,6 +14,10 @@ import uk.gegc.quizmaker.config.DocumentProcessingConfig;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.exception.DocumentAccessDeniedException;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 
 import java.util.List;
@@ -35,27 +39,41 @@ public class DocumentController {
             @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
             Authentication authentication) {
         
+        String username = authentication.getName();
+        
+        // Validate file type
+        String contentType = file.getContentType();
+        if (contentType == null || !isSupportedFileType(contentType)) {
+            throw new UnsupportedFileTypeException(file.getOriginalFilename(), contentType, "PDF, EPUB, TXT");
+        }
+        
+        // Use configuration defaults if parameters are not provided
+        ProcessDocumentRequest request = documentConfig.createDefaultRequest();
+        
+        if (chunkingStrategy != null) {
+            request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()));
+        }
+        if (maxChunkSize != null) {
+            request.setMaxChunkSize(maxChunkSize);
+        }
+        
         try {
-            String username = authentication.getName();
-            
-            // Use configuration defaults if parameters are not provided
-            ProcessDocumentRequest request = documentConfig.createDefaultRequest();
-            
-            if (chunkingStrategy != null) {
-                request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()));
-            }
-            if (maxChunkSize != null) {
-                request.setMaxChunkSize(maxChunkSize);
-            }
-            
             DocumentDto document = documentProcessingService.uploadAndProcessDocument(
                     username, file.getBytes(), file.getOriginalFilename(), request);
             
             return ResponseEntity.status(HttpStatus.CREATED).body(document);
         } catch (Exception e) {
             log.error("Error uploading document", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            throw new DocumentProcessingException("Failed to upload document: " + e.getMessage(), e);
         }
+    }
+    
+    private boolean isSupportedFileType(String contentType) {
+        return contentType != null && (
+                contentType.equals("application/pdf") ||
+                contentType.equals("application/epub+zip") ||
+                contentType.equals("text/plain")
+        );
     }
 
     @GetMapping("/{documentId}")
@@ -65,7 +83,7 @@ public class DocumentController {
             return ResponseEntity.ok(document);
         } catch (Exception e) {
             log.error("Error getting document: {}", documentId, e);
-            return ResponseEntity.notFound().build();
+            throw new DocumentNotFoundException(documentId.toString(), "Document not found");
         }
     }
 
@@ -81,7 +99,7 @@ public class DocumentController {
             return ResponseEntity.ok(documents);
         } catch (Exception e) {
             log.error("Error getting user documents", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            throw new DocumentProcessingException("Failed to retrieve user documents: " + e.getMessage(), e);
         }
     }
 
@@ -92,7 +110,7 @@ public class DocumentController {
             return ResponseEntity.ok(chunks);
         } catch (Exception e) {
             log.error("Error getting document chunks: {}", documentId, e);
-            return ResponseEntity.notFound().build();
+            throw new DocumentNotFoundException(documentId.toString(), "Document chunks not found");
         }
     }
 
@@ -105,7 +123,7 @@ public class DocumentController {
             return ResponseEntity.ok(chunk);
         } catch (Exception e) {
             log.error("Error getting document chunk: {}:{}", documentId, chunkIndex, e);
-            return ResponseEntity.notFound().build();
+            throw new DocumentNotFoundException(documentId.toString(), "Document chunk not found");
         }
     }
 
@@ -119,7 +137,7 @@ public class DocumentController {
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             log.error("Error deleting document: {}", documentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            throw new DocumentProcessingException("Failed to delete document: " + e.getMessage(), e);
         }
     }
 
@@ -134,7 +152,7 @@ public class DocumentController {
             return ResponseEntity.ok(document);
         } catch (Exception e) {
             log.error("Error reprocessing document: {}", documentId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);
         }
     }
 
@@ -145,7 +163,7 @@ public class DocumentController {
             return ResponseEntity.ok(document);
         } catch (Exception e) {
             log.error("Error getting document status: {}", documentId, e);
-            return ResponseEntity.notFound().build();
+            throw new DocumentNotFoundException(documentId.toString(), "Document status not found");
         }
     }
 

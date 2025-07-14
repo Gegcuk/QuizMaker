@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.config.DocumentProcessingConfig;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 
 import java.time.LocalDateTime;
@@ -271,19 +272,16 @@ class DocumentControllerIntegrationTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "test.txt",
-                "text/plain",
-                "This is not a PDF file".getBytes()
+                "application/octet-stream", // Unsupported content type
+                "This is not a supported file".getBytes()
         );
 
-        when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
-                .thenThrow(new RuntimeException("Unsupported file type"));
-
-        // Act & Assert
+        // Act & Assert - should fail at file type validation before reaching service
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
-                .andExpect(status().isInternalServerError())
-                .andExpect(content().string("")); // Empty response body for 500 errors
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Unsupported file type")));
     }
 
     @Test
@@ -315,6 +313,52 @@ class DocumentControllerIntegrationTest {
                         .param("maxChunkSize", "1000"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.totalChunks").value(50));
+    }
+    
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ServiceError_ReturnsProcessingError() throws Exception {
+        // Arrange
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.pdf",
+                "application/pdf",
+                "This is test PDF content".getBytes()
+        );
+
+        when(documentProcessingService.uploadAndProcessDocument(
+                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                .thenThrow(new RuntimeException("Processing failed"));
+
+        // Act & Assert
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Document Processing Error"))
+                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Failed to upload document")));
+    }
+    
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ServiceThrowsDocumentProcessingException_ReturnsCorrectError() throws Exception {
+        // Arrange
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "test.pdf",
+                "application/pdf",
+                "This is test PDF content".getBytes()
+        );
+
+        when(documentProcessingService.uploadAndProcessDocument(
+                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                .thenThrow(new DocumentProcessingException("Custom processing error"));
+
+        // Act & Assert
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Document Processing Error"))
+                .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Custom processing error"));
     }
 
     private DocumentDto createTestDocumentDto() {
