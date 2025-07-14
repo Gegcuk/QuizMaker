@@ -4,20 +4,34 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.when;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker.Chunk;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
+import uk.gegc.quizmaker.util.ChunkTitleGenerator;
+import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ChapterBasedChunkerTest {
 
     @InjectMocks
     private uk.gegc.quizmaker.service.document.chunker.impl.ChapterBasedChunker chunker;
+
+    @Mock
+    private SentenceBoundaryDetector sentenceBoundaryDetector;
+
+    @Mock
+    private ChunkTitleGenerator titleGenerator;
 
     private ProcessDocumentRequest request;
 
@@ -26,6 +40,27 @@ class ChapterBasedChunkerTest {
         request = new ProcessDocumentRequest();
         request.setMaxChunkSize(100);
         request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED);
+        
+        // Mock the utilities
+        when(sentenceBoundaryDetector.findBestSplitPoint(anyString(), anyInt()))
+                .thenAnswer(invocation -> {
+                    String text = invocation.getArgument(0);
+                    Integer maxLength = invocation.getArgument(1);
+                    return Math.min(text.length(), maxLength);
+                });
+        
+        when(titleGenerator.generateChunkTitle(anyString(), anyInt(), anyInt(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String title = invocation.getArgument(0);
+                    Integer chunkIndex = invocation.getArgument(1);
+                    Integer totalChunks = invocation.getArgument(2);
+                    Boolean isMultipleChunks = invocation.getArgument(3);
+                    
+                    if (isMultipleChunks) {
+                        return title + " (Part " + (chunkIndex + 1) + ")";
+                    }
+                    return title;
+                });
     }
 
     @Test
