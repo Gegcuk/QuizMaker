@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -16,7 +17,6 @@ import uk.gegc.quizmaker.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.security.annotation.RequireRole;
 import uk.gegc.quizmaker.service.admin.RoleService;
 
-import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
 

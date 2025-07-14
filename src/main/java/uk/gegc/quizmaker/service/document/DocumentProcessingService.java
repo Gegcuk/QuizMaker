@@ -2,10 +2,9 @@ package uk.gegc.quizmaker.service.document;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
+import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.model.user.User;
 
 import java.util.List;
 import java.util.UUID;

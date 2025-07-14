@@ -14,8 +14,8 @@ import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.security.PermissionEvaluator;
 import uk.gegc.quizmaker.security.annotation.RequirePermission;
-import uk.gegc.quizmaker.security.annotation.RequireRole;
 import uk.gegc.quizmaker.security.annotation.RequireResourceOwnership;
+import uk.gegc.quizmaker.security.annotation.RequireRole;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;

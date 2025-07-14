@@ -16,6 +16,8 @@ import uk.gegc.quizmaker.config.DocumentProcessingConfig;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.mapper.document.DocumentMapper;
 import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
@@ -26,9 +28,6 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
 import uk.gegc.quizmaker.service.document.parser.FileParser;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.DocumentNotFoundException;
-import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 
 import java.io.IOException;
 import java.lang.reflect.Field;

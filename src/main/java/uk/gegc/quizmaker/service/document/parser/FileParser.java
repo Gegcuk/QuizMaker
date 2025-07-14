@@ -1,7 +1,5 @@
 package uk.gegc.quizmaker.service.document.parser;
 
-import uk.gegc.quizmaker.model.document.Document;
-
 import java.io.InputStream;
 import java.util.List;
 

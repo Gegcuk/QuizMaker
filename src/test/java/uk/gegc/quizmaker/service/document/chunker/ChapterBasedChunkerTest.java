@@ -8,8 +8,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker.Chunk;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
@@ -19,6 +17,8 @@ import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)

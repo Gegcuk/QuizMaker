@@ -4,7 +4,6 @@ import lombok.Data;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public interface ContentChunker {

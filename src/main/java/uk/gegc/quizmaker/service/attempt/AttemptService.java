@@ -7,7 +7,6 @@ import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
 
 import java.time.LocalDate;
 import java.util.List;

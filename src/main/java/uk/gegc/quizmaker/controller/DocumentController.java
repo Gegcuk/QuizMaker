@@ -14,16 +14,13 @@ import uk.gegc.quizmaker.config.DocumentProcessingConfig;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.exception.DocumentAccessDeniedException;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 

@@ -23,7 +23,6 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
 import uk.gegc.quizmaker.service.document.parser.FileParser;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
 
 import java.io.IOException;
 import java.lang.reflect.Field;

@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.service.admin;
 
 import uk.gegc.quizmaker.model.user.Permission;
-import uk.gegc.quizmaker.model.user.PermissionName;
 
 import java.util.List;
 import java.util.Set;
