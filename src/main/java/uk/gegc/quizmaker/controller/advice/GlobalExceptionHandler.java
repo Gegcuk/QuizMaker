@@ -142,7 +142,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, DocumentAccessDeniedException.class})
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, DocumentAccessDeniedException.class, UserNotAuthorizedException.class})
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleAccessDenied(Exception ex) {
         return new ErrorResponse(

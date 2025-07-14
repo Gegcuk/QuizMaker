@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -19,6 +20,8 @@ import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 
 import java.time.LocalDateTime;
@@ -39,12 +42,10 @@ class DocumentControllerIntegrationTest {
     @Autowired
     private WebApplicationContext context;
 
-    @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private DocumentProcessingService documentProcessingService;
 
-    @SuppressWarnings("deprecation")
-    @MockBean
+    @MockitoBean
     private DocumentProcessingConfig documentConfig;
 
     private MockMvc mockMvc;
@@ -123,7 +124,7 @@ class DocumentControllerIntegrationTest {
         DocumentDto documentDto = createTestDocumentDto();
         documentDto.setId(documentId);
 
-        when(documentProcessingService.getDocumentById(documentId)).thenReturn(documentDto);
+        when(documentProcessingService.getDocumentById(documentId, "testuser")).thenReturn(documentDto);
 
         // Act & Assert
         mockMvc.perform(get("/api/documents/{documentId}", documentId))
@@ -137,12 +138,25 @@ class DocumentControllerIntegrationTest {
     void getDocument_NotFound() throws Exception {
         // Arrange
         UUID documentId = UUID.randomUUID();
-        when(documentProcessingService.getDocumentById(documentId))
-                .thenThrow(new RuntimeException("Document not found"));
+        when(documentProcessingService.getDocumentById(documentId, "testuser"))
+                .thenThrow(new DocumentNotFoundException(documentId.toString(), "Document not found"));
 
         // Act & Assert
         mockMvc.perform(get("/api/documents/{documentId}", documentId))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void getDocument_Unauthorized() throws Exception {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        when(documentProcessingService.getDocumentById(documentId, "testuser"))
+                .thenThrow(new UserNotAuthorizedException("testuser", documentId.toString(), "access"));
+
+        // Act & Assert
+        mockMvc.perform(get("/api/documents/{documentId}", documentId))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -168,7 +182,7 @@ class DocumentControllerIntegrationTest {
         DocumentChunkDto chunk1 = createTestChunkDto(0);
         DocumentChunkDto chunk2 = createTestChunkDto(1);
 
-        when(documentProcessingService.getDocumentChunks(documentId))
+        when(documentProcessingService.getDocumentChunks(documentId, "testuser"))
                 .thenReturn(Arrays.asList(chunk1, chunk2));
 
         // Act & Assert
@@ -182,13 +196,26 @@ class DocumentControllerIntegrationTest {
 
     @Test
     @WithMockUser(username = "testuser")
+    void getDocumentChunks_Unauthorized() throws Exception {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        when(documentProcessingService.getDocumentChunks(documentId, "testuser"))
+                .thenThrow(new UserNotAuthorizedException("testuser", documentId.toString(), "access chunks of"));
+
+        // Act & Assert
+        mockMvc.perform(get("/api/documents/{documentId}/chunks", documentId))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
     void getDocumentChunk_Success() throws Exception {
         // Arrange
         UUID documentId = UUID.randomUUID();
         Integer chunkIndex = 1;
         DocumentChunkDto chunk = createTestChunkDto(chunkIndex);
 
-        when(documentProcessingService.getDocumentChunk(documentId, chunkIndex))
+        when(documentProcessingService.getDocumentChunk(documentId, chunkIndex, "testuser"))
                 .thenReturn(chunk);
 
         // Act & Assert
@@ -196,6 +223,20 @@ class DocumentControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.chunkIndex").value(chunkIndex))
                 .andExpect(jsonPath("$.title").value("Chapter 2"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void getDocumentChunk_Unauthorized() throws Exception {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        Integer chunkIndex = 1;
+        when(documentProcessingService.getDocumentChunk(documentId, chunkIndex, "testuser"))
+                .thenThrow(new UserNotAuthorizedException("testuser", documentId.toString(), "access chunks of"));
+
+        // Act & Assert
+        mockMvc.perform(get("/api/documents/{documentId}/chunks/{chunkIndex}", documentId, chunkIndex))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -238,7 +279,7 @@ class DocumentControllerIntegrationTest {
         DocumentDto documentDto = createTestDocumentDto();
         documentDto.setId(documentId);
 
-        when(documentProcessingService.getDocumentStatus(documentId)).thenReturn(documentDto);
+        when(documentProcessingService.getDocumentStatus(documentId, "testuser")).thenReturn(documentDto);
 
         // Act & Assert
         mockMvc.perform(get("/api/documents/{documentId}/status", documentId))

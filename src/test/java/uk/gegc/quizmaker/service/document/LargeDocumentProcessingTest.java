@@ -319,6 +319,7 @@ class LargeDocumentProcessingTest {
         List<DocumentChunk> chunks = createLargeDocumentChunks();
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(chunkRepository.findByDocumentOrderByChunkIndex(testDocument)).thenReturn(chunks);
         when(documentMapper.toChunkDto(any(DocumentChunk.class))).thenAnswer(invocation -> {
             DocumentChunk chunk = invocation.getArgument(0);
@@ -331,7 +332,7 @@ class LargeDocumentProcessingTest {
         });
 
         // Act
-        List<DocumentChunkDto> result = documentProcessingService.getDocumentChunks(documentId);
+        List<DocumentChunkDto> result = documentProcessingService.getDocumentChunks(documentId, "testuser");
 
         // Assert
         assertNotNull(result);
