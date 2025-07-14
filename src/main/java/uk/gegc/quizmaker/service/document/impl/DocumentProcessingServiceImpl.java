@@ -22,6 +22,8 @@ import uk.gegc.quizmaker.service.document.chunker.ContentChunker.Chunk;
 import uk.gegc.quizmaker.service.document.parser.FileParser;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -207,9 +209,17 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     @Override
-    public DocumentDto getDocumentById(UUID documentId) {
+    public DocumentDto getDocumentById(UUID documentId, String username) {
         Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
+        
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+        
+        if (!document.getUploadedBy().equals(user)) {
+            throw new UserNotAuthorizedException(username, documentId.toString(), "access");
+        }
+        
         return documentMapper.toDto(document);
     }
 
@@ -223,16 +233,33 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     @Override
-    public List<DocumentChunkDto> getDocumentChunks(UUID documentId) {
+    public List<DocumentChunkDto> getDocumentChunks(UUID documentId, String username) {
         Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
+        
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+        
+        if (!document.getUploadedBy().equals(user)) {
+            throw new UserNotAuthorizedException(username, documentId.toString(), "access chunks of");
+        }
         
         List<DocumentChunk> chunks = chunkRepository.findByDocumentOrderByChunkIndex(document);
         return chunks.stream().map(documentMapper::toChunkDto).toList();
     }
 
     @Override
-    public DocumentChunkDto getDocumentChunk(UUID documentId, Integer chunkIndex) {
+    public DocumentChunkDto getDocumentChunk(UUID documentId, Integer chunkIndex, String username) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
+        
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+        
+        if (!document.getUploadedBy().equals(user)) {
+            throw new UserNotAuthorizedException(username, documentId.toString(), "access chunks of");
+        }
+        
         DocumentChunk chunk = chunkRepository.findByDocumentIdAndChunkIndex(documentId, chunkIndex);
         if (chunk == null) {
             throw new RuntimeException("Chunk not found: " + documentId + ":" + chunkIndex);
@@ -349,8 +376,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     @Override
-    public DocumentDto getDocumentStatus(UUID documentId) {
-        return getDocumentById(documentId);
+    public DocumentDto getDocumentStatus(UUID documentId, String username) {
+        return getDocumentById(documentId, username);
     }
 
     // Helper methods (unchanged)

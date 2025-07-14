@@ -19,9 +19,9 @@ public interface DocumentProcessingService {
                                        ProcessDocumentRequest request);
 
     /**
-     * Get document by ID
+     * Get document by ID with authorization check
      */
-    DocumentDto getDocumentById(UUID documentId);
+    DocumentDto getDocumentById(UUID documentId, String username);
 
     /**
      * Get all documents for a user
@@ -29,14 +29,14 @@ public interface DocumentProcessingService {
     Page<DocumentDto> getUserDocuments(String username, Pageable pageable);
 
     /**
-     * Get chunks for a specific document
+     * Get chunks for a specific document with authorization check
      */
-    List<DocumentChunkDto> getDocumentChunks(UUID documentId);
+    List<DocumentChunkDto> getDocumentChunks(UUID documentId, String username);
 
     /**
-     * Get a specific chunk by document ID and chunk index
+     * Get a specific chunk by document ID and chunk index with authorization check
      */
-    DocumentChunkDto getDocumentChunk(UUID documentId, Integer chunkIndex);
+    DocumentChunkDto getDocumentChunk(UUID documentId, Integer chunkIndex, String username);
 
     /**
      * Delete a document and all its chunks
@@ -49,7 +49,7 @@ public interface DocumentProcessingService {
     DocumentDto reprocessDocument(String username, UUID documentId, ProcessDocumentRequest request);
 
     /**
-     * Get processing status of a document
+     * Get processing status of a document with authorization check
      */
-    DocumentDto getDocumentStatus(UUID documentId);
+    DocumentDto getDocumentStatus(UUID documentId, String username);
 } 

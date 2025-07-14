@@ -27,6 +27,8 @@ import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
 import uk.gegc.quizmaker.service.document.parser.FileParser;
 import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -264,10 +266,11 @@ class DocumentProcessingServiceTest {
         // Arrange
         UUID documentId = UUID.randomUUID();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(documentMapper.toDto(testDocument)).thenReturn(testDocumentDto);
 
         // Act
-        DocumentDto result = documentProcessingService.getDocumentById(documentId);
+        DocumentDto result = documentProcessingService.getDocumentById(documentId, "testuser");
 
         // Assert
         assertNotNull(result);
@@ -281,8 +284,29 @@ class DocumentProcessingServiceTest {
         when(documentRepository.findById(documentId)).thenReturn(Optional.empty());
 
         // Act & Assert
-        assertThrows(RuntimeException.class, () -> {
-            documentProcessingService.getDocumentById(documentId);
+        assertThrows(DocumentNotFoundException.class, () -> {
+            documentProcessingService.getDocumentById(documentId, "testuser");
+        });
+    }
+
+    @Test
+    void getDocumentById_Unauthorized() {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        User otherUser = new User();
+        otherUser.setId(UUID.randomUUID());
+        otherUser.setUsername("otheruser");
+        
+        Document document = new Document();
+        document.setId(documentId);
+        document.setUploadedBy(otherUser);
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+
+        // Act & Assert
+        assertThrows(UserNotAuthorizedException.class, () -> {
+            documentProcessingService.getDocumentById(documentId, "testuser");
         });
     }
 
@@ -310,15 +334,37 @@ class DocumentProcessingServiceTest {
         UUID documentId = UUID.randomUUID();
         List<DocumentChunk> chunks = createTestDocumentChunks();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(chunkRepository.findByDocumentOrderByChunkIndex(testDocument)).thenReturn(chunks);
         when(documentMapper.toChunkDto(any(DocumentChunk.class))).thenReturn(createTestChunkDto());
 
         // Act
-        List<DocumentChunkDto> result = documentProcessingService.getDocumentChunks(documentId);
+        List<DocumentChunkDto> result = documentProcessingService.getDocumentChunks(documentId, "testuser");
 
         // Assert
         assertNotNull(result);
         assertEquals(3, result.size());
+    }
+
+    @Test
+    void getDocumentChunks_Unauthorized() {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        User otherUser = new User();
+        otherUser.setId(UUID.randomUUID());
+        otherUser.setUsername("otheruser");
+        
+        Document document = new Document();
+        document.setId(documentId);
+        document.setUploadedBy(otherUser);
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+
+        // Act & Assert
+        assertThrows(UserNotAuthorizedException.class, () -> {
+            documentProcessingService.getDocumentChunks(documentId, "testuser");
+        });
     }
 
     @Test
@@ -329,11 +375,13 @@ class DocumentProcessingServiceTest {
         DocumentChunk chunk = createTestDocumentChunk();
         DocumentChunkDto chunkDto = createTestChunkDto();
         
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(chunkRepository.findByDocumentIdAndChunkIndex(documentId, chunkIndex)).thenReturn(chunk);
         when(documentMapper.toChunkDto(chunk)).thenReturn(chunkDto);
 
         // Act
-        DocumentChunkDto result = documentProcessingService.getDocumentChunk(documentId, chunkIndex);
+        DocumentChunkDto result = documentProcessingService.getDocumentChunk(documentId, chunkIndex, "testuser");
 
         // Assert
         assertNotNull(result);
@@ -345,11 +393,35 @@ class DocumentProcessingServiceTest {
         // Arrange
         UUID documentId = UUID.randomUUID();
         Integer chunkIndex = 0;
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(testDocument));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(chunkRepository.findByDocumentIdAndChunkIndex(documentId, chunkIndex)).thenReturn(null);
 
         // Act & Assert
         assertThrows(RuntimeException.class, () -> {
-            documentProcessingService.getDocumentChunk(documentId, chunkIndex);
+            documentProcessingService.getDocumentChunk(documentId, chunkIndex, "testuser");
+        });
+    }
+
+    @Test
+    void getDocumentChunk_Unauthorized() {
+        // Arrange
+        UUID documentId = UUID.randomUUID();
+        Integer chunkIndex = 0;
+        User otherUser = new User();
+        otherUser.setId(UUID.randomUUID());
+        otherUser.setUsername("otheruser");
+        
+        Document document = new Document();
+        document.setId(documentId);
+        document.setUploadedBy(otherUser);
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+
+        // Act & Assert
+        assertThrows(UserNotAuthorizedException.class, () -> {
+            documentProcessingService.getDocumentChunk(documentId, chunkIndex, "testuser");
         });
     }
 

@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
+import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 
 import java.util.List;
@@ -81,10 +82,14 @@ public class DocumentController {
     }
 
     @GetMapping("/{documentId}")
-    public ResponseEntity<DocumentDto> getDocument(@PathVariable UUID documentId) {
+    public ResponseEntity<DocumentDto> getDocument(@PathVariable UUID documentId, Authentication authentication) {
         try {
-            DocumentDto document = documentProcessingService.getDocumentById(documentId);
+            String username = authentication.getName();
+            DocumentDto document = documentProcessingService.getDocumentById(documentId, username);
             return ResponseEntity.ok(document);
+        } catch (UserNotAuthorizedException e) {
+            log.error("Unauthorized access to document: {} by user: {}", documentId, authentication.getName());
+            throw e;
         } catch (Exception e) {
             log.error("Error getting document: {}", documentId, e);
             throw new DocumentNotFoundException(documentId.toString(), "Document not found");
@@ -108,10 +113,14 @@ public class DocumentController {
     }
 
     @GetMapping("/{documentId}/chunks")
-    public ResponseEntity<List<DocumentChunkDto>> getDocumentChunks(@PathVariable UUID documentId) {
+    public ResponseEntity<List<DocumentChunkDto>> getDocumentChunks(@PathVariable UUID documentId, Authentication authentication) {
         try {
-            List<DocumentChunkDto> chunks = documentProcessingService.getDocumentChunks(documentId);
+            String username = authentication.getName();
+            List<DocumentChunkDto> chunks = documentProcessingService.getDocumentChunks(documentId, username);
             return ResponseEntity.ok(chunks);
+        } catch (UserNotAuthorizedException e) {
+            log.error("Unauthorized access to document chunks: {} by user: {}", documentId, authentication.getName());
+            throw e;
         } catch (Exception e) {
             log.error("Error getting document chunks: {}", documentId, e);
             throw new DocumentNotFoundException(documentId.toString(), "Document chunks not found");
@@ -121,10 +130,15 @@ public class DocumentController {
     @GetMapping("/{documentId}/chunks/{chunkIndex}")
     public ResponseEntity<DocumentChunkDto> getDocumentChunk(
             @PathVariable UUID documentId, 
-            @PathVariable Integer chunkIndex) {
+            @PathVariable Integer chunkIndex,
+            Authentication authentication) {
         try {
-            DocumentChunkDto chunk = documentProcessingService.getDocumentChunk(documentId, chunkIndex);
+            String username = authentication.getName();
+            DocumentChunkDto chunk = documentProcessingService.getDocumentChunk(documentId, chunkIndex, username);
             return ResponseEntity.ok(chunk);
+        } catch (UserNotAuthorizedException e) {
+            log.error("Unauthorized access to document chunk: {}:{} by user: {}", documentId, chunkIndex, authentication.getName());
+            throw e;
         } catch (Exception e) {
             log.error("Error getting document chunk: {}:{}", documentId, chunkIndex, e);
             throw new DocumentNotFoundException(documentId.toString(), "Document chunk not found");
@@ -167,10 +181,14 @@ public class DocumentController {
     }
 
     @GetMapping("/{documentId}/status")
-    public ResponseEntity<DocumentDto> getDocumentStatus(@PathVariable UUID documentId) {
+    public ResponseEntity<DocumentDto> getDocumentStatus(@PathVariable UUID documentId, Authentication authentication) {
         try {
-            DocumentDto document = documentProcessingService.getDocumentStatus(documentId);
+            String username = authentication.getName();
+            DocumentDto document = documentProcessingService.getDocumentStatus(documentId, username);
             return ResponseEntity.ok(document);
+        } catch (UserNotAuthorizedException e) {
+            log.error("Unauthorized access to document status: {} by user: {}", documentId, authentication.getName());
+            throw e;
         } catch (Exception e) {
             log.error("Error getting document status: {}", documentId, e);
             throw new DocumentNotFoundException(documentId.toString(), "Document status not found");
