@@ -1,28 +1,29 @@
 package uk.gegc.quizmaker.config;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.model.user.Role;
-import uk.gegc.quizmaker.model.user.RoleName;
-import uk.gegc.quizmaker.repository.user.RoleRepository;
+import uk.gegc.quizmaker.service.admin.RoleService;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class DataInitializer implements CommandLineRunner {
 
-    private final RoleRepository roleRepository;
+    private final RoleService roleService;
 
     @Override
     public void run(String... args) throws Exception {
-        for (RoleName roleName : RoleName.values()) {
-            String name = roleName.name();
-            if (roleRepository.findByRole(name).isEmpty()) {
-                Role role = new Role();
-                role.setRole(name);
-                roleRepository.save(role);
-                System.out.println("Inserted role: " + name);
-            }
+        log.info("Starting data initialization...");
+        
+        try {
+            // Initialize all roles and permissions
+            roleService.initializeDefaultRolesAndPermissions();
+            log.info("Data initialization completed successfully");
+        } catch (Exception e) {
+            log.error("Error during data initialization: {}", e.getMessage(), e);
+            throw e;
         }
     }
 }

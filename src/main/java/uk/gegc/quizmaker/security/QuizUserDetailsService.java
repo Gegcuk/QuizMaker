@@ -29,7 +29,7 @@ public class QuizUserDetailsService implements UserDetailsService {
 
         List<GrantedAuthority> authorities = user.getRoles()
                 .stream()
-                .map(role -> (GrantedAuthority) new SimpleGrantedAuthority(role.getRole()))
+                .map(role -> (GrantedAuthority) new SimpleGrantedAuthority(role.getRoleName()))
                 .toList();
 
         return new org.springframework.security.core.userdetails.User(
