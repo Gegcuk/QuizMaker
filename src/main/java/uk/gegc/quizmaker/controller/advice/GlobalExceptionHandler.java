@@ -26,9 +26,9 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler(ResourceNotFoundException.class)
+    @ExceptionHandler({ResourceNotFoundException.class, DocumentNotFoundException.class})
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ErrorResponse handleNotFound(ResourceNotFoundException exception) {
+    public ErrorResponse handleNotFound(RuntimeException exception) {
         return new ErrorResponse(
                 LocalDateTime.now(),
                 HttpStatus.NOT_FOUND.value(),
@@ -40,6 +40,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler({
             ValidationException.class,
             UnsupportedQuestionTypeException.class,
+            UnsupportedFileTypeException.class,
             ApiError.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
@@ -85,6 +86,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 List.of(ex.getMessage())
         );
     }
+    
+    @ExceptionHandler(DocumentProcessingException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ErrorResponse handleDocumentProcessing(DocumentProcessingException ex) {
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "Document Processing Error",
+                List.of(ex.getMessage())
+        );
+    }
 
     @ExceptionHandler(ResponseStatusException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
@@ -119,7 +131,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class})
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, DocumentAccessDeniedException.class})
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleAccessDenied(Exception ex) {
         return new ErrorResponse(
