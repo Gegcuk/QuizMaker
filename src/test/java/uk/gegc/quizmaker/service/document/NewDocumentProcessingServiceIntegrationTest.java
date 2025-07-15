@@ -78,8 +78,8 @@ class NewDocumentProcessingServiceIntegrationTest {
 
     @Test
     void uploadAndProcessDocument_InvalidContent_ThrowsException() {
-        // Arrange
-        byte[] invalidContent = "This is not a PDF".getBytes();
+        // Arrange - Create content that definitely won't be a valid PDF
+        byte[] invalidContent = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}; // Random bytes
         
         // Act & Assert
         assertThrows(Exception.class, () -> {

@@ -26,8 +26,11 @@ public class DocumentConverterFactory {
      */
     public DocumentConverter findConverter(String contentType, String filename) {
         log.info("Looking for converter for content type: {}, filename: {}", contentType, filename);
+        log.info("Available converters: {}", converters.stream().map(DocumentConverter::getConverterType).toList());
         
         for (DocumentConverter converter : converters) {
+            log.debug("Checking converter: {} - canConvert: {}", 
+                    converter.getConverterType(), converter.canConvert(contentType, filename));
             if (converter.canConvert(contentType, filename)) {
                 log.info("Found converter: {}", converter.getConverterType());
                 return converter;
@@ -36,6 +39,9 @@ public class DocumentConverterFactory {
         
         String errorMessage = String.format("No converter found for content type: %s, filename: %s", contentType, filename);
         log.error(errorMessage);
+        log.error("Available converters: {}", converters.stream().map(DocumentConverter::getConverterType).toList());
+        log.error("Supported content types: {}", getSupportedContentTypes());
+        log.error("Supported extensions: {}", getSupportedExtensions());
         throw new DocumentProcessingException(errorMessage);
     }
 

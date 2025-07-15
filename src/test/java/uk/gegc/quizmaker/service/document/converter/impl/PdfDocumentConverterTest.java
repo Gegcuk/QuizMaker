@@ -104,14 +104,26 @@ class PdfDocumentConverterTest {
 
     @Test
     void convert_InvalidPdfContent_ThrowsException() {
-        // Arrange
-        byte[] invalidContent = "This is not a PDF".getBytes();
+        // Arrange - Create content that definitely won't be a valid PDF
+        byte[] invalidContent = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}; // Random bytes
         String filename = "test.pdf";
         Long fileSize = (long) invalidContent.length;
 
         // Act & Assert
         assertThrows(Exception.class, () -> {
             converter.convert(new ByteArrayInputStream(invalidContent), filename, fileSize);
+        });
+    }
+
+    @Test
+    void convert_NullInputStream_ThrowsException() {
+        // Arrange
+        String filename = "test.pdf";
+        Long fileSize = 100L;
+
+        // Act & Assert
+        assertThrows(Exception.class, () -> {
+            converter.convert(null, filename, fileSize);
         });
     }
 
