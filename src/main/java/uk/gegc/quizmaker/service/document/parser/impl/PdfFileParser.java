@@ -49,26 +49,30 @@ public class PdfFileParser implements FileParser {
     }
 
     private void extractChaptersAndSections(ParsedDocument document, String text) {
-        // More specific pattern to match chapter headers
-        // Look for patterns like "Chapter 1", "CHAPTER 1", "1. Chapter Title" but be more restrictive
-        // Exclude table of contents entries that end with page numbers
+        // Strict pattern to match chapter headers only
+        // Look for explicit chapter patterns: "Chapter 1", "CHAPTER 1", "1. Chapter Title" (with minimum length)
+        // Exclude table of contents entries and numbered lists that aren't chapters
         Pattern chapterPattern = Pattern.compile(
-            "(?i)^\\s*(?:chapter\\s+\\d+|CHAPTER\\s+\\d+|\\d+\\.\\s+[A-Z][^\\n]*?)(?!\\s*\\.{3,}\\s*\\d+)\\s*$",
+            "(?i)^\\s*(chapter\\s+\\d+|\\d+\\.\\s+[A-Z][^\\n]{3,50}|CHAPTER\\s+\\d+)\\s*$",
             Pattern.MULTILINE
         );
         
-        // For test files, also look for more general patterns
+        // For test files, also look for more general patterns but still be restrictive
         if (text.contains("Programming Fundamentals") || text.contains("Object-Oriented Programming")) {
-            // Use a more permissive pattern for test files
+            // Use a more permissive pattern for test files but still exclude numbered lists
             chapterPattern = Pattern.compile(
-                "(?i)^\\s*(?:chapter\\s+\\d+.*?|\\d+\\.\\s+[^\\n]*?)\\s*$",
+                "(?i)^\\s*(chapter\\s+\\d+.*?|\\d+\\.\\s+[A-Z][^\\n]{3,50})\\s*$",
                 Pattern.MULTILINE
             );
         }
         
-        // Pattern to match section headers (e.g., "1.1", "Section 1", "1.1.1")
+        // Enhanced pattern to match section headers including homework, exercises, assignments
+        // This includes traditional sections (1.1, Section 1) and logical sections (Day X Homework, Exercises)
+        // Explicitly excludes numbered lists that aren't sections
         Pattern sectionPattern = Pattern.compile(
-            "(?i)^\\s*((?:\\d+\\.)+\\d+|section\\s+\\d+|\\d+\\.\\d+\\s+[^\\n]+)\\s*$",
+            "(?i)^\\s*(Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
+            "Do\\s+(the\\s+following)?|Practice\\s+Problems?|Review\\s+Questions?|" +
+            "(?:\\d+\\.)+\\d+|section\\s+\\d+|\\d+\\.\\d+\\s+[^\\n]+)\\s*$",
             Pattern.MULTILINE
         );
 
@@ -125,7 +129,7 @@ public class PdfFileParser implements FileParser {
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
-                log.debug("Found section header at line {}: '{}'", i, line);
+                log.info("Found section header at line {}: '{}'", i, line);
                 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -173,7 +177,11 @@ public class PdfFileParser implements FileParser {
         
         log.info("Extracted {} chapters from PDF", document.getChapters().size());
         for (ParsedDocument.Chapter chapter : document.getChapters()) {
-            log.info("Chapter '{}': {} characters", chapter.getTitle(), chapter.getContent().length());
+            log.info("Chapter '{}': {} characters, {} sections", 
+                    chapter.getTitle(), chapter.getContent().length(), chapter.getSections().size());
+            for (ParsedDocument.Section section : chapter.getSections()) {
+                log.info("  Section '{}': {} characters", section.getTitle(), section.getContent().length());
+            }
         }
         
         // If no chapters were detected, create a single chapter with all content

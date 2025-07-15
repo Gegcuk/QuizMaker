@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.util;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -141,10 +142,17 @@ public class SentenceBoundaryDetector {
             return text != null ? text.length() : 0;
         }
 
-        // Try to find a sentence boundary within the last 10% of the max length (less aggressive)
-        int searchStart = Math.max(0, maxLength - (maxLength / 10));
+        // Try to find a sentence boundary within the last 20% of the max length (more flexible)
+        int searchStart = Math.max(0, maxLength - (maxLength / 5));
         String searchText = text.substring(0, maxLength);
         
+        // First, try to find natural breaks like list items or exercise patterns
+        int naturalBreak = findNaturalBreak(searchText, searchStart);
+        if (naturalBreak > searchStart) {
+            return naturalBreak;
+        }
+        
+        // Then try sentence boundaries
         int sentenceEnd = findLastSentenceEnd(searchText);
         
         if (sentenceEnd > searchStart) {
@@ -153,6 +161,52 @@ public class SentenceBoundaryDetector {
 
         // If no good sentence boundary found, try to break at word boundaries
         return findWordBoundary(text, maxLength);
+    }
+
+    /**
+     * Find natural breaks like list items, exercise patterns, or paragraph breaks
+     * @param text The text to analyze
+     * @param searchStart The minimum position to search from
+     * @return The position of the natural break, or -1 if not found
+     */
+    private int findNaturalBreak(String text, int searchStart) {
+        if (searchStart >= text.length()) {
+            return -1;
+        }
+
+        // Look for patterns that indicate natural breaks
+        String searchText = text.substring(searchStart);
+        
+        // Explicitly match numbered list starts (e.g., "1. Some text", "a. Some text")
+        // This is more specific than the previous pattern
+        Pattern numberedListPattern = Pattern.compile("\\n\\s*\\d+\\.\\s+[A-Z]");
+        Matcher numberedMatcher = numberedListPattern.matcher(searchText);
+        if (numberedMatcher.find()) {
+            return searchStart + numberedMatcher.start();
+        }
+        
+        // Pattern for bullet points (e.g., "•", "-", "*")
+        Pattern bulletPattern = Pattern.compile("\\n\\s*[•\\-*]\\s+");
+        Matcher bulletMatcher = bulletPattern.matcher(searchText);
+        if (bulletMatcher.find()) {
+            return searchStart + bulletMatcher.start();
+        }
+        
+        // Pattern for exercise instructions (e.g., "Find", "Do", "Complete")
+        Pattern exercisePattern = Pattern.compile("\\n\\s*(?:Find|Do|Complete|Practice|Review)\\s+", Pattern.CASE_INSENSITIVE);
+        Matcher exerciseMatcher = exercisePattern.matcher(searchText);
+        if (exerciseMatcher.find()) {
+            return searchStart + exerciseMatcher.start();
+        }
+        
+        // Pattern for paragraph breaks (double newlines)
+        Pattern paragraphPattern = Pattern.compile("\\n\\s*\\n");
+        Matcher paragraphMatcher = paragraphPattern.matcher(searchText);
+        if (paragraphMatcher.find()) {
+            return searchStart + paragraphMatcher.end();
+        }
+        
+        return -1;
     }
 
     /**
