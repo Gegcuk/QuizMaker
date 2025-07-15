@@ -182,8 +182,9 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         documentChunk.setChunkIndex(chunk.getChunkIndex());
         documentChunk.setTitle(chunk.getTitle());
         documentChunk.setContent(chunk.getContent());
-        documentChunk.setStartPage(chunk.getStartPage());
-        documentChunk.setEndPage(chunk.getEndPage());
+        // Provide default values for page numbers if they are null
+        documentChunk.setStartPage(chunk.getStartPage() != null ? chunk.getStartPage() : 1);
+        documentChunk.setEndPage(chunk.getEndPage() != null ? chunk.getEndPage() : 1);
         documentChunk.setWordCount(chunk.getWordCount());
         documentChunk.setCharacterCount(chunk.getCharacterCount());
         documentChunk.setCreatedAt(LocalDateTime.now());
@@ -213,7 +214,11 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Transactional
     public void updateDocumentStatusOnFailure(Document document, String errorMessage) {
         document.setStatus(Document.DocumentStatus.FAILED);
-        document.setProcessingError(errorMessage);
+        // Truncate error message to prevent database column overflow
+        String truncatedError = errorMessage != null && errorMessage.length() > 1000 
+            ? errorMessage.substring(0, 1000) + "... (truncated)"
+            : errorMessage;
+        document.setProcessingError(truncatedError);
         documentRepository.save(document);
     }
 

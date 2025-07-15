@@ -141,8 +141,8 @@ public class SentenceBoundaryDetector {
             return text != null ? text.length() : 0;
         }
 
-        // Try to find a sentence boundary within the last 20% of the max length
-        int searchStart = Math.max(0, maxLength - (maxLength / 5));
+        // Try to find a sentence boundary within the last 10% of the max length (less aggressive)
+        int searchStart = Math.max(0, maxLength - (maxLength / 10));
         String searchText = text.substring(0, maxLength);
         
         int sentenceEnd = findLastSentenceEnd(searchText);

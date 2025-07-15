@@ -26,10 +26,10 @@ public class DocumentChunk {
     @Column(nullable = false)
     private Integer chunkIndex;
 
-    @Column(nullable = false)
+    @Column(columnDefinition = "TEXT", nullable = false)
     private String title;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
     private String content;
 
     @Column(nullable = false)

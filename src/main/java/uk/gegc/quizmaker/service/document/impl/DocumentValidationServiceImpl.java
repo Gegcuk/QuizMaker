@@ -13,9 +13,9 @@ import java.io.IOException;
 @Slf4j
 public class DocumentValidationServiceImpl implements DocumentValidationService {
 
-    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    private static final long MAX_FILE_SIZE = 150 * 1024 * 1024; // 150MB
     private static final int MIN_CHUNK_SIZE = 100;
-    private static final int MAX_CHUNK_SIZE = 10000;
+    private static final int MAX_CHUNK_SIZE = 100000;
 
     @Override
     public void validateFileUpload(MultipartFile file, String chunkingStrategy, Integer maxChunkSize) {

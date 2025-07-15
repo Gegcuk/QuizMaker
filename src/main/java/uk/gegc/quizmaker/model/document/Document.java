@@ -62,8 +62,18 @@ public class Document {
     @Column
     private Integer totalChunks;
 
-    @Column
+    @Column(columnDefinition = "TEXT")
     private String processingError;
+
+    @PrePersist
+    protected void onCreate() {
+        if (uploadedAt == null) {
+            uploadedAt = LocalDateTime.now();
+        }
+        if (processedAt == null) {
+            processedAt = LocalDateTime.now(); // Set to current time initially, will be updated during processing
+        }
+    }
 
     public enum DocumentStatus {
         UPLOADED,
