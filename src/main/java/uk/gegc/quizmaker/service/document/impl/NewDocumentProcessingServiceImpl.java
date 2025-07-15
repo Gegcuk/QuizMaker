@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.mapper.document.DocumentMapper;
@@ -20,12 +21,11 @@ import uk.gegc.quizmaker.repository.document.DocumentChunkRepository;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
-import uk.gegc.quizmaker.service.document.chunker.ContentChunker;
-import uk.gegc.quizmaker.service.document.chunker.ContentChunker.Chunk;
-import uk.gegc.quizmaker.service.document.parser.FileParser;
-import uk.gegc.quizmaker.service.document.parser.ParsedDocument;
+import uk.gegc.quizmaker.service.document.chunker.UniversalChunker;
+import uk.gegc.quizmaker.service.document.chunker.UniversalChunkingService;
+import uk.gegc.quizmaker.service.document.converter.DocumentConversionService;
+import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,17 +35,17 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-@Service("legacyDocumentProcessingService")
+@Service("documentProcessingService")
 @RequiredArgsConstructor
 @Slf4j
-public class DocumentProcessingServiceImpl implements DocumentProcessingService {
+public class NewDocumentProcessingServiceImpl implements DocumentProcessingService {
 
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
     private final UserRepository userRepository;
     private final DocumentMapper documentMapper;
-    private final List<FileParser> fileParsers;
-    private final List<ContentChunker> contentChunkers;
+    private final DocumentConversionService documentConversionService;
+    private final UniversalChunkingService universalChunkingService;
 
     @Override
     public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename, 
@@ -62,7 +62,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         } catch (Exception e) {
             // Update document status on failure (transactional)
             updateDocumentStatusOnFailure(document, e.getMessage());
-            throw new RuntimeException("Failed to process document: " + e.getMessage(), e);
+            throw new DocumentProcessingException("Failed to process document: " + e.getMessage(), e);
         }
         
         return documentMapper.toDto(document);
@@ -114,17 +114,16 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         updateDocumentStatus(document, Document.DocumentStatus.PROCESSING);
 
         try {
-            // Parse the document (non-transactional file operation)
-            FileParser parser = findParser(document.getContentType(), document.getOriginalFilename());
-            ParsedDocument parsedDocument = parser.parse(new ByteArrayInputStream(fileContent), 
-                    document.getOriginalFilename());
+            // Convert the document using the new converter system
+            ConvertedDocument convertedDocument = documentConversionService.convertDocument(
+                    fileContent, document.getOriginalFilename(), document.getContentType()
+            );
 
             // Update document metadata (transactional)
-            updateDocumentMetadata(document, parsedDocument);
+            updateDocumentMetadata(document, convertedDocument);
 
-            // Chunk the document (non-transactional processing)
-            ContentChunker chunker = findChunker(request.getChunkingStrategy());
-            List<Chunk> chunks = chunker.chunkDocument(parsedDocument, request);
+            // Chunk the document using the new universal chunking system
+            List<UniversalChunker.Chunk> chunks = universalChunkingService.chunkDocument(convertedDocument, request);
 
             // Store chunks if requested (transactional)
             if (request.getStoreChunks() != null && request.getStoreChunks()) {
@@ -154,10 +153,10 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
      * Transactional database operation for updating document metadata
      */
     @Transactional
-    public void updateDocumentMetadata(Document document, ParsedDocument parsedDocument) {
-        document.setTitle(parsedDocument.getTitle());
-        document.setAuthor(parsedDocument.getAuthor());
-        document.setTotalPages(parsedDocument.getTotalPages());
+    public void updateDocumentMetadata(Document document, ConvertedDocument convertedDocument) {
+        document.setTitle(convertedDocument.getTitle());
+        document.setAuthor(convertedDocument.getAuthor());
+        document.setTotalPages(convertedDocument.getTotalPages());
         documentRepository.save(document);
     }
 
@@ -165,7 +164,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
      * Transactional database operation for storing chunks with batch optimization
      */
     @Transactional
-    public void storeChunksTransactionally(Document document, List<Chunk> chunks) {
+    public void storeChunksTransactionally(Document document, List<UniversalChunker.Chunk> chunks) {
         List<DocumentChunk> entities = chunks.stream()
                 .map(chunk -> createDocumentChunk(document, chunk))
                 .collect(Collectors.toList());
@@ -174,9 +173,9 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     /**
-     * Helper method to create DocumentChunk entity from Chunk
+     * Helper method to create DocumentChunk entity from UniversalChunker.Chunk
      */
-    private DocumentChunk createDocumentChunk(Document document, Chunk chunk) {
+    private DocumentChunk createDocumentChunk(Document document, UniversalChunker.Chunk chunk) {
         DocumentChunk documentChunk = new DocumentChunk();
         documentChunk.setDocument(document);
         documentChunk.setChunkIndex(chunk.getChunkIndex());
@@ -214,11 +213,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Transactional
     public void updateDocumentStatusOnFailure(Document document, String errorMessage) {
         document.setStatus(Document.DocumentStatus.FAILED);
-        // Truncate error message to prevent database column overflow
-        String truncatedError = errorMessage != null && errorMessage.length() > 1000 
-            ? errorMessage.substring(0, 1000) + "... (truncated)"
-            : errorMessage;
-        document.setProcessingError(truncatedError);
+        document.setProcessingError(errorMessage);
+        document.setProcessedAt(LocalDateTime.now());
         documentRepository.save(document);
     }
 
@@ -283,13 +279,12 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     @Override
     public void deleteDocument(String username, UUID documentId) {
-        // Step 1: Get document and validate authorization (transactional)
         Document document = getDocumentForDeletion(username, documentId);
         
-        // Step 2: Delete file from disk (non-transactional)
+        // Delete file from disk (non-transactional)
         deleteFileFromDisk(document.getFilePath());
         
-        // Step 3: Delete from database (transactional)
+        // Delete from database (transactional)
         deleteDocumentFromDatabase(document);
     }
 
@@ -299,13 +294,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Transactional
     public Document getDocumentForDeletion(String username, UUID documentId) {
         Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
         
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
         
         if (!document.getUploadedBy().equals(user)) {
-            throw new RuntimeException("User not authorized to delete this document");
+            throw new UserNotAuthorizedException(username, documentId.toString(), "delete");
         }
         
         return document;
@@ -319,6 +314,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             Files.deleteIfExists(Paths.get(filePath));
         } catch (IOException e) {
             log.warn("Failed to delete file from disk: {}", filePath, e);
+            // Don't throw exception for file deletion failures
         }
     }
 
@@ -327,6 +323,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
      */
     @Transactional
     public void deleteDocumentFromDatabase(Document document) {
+        chunkRepository.deleteByDocument(document);
         documentRepository.delete(document);
     }
 
@@ -346,7 +343,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             processDocument(document, fileContent, request);
         } catch (Exception e) {
             updateDocumentStatusOnFailure(document, e.getMessage());
-            throw new RuntimeException("Failed to reprocess document: " + e.getMessage(), e);
+            throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);
         }
         
         return documentMapper.toDto(document);
@@ -358,13 +355,13 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     @Transactional
     public Document getDocumentForReprocessing(String username, UUID documentId) {
         Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
         
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
         
         if (!document.getUploadedBy().equals(user)) {
-            throw new RuntimeException("User not authorized to reprocess this document");
+            throw new UserNotAuthorizedException(username, documentId.toString(), "reprocess");
         }
         
         return document;
@@ -406,35 +403,12 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         return "application/octet-stream";
     }
 
-    private FileParser findParser(String contentType, String filename) {
-        for (FileParser parser : fileParsers) {
-            if (parser.canParse(contentType, filename)) {
-                return parser;
-            }
-        }
-        throw new RuntimeException("No parser found for content type: " + contentType);
-    }
-
-    private ContentChunker findChunker(ProcessDocumentRequest.ChunkingStrategy strategy) {
-        for (ContentChunker chunker : contentChunkers) {
-            if (chunker.getSupportedStrategy() == strategy) {
-                return chunker;
-            }
-        }
-        throw new RuntimeException("No chunker found for strategy: " + strategy);
-    }
-
     private DocumentChunk.ChunkType mapChunkType(ProcessDocumentRequest.ChunkingStrategy strategy) {
-        switch (strategy) {
-            case CHAPTER_BASED:
-                return DocumentChunk.ChunkType.CHAPTER;
-            case SECTION_BASED:
-                return DocumentChunk.ChunkType.SECTION;
-            case PAGE_BASED:
-                return DocumentChunk.ChunkType.PAGE_BASED;
-            case SIZE_BASED:
-            default:
-                return DocumentChunk.ChunkType.SIZE_BASED;
-        }
+        return switch (strategy) {
+            case CHAPTER_BASED -> DocumentChunk.ChunkType.CHAPTER;
+            case SECTION_BASED -> DocumentChunk.ChunkType.SECTION;
+            case PAGE_BASED -> DocumentChunk.ChunkType.PAGE_BASED;
+            case SIZE_BASED, AUTO -> DocumentChunk.ChunkType.SIZE_BASED;
+        };
     }
 } 
