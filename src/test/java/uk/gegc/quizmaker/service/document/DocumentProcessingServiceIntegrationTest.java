@@ -26,7 +26,7 @@ class  DocumentProcessingServiceIntegrationTest {
     @Test
     void uploadAndProcessDocument_TextFile_CreatesDocument() throws Exception {
         // Arrange
-        User user = createTestUser();
+        User user = createTestUser("testuser_text");
         
         String textContent = """
             Chapter 1: Introduction
@@ -61,7 +61,7 @@ class  DocumentProcessingServiceIntegrationTest {
     @Test
     void uploadAndProcessDocument_PdfFile_CreatesDocument() throws Exception {
         // Arrange
-        User user = createTestUser();
+        User user = createTestUser("testuser_pdf");
         
         // Create a simple text content for testing (avoiding PDF parsing issues in tests)
         String textContent = "This is a test document content for testing purposes.";
@@ -87,10 +87,10 @@ class  DocumentProcessingServiceIntegrationTest {
         assertEquals((long) content.length, result.getFileSize());
     }
 
-    private User createTestUser() {
+    private User createTestUser(String username) {
         User user = new User();
-        user.setUsername("testuser");
-        user.setEmail("test@example.com");
+        user.setUsername(username);
+        user.setEmail(username + "@example.com");
         user.setHashedPassword("password");
         user.setActive(true);
         user.setDeleted(false);

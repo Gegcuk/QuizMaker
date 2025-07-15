@@ -34,6 +34,7 @@ class NewDocumentProcessingServiceIntegrationTest {
     private byte[] testPdfContent;
     private String testFilename;
     private ProcessDocumentRequest testRequest;
+    private String testUsername;
 
     @BeforeEach
     void setUp() {
@@ -42,14 +43,17 @@ class NewDocumentProcessingServiceIntegrationTest {
         documentRepository.deleteAll();
         userRepository.deleteAll();
 
-        // Create a test user
+        // Create a test user with unique username to avoid concurrency issues
         User testUser = new User();
-        testUser.setUsername("testuser");
+        testUser.setUsername("testuser_" + System.currentTimeMillis());
         testUser.setEmail("testuser@email.com");
         testUser.setHashedPassword("testPassword");
         testUser.setActive(true);
         testUser.setDeleted(false);
-        userRepository.save(testUser);
+        User savedUser = userRepository.save(testUser);
+        
+        // Update the username used in tests to match the saved user
+        testUsername = savedUser.getUsername();
 
         // Create a simple test PDF content
         testPdfContent = createSimplePdfContent();
@@ -65,7 +69,7 @@ class NewDocumentProcessingServiceIntegrationTest {
     void uploadAndProcessDocument_Success() {
         // Act
         DocumentDto result = documentProcessingService.uploadAndProcessDocument(
-                "testuser", testPdfContent, testFilename, testRequest
+                testUsername, testPdfContent, testFilename, testRequest
         );
 
         // Assert
@@ -84,7 +88,7 @@ class NewDocumentProcessingServiceIntegrationTest {
         // Act & Assert
         assertThrows(Exception.class, () -> {
             documentProcessingService.uploadAndProcessDocument(
-                    "testuser", invalidContent, testFilename, testRequest
+                    testUsername, invalidContent, testFilename, testRequest
             );
         });
     }
