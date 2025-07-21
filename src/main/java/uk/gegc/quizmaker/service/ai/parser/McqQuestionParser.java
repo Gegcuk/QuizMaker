@@ -25,14 +25,14 @@ public class McqQuestionParser {
      */
     public List<Question> parseMcqSingleQuestions(JsonNode contentNode) throws AIResponseParseException {
         List<Question> questions = new ArrayList<>();
-        
+
         if (contentNode.has("questions") && contentNode.get("questions").isArray()) {
             for (JsonNode questionNode : contentNode.get("questions")) {
                 Question question = parseMcqSingleQuestion(questionNode);
                 questions.add(question);
             }
         }
-        
+
         return questions;
     }
 
@@ -41,14 +41,14 @@ public class McqQuestionParser {
      */
     public List<Question> parseMcqMultiQuestions(JsonNode contentNode) throws AIResponseParseException {
         List<Question> questions = new ArrayList<>();
-        
+
         if (contentNode.has("questions") && contentNode.get("questions").isArray()) {
             for (JsonNode questionNode : contentNode.get("questions")) {
                 Question question = parseMcqMultiQuestion(questionNode);
                 questions.add(question);
             }
         }
-        
+
         return questions;
     }
 
@@ -57,7 +57,7 @@ public class McqQuestionParser {
      */
     private Question parseMcqSingleQuestion(JsonNode questionNode) throws AIResponseParseException {
         validateMcqQuestionStructure(questionNode);
-        
+
         // Validate that exactly one option is correct
         JsonNode optionsNode = questionNode.get("content").get("options");
         int correctCount = 0;
@@ -66,13 +66,13 @@ public class McqQuestionParser {
                 correctCount++;
             }
         }
-        
+
         if (correctCount != 1) {
             throw new AIResponseParseException(
                     String.format("MCQ_SINGLE must have exactly 1 correct answer, found %d", correctCount)
             );
         }
-        
+
         return createQuestionFromNode(questionNode, QuestionType.MCQ_SINGLE);
     }
 
@@ -81,7 +81,7 @@ public class McqQuestionParser {
      */
     private Question parseMcqMultiQuestion(JsonNode questionNode) throws AIResponseParseException {
         validateMcqQuestionStructure(questionNode);
-        
+
         // Validate that at least one option is correct
         JsonNode optionsNode = questionNode.get("content").get("options");
         int correctCount = 0;
@@ -90,11 +90,11 @@ public class McqQuestionParser {
                 correctCount++;
             }
         }
-        
+
         if (correctCount < 1) {
             throw new AIResponseParseException("MCQ_MULTI must have at least 1 correct answer");
         }
-        
+
         return createQuestionFromNode(questionNode, QuestionType.MCQ_MULTI);
     }
 
@@ -105,17 +105,17 @@ public class McqQuestionParser {
         if (!questionNode.has("content")) {
             throw new AIResponseParseException("Missing 'content' field in MCQ question");
         }
-        
+
         JsonNode contentNode = questionNode.get("content");
         if (!contentNode.has("options") || !contentNode.get("options").isArray()) {
             throw new AIResponseParseException("Missing or invalid 'options' array in MCQ question");
         }
-        
+
         JsonNode optionsNode = contentNode.get("options");
         if (optionsNode.size() < 2) {
             throw new AIResponseParseException("MCQ question must have at least 2 options");
         }
-        
+
         // Validate each option
         for (JsonNode option : optionsNode) {
             if (!option.has("text") || option.get("text").asText().trim().isEmpty()) {
@@ -135,14 +135,14 @@ public class McqQuestionParser {
         question.setQuestionText(questionNode.get("questionText").asText());
         question.setType(questionType);
         question.setContent(questionNode.get("content").toString());
-        
+
         if (questionNode.has("hint")) {
             question.setHint(questionNode.get("hint").asText());
         }
         if (questionNode.has("explanation")) {
             question.setExplanation(questionNode.get("explanation").asText());
         }
-        
+
         return question;
     }
 } 

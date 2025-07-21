@@ -16,16 +16,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class PermissionEvaluator {
-    
+
     private final UserRepository userRepository;
-    
+
     /**
      * Check if current user has the specified permission
      */
     public boolean hasPermission(PermissionName permission) {
         return hasPermission(getCurrentUser(), permission);
     }
-    
+
     /**
      * Check if user has the specified permission
      */
@@ -33,12 +33,12 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         return user.getRoles().stream()
                 .flatMap(role -> role.getPermissions().stream())
                 .anyMatch(p -> p.getPermissionName().equals(permission.name()));
     }
-    
+
     /**
      * Check if current user has any of the specified permissions
      */
@@ -47,7 +47,7 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         for (PermissionName permission : permissions) {
             if (hasPermission(user, permission)) {
                 return true;
@@ -55,7 +55,7 @@ public class PermissionEvaluator {
         }
         return false;
     }
-    
+
     /**
      * Check if current user has all of the specified permissions
      */
@@ -64,7 +64,7 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         for (PermissionName permission : permissions) {
             if (!hasPermission(user, permission)) {
                 return false;
@@ -72,14 +72,14 @@ public class PermissionEvaluator {
         }
         return true;
     }
-    
+
     /**
      * Check if current user has the specified role
      */
     public boolean hasRole(RoleName roleName) {
         return hasRole(getCurrentUser(), roleName);
     }
-    
+
     /**
      * Check if user has the specified role
      */
@@ -87,11 +87,11 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         return user.getRoles().stream()
                 .anyMatch(role -> role.getRoleName().equals(roleName.name()));
     }
-    
+
     /**
      * Check if current user has any of the specified roles
      */
@@ -100,7 +100,7 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         for (RoleName roleName : roleNames) {
             if (hasRole(user, roleName)) {
                 return true;
@@ -108,7 +108,7 @@ public class PermissionEvaluator {
         }
         return false;
     }
-    
+
     /**
      * Check if current user has all of the specified roles
      */
@@ -117,7 +117,7 @@ public class PermissionEvaluator {
         if (user == null) {
             return false;
         }
-        
+
         for (RoleName roleName : roleNames) {
             if (!hasRole(user, roleName)) {
                 return false;
@@ -125,7 +125,7 @@ public class PermissionEvaluator {
         }
         return true;
     }
-    
+
     /**
      * Check if current user owns the specified resource
      */
@@ -133,28 +133,28 @@ public class PermissionEvaluator {
         User currentUser = getCurrentUser();
         return currentUser != null && currentUser.getId().equals(resourceOwnerId);
     }
-    
+
     /**
      * Check if current user can access resource (either owns it or has admin permission)
      */
     public boolean canAccessResource(UUID resourceOwnerId, PermissionName adminPermission) {
         return isResourceOwner(resourceOwnerId) || hasPermission(adminPermission);
     }
-    
+
     /**
      * Get current authenticated user
      */
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated() || 
-            "anonymousUser".equals(authentication.getPrincipal())) {
+        if (authentication == null || !authentication.isAuthenticated() ||
+                "anonymousUser".equals(authentication.getPrincipal())) {
             return null;
         }
-        
+
         String username = authentication.getName();
         return userRepository.findByUsername(username).orElse(null);
     }
-    
+
     /**
      * Get current user's permissions
      */
@@ -163,13 +163,13 @@ public class PermissionEvaluator {
         if (user == null) {
             return Set.of();
         }
-        
+
         return user.getRoles().stream()
                 .flatMap(role -> role.getPermissions().stream())
                 .map(Permission::getPermissionName)
                 .collect(Collectors.toSet());
     }
-    
+
     /**
      * Get current user's roles
      */
@@ -178,19 +178,19 @@ public class PermissionEvaluator {
         if (user == null) {
             return Set.of();
         }
-        
+
         return user.getRoles().stream()
                 .map(Role::getRoleName)
                 .collect(Collectors.toSet());
     }
-    
+
     /**
      * Check if user is admin (has SYSTEM_ADMIN permission)
      */
     public boolean isAdmin() {
         return hasPermission(PermissionName.SYSTEM_ADMIN);
     }
-    
+
     /**
      * Check if user is super admin (has SUPER_ADMIN role)
      */

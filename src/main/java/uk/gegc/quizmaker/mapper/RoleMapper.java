@@ -11,29 +11,29 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 public class RoleMapper {
-    
+
     public RoleDto toDto(Role role) {
         if (role == null) {
             return null;
         }
-        
+
         return RoleDto.builder()
                 .roleId(role.getRoleId())
                 .roleName(role.getRoleName())
                 .description(role.getDescription())
                 .isDefault(role.isDefault())
-                .permissions(role.getPermissions() != null ? 
-                    role.getPermissions().stream()
-                        .map(permission -> permission.getPermissionName())
-                        .collect(Collectors.toSet()) : null)
+                .permissions(role.getPermissions() != null ?
+                        role.getPermissions().stream()
+                                .map(permission -> permission.getPermissionName())
+                                .collect(Collectors.toSet()) : null)
                 .build();
     }
-    
+
     public List<RoleDto> toDtoList(List<Role> roles) {
         if (roles == null) {
             return null;
         }
-        
+
         return roles.stream()
                 .map(this::toDto)
                 .toList();

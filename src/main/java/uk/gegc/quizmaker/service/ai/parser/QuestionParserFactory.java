@@ -25,11 +25,11 @@ public class QuestionParserFactory {
     /**
      * Parse questions based on the question type
      */
-    public List<Question> parseQuestions(JsonNode contentNode, QuestionType questionType) 
+    public List<Question> parseQuestions(JsonNode contentNode, QuestionType questionType)
             throws AIResponseParseException {
-        
+
         log.debug("Parsing questions for type: {}", questionType);
-        
+
         return switch (questionType) {
             case MCQ_SINGLE -> mcqQuestionParser.parseMcqSingleQuestions(contentNode);
             case MCQ_MULTI -> mcqQuestionParser.parseMcqMultiQuestions(contentNode);
@@ -81,18 +81,18 @@ public class QuestionParserFactory {
     /**
      * Generic parser for question types that don't have specialized parsers yet
      */
-    private List<Question> parseGenericQuestions(JsonNode contentNode, QuestionType questionType) 
+    private List<Question> parseGenericQuestions(JsonNode contentNode, QuestionType questionType)
             throws AIResponseParseException {
-        
+
         // This is a fallback implementation for question types without specialized parsers
         // It uses the basic parsing logic from QuestionResponseParserImpl
-        
+
         if (!contentNode.has("questions") || !contentNode.get("questions").isArray()) {
             throw new AIResponseParseException("No 'questions' array found in content");
         }
-        
+
         List<Question> questions = new java.util.ArrayList<>();
-        
+
         for (JsonNode questionNode : contentNode.get("questions")) {
             try {
                 Question question = parseGenericQuestion(questionNode, questionType);
@@ -101,38 +101,38 @@ public class QuestionParserFactory {
                 log.warn("Failed to parse individual question, skipping: {}", e.getMessage());
             }
         }
-        
+
         return questions;
     }
 
     /**
      * Parse a generic question node
      */
-    private Question parseGenericQuestion(JsonNode questionNode, QuestionType questionType) 
+    private Question parseGenericQuestion(JsonNode questionNode, QuestionType questionType)
             throws AIResponseParseException {
-        
+
         // Basic validation
         if (!questionNode.has("questionText") || questionNode.get("questionText").asText().trim().isEmpty()) {
             throw new AIResponseParseException("Question must have non-empty 'questionText' field");
         }
-        
+
         if (!questionNode.has("content")) {
             throw new AIResponseParseException("Question must have 'content' field");
         }
-        
+
         // Create question object
         Question question = new Question();
         question.setQuestionText(questionNode.get("questionText").asText());
         question.setType(questionType);
         question.setContent(questionNode.get("content").toString());
-        
+
         if (questionNode.has("hint")) {
             question.setHint(questionNode.get("hint").asText());
         }
         if (questionNode.has("explanation")) {
             question.setExplanation(questionNode.get("explanation").asText());
         }
-        
+
         return question;
     }
 } 

@@ -27,8 +27,8 @@ public class PdfDocumentConverter implements DocumentConverter {
 
     @Override
     public boolean canConvert(String contentType, String filename) {
-        return SUPPORTED_CONTENT_TYPES.contains(contentType) || 
-               filename.toLowerCase().endsWith(".pdf");
+        return SUPPORTED_CONTENT_TYPES.contains(contentType) ||
+                filename.toLowerCase().endsWith(".pdf");
     }
 
     @Override
@@ -36,7 +36,7 @@ public class PdfDocumentConverter implements DocumentConverter {
         try (PDDocument document = PDDocument.load(inputStream)) {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(document);
-            
+
             ConvertedDocument convertedDocument = new ConvertedDocument();
             convertedDocument.setFullContent(text);
             convertedDocument.setOriginalFilename(filename);
@@ -44,10 +44,10 @@ public class PdfDocumentConverter implements DocumentConverter {
             convertedDocument.setTotalPages(document.getNumberOfPages());
             convertedDocument.setFileSize(fileSize);
             convertedDocument.setConverterType("PDF_DOCUMENT_CONVERTER");
-            
+
             // Extract chapters and sections from the text
             extractChaptersAndSections(convertedDocument, text);
-            
+
             return convertedDocument;
         }
     }
@@ -57,33 +57,33 @@ public class PdfDocumentConverter implements DocumentConverter {
         // Look for explicit chapter patterns: "Chapter 1", "CHAPTER 1", "1. Chapter Title" (with minimum length)
         // Exclude table of contents entries and numbered lists that aren't chapters
         Pattern chapterPattern = Pattern.compile(
-            "(?i)^\\s*(chapter\\s+\\d+|\\d+\\.\\s+[A-Z][^\\n]{3,50}|CHAPTER\\s+\\d+)\\s*$",
-            Pattern.MULTILINE
+                "(?i)^\\s*(chapter\\s+\\d+|\\d+\\.\\s+[A-Z][^\\n]{3,50}|CHAPTER\\s+\\d+)\\s*$",
+                Pattern.MULTILINE
         );
-        
+
         // For test files, also look for more general patterns but still be restrictive
         if (text.contains("Programming Fundamentals") || text.contains("Object-Oriented Programming")) {
             // Use a more permissive pattern for test files but still exclude numbered lists
             chapterPattern = Pattern.compile(
-                "(?i)^\\s*(chapter\\s+\\d+.*?|\\d+\\.\\s+[A-Z][^\\n]{3,50})\\s*$",
-                Pattern.MULTILINE
+                    "(?i)^\\s*(chapter\\s+\\d+.*?|\\d+\\.\\s+[A-Z][^\\n]{3,50})\\s*$",
+                    Pattern.MULTILINE
             );
         }
-        
+
         // Enhanced pattern to match section headers including homework, exercises, assignments
         // This includes traditional sections (1.1, Section 1) and logical sections (Day X Homework, Exercises)
         // Explicitly excludes numbered lists that aren't sections
         Pattern sectionPattern = Pattern.compile(
-            "(?i)^\\s*(Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
-            "Do\\s+(the\\s+following)?|Practice\\s+Problems?|Review\\s+Questions?|" +
-            "(?:\\d+\\.)+\\d+|section\\s+\\d+|\\d+\\.\\d+\\s+[^\\n]+)\\s*$",
-            Pattern.MULTILINE
+                "(?i)^\\s*(Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
+                        "Do\\s+(the\\s+following)?|Practice\\s+Problems?|Review\\s+Questions?|" +
+                        "(?:\\d+\\.)+\\d+|section\\s+\\d+|\\d+\\.\\d+\\s+[^\\n]+)\\s*$",
+                Pattern.MULTILINE
         );
 
         String[] lines = text.split("\\n");
         int currentChapter = 0;
         int currentSection = 0;
-        
+
         StringBuilder chapterContent = new StringBuilder();
         StringBuilder sectionContent = new StringBuilder();
         ConvertedDocument.Chapter currentChapterObj = null;
@@ -93,16 +93,16 @@ public class PdfDocumentConverter implements DocumentConverter {
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
-            
+
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
             if (chapterMatcher.find()) {
                 // Additional filter: exclude lines that look like table of contents
-                if (!line.matches(".*\\.{3,}\\s*\\d+\\s*$") && 
-                    !line.matches(".*https?://.*") &&
-                    !line.matches(".*www\\..*")) {
+                if (!line.matches(".*\\.{3,}\\s*\\d+\\s*$") &&
+                        !line.matches(".*https?://.*") &&
+                        !line.matches(".*www\\..*")) {
                     log.info("Found chapter header at line {}: '{}'", i, line);
-                    
+
                     // Save previous chapter if exists
                     if (currentChapterObj != null) {
                         // Add any remaining section content to chapter
@@ -115,26 +115,26 @@ public class PdfDocumentConverter implements DocumentConverter {
                         log.info("Saving chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
                         document.getChapters().add(currentChapterObj);
                     }
-                    
+
                     // Start new chapter
                     currentChapter++;
                     currentChapterObj = new ConvertedDocument.Chapter();
                     currentChapterObj.setTitle(line);
                     currentChapterObj.setStartPage(estimatePageNumber(i, lines.length, document.getTotalPages()));
                     chapterContent = new StringBuilder();
-                    
+
                     // Reset section for new chapter
                     currentSection = 0;
                     currentSectionObj = null;
                     sectionContent = new StringBuilder();
                 }
             }
-            
+
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
                 log.info("Found section header at line {}: '{}'", i, line);
-                
+
                 // Save previous section if exists
                 if (currentSectionObj != null) {
                     currentSectionObj.setContent(sectionContent.toString());
@@ -142,7 +142,7 @@ public class PdfDocumentConverter implements DocumentConverter {
                         currentChapterObj.getSections().add(currentSectionObj);
                     }
                 }
-                
+
                 // Start new section
                 currentSection++;
                 currentSectionObj = new ConvertedDocument.Section();
@@ -155,14 +155,14 @@ public class PdfDocumentConverter implements DocumentConverter {
                 }
                 sectionContent = new StringBuilder();
             }
-            
+
             // Add line to current content (both chapter and section)
             if (!line.isEmpty()) {
                 chapterContent.append(line).append("\n");
                 sectionContent.append(line).append("\n");
             }
         }
-        
+
         // Save final chapter and section
         if (currentSectionObj != null) {
             currentSectionObj.setContent(sectionContent.toString());
@@ -171,23 +171,23 @@ public class PdfDocumentConverter implements DocumentConverter {
                 currentChapterObj.getSections().add(currentSectionObj);
             }
         }
-        
+
         if (currentChapterObj != null) {
             currentChapterObj.setContent(chapterContent.toString());
             currentChapterObj.setEndPage(estimatePageNumber(lines.length, lines.length, document.getTotalPages()));
             log.info("Saving final chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
             document.getChapters().add(currentChapterObj);
         }
-        
+
         log.info("Extracted {} chapters from PDF", document.getChapters().size());
         for (ConvertedDocument.Chapter chapter : document.getChapters()) {
-            log.info("Chapter '{}': {} characters, {} sections", 
+            log.info("Chapter '{}': {} characters, {} sections",
                     chapter.getTitle(), chapter.getContent().length(), chapter.getSections().size());
             for (ConvertedDocument.Section section : chapter.getSections()) {
                 log.info("  Section '{}': {} characters", section.getTitle(), section.getContent().length());
             }
         }
-        
+
         // If no chapters were detected, create a single chapter with all content
         if (document.getChapters().isEmpty()) {
             log.info("No chapters detected, creating single chapter with all content");

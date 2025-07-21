@@ -1,4 +1,5 @@
 package uk.gegc.quizmaker.service.attempt;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,10 +27,13 @@ import static org.mockito.Mockito.when;
 @Execution(ExecutionMode.CONCURRENT)
 class AttemptServiceImplTest {
 
-    @Mock QuizRepository quizRepository;
-    @Mock AttemptRepository attemptRepository;
+    @Mock
+    QuizRepository quizRepository;
+    @Mock
+    AttemptRepository attemptRepository;
 
-    @InjectMocks AttemptServiceImpl service;
+    @InjectMocks
+    AttemptServiceImpl service;
 
     @Test
     @DisplayName("getLeaderboard returns top N ordered by score")

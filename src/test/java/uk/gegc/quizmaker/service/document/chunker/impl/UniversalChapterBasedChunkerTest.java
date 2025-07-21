@@ -16,9 +16,7 @@ import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
@@ -137,7 +135,7 @@ class UniversalChapterBasedChunkerTest {
         document.setTitle("Test Document");
         document.setAuthor("Test Author");
         document.setConverterType("PDF_DOCUMENT_CONVERTER");
-        
+
         // Create content that's much longer than the max chunk size (4000)
         String baseContent = "This is a very long document content that needs to be chunked into smaller pieces for processing. " +
                 "The content should be split into manageable chunks that can be processed by AI systems. " +
@@ -157,13 +155,13 @@ class UniversalChapterBasedChunkerTest {
                 "We are testing the universal chunking system with various content types. " +
                 "The system should be robust and handle different document structures. " +
                 "This is the final paragraph to ensure we have sufficient content for testing. ";
-        
+
         // Repeat the content multiple times to exceed 4000 characters
         StringBuilder longContent = new StringBuilder();
         for (int i = 0; i < 10; i++) {
             longContent.append(baseContent);
         }
-        
+
         document.setFullContent(longContent.toString());
         document.setTotalPages(10);
         return document;

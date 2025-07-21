@@ -31,13 +31,13 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     private final QuizGenerationJobRepository jobRepository;
 
     @Override
-    public QuizGenerationJob createJob(User user, Long documentId, String requestData, int totalChunks, int estimatedTimeSeconds) {
-        log.info("Creating quiz generation job for user: {}, document: {}, chunks: {}", 
+    public QuizGenerationJob createJob(User user, UUID documentId, String requestData, int totalChunks, int estimatedTimeSeconds) {
+        log.info("Creating quiz generation job for user: {}, document: {}, chunks: {}",
                 user.getUsername(), documentId, totalChunks);
 
         QuizGenerationJob job = new QuizGenerationJob();
         job.setUser(user);
-        job.setDocumentId(UUID.fromString(documentId.toString()));
+        job.setDocumentId(documentId);
         job.setRequestData(requestData);
         job.setTotalChunks(totalChunks);
         job.setProcessedChunks(0);
@@ -55,16 +55,16 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Transactional(readOnly = true)
     public QuizGenerationJob getJobByIdAndUsername(UUID jobId, String username) {
         log.debug("Getting job by ID: {} for user: {}", jobId, username);
-        
+
         QuizGenerationJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
-        
+
         if (!job.getUser().getUsername().equals(username)) {
-            log.warn("User {} attempted to access job {} owned by user {}", 
+            log.warn("User {} attempted to access job {} owned by user {}",
                     username, jobId, job.getUser().getUsername());
             throw new ValidationException("Access denied: job does not belong to user");
         }
-        
+
         return job;
     }
 
@@ -77,7 +77,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob updateJobProgress(UUID jobId, int processedChunks, int currentChunk, int totalQuestionsGenerated) {
-        log.debug("Updating job progress for job: {}, processed: {}, current: {}, questions: {}", 
+        log.debug("Updating job progress for job: {}, processed: {}, current: {}, questions: {}",
                 jobId, processedChunks, currentChunk, totalQuestionsGenerated);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
@@ -91,14 +91,14 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         job.updateProgress(processedChunks, String.valueOf(currentChunk));
         job.setTotalQuestionsGenerated(totalQuestionsGenerated);
         job.setStatus(GenerationStatus.PROCESSING);
-        
+
         QuizGenerationJob updatedJob = jobRepository.save(job);
         log.debug("Updated job progress for job: {}", jobId);
         return updatedJob;
     }
 
     @Override
-    public QuizGenerationJob markJobCompleted(UUID jobId, Long generatedQuizId) {
+    public QuizGenerationJob markJobCompleted(UUID jobId, UUID generatedQuizId) {
         log.info("Marking job as completed: {}, generated quiz: {}", jobId, generatedQuizId);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
@@ -109,7 +109,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
             throw new ValidationException("Cannot mark completed for job in terminal state: " + job.getStatus());
         }
 
-        job.markCompleted(UUID.fromString(generatedQuizId.toString()), job.getTotalQuestionsGenerated());
+        job.markCompleted(generatedQuizId, job.getTotalQuestionsGenerated());
         QuizGenerationJob completedJob = jobRepository.save(job);
         log.info("Job marked as completed: {}", jobId);
         return completedJob;
@@ -174,9 +174,9 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<QuizGenerationJob> getJobsByDocument(Long documentId) {
+    public List<QuizGenerationJob> getJobsByDocument(UUID documentId) {
         log.debug("Getting jobs by document: {}", documentId);
-        return jobRepository.findByDocumentIdAndStatus(UUID.fromString(documentId.toString()), GenerationStatus.COMPLETED);
+        return jobRepository.findByDocumentIdAndStatus(documentId, GenerationStatus.COMPLETED);
     }
 
     @Override
@@ -190,7 +190,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Transactional(readOnly = true)
     public JobStatistics getJobStatistics(String username) {
         log.debug("Getting job statistics for user: {}", username);
-        
+
         // Simplified statistics using available repository methods
         List<QuizGenerationJob> userJobs = jobRepository.findByUser_UsernameOrderByStartedAtDesc(username);
         long totalJobs = userJobs.size();
@@ -198,25 +198,25 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         long failedJobs = userJobs.stream().filter(j -> j.getStatus() == GenerationStatus.FAILED).count();
         long cancelledJobs = userJobs.stream().filter(j -> j.getStatus() == GenerationStatus.CANCELLED).count();
         long activeJobs = userJobs.stream().filter(j -> !j.isTerminal()).count();
-        
+
         // Calculate average generation time
         double averageGenerationTimeSeconds = userJobs.stream()
                 .filter(j -> j.getGenerationTimeSeconds() != null)
                 .mapToLong(QuizGenerationJob::getGenerationTimeSeconds)
                 .average()
                 .orElse(0.0);
-        
+
         // Calculate total questions generated
         long totalQuestionsGenerated = userJobs.stream()
                 .mapToLong(j -> j.getTotalQuestionsGenerated() != null ? j.getTotalQuestionsGenerated() : 0)
                 .sum();
-        
+
         // Get last job created
         LocalDateTime lastJobCreated = userJobs.stream()
                 .map(QuizGenerationJob::getStartedAt)
                 .max(LocalDateTime::compareTo)
                 .orElse(null);
-        
+
         return new JobStatistics(
                 totalJobs,
                 completedJobs,

@@ -43,26 +43,26 @@ public interface QuizService {
 
     /**
      * Generate a quiz from document chunks using AI
-     * 
+     *
      * @param username The username of the user requesting quiz generation
-     * @param request The quiz generation request containing document ID and parameters
+     * @param request  The quiz generation request containing document ID and parameters
      * @return QuizGenerationResponse with generation details
      */
     QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request);
 
     /**
      * Start an asynchronous quiz generation job
-     * 
+     *
      * @param username The username of the user requesting quiz generation
-     * @param request The quiz generation request containing document ID and parameters
+     * @param request  The quiz generation request containing document ID and parameters
      * @return QuizGenerationResponse with job ID and initial status
      */
     QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request);
 
     /**
      * Get the status of a quiz generation job
-     * 
-     * @param jobId The generation job ID
+     *
+     * @param jobId    The generation job ID
      * @param username The username requesting the status
      * @return QuizGenerationStatus with current progress and details
      */
@@ -70,8 +70,8 @@ public interface QuizService {
 
     /**
      * Get the generated quiz from a completed generation job
-     * 
-     * @param jobId The generation job ID
+     *
+     * @param jobId    The generation job ID
      * @param username The username requesting the quiz
      * @return QuizDto of the generated quiz
      */
@@ -79,8 +79,8 @@ public interface QuizService {
 
     /**
      * Cancel an active quiz generation job
-     * 
-     * @param jobId The generation job ID to cancel
+     *
+     * @param jobId    The generation job ID to cancel
      * @param username The username requesting the cancellation
      * @return QuizGenerationStatus with updated status
      */
@@ -88,7 +88,7 @@ public interface QuizService {
 
     /**
      * Get a paginated list of generation jobs for a user
-     * 
+     *
      * @param username The username to get jobs for
      * @param pageable Pagination parameters
      * @return Page of QuizGenerationStatus objects
@@ -97,7 +97,7 @@ public interface QuizService {
 
     /**
      * Get statistics about generation jobs for a user
-     * 
+     *
      * @param username The username to get statistics for
      * @return JobStatistics with success rates and timing information
      */

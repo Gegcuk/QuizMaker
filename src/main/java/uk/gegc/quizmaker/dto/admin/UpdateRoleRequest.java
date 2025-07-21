@@ -10,8 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateRoleRequest {
-    
+
     private String description;
-    
+
     private boolean isDefault;
 }

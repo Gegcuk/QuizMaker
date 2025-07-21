@@ -9,6 +9,8 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RequireResourceOwnership {
     String resourceParam();
+
     String resourceType();
+
     String ownerField() default "userId";
 } 

@@ -29,7 +29,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(DocumentController.class)
-
 class DocumentControllerErrorTest {
 
     @Autowired
@@ -53,20 +52,20 @@ class DocumentControllerErrorTest {
         testDocumentDto.setOriginalFilename("test.pdf");
         testDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
         testDocumentDto.setTotalChunks(5);
-        
+
         // Reset mocks to ensure clean state
         reset(documentValidationService, documentProcessingService, documentProcessingConfig);
-        
+
         // Setup default validation service behavior
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
         doNothing().when(documentValidationService).validateReprocessRequest(any());
-        
+
         // Setup default config behavior
         when(documentProcessingConfig.createDefaultRequest()).thenReturn(createDefaultRequest());
-        
+
         // DO NOT setup default processing service behavior - let each test set it up
     }
-    
+
     private ProcessDocumentRequest createDefaultRequest() {
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setMaxChunkSize(4000);
@@ -117,7 +116,7 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details[0]").value("File size exceeds maximum limit"));
-        
+
         // Verify that validation service was called
         verify(documentValidationService).validateFileUpload(any(), any(), any());
     }
@@ -157,10 +156,10 @@ class DocumentControllerErrorTest {
 
         // Reset mocks and set up explicitly
         reset(documentProcessingService, documentValidationService);
-        
+
         // Setup validation service to pass
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
-        
+
         // Setup processing service to throw exception
         when(documentProcessingService.uploadAndProcessDocument(
                 anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
@@ -172,7 +171,7 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.details[0]").value("Failed to process document"));
-        
+
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
     }
@@ -190,7 +189,7 @@ class DocumentControllerErrorTest {
 
         // Reset mocks to ensure clean state
         reset(documentProcessingService, documentValidationService);
-        
+
         // Setup validation service to pass
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
 
@@ -205,7 +204,7 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.details[0]").value("Failed to store document file"));
-        
+
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
     }
@@ -474,7 +473,7 @@ class DocumentControllerErrorTest {
 
         // Reset mocks to ensure clean state
         reset(documentProcessingService, documentValidationService);
-        
+
         // Setup validation service to pass
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
 
@@ -489,7 +488,7 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(testDocumentDto.getId().toString()));
-        
+
         // Verify that validation service was called
         verify(documentValidationService).validateFileUpload(any(), any(), any());
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
@@ -508,10 +507,10 @@ class DocumentControllerErrorTest {
 
         // Reset mocks to ensure clean state
         reset(documentProcessingService, documentValidationService);
-        
+
         // Setup validation service to pass
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
-        
+
         // Setup processing service to return success
         doReturn(testDocumentDto)
                 .when(documentProcessingService).uploadAndProcessDocument(
@@ -523,11 +522,10 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(testDocumentDto.getId().toString()));
-        
+
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
     }
-
 
 
     @Test
@@ -543,7 +541,7 @@ class DocumentControllerErrorTest {
 
         // Reset mocks to ensure clean state
         reset(documentProcessingService, documentValidationService);
-        
+
         // Setup validation service to pass
         doNothing().when(documentValidationService).validateFileUpload(any(), any(), any());
 
@@ -558,7 +556,7 @@ class DocumentControllerErrorTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Unexpected error"));
-        
+
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
     }

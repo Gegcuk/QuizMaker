@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.service.ai;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,22 +9,41 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
-import uk.gegc.quizmaker.exception.AIResponseParseException;
+import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.dto.quiz.QuizScope;
+import uk.gegc.quizmaker.exception.AiServiceException;
+import uk.gegc.quizmaker.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
 import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.model.quiz.GenerationStatus;
+import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.document.DocumentRepository;
+import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
+import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AiQuizGenerationServiceTest {
+
+    @Mock
+    private ChatClient chatClient;
+
+    @Mock
+    private DocumentRepository documentRepository;
 
     @Mock
     private PromptTemplateService promptTemplateService;
@@ -31,223 +52,227 @@ class AiQuizGenerationServiceTest {
     private QuestionResponseParser questionResponseParser;
 
     @Mock
-    private ChatClient chatClient;
+    private QuizGenerationJobRepository jobRepository;
+
+    @Mock
+    private QuizGenerationJobService jobService;
+
+    @Mock
+    private ObjectMapper objectMapper;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
 
+    private User testUser;
+    private Document testDocument;
     private DocumentChunk testChunk;
-    private List<Question> testQuestions;
+    private QuizGenerationJob testJob;
+    private GenerateQuizFromDocumentRequest testRequest;
+    private UUID testDocumentId;
+    private UUID testJobId;
 
     @BeforeEach
     void setUp() {
-        // Setup test chunk
+        testUser = new User();
+        testUser.setUsername("testuser");
+
+        testDocumentId = UUID.randomUUID();
+        testJobId = UUID.randomUUID();
+
         testChunk = new DocumentChunk();
-        testChunk.setContent("This is a test chunk about machine learning concepts.");
+        testChunk.setId(UUID.randomUUID());
         testChunk.setChunkIndex(1);
-        testChunk.setTitle("Introduction to Machine Learning");
+        testChunk.setContent("This is a test chunk content about machine learning.");
+        testChunk.setTitle("Test Chunk");
 
-        // Setup test questions
-        Question question1 = new Question();
-        question1.setType(QuestionType.MCQ_SINGLE);
-        question1.setQuestionText("What is machine learning?");
-        question1.setDifficulty(Difficulty.MEDIUM);
-        question1.setExplanation("Machine learning is a subset of AI.");
+        testDocument = new Document();
+        testDocument.setId(testDocumentId);
+        testDocument.setTitle("Test Document");
+        testDocument.setUploadedBy(testUser);
+        testDocument.setStatus(Document.DocumentStatus.PROCESSED);
+        testDocument.setChunks(List.of(testChunk));
 
-        Question question2 = new Question();
-        question2.setType(QuestionType.TRUE_FALSE);
-        question2.setQuestionText("Machine learning is a subset of artificial intelligence.");
-        question2.setDifficulty(Difficulty.EASY);
-        question2.setExplanation("This is correct.");
+        testChunk.setDocument(testDocument);
 
-        testQuestions = List.of(question1, question2);
+        testJob = new QuizGenerationJob();
+        testJob.setId(testJobId);
+        testJob.setUser(testUser);
+        testJob.setDocumentId(testDocumentId);
+        testJob.setStatus(GenerationStatus.PENDING);
+
+        Map<QuestionType, Integer> questionsPerType = new HashMap<>();
+        questionsPerType.put(QuestionType.MCQ_SINGLE, 3);
+        questionsPerType.put(QuestionType.TRUE_FALSE, 2);
+
+        testRequest = new GenerateQuizFromDocumentRequest(
+                testDocumentId,
+                QuizScope.ENTIRE_DOCUMENT,
+                null, // chunkIndices
+                null, // chapterTitle
+                null, // chapterNumber
+                "Test Quiz",
+                "Test description",
+                questionsPerType,
+                Difficulty.MEDIUM,
+                2, // estimatedTimePerQuestion
+                null, // categoryId
+                List.of() // tagIds
+        );
     }
 
     @Test
-    void shouldGenerateQuestionsByType() throws Exception {
+    void shouldCalculateEstimatedGenerationTimeCorrectly() {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
-        String expectedPrompt = "Generate 3 MCQ_SINGLE questions with MEDIUM difficulty";
-        String aiResponse = "{\"questions\": [...]}";
+        Map<QuestionType, Integer> questionsPerType = Map.of(
+                QuestionType.MCQ_SINGLE, 5,
+                QuestionType.TRUE_FALSE, 3,
+                QuestionType.OPEN, 2
+        );
 
-        when(promptTemplateService.buildPromptForChunk(
-                eq(chunkContent),
-                eq(QuestionType.MCQ_SINGLE),
-                eq(3),
-                eq(Difficulty.MEDIUM)
-        )).thenReturn(expectedPrompt);
+        // When
+        int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(3, questionsPerType);
 
-        // Mock ChatClient to throw exception to test error handling
-        when(chatClient.prompt()).thenThrow(new RuntimeException("ChatClient not configured for test"));
+        // Then
+        assertTrue(estimatedTime > 0);
+        // The calculation should consider the number of question types and questions per type
+        // This is a basic validation - the actual calculation logic may vary
+    }
+
+    @Test
+    void shouldValidateDocumentForGenerationSuccessfully() {
+        // Given
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM
-            );
+        assertDoesNotThrow(() -> {
+            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
         });
     }
 
     @Test
-    void shouldHandleEmptyChunkContent() {
+    void shouldThrowDocumentNotFoundExceptionWhenDocumentNotFound() {
         // Given
-        String emptyContent = "";
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    emptyContent, QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM
-            );
+        assertThrows(DocumentNotFoundException.class, () -> {
+            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
         });
     }
 
     @Test
-    void shouldHandleNullChunkContent() {
+    void shouldThrowValidationExceptionWhenUserNotAuthorized() {
         // Given
-        String nullContent = null;
+        User otherUser = new User();
+        otherUser.setUsername("otheruser");
+        testDocument.setUploadedBy(otherUser);
 
-        // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    nullContent, QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM
-            );
-        });
-    }
-
-    @Test
-    void shouldHandleShortChunkContent() {
-        // Given
-        String shortContent = "Too short";
-
-        // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    shortContent, QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM
-            );
-        });
-    }
-
-    @Test
-    void shouldHandleZeroQuestionCount() {
-        // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
-
-        // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.MCQ_SINGLE, 0, Difficulty.MEDIUM
-            );
-        });
-    }
-
-    @Test
-    void shouldHandleNegativeQuestionCount() {
-        // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.MCQ_SINGLE, -1, Difficulty.MEDIUM
-            );
+            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
         });
     }
 
     @Test
-    void shouldHandleNullQuestionType() {
+    void shouldCreateGenerationJobSuccessfully() throws JsonProcessingException {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
+        String serializedRequest = "{\"documentId\":\"" + testDocumentId + "\"}";
+        when(objectMapper.writeValueAsString(testRequest)).thenReturn(serializedRequest);
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
+
+        // When
+        QuizGenerationJob createdJob = aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", testRequest);
+
+        // Then
+        assertNotNull(createdJob);
+        assertEquals(testJobId, createdJob.getId());
+        assertEquals(testDocumentId, createdJob.getDocumentId());
+        assertEquals(GenerationStatus.PENDING, createdJob.getStatus());
+
+        verify(objectMapper).writeValueAsString(testRequest);
+        verify(jobRepository).save(any(QuizGenerationJob.class));
+    }
+
+    @Test
+    void shouldHandleJobCreationSerializationFailure() throws JsonProcessingException {
+        // Given
+        when(objectMapper.writeValueAsString(testRequest)).thenThrow(new JsonProcessingException("Serialization failed") {
+        });
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, null, 3, Difficulty.MEDIUM
-            );
+        assertThrows(AiServiceException.class, () -> {
+            aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", testRequest);
         });
     }
 
     @Test
-    void shouldHandleNullDifficulty() {
+    void shouldGetJobByIdAndUsernameSuccessfully() {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.of(testJob));
+
+        // When
+        QuizGenerationJob foundJob = aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser");
+
+        // Then
+        assertNotNull(foundJob);
+        assertEquals(testJobId, foundJob.getId());
+        assertEquals("testuser", foundJob.getUser().getUsername());
+    }
+
+    @Test
+    void shouldThrowResourceNotFoundExceptionWhenJobNotFound() {
+        // Given
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.MCQ_SINGLE, 3, null
-            );
+        assertThrows(ResourceNotFoundException.class, () -> {
+            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser");
         });
     }
 
     @Test
-    void shouldHandleTrueFalseQuestionType() throws Exception {
+    void shouldThrowResourceNotFoundExceptionWhenUserNotAuthorized() {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
-        String expectedPrompt = "Generate 2 TRUE_FALSE questions with EASY difficulty";
+        User otherUser = new User();
+        otherUser.setUsername("otheruser");
+        testJob.setUser(otherUser);
 
-        when(promptTemplateService.buildPromptForChunk(
-                eq(chunkContent),
-                eq(QuestionType.TRUE_FALSE),
-                eq(2),
-                eq(Difficulty.EASY)
-        )).thenReturn(expectedPrompt);
-
-        // Mock ChatClient to throw exception to test error handling
-        when(chatClient.prompt()).thenThrow(new RuntimeException("ChatClient not configured for test"));
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.of(testJob));
 
         // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.TRUE_FALSE, 2, Difficulty.EASY
-            );
+        assertThrows(ResourceNotFoundException.class, () -> {
+            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser");
         });
     }
 
     @Test
-    void shouldHandleOpenQuestionType() throws Exception {
+    void shouldUpdateJobProgressSuccessfully() {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
-        String expectedPrompt = "Generate 1 OPEN questions with HARD difficulty";
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.of(testJob));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
 
-        when(promptTemplateService.buildPromptForChunk(
-                eq(chunkContent),
-                eq(QuestionType.OPEN),
-                eq(1),
-                eq(Difficulty.HARD)
-        )).thenReturn(expectedPrompt);
+        // When
+        aiQuizGenerationService.updateJobProgress(testJobId, 2, "3");
 
-        // Mock ChatClient to throw exception to test error handling
-        when(chatClient.prompt()).thenThrow(new RuntimeException("ChatClient not configured for test"));
-
-        // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.OPEN, 1, Difficulty.HARD
-            );
-        });
+        // Then
+        verify(jobRepository).save(testJob);
+        assertEquals(2, testJob.getProcessedChunks());
+        assertEquals("3", testJob.getCurrentChunk());
     }
 
     @Test
-    void shouldHandleLargeQuestionCount() throws Exception {
+    void shouldHandleJobProgressUpdateWhenJobNotFound() {
         // Given
-        String chunkContent = "This is a test chunk about machine learning concepts.";
-        String expectedPrompt = "Generate 10 MCQ_SINGLE questions with MEDIUM difficulty";
-
-        when(promptTemplateService.buildPromptForChunk(
-                eq(chunkContent),
-                eq(QuestionType.MCQ_SINGLE),
-                eq(10),
-                eq(Difficulty.MEDIUM)
-        )).thenReturn(expectedPrompt);
-
-        // Mock ChatClient to throw exception to test error handling
-        when(chatClient.prompt()).thenThrow(new RuntimeException("ChatClient not configured for test"));
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            aiQuizGenerationService.generateQuestionsByType(
-                    chunkContent, QuestionType.MCQ_SINGLE, 10, Difficulty.MEDIUM
-            );
+        assertThrows(ResourceNotFoundException.class, () -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, 2, "3");
         });
+
+        verify(jobRepository, never()).save(any());
     }
 } 

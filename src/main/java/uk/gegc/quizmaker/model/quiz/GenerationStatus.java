@@ -4,27 +4,27 @@ package uk.gegc.quizmaker.model.quiz;
  * Status of quiz generation jobs
  */
 public enum GenerationStatus {
-    
+
     /**
      * Job is waiting to be processed
      */
     PENDING("Pending"),
-    
+
     /**
      * Job is currently being processed
      */
     PROCESSING("Processing"),
-    
+
     /**
      * Job has completed successfully
      */
     COMPLETED("Completed"),
-    
+
     /**
      * Job has failed
      */
     FAILED("Failed"),
-    
+
     /**
      * Job has been cancelled
      */

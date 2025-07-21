@@ -147,7 +147,7 @@ class ChunkTitleGeneratorTest {
         int totalChunks = 1;
 
         // Act
-        String result = titleGenerator.generateSectionChunkTitle(sectionTitle, chapterTitle, 
+        String result = titleGenerator.generateSectionChunkTitle(sectionTitle, chapterTitle,
                 chapterNumber, sectionNumber, chunkIndex, totalChunks);
 
         // Assert
@@ -165,7 +165,7 @@ class ChunkTitleGeneratorTest {
         int totalChunks = 1;
 
         // Act
-        String result = titleGenerator.generateSectionChunkTitle(sectionTitle, chapterTitle, 
+        String result = titleGenerator.generateSectionChunkTitle(sectionTitle, chapterTitle,
                 chapterNumber, sectionNumber, chunkIndex, totalChunks);
 
         // Assert

@@ -26,7 +26,7 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
     @NotNull(message = "Type must not be null")
     private QuestionType type;
 
-    @Schema(description = "Difficulty level",  requiredMode = Schema.RequiredMode.REQUIRED, example = "HARD")
+    @Schema(description = "Difficulty level", requiredMode = Schema.RequiredMode.REQUIRED, example = "HARD")
     @NotNull(message = "Difficulty must not be null")
     private Difficulty difficulty;
 

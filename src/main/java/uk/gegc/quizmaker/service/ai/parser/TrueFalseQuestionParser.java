@@ -22,14 +22,14 @@ public class TrueFalseQuestionParser {
      */
     public List<Question> parseTrueFalseQuestions(JsonNode contentNode) throws AIResponseParseException {
         List<Question> questions = new ArrayList<>();
-        
+
         if (contentNode.has("questions") && contentNode.get("questions").isArray()) {
             for (JsonNode questionNode : contentNode.get("questions")) {
                 Question question = parseTrueFalseQuestion(questionNode);
                 questions.add(question);
             }
         }
-        
+
         return questions;
     }
 
@@ -38,7 +38,7 @@ public class TrueFalseQuestionParser {
      */
     private Question parseTrueFalseQuestion(JsonNode questionNode) throws AIResponseParseException {
         validateTrueFalseQuestionStructure(questionNode);
-        
+
         return createQuestionFromNode(questionNode, QuestionType.TRUE_FALSE);
     }
 
@@ -49,12 +49,12 @@ public class TrueFalseQuestionParser {
         if (!questionNode.has("content")) {
             throw new AIResponseParseException("Missing 'content' field in TRUE_FALSE question");
         }
-        
+
         JsonNode contentNode = questionNode.get("content");
         if (!contentNode.has("answer") || !contentNode.get("answer").isBoolean()) {
             throw new AIResponseParseException("TRUE_FALSE question must have boolean 'answer' field");
         }
-        
+
         if (!questionNode.has("questionText") || questionNode.get("questionText").asText().trim().isEmpty()) {
             throw new AIResponseParseException("TRUE_FALSE question must have non-empty 'questionText' field");
         }
@@ -68,14 +68,14 @@ public class TrueFalseQuestionParser {
         question.setQuestionText(questionNode.get("questionText").asText());
         question.setType(questionType);
         question.setContent(questionNode.get("content").toString());
-        
+
         if (questionNode.has("hint")) {
             question.setHint(questionNode.get("hint").asText());
         }
         if (questionNode.has("explanation")) {
             question.setExplanation(questionNode.get("explanation").asText());
         }
-        
+
         return question;
     }
 } 

@@ -251,7 +251,7 @@ class SentenceBoundaryDetectorTest {
     void findBestSplitPoint_WithComplexText_HandlesCorrectly() {
         // Arrange
         String text = "Dr. Smith went to the store at 3.45 p.m. He bought milk and bread. " +
-                     "The total was $12.50. Mrs. Johnson was also there.";
+                "The total was $12.50. Mrs. Johnson was also there.";
         int maxLength = 80;
 
         // Act

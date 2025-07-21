@@ -32,7 +32,7 @@ class PermissionUtilTest {
     void requirePermission_hasPermission() {
         // Given
         when(permissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requirePermission(PermissionName.QUIZ_CREATE));
         verify(permissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
@@ -43,10 +43,10 @@ class PermissionUtilTest {
     void requirePermission_lacksPermission() {
         // Given
         when(permissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requirePermission(PermissionName.QUIZ_CREATE)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requirePermission(PermissionName.QUIZ_CREATE)
         );
         verify(permissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
     }
@@ -57,7 +57,7 @@ class PermissionUtilTest {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
         when(permissionEvaluator.hasAnyPermission(permissions)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAnyPermission(permissions));
         verify(permissionEvaluator).hasAnyPermission(permissions);
@@ -69,10 +69,10 @@ class PermissionUtilTest {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
         when(permissionEvaluator.hasAnyPermission(permissions)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireAnyPermission(permissions)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireAnyPermission(permissions)
         );
         verify(permissionEvaluator).hasAnyPermission(permissions);
     }
@@ -83,7 +83,7 @@ class PermissionUtilTest {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
         when(permissionEvaluator.hasAllPermissions(permissions)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAllPermissions(permissions));
         verify(permissionEvaluator).hasAllPermissions(permissions);
@@ -95,10 +95,10 @@ class PermissionUtilTest {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
         when(permissionEvaluator.hasAllPermissions(permissions)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireAllPermissions(permissions)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireAllPermissions(permissions)
         );
         verify(permissionEvaluator).hasAllPermissions(permissions);
     }
@@ -108,7 +108,7 @@ class PermissionUtilTest {
     void requireRole_hasRole() {
         // Given
         when(permissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireRole(RoleName.ROLE_ADMIN));
         verify(permissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
@@ -119,10 +119,10 @@ class PermissionUtilTest {
     void requireRole_lacksRole() {
         // Given
         when(permissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireRole(RoleName.ROLE_ADMIN)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireRole(RoleName.ROLE_ADMIN)
         );
         verify(permissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
     }
@@ -133,7 +133,7 @@ class PermissionUtilTest {
         // Given
         RoleName[] roles = {RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR};
         when(permissionEvaluator.hasAnyRole(roles)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAnyRole(roles));
         verify(permissionEvaluator).hasAnyRole(roles);
@@ -145,10 +145,10 @@ class PermissionUtilTest {
         // Given
         RoleName[] roles = {RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR};
         when(permissionEvaluator.hasAnyRole(roles)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireAnyRole(roles)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireAnyRole(roles)
         );
         verify(permissionEvaluator).hasAnyRole(roles);
     }
@@ -160,10 +160,10 @@ class PermissionUtilTest {
         UUID resourceOwnerId = UUID.randomUUID();
         when(permissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
                 .thenReturn(true);
-        
+
         // When & Then
-        assertDoesNotThrow(() -> 
-            permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
+        assertDoesNotThrow(() ->
+                permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
         );
         verify(permissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
     }
@@ -175,10 +175,10 @@ class PermissionUtilTest {
         UUID resourceOwnerId = UUID.randomUUID();
         when(permissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
                 .thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
         );
         verify(permissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
     }
@@ -189,7 +189,7 @@ class PermissionUtilTest {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
         when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireResourceOwnership(resourceOwnerId));
         verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
@@ -201,10 +201,10 @@ class PermissionUtilTest {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
         when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionUtil.requireResourceOwnership(resourceOwnerId)
+        assertThrows(ForbiddenException.class, () ->
+                permissionUtil.requireResourceOwnership(resourceOwnerId)
         );
         verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
     }
@@ -215,10 +215,10 @@ class PermissionUtilTest {
         // Given
         User expectedUser = new User();
         when(permissionEvaluator.getCurrentUser()).thenReturn(expectedUser);
-        
+
         // When
         User result = permissionUtil.getCurrentUser();
-        
+
         // Then
         assertEquals(expectedUser, result);
         verify(permissionEvaluator).getCurrentUser();
@@ -232,10 +232,10 @@ class PermissionUtilTest {
         User user = new User();
         user.setId(expectedId);
         when(permissionEvaluator.getCurrentUser()).thenReturn(user);
-        
+
         // When
         UUID result = permissionUtil.getCurrentUserId();
-        
+
         // Then
         assertEquals(expectedId, result);
         verify(permissionEvaluator).getCurrentUser();
@@ -246,10 +246,10 @@ class PermissionUtilTest {
     void getCurrentUserId_notAuthenticated() {
         // Given
         when(permissionEvaluator.getCurrentUser()).thenReturn(null);
-        
+
         // When & Then
-        assertThrows(UnauthorizedException.class, () -> 
-            permissionUtil.getCurrentUserId()
+        assertThrows(UnauthorizedException.class, () ->
+                permissionUtil.getCurrentUserId()
         );
         verify(permissionEvaluator).getCurrentUser();
     }
@@ -259,10 +259,10 @@ class PermissionUtilTest {
     void isAdmin_true() {
         // Given
         when(permissionEvaluator.isAdmin()).thenReturn(true);
-        
+
         // When
         boolean result = permissionUtil.isAdmin();
-        
+
         // Then
         assertTrue(result);
         verify(permissionEvaluator).isAdmin();
@@ -273,10 +273,10 @@ class PermissionUtilTest {
     void isAdmin_false() {
         // Given
         when(permissionEvaluator.isAdmin()).thenReturn(false);
-        
+
         // When
         boolean result = permissionUtil.isAdmin();
-        
+
         // Then
         assertFalse(result);
         verify(permissionEvaluator).isAdmin();
@@ -287,10 +287,10 @@ class PermissionUtilTest {
     void isSuperAdmin_true() {
         // Given
         when(permissionEvaluator.isSuperAdmin()).thenReturn(true);
-        
+
         // When
         boolean result = permissionUtil.isSuperAdmin();
-        
+
         // Then
         assertTrue(result);
         verify(permissionEvaluator).isSuperAdmin();
@@ -301,10 +301,10 @@ class PermissionUtilTest {
     void isSuperAdmin_false() {
         // Given
         when(permissionEvaluator.isSuperAdmin()).thenReturn(false);
-        
+
         // When
         boolean result = permissionUtil.isSuperAdmin();
-        
+
         // Then
         assertFalse(result);
         verify(permissionEvaluator).isSuperAdmin();
@@ -316,7 +316,7 @@ class PermissionUtilTest {
         // Given
         User user = new User();
         when(permissionEvaluator.getCurrentUser()).thenReturn(user);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAuthentication());
         verify(permissionEvaluator).getCurrentUser();
@@ -327,10 +327,10 @@ class PermissionUtilTest {
     void requireAuthentication_notAuthenticated() {
         // Given
         when(permissionEvaluator.getCurrentUser()).thenReturn(null);
-        
+
         // When & Then
-        assertThrows(UnauthorizedException.class, () -> 
-            permissionUtil.requireAuthentication()
+        assertThrows(UnauthorizedException.class, () ->
+                permissionUtil.requireAuthentication()
         );
         verify(permissionEvaluator).getCurrentUser();
     }

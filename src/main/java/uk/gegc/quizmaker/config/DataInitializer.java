@@ -16,7 +16,7 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         log.info("Starting data initialization...");
-        
+
         try {
             // Initialize all roles and permissions
             roleService.initializeDefaultRolesAndPermissions();

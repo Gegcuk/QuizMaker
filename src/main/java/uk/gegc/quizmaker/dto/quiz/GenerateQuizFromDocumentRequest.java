@@ -62,13 +62,10 @@ public record GenerateQuizFromDocumentRequest(
         // Set default values
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 2 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
-        
-        // Set default scope if not provided
+
+        // Set default scope if not provided - MUST be done before validation
         quizScope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
-        
-        // Validate scope-specific parameters
-        validateScopeParameters();
-        
+
         // Validate questions per type
         if (questionsPerType != null) {
             questionsPerType.forEach((type, count) -> {
@@ -80,10 +77,16 @@ public record GenerateQuizFromDocumentRequest(
                 }
             });
         }
+
+        // Validate scope-specific parameters - AFTER setting default scope
+        validateScopeParameters();
     }
-    
+
     private void validateScopeParameters() {
-        switch (quizScope) {
+        // Use a local variable to handle null quizScope
+        QuizScope scope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
+
+        switch (scope) {
             case SPECIFIC_CHUNKS:
                 if (chunkIndices == null || chunkIndices.isEmpty()) {
                     throw new IllegalArgumentException("Chunk indices must be specified when quizScope is SPECIFIC_CHUNKS");

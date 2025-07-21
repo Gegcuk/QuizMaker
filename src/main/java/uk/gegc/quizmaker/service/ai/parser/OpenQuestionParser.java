@@ -22,14 +22,14 @@ public class OpenQuestionParser {
      */
     public List<Question> parseOpenQuestions(JsonNode contentNode) throws AIResponseParseException {
         List<Question> questions = new ArrayList<>();
-        
+
         if (contentNode.has("questions") && contentNode.get("questions").isArray()) {
             for (JsonNode questionNode : contentNode.get("questions")) {
                 Question question = parseOpenQuestion(questionNode);
                 questions.add(question);
             }
         }
-        
+
         return questions;
     }
 
@@ -38,7 +38,7 @@ public class OpenQuestionParser {
      */
     private Question parseOpenQuestion(JsonNode questionNode) throws AIResponseParseException {
         validateOpenQuestionStructure(questionNode);
-        
+
         return createQuestionFromNode(questionNode, QuestionType.OPEN);
     }
 
@@ -49,16 +49,16 @@ public class OpenQuestionParser {
         if (!questionNode.has("content")) {
             throw new AIResponseParseException("Missing 'content' field in OPEN question");
         }
-        
+
         JsonNode contentNode = questionNode.get("content");
         if (!contentNode.has("answer") || contentNode.get("answer").asText().trim().isEmpty()) {
             throw new AIResponseParseException("OPEN question must have non-empty 'answer' field");
         }
-        
+
         if (!questionNode.has("questionText") || questionNode.get("questionText").asText().trim().isEmpty()) {
             throw new AIResponseParseException("OPEN question must have non-empty 'questionText' field");
         }
-        
+
         // Validate that the answer is substantial (not just a few words)
         String answer = contentNode.get("answer").asText();
         if (answer.split("\\s+").length < 10) {
@@ -74,14 +74,14 @@ public class OpenQuestionParser {
         question.setQuestionText(questionNode.get("questionText").asText());
         question.setType(questionType);
         question.setContent(questionNode.get("content").toString());
-        
+
         if (questionNode.has("hint")) {
             question.setHint(questionNode.get("hint").asText());
         }
         if (questionNode.has("explanation")) {
             question.setExplanation(questionNode.get("explanation").asText());
         }
-        
+
         return question;
     }
 } 

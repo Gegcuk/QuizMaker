@@ -14,21 +14,21 @@ import java.util.UUID;
 
 @Repository
 public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, UUID> {
-    
+
     List<DocumentChunk> findByDocumentOrderByChunkIndex(Document document);
-    
+
     Page<DocumentChunk> findByDocument(Document document, Pageable pageable);
-    
+
     @Query("SELECT dc FROM DocumentChunk dc WHERE dc.document = :document AND dc.chunkType = :chunkType ORDER BY dc.chunkIndex")
-    List<DocumentChunk> findByDocumentAndChunkType(@Param("document") Document document, 
+    List<DocumentChunk> findByDocumentAndChunkType(@Param("document") Document document,
                                                    @Param("chunkType") DocumentChunk.ChunkType chunkType);
-    
+
     @Query("SELECT COUNT(dc) FROM DocumentChunk dc WHERE dc.document = :document")
     long countByDocument(@Param("document") Document document);
-    
+
     @Query("SELECT dc FROM DocumentChunk dc WHERE dc.document.id = :documentId AND dc.chunkIndex = :chunkIndex")
-    DocumentChunk findByDocumentIdAndChunkIndex(@Param("documentId") UUID documentId, 
-                                               @Param("chunkIndex") Integer chunkIndex);
-    
+    DocumentChunk findByDocumentIdAndChunkIndex(@Param("documentId") UUID documentId,
+                                                @Param("chunkIndex") Integer chunkIndex);
+
     void deleteByDocument(Document document);
 } 

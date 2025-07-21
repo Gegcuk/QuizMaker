@@ -27,9 +27,8 @@ import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
-import uk.gegc.quizmaker.service.quiz.QuizService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
-import uk.gegc.quizmaker.exception.QuizGenerationException;
+import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.List;
 import java.util.Map;
@@ -273,7 +272,7 @@ public class QuizController {
             @Parameter(description = "UUID of the quiz", required = true)
             @PathVariable UUID quizId,
             @RequestParam(name = "top", defaultValue = "10") int top
-    ){
+    ) {
         List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
         return ResponseEntity.ok(leaderBoardEntryDtos);
     }

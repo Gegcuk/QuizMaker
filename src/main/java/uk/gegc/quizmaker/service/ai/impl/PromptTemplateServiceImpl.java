@@ -52,38 +52,38 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         try {
             // Load system prompt
             String systemPrompt = buildSystemPrompt();
-            
+
             // Load context template
             String contextTemplate = loadPromptTemplate("base/context-template.txt");
-            
+
             // Load question type specific template
             String questionTemplate = loadPromptTemplate("question-types/" + getQuestionTypeTemplateName(questionType));
-            
+
             // Build the complete prompt
             StringBuilder prompt = new StringBuilder();
             prompt.append(systemPrompt).append("\n\n");
             prompt.append(contextTemplate).append("\n\n");
             prompt.append(questionTemplate);
-            
+
             // Replace placeholders
             String finalPrompt = prompt.toString()
                     .replace("{content}", chunkContent)
                     .replace("{questionType}", questionType.name())
                     .replace("{questionCount}", String.valueOf(questionCount))
                     .replace("{difficulty}", difficulty.name());
-            
+
             return finalPrompt;
-            
+
         } catch (Exception e) {
             log.error("Error building prompt for question type: {}", questionType, e);
             // Fallback to simple prompt
             return String.format("""
-                Generate %d %s questions with %s difficulty based on the following content:
-                
-                %s
-                
-                Please provide the questions in JSON format.
-                """, questionCount, questionType, difficulty, chunkContent);
+                    Generate %d %s questions with %s difficulty based on the following content:
+                    
+                    %s
+                    
+                    Please provide the questions in JSON format.
+                    """, questionCount, questionType, difficulty, chunkContent);
         }
     }
 

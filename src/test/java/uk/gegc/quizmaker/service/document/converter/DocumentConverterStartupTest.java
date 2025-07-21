@@ -24,7 +24,7 @@ class DocumentConverterStartupTest {
         // Assert
         assertNotNull(converters);
         assertFalse(converters.isEmpty());
-        
+
         // Log all converters for debugging
         System.out.println("Registered converters:");
         for (DocumentConverter converter : converters) {
@@ -32,10 +32,10 @@ class DocumentConverterStartupTest {
             System.out.println("    Content types: " + converter.getSupportedContentTypes());
             System.out.println("    Extensions: " + converter.getSupportedExtensions());
         }
-        
+
         // Verify we have at least 3 converters (PDF, Text, EPUB)
         assertTrue(converters.size() >= 3, "Should have at least 3 converters");
-        
+
         // Check for specific converters
         boolean hasPdfConverter = converters.stream()
                 .anyMatch(c -> "PDF_DOCUMENT_CONVERTER".equals(c.getConverterType()));
@@ -43,7 +43,7 @@ class DocumentConverterStartupTest {
                 .anyMatch(c -> "TEXT_DOCUMENT_CONVERTER".equals(c.getConverterType()));
         boolean hasEpubConverter = converters.stream()
                 .anyMatch(c -> "EPUB_DOCUMENT_CONVERTER".equals(c.getConverterType()));
-        
+
         assertTrue(hasPdfConverter, "PDF converter should be registered");
         assertTrue(hasTextConverter, "Text converter should be registered");
         assertTrue(hasEpubConverter, "EPUB converter should be registered");

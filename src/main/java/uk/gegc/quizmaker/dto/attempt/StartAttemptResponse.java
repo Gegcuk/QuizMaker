@@ -10,4 +10,5 @@ import java.util.UUID;
 public record StartAttemptResponse(
         @Schema(description = "Attempt UUID") UUID attemptId,
         @Schema(description = "First question to answer (safe, without correct answers)") QuestionForAttemptDto firstQuestion
-) {}
+) {
+}

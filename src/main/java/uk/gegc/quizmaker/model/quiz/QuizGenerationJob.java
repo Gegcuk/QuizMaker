@@ -94,7 +94,7 @@ public class QuizGenerationJob {
                 generationTimeSeconds = java.time.Duration.between(startedAt, completedAt).getSeconds();
             }
         }
-        
+
         // Update progress percentage
         if (totalChunks != null && totalChunks > 0) {
             progressPercentage = (double) processedChunks / totalChunks * 100.0;
@@ -107,7 +107,7 @@ public class QuizGenerationJob {
     public void updateProgress(int processedChunks, String currentChunk) {
         this.processedChunks = processedChunks;
         this.currentChunk = currentChunk;
-        
+
         if (totalChunks != null && totalChunks > 0) {
             this.progressPercentage = (double) processedChunks / totalChunks * 100.0;
         }
@@ -137,9 +137,9 @@ public class QuizGenerationJob {
      * Check if the job is in a terminal state
      */
     public boolean isTerminal() {
-        return status == GenerationStatus.COMPLETED || 
-               status == GenerationStatus.FAILED || 
-               status == GenerationStatus.CANCELLED;
+        return status == GenerationStatus.COMPLETED ||
+                status == GenerationStatus.FAILED ||
+                status == GenerationStatus.CANCELLED;
     }
 
     /**
@@ -160,14 +160,14 @@ public class QuizGenerationJob {
         if (status.isTerminal() || progressPercentage == null || progressPercentage <= 0) {
             return 0L;
         }
-        
+
         Long elapsedSeconds = getDurationSeconds();
         double progress = progressPercentage / 100.0;
-        
+
         if (progress <= 0) {
             return 0L;
         }
-        
+
         long totalEstimatedSeconds = (long) (elapsedSeconds / progress);
         return totalEstimatedSeconds - elapsedSeconds;
     }

@@ -46,11 +46,11 @@ public class AttemptController {
             @ApiResponse(responseCode = "201", description = "Attempt started",
                     content = @Content(schema = @Schema(implementation = StartAttemptResponse.class),
                             examples = @ExampleObject(name = "success", value = """
-                            {
-                              "attemptId":"3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                              "firstQuestion":null
-                            }
-                            """))) ,
+                                    {
+                                      "attemptId":"3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "firstQuestion":null
+                                    }
+                                    """))),
             @ApiResponse(responseCode = "404", description = "Quiz not found")
     })
     @PostMapping("/quizzes/{quizId}")

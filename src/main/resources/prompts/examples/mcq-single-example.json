@@ -6,10 +6,26 @@
       "type": "MCQ_SINGLE",
       "content": {
         "options": [
-          {"id": "a", "text": "To store genetic information", "correct": false},
-          {"id": "b", "text": "To produce energy through cellular respiration", "correct": true},
-          {"id": "c", "text": "To transport proteins throughout the cell", "correct": false},
-          {"id": "d", "text": "To break down waste materials", "correct": false}
+          {
+            "id": "a",
+            "text": "To store genetic information",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "To produce energy through cellular respiration",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "To transport proteins throughout the cell",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "To break down waste materials",
+            "correct": false
+          }
         ]
       },
       "hint": "Think about what process provides energy for cellular activities",
@@ -21,10 +37,26 @@
       "type": "MCQ_SINGLE",
       "content": {
         "options": [
-          {"id": "a", "text": "Growth and development", "correct": false},
-          {"id": "b", "text": "Response to stimuli", "correct": false},
-          {"id": "c", "text": "Ability to reproduce", "correct": false},
-          {"id": "d", "text": "Ability to conduct electricity", "correct": true}
+          {
+            "id": "a",
+            "text": "Growth and development",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Response to stimuli",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "Ability to reproduce",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Ability to conduct electricity",
+            "correct": true
+          }
         ]
       },
       "hint": "Consider which option is not a fundamental characteristic of life",

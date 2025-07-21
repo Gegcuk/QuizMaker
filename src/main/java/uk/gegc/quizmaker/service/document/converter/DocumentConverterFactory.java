@@ -9,7 +9,7 @@ import java.util.List;
 
 /**
  * Factory class for document converters.
- * 
+ * <p>
  * This implements the Factory pattern to find the appropriate converter
  * for a given file type. It automatically discovers all available converters
  * and selects the one that can handle the input format.
@@ -27,16 +27,16 @@ public class DocumentConverterFactory {
     public DocumentConverter findConverter(String contentType, String filename) {
         log.info("Looking for converter for content type: {}, filename: {}", contentType, filename);
         log.info("Available converters: {}", converters.stream().map(DocumentConverter::getConverterType).toList());
-        
+
         for (DocumentConverter converter : converters) {
-            log.debug("Checking converter: {} - canConvert: {}", 
+            log.debug("Checking converter: {} - canConvert: {}",
                     converter.getConverterType(), converter.canConvert(contentType, filename));
             if (converter.canConvert(contentType, filename)) {
                 log.info("Found converter: {}", converter.getConverterType());
                 return converter;
             }
         }
-        
+
         String errorMessage = String.format("No converter found for content type: %s, filename: %s", contentType, filename);
         log.error(errorMessage);
         log.error("Available converters: {}", converters.stream().map(DocumentConverter::getConverterType).toList());

@@ -19,7 +19,7 @@ public interface QuizGenerationJobService {
     /**
      * Create a new quiz generation job
      */
-    QuizGenerationJob createJob(User user, Long documentId, String requestData, int totalChunks, int estimatedTimeSeconds);
+    QuizGenerationJob createJob(User user, UUID documentId, String requestData, int totalChunks, int estimatedTimeSeconds);
 
     /**
      * Get a job by ID and username
@@ -39,7 +39,7 @@ public interface QuizGenerationJobService {
     /**
      * Mark job as completed
      */
-    QuizGenerationJob markJobCompleted(UUID jobId, Long generatedQuizId);
+    QuizGenerationJob markJobCompleted(UUID jobId, UUID generatedQuizId);
 
     /**
      * Mark job as failed
@@ -69,7 +69,7 @@ public interface QuizGenerationJobService {
     /**
      * Get jobs by document ID
      */
-    List<QuizGenerationJob> getJobsByDocument(Long documentId);
+    List<QuizGenerationJob> getJobsByDocument(UUID documentId);
 
     /**
      * Get jobs created within a time range
@@ -95,13 +95,14 @@ public interface QuizGenerationJobService {
      * DTO for job statistics
      */
     record JobStatistics(
-        long totalJobs,
-        long completedJobs,
-        long failedJobs,
-        long cancelledJobs,
-        long activeJobs,
-        double averageGenerationTimeSeconds,
-        long totalQuestionsGenerated,
-        LocalDateTime lastJobCreated
-    ) {}
+            long totalJobs,
+            long completedJobs,
+            long failedJobs,
+            long cancelledJobs,
+            long activeJobs,
+            double averageGenerationTimeSeconds,
+            long totalQuestionsGenerated,
+            LocalDateTime lastJobCreated
+    ) {
+    }
 } 

@@ -21,22 +21,22 @@ public class Role {
 
     @Column(name = "role_name", nullable = false, unique = true)
     private String roleName;
-    
+
     @Column(name = "description")
     private String description;
-    
+
     @Column(name = "is_default")
     @Builder.Default
     private boolean isDefault = false;
 
     @ManyToMany(mappedBy = "roles", fetch = FetchType.LAZY)
     private Set<User> users;
-    
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
-        name = "role_permissions",
-        joinColumns = @JoinColumn(name = "role_id"),
-        inverseJoinColumns = @JoinColumn(name = "permission_id")
+            name = "role_permissions",
+            joinColumns = @JoinColumn(name = "role_id"),
+            inverseJoinColumns = @JoinColumn(name = "permission_id")
     )
     private Set<Permission> permissions;
 }

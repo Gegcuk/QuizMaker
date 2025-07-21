@@ -69,7 +69,7 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      * Find jobs created within a time range
      */
     @Query("SELECT j FROM QuizGenerationJob j WHERE j.startedAt BETWEEN :startTime AND :endTime ORDER BY j.startedAt DESC")
-    List<QuizGenerationJob> findByStartedAtBetween(@Param("startTime") LocalDateTime startTime, 
+    List<QuizGenerationJob> findByStartedAtBetween(@Param("startTime") LocalDateTime startTime,
                                                    @Param("endTime") LocalDateTime endTime);
 
     /**

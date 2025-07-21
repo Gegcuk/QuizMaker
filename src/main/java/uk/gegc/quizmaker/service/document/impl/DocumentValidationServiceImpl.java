@@ -53,8 +53,8 @@ public class DocumentValidationServiceImpl implements DocumentValidationService 
             }
             // For other cases, use the extension-based message
             String filename = file.getOriginalFilename();
-            String extension = filename != null && filename.contains(".") ? 
-                filename.substring(filename.lastIndexOf(".")) : "";
+            String extension = filename != null && filename.contains(".") ?
+                    filename.substring(filename.lastIndexOf(".")) : "";
             throw new UnsupportedFileTypeException("Unsupported file type: " + extension);
         }
 
@@ -79,8 +79,8 @@ public class DocumentValidationServiceImpl implements DocumentValidationService 
             throw new IllegalArgumentException("Request cannot be null");
         }
 
-        if (request.getMaxChunkSize() != null && 
-            (request.getMaxChunkSize() < MIN_CHUNK_SIZE || request.getMaxChunkSize() > MAX_CHUNK_SIZE)) {
+        if (request.getMaxChunkSize() != null &&
+                (request.getMaxChunkSize() < MIN_CHUNK_SIZE || request.getMaxChunkSize() > MAX_CHUNK_SIZE)) {
             throw new IllegalArgumentException("Invalid chunk size: must be between " + MIN_CHUNK_SIZE + " and " + MAX_CHUNK_SIZE);
         }
 
@@ -93,8 +93,8 @@ public class DocumentValidationServiceImpl implements DocumentValidationService 
     public boolean isSupportedFileType(String contentType) {
         return contentType != null && (
                 contentType.equals("application/pdf") ||
-                contentType.equals("application/epub+zip") ||
-                contentType.equals("text/plain")
+                        contentType.equals("application/epub+zip") ||
+                        contentType.equals("text/plain")
         );
     }
 } 

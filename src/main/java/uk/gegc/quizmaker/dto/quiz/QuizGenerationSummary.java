@@ -25,4 +25,5 @@ public record QuizGenerationSummary(
 
         @Schema(description = "Total processing time", example = "PT2M30S")
         Duration totalProcessingTime
-) {} 
+) {
+}

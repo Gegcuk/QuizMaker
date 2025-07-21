@@ -47,10 +47,10 @@ class PermissionAspectTest {
         RequirePermission annotation = mock(RequirePermission.class);
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.OR);
-        
+
         when(permissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkPermission(joinPoint, annotation));
         verify(permissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
@@ -63,13 +63,13 @@ class PermissionAspectTest {
         RequirePermission annotation = mock(RequirePermission.class);
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.OR);
-        
+
         when(permissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionAspect.checkPermission(joinPoint, annotation)
+        assertThrows(ForbiddenException.class, () ->
+                permissionAspect.checkPermission(joinPoint, annotation)
         );
         verify(permissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
@@ -81,10 +81,10 @@ class PermissionAspectTest {
         RequirePermission annotation = mock(RequirePermission.class);
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.AND);
-        
+
         when(permissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkPermission(joinPoint, annotation));
         verify(permissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
@@ -97,13 +97,13 @@ class PermissionAspectTest {
         RequirePermission annotation = mock(RequirePermission.class);
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.AND);
-        
+
         when(permissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionAspect.checkPermission(joinPoint, annotation)
+        assertThrows(ForbiddenException.class, () ->
+                permissionAspect.checkPermission(joinPoint, annotation)
         );
         verify(permissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
@@ -115,10 +115,10 @@ class PermissionAspectTest {
         RequireRole annotation = mock(RequireRole.class);
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.OR);
-        
+
         when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkRole(joinPoint, annotation));
         verify(permissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
@@ -131,13 +131,13 @@ class PermissionAspectTest {
         RequireRole annotation = mock(RequireRole.class);
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.OR);
-        
+
         when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionAspect.checkRole(joinPoint, annotation)
+        assertThrows(ForbiddenException.class, () ->
+                permissionAspect.checkRole(joinPoint, annotation)
         );
         verify(permissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
     }
@@ -149,10 +149,10 @@ class PermissionAspectTest {
         RequireRole annotation = mock(RequireRole.class);
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.AND);
-        
+
         when(permissionEvaluator.hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkRole(joinPoint, annotation));
         verify(permissionEvaluator).hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
@@ -166,19 +166,19 @@ class PermissionAspectTest {
         when(annotation.resourceParam()).thenReturn("userId");
         when(annotation.resourceType()).thenReturn("user");
         when(annotation.ownerField()).thenReturn("userId");
-        
+
         UUID resourceOwnerId = UUID.randomUUID();
-        
+
         Method method = TestController.class.getMethod("testMethod", UUID.class);
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[]{resourceOwnerId};
-        
+
         when(joinPoint.getSignature()).thenReturn(methodSignature);
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
-        
+
         when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkResourceOwnership(joinPoint, annotation));
         verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
@@ -192,22 +192,22 @@ class PermissionAspectTest {
         when(annotation.resourceParam()).thenReturn("userId");
         when(annotation.resourceType()).thenReturn("user");
         when(annotation.ownerField()).thenReturn("userId");
-        
+
         UUID resourceOwnerId = UUID.randomUUID();
-        
+
         Method method = TestController.class.getMethod("testMethod", UUID.class);
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[]{resourceOwnerId};
-        
+
         when(joinPoint.getSignature()).thenReturn(methodSignature);
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
-        
+
         when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
-        
+
         // When & Then
-        assertThrows(ForbiddenException.class, () -> 
-            permissionAspect.checkResourceOwnership(joinPoint, annotation)
+        assertThrows(ForbiddenException.class, () ->
+                permissionAspect.checkResourceOwnership(joinPoint, annotation)
         );
         verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
     }
@@ -220,20 +220,20 @@ class PermissionAspectTest {
         when(annotation.resourceParam()).thenReturn("resource");
         when(annotation.resourceType()).thenReturn("quiz");
         when(annotation.ownerField()).thenReturn("userId");
-        
+
         UUID resourceOwnerId = UUID.randomUUID();
         TestResource resource = new TestResource(resourceOwnerId);
-        
+
         Method method = TestController.class.getMethod("testMethodWithObject", TestResource.class);
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[]{resource};
-        
+
         when(joinPoint.getSignature()).thenReturn(methodSignature);
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
-        
+
         when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
-        
+
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkResourceOwnership(joinPoint, annotation));
         verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
@@ -247,36 +247,39 @@ class PermissionAspectTest {
         when(annotation.resourceParam()).thenReturn("resource");
         when(annotation.resourceType()).thenReturn("quiz");
         when(annotation.ownerField()).thenReturn("nonExistentField");
-        
+
         TestResource resource = new TestResource(UUID.randomUUID());
-        
+
         Method method = TestController.class.getMethod("testMethodWithObject", TestResource.class);
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[]{resource};
-        
+
         when(joinPoint.getSignature()).thenReturn(methodSignature);
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
-        
+
         // When & Then
-        assertThrows(UnauthorizedException.class, () -> 
-            permissionAspect.checkResourceOwnership(joinPoint, annotation)
+        assertThrows(UnauthorizedException.class, () ->
+                permissionAspect.checkResourceOwnership(joinPoint, annotation)
         );
     }
 
     // Test helper classes
     static class TestController {
-        public void testMethod(UUID userId) {}
-        public void testMethodWithObject(TestResource resource) {}
+        public void testMethod(UUID userId) {
+        }
+
+        public void testMethodWithObject(TestResource resource) {
+        }
     }
-    
+
     static class TestResource {
         private final UUID userId;
-        
+
         TestResource(UUID userId) {
             this.userId = userId;
         }
-        
+
         public UUID getUserId() {
             return userId;
         }

@@ -66,7 +66,7 @@ class QuizServiceImplTest {
         UUID quizId = UUID.randomUUID();
         String username = "admin";
         Quiz emptyQuiz = createQuizWithoutQuestions();
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(emptyQuiz));
 
         // When & Then
@@ -83,7 +83,7 @@ class QuizServiceImplTest {
         String username = "admin";
         Quiz quiz = createQuizWithQuestions(1);
         quiz.setEstimatedTime(0); // Invalid time
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
 
@@ -101,7 +101,7 @@ class QuizServiceImplTest {
         String username = "admin";
         Quiz quiz = createQuizWithQuestions(1);
         quiz.setEstimatedTime(null); // Null time
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
 
@@ -118,7 +118,7 @@ class QuizServiceImplTest {
         UUID quizId = UUID.randomUUID();
         String username = "admin";
         Quiz quiz = createQuizWithQuestions(1);
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
         doThrow(new ValidationException("MCQ_SINGLE must have exactly one correct answer")).when(questionHandler).validateContent(any());
@@ -138,7 +138,7 @@ class QuizServiceImplTest {
         Quiz quiz = createQuizWithQuestions(1);
         // Set malformed JSON content
         quiz.getQuestions().iterator().next().setContent("invalid json {");
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
 
@@ -156,7 +156,7 @@ class QuizServiceImplTest {
         String username = "admin";
         Quiz quiz = createQuizWithoutQuestions();
         quiz.setEstimatedTime(0); // Invalid time
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
 
         // When & Then
@@ -174,7 +174,7 @@ class QuizServiceImplTest {
         String username = "admin";
         Quiz quiz = createValidQuizForPublishing();
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.PUBLISHED);
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(quizRepository.save(quiz)).thenReturn(quiz);
         when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
@@ -200,7 +200,7 @@ class QuizServiceImplTest {
         Quiz invalidQuiz = createQuizWithoutQuestions();
         invalidQuiz.setEstimatedTime(0); // Invalid for publishing, but OK for draft
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.DRAFT);
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(invalidQuiz));
         when(quizRepository.save(invalidQuiz)).thenReturn(invalidQuiz);
         when(quizMapper.toDto(invalidQuiz)).thenReturn(expectedDto);
@@ -220,7 +220,7 @@ class QuizServiceImplTest {
         // Given
         UUID nonExistentQuizId = UUID.randomUUID();
         String username = "admin";
-        
+
         when(quizRepository.findByIdWithQuestions(nonExistentQuizId)).thenReturn(Optional.empty());
 
         // When & Then
@@ -238,7 +238,7 @@ class QuizServiceImplTest {
         Quiz publishedQuiz = createValidQuizForPublishing();
         publishedQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.DRAFT);
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(publishedQuiz));
         when(quizRepository.save(publishedQuiz)).thenReturn(publishedQuiz);
         when(quizMapper.toDto(publishedQuiz)).thenReturn(expectedDto);
@@ -261,7 +261,7 @@ class QuizServiceImplTest {
         Quiz alreadyPublishedQuiz = createValidQuizForPublishing();
         alreadyPublishedQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.PUBLISHED);
-        
+
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(alreadyPublishedQuiz));
         when(quizRepository.save(alreadyPublishedQuiz)).thenReturn(alreadyPublishedQuiz);
         when(quizMapper.toDto(alreadyPublishedQuiz)).thenReturn(expectedDto);
@@ -297,7 +297,7 @@ class QuizServiceImplTest {
         Quiz quiz = createQuizWithoutQuestions();
         quiz.setTitle("Quiz with " + questionCount + " questions");
         quiz.setEstimatedTime(5); // Valid estimated time
-        
+
         Set<Question> questions = new HashSet<>();
         for (int i = 0; i < questionCount; i++) {
             Question question = new Question();

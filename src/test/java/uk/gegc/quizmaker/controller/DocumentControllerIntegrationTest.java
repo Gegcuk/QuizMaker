@@ -58,7 +58,7 @@ class DocumentControllerIntegrationTest {
                 .apply(springSecurity())
                 .build();
         objectMapper = new ObjectMapper();
-        
+
         // Setup default config values
         when(documentConfig.createDefaultRequest()).thenReturn(createDefaultRequest());
         when(documentConfig.getDefaultMaxChunkSize()).thenReturn(1000);
@@ -355,7 +355,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.totalChunks").value(50));
     }
-    
+
     @Test
     @WithMockUser(username = "testuser")
     void uploadDocument_ServiceError_ReturnsProcessingError() throws Exception {
@@ -378,7 +378,7 @@ class DocumentControllerIntegrationTest {
                 .andExpect(jsonPath("$.error").value("Document Processing Error"))
                 .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Failed to upload document")));
     }
-    
+
     @Test
     @WithMockUser(username = "testuser")
     void uploadDocument_ServiceThrowsDocumentProcessingException_ReturnsCorrectError() throws Exception {
@@ -458,7 +458,7 @@ class DocumentControllerIntegrationTest {
         dto.setChunkType(uk.gegc.quizmaker.model.document.DocumentChunk.ChunkType.CHAPTER);
         return dto;
     }
-    
+
     private ProcessDocumentRequest createDefaultRequest() {
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setMaxChunkSize(1000);

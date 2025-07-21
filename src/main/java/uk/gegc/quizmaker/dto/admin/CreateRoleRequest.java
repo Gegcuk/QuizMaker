@@ -11,11 +11,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateRoleRequest {
-    
+
     @NotBlank(message = "Role name is required")
     private String roleName;
-    
+
     private String description;
-    
+
     private boolean isDefault;
 }

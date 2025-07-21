@@ -10,9 +10,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import uk.gegc.quizmaker.exception.AiServiceException;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -37,13 +35,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": "Hello, how are you?"}
-        """;
+                    {"message": "Hello, how are you?"}
+                """;
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.message").exists())
@@ -63,13 +61,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": ""}
-        """;
+                    {"message": ""}
+                """;
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"))
                 .andExpect(jsonPath("$.details").exists());
@@ -85,13 +83,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": null}
-        """;
+                    {"message": null}
+                """;
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"))
                 .andExpect(jsonPath("$.details").exists());
@@ -108,13 +106,13 @@ class AiChatControllerIntegrationTest {
 
         String longMessage = "A".repeat(2001); // Exceeds 2000 character limit
         String jsonRequest = """
-            {"message": "%s"}
-        """.formatted(longMessage);
+                    {"message": "%s"}
+                """.formatted(longMessage);
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"))
                 .andExpect(jsonPath("$.details").exists());
@@ -130,13 +128,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": "What is 2+2? Can you explain with emojis? 🧮✨"}
-        """;
+                    {"message": "What is 2+2? Can you explain with emojis? 🧮✨"}
+                """;
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.message").exists())
@@ -152,13 +150,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": "Hello AI"}
-        """;
+                    {"message": "Hello AI"}
+                """;
 
         // When & Then - Should fail without authentication (Spring Security returns 403 Forbidden)
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isForbidden());
     }
 
@@ -172,13 +170,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"message": "Hello AI"}
-        """;
+                    {"message": "Hello AI"}
+                """;
 
         // When & Then - Should succeed without CSRF token since CSRF is disabled in SecurityConfig
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.message").exists())
@@ -195,13 +193,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String invalidJson = """
-            {"message": "Hello AI"
-        """; // Missing closing brace
+                    {"message": "Hello AI"
+                """; // Missing closing brace
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(invalidJson))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
                 .andExpect(status().isBadRequest());
     }
 
@@ -215,13 +213,13 @@ class AiChatControllerIntegrationTest {
                 .build();
 
         String jsonRequest = """
-            {"otherField": "Hello AI"}
-        """;
+                    {"otherField": "Hello AI"}
+                """;
 
         // When & Then
         mockMvc.perform(post("/api/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(jsonRequest))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonRequest))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Validation Failed"));
     }

@@ -9,12 +9,12 @@ import java.util.Optional;
 
 @Repository
 public interface PermissionRepository extends JpaRepository<Permission, Long> {
-    
+
     Optional<Permission> findByPermissionName(String permissionName);
-    
+
     List<Permission> findByResource(String resource);
-    
+
     boolean existsByPermissionName(String permissionName);
-    
+
     List<Permission> findByResourceAndAction(String resource, String action);
 }

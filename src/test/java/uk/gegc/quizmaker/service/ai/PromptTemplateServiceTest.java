@@ -17,13 +17,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-
-import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class PromptTemplateServiceTest {
@@ -33,19 +29,19 @@ class PromptTemplateServiceTest {
 
     @Mock
     private Resource systemPromptResource;
-    
+
     @Mock
     private Resource contextTemplateResource;
-    
+
     @Mock
     private Resource mcqTemplateResource;
-    
+
     @Mock
     private Resource trueFalseTemplateResource;
-    
+
     @Mock
     private Resource openTemplateResource;
-    
+
     @Mock
     private Resource nonexistentResource;
 
@@ -62,7 +58,7 @@ class PromptTemplateServiceTest {
         ReflectionTestUtils.setField(promptTemplateService, "templateCache", new HashMap<>());
     }
 
-        @Test
+    @Test
     void shouldLoadPromptTemplate() throws IOException {
         // Given
         String templateContent = "Test template content";
@@ -86,7 +82,7 @@ class PromptTemplateServiceTest {
         // Given
         String templateContent = "Test template content";
         InputStream inputStream = new ByteArrayInputStream(templateContent.getBytes());
-        
+
         when(resourceLoader.getResource("classpath:prompts/base/system-prompt.txt"))
                 .thenReturn(systemPromptResource);
         when(systemPromptResource.getInputStream()).thenReturn(inputStream);
@@ -122,7 +118,7 @@ class PromptTemplateServiceTest {
         QuestionType questionType = QuestionType.MCQ_SINGLE;
         int questionCount = 3;
         Difficulty difficulty = Difficulty.MEDIUM;
-        
+
         setupMcqTemplatesOnly();
 
         // When
