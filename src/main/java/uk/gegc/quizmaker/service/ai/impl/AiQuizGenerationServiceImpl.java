@@ -6,10 +6,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
+import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
 import uk.gegc.quizmaker.exception.AiServiceException;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
@@ -52,6 +54,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final QuizGenerationJobService jobService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -140,12 +143,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks.",
                     jobId, Duration.between(startTime, Instant.now()).getSeconds(), allQuestions.size(), chunkQuestions.size());
 
-            // Call quiz service to create the quiz collection
-            // This will be implemented in the quiz service
-            // quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, request);
+            // Publish event to trigger quiz creation
+            eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
+                    this, jobId, chunkQuestions, request, allQuestions));
 
-            // For now, mark job as completed with total questions
-            job.markCompleted(null, allQuestions.size()); // TODO: Add generated quiz ID when quiz is created
+            // Mark job as completed with total questions count
+            job.markCompleted(null, allQuestions.size());
             jobRepository.save(job);
 
             progress.setCompleted(true);
@@ -401,6 +404,21 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         estimatedTime = (int) (estimatedTime * 1.2);
 
         return estimatedTime;
+    }
+
+    @Override
+    public int calculateTotalChunks(UUID documentId, GenerateQuizFromDocumentRequest request) {
+        try {
+            Document document = documentRepository.findById(documentId)
+                    .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
+
+            List<DocumentChunk> chunks = getChunksForScope(document, request);
+            return chunks.size();
+        } catch (Exception e) {
+            log.error("Error calculating total chunks for document: {}", documentId, e);
+            // Return a reasonable default if calculation fails
+            return 1;
+        }
     }
 
     /**

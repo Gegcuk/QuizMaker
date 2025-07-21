@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.service.ai;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,15 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
-import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 
 import java.time.LocalDateTime;
@@ -28,12 +24,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
 
 @SpringBootTest
 @ActiveProfiles("test")

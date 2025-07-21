@@ -3,10 +3,12 @@ package uk.gegc.quizmaker.service.quiz;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.dto.quiz.*;
+import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface QuizService {
@@ -102,4 +104,18 @@ public interface QuizService {
      * @return JobStatistics with success rates and timing information
      */
     QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username);
+
+    /**
+     * Create comprehensive quiz collection from generated questions
+     * This method creates individual chunk quizzes and a consolidated quiz
+     *
+     * @param jobId The generation job ID
+     * @param chunkQuestions Map of chunk index to list of generated questions
+     * @param originalRequest The original quiz generation request
+     */
+    void createQuizCollectionFromGeneratedQuestions(
+            UUID jobId,
+            Map<Integer, List<Question>> chunkQuestions,
+            GenerateQuizFromDocumentRequest originalRequest
+    );
 }

@@ -5,12 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.question.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
+import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
@@ -37,6 +41,7 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 @RequiredArgsConstructor
+@Slf4j
 public class QuizServiceImpl implements QuizService {
 
     private final QuizRepository quizRepository;
@@ -179,16 +184,17 @@ public class QuizServiceImpl implements QuizService {
         }
 
         try {
-            // Create generation job
+            // Calculate total chunks and estimated time before creating job
+            int totalChunks = aiQuizGenerationService.calculateTotalChunks(request.documentId(), request);
+            int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
+                    totalChunks, request.questionsPerType());
+
+            // Create generation job with proper estimates
             QuizGenerationJob job = jobService.createJob(user, request.documentId(),
-                    objectMapper.writeValueAsString(request), 0, 0); // totalChunks and estimatedTime will be set later
+                    objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
 
             // Start async generation
             aiQuizGenerationService.generateQuizFromDocumentAsync(job.getId(), request);
-
-            // Calculate estimated time
-            int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
-                    request.questionsPerType().size(), request.questionsPerType());
 
             return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
 
@@ -244,10 +250,31 @@ public class QuizServiceImpl implements QuizService {
         return jobService.getJobStatistics(username);
     }
 
-    /**
-     * Create comprehensive quiz collection from generated questions
-     * This method creates individual chunk quizzes and a consolidated quiz
-     */
+    @EventListener
+    @Async("generalTaskExecutor")
+    public void handleQuizGenerationCompleted(QuizGenerationCompletedEvent event) {
+        try {
+            createQuizCollectionFromGeneratedQuestions(
+                    event.getJobId(),
+                    event.getChunkQuestions(),
+                    event.getOriginalRequest()
+            );
+        } catch (Exception e) {
+            // Log error and update job status
+            log.error("Failed to create quiz collection for job {}", event.getJobId(), e);
+            try {
+                QuizGenerationJob job = jobRepository.findById(event.getJobId()).orElse(null);
+                if (job != null) {
+                    job.markFailed("Quiz creation failed: " + e.getMessage());
+                    jobRepository.save(job);
+                }
+            } catch (Exception saveError) {
+                log.error("Failed to update job status after quiz creation failure for job {}", event.getJobId(), saveError);
+            }
+        }
+    }
+
+    @Override
     public void createQuizCollectionFromGeneratedQuestions(
             UUID jobId,
             Map<Integer, List<Question>> chunkQuestions,

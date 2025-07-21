@@ -71,4 +71,13 @@ public interface AiQuizGenerationService {
      * @return Estimated time in seconds
      */
     int calculateEstimatedGenerationTime(int totalChunks, Map<QuestionType, Integer> questionsPerType);
+
+    /**
+     * Calculate total number of chunks for a document based on the request scope
+     *
+     * @param documentId The document ID
+     * @param request    The quiz generation request
+     * @return Total number of chunks to process
+     */
+    int calculateTotalChunks(UUID documentId, GenerateQuizFromDocumentRequest request);
 } 
