@@ -1,7 +1,9 @@
 package uk.gegc.quizmaker.service.ai.impl;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
@@ -17,8 +19,10 @@ import java.util.Map;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class PromptTemplateServiceImpl implements PromptTemplateService {
 
+    private final ResourceLoader resourceLoader;
     private final Map<String, String> templateCache = new HashMap<>();
 
     @Override
@@ -28,6 +32,23 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             int questionCount,
             Difficulty difficulty
     ) {
+        // Input validation
+        if (chunkContent == null) {
+            throw new IllegalArgumentException("Chunk content cannot be null");
+        }
+        if (chunkContent.trim().isEmpty()) {
+            throw new IllegalArgumentException("Chunk content cannot be empty");
+        }
+        if (questionCount < 0) {
+            throw new IllegalArgumentException("Question count cannot be negative");
+        }
+        if (difficulty == null) {
+            throw new IllegalArgumentException("Difficulty cannot be null");
+        }
+        if (questionType == null) {
+            throw new IllegalArgumentException("Question type cannot be null");
+        }
+
         try {
             // Load system prompt
             String systemPrompt = buildSystemPrompt();
@@ -78,11 +99,11 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     private String loadTemplateFromResources(String templateName) {
         try {
-            ClassPathResource resource = new ClassPathResource("prompts/" + templateName);
+            Resource resource = resourceLoader.getResource("classpath:prompts/" + templateName);
             return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             log.error("Failed to load template: {}", templateName, e);
-            return "Template not found: " + templateName;
+            throw new RuntimeException("Failed to load template: " + templateName, e);
         }
     }
 

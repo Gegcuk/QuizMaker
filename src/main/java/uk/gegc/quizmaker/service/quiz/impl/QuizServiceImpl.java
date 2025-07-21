@@ -15,22 +15,29 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
+import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Arrays;
 
 @Service
 @Transactional
@@ -44,6 +51,9 @@ public class QuizServiceImpl implements QuizService {
     private final QuizMapper quizMapper;
     private final UserRepository userRepository;
     private final QuestionHandlerFactory questionHandlerFactory;
+    private final QuizGenerationJobRepository jobRepository;
+    private final QuizGenerationJobService jobService;
+    private final AiQuizGenerationService aiQuizGenerationService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -154,9 +164,286 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
-        // TODO: Implement AI quiz generation logic
-        // This is a stub implementation for the User Request Phase
-        throw new UnsupportedOperationException("AI quiz generation not yet implemented");
+        // This method is now deprecated in favor of async generation
+        // For backward compatibility, start an async job and return immediately
+        return startQuizGeneration(username, request);
+    }
+
+    @Override
+    public QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request) {
+        // Validate user exists
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+
+        // Check if user already has an active generation job
+        List<QuizGenerationJob> activeJobs = jobService.getActiveJobs().stream()
+                .filter(job -> job.getUser().getUsername().equals(username))
+                .toList();
+        if (!activeJobs.isEmpty()) {
+            throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+        }
+
+        try {
+            // Create generation job
+            QuizGenerationJob job = jobService.createJob(user, Long.valueOf(request.documentId().toString()), 
+                    objectMapper.writeValueAsString(request), 0, 0); // totalChunks and estimatedTime will be set later
+
+            // Start async generation
+            aiQuizGenerationService.generateQuizFromDocumentAsync(job.getId(), request);
+
+            // Calculate estimated time
+            int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
+                    request.questionsPerType().size(), request.questionsPerType());
+
+            return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
+            
+        } catch (JsonProcessingException e) {
+            throw new ValidationException("Failed to serialize request data: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
+        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
+        return QuizGenerationStatus.fromEntity(job);
+    }
+
+    @Override
+    public QuizDto getGeneratedQuiz(UUID jobId, String username) {
+        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
+        
+        if (job.getStatus() != GenerationStatus.COMPLETED) {
+            throw new ValidationException("Generation job is not yet completed. Current status: " + job.getStatus());
+        }
+        
+        if (job.getGeneratedQuizId() == null) {
+            throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
+        }
+        
+        return getQuizById(job.getGeneratedQuizId());
+    }
+
+    @Override
+    public QuizGenerationStatus cancelGenerationJob(UUID jobId, String username) {
+        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
+        
+        if (job.getStatus().isTerminal()) {
+            throw new ValidationException("Cannot cancel job that is already in terminal state: " + job.getStatus());
+        }
+        
+        jobService.cancelJob(jobId, username);
+        
+        // Refresh job from database
+        job = jobRepository.findById(jobId).orElseThrow();
+        return QuizGenerationStatus.fromEntity(job);
+    }
+
+    @Override
+    public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
+        Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
+        return jobs.map(QuizGenerationStatus::fromEntity);
+    }
+
+    @Override
+    public QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username) {
+        return jobService.getJobStatistics(username);
+    }
+
+    /**
+     * Create comprehensive quiz collection from generated questions
+     * This method creates individual chunk quizzes and a consolidated quiz
+     */
+    public void createQuizCollectionFromGeneratedQuestions(
+            UUID jobId, 
+            Map<Integer, List<Question>> chunkQuestions, 
+            GenerateQuizFromDocumentRequest originalRequest
+    ) {
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+            User user = job.getUser();
+            UUID documentId = originalRequest.documentId();
+            
+            // Get category and tags
+            Category category = getOrCreateAICategory();
+            Set<Tag> tags = getTagsFromRequest(originalRequest);
+            
+            // Create individual chunk quizzes
+            List<Quiz> chunkQuizzes = new ArrayList<>();
+            Map<Integer, String> chunkTitles = new HashMap<>();
+            
+            for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
+                int chunkIndex = entry.getKey();
+                List<Question> questions = entry.getValue();
+                
+                if (!questions.isEmpty()) {
+                    Quiz chunkQuiz = createChunkQuiz(
+                            user, questions, chunkIndex, originalRequest, category, tags, documentId
+                    );
+                    chunkQuizzes.add(chunkQuiz);
+                    
+                    // Store chunk title for metadata
+                    chunkTitles.put(chunkIndex, getChunkTitle(chunkIndex, questions));
+                }
+            }
+            
+            // Create consolidated quiz with all questions
+            List<Question> allQuestions = chunkQuestions.values().stream()
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList());
+            
+            Quiz consolidatedQuiz = createConsolidatedQuiz(
+                    user, allQuestions, originalRequest, category, tags, documentId, chunkQuizzes.size()
+            );
+            
+            // Calculate total questions
+            int totalQuestions = allQuestions.size();
+            
+            // Update job with consolidated quiz ID and total questions
+            job.markCompleted(consolidatedQuiz.getId(), totalQuestions);
+            jobRepository.save(job);
+            
+            // TODO: Create document quiz group entity to track relationships
+            // This would require additional database schema for quiz relationships
+            
+        } catch (Exception e) {
+            // If quiz creation fails, mark job as failed
+            try {
+                QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+                if (job != null) {
+                    job.markFailed("Failed to create quiz collection: " + e.getMessage());
+                    jobRepository.save(job);
+                }
+            } catch (Exception saveError) {
+                System.err.println("Failed to update job status after quiz creation failure: " + saveError.getMessage());
+            }
+            throw new RuntimeException("Failed to create quiz collection from generated questions", e);
+        }
+    }
+
+    /**
+     * Create individual quiz for a document chunk
+     */
+    private Quiz createChunkQuiz(
+            User user, 
+            List<Question> questions, 
+            int chunkIndex, 
+            GenerateQuizFromDocumentRequest request,
+            Category category,
+            Set<Tag> tags,
+            UUID documentId
+    ) {
+        String chunkTitle = getChunkTitle(chunkIndex, questions);
+        String quizTitle = String.format("Quiz: %s", chunkTitle);
+        String quizDescription = String.format("Quiz covering %s from the document", chunkTitle);
+        
+        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES, 
+                (int) Math.ceil(questions.size() * 1.5));
+        
+        Quiz quiz = new Quiz();
+        quiz.setTitle(quizTitle);
+        quiz.setDescription(quizDescription);
+        quiz.setCreator(user);
+        quiz.setCategory(category);
+        quiz.setTags(tags);
+        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
+        quiz.setVisibility(Visibility.PRIVATE); // Start as private
+        quiz.setEstimatedTime(estimatedTimeMinutes);
+        quiz.setQuestions(new HashSet<>(questions));
+        
+        // Add document metadata as custom properties (if supported)
+        // quiz.setCustomProperty("documentId", documentId.toString());
+        // quiz.setCustomProperty("chunkIndex", String.valueOf(chunkIndex));
+        
+        return quizRepository.save(quiz);
+    }
+
+    /**
+     * Create consolidated quiz containing all questions from all chunks
+     */
+    private Quiz createConsolidatedQuiz(
+            User user, 
+            List<Question> allQuestions, 
+            GenerateQuizFromDocumentRequest request,
+            Category category,
+            Set<Tag> tags,
+            UUID documentId,
+            int chunkCount
+    ) {
+        String quizTitle = request.quizTitle() != null ? request.quizTitle() : 
+                "Complete Document Quiz";
+        String quizDescription = request.quizDescription() != null ? request.quizDescription() : 
+                String.format("Comprehensive quiz covering all %d sections of the document", chunkCount);
+        
+        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES, 
+                (int) Math.ceil(allQuestions.size() * 1.5));
+        
+        Quiz quiz = new Quiz();
+        quiz.setTitle(quizTitle);
+        quiz.setDescription(quizDescription);
+        quiz.setCreator(user);
+        quiz.setCategory(category);
+        quiz.setTags(tags);
+        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
+        quiz.setVisibility(Visibility.PRIVATE); // Start as private
+        quiz.setEstimatedTime(estimatedTimeMinutes);
+        quiz.setQuestions(new HashSet<>(allQuestions));
+        
+        // Add document metadata as custom properties (if supported)
+        // quiz.setCustomProperty("documentId", documentId.toString());
+        // quiz.setCustomProperty("quizType", "CONSOLIDATED");
+        
+        return quizRepository.save(quiz);
+    }
+
+    /**
+     * Get or create AI Generated category
+     */
+    private Category getOrCreateAICategory() {
+        return categoryRepository.findByName("AI Generated")
+                .orElseGet(() -> categoryRepository.findByName("General")
+                        .orElseGet(() -> {
+                            // Create AI Generated category if it doesn't exist
+                            Category aiCategory = new Category();
+                            aiCategory.setName("AI Generated");
+                            aiCategory.setDescription("Quizzes automatically generated by AI");
+                            return categoryRepository.save(aiCategory);
+                        }));
+    }
+
+    /**
+     * Get tags from request or return empty set
+     */
+    private Set<Tag> getTagsFromRequest(GenerateQuizFromDocumentRequest request) {
+        if (request.tagIds() == null) {
+            return new HashSet<>();
+        }
+        
+        return request.tagIds().stream()
+                .map(id -> tagRepository.findById(id).orElse(null))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Generate chunk title based on chunk index and content
+     */
+    private String getChunkTitle(int chunkIndex, List<Question> questions) {
+        // Try to extract meaningful title from questions
+        if (!questions.isEmpty()) {
+            String firstQuestion = questions.get(0).getQuestionText();
+            if (firstQuestion != null && firstQuestion.length() > 10) {
+                // Extract first few words as potential title
+                String[] words = firstQuestion.split("\\s+");
+                if (words.length >= 3) {
+                    return String.join(" ", Arrays.copyOfRange(words, 0, Math.min(5, words.length)));
+                }
+            }
+        }
+        
+        // Fallback to generic title
+        return String.format("Section %d", chunkIndex);
     }
 
     @Override

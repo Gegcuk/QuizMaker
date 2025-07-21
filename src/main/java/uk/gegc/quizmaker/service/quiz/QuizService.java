@@ -49,4 +49,57 @@ public interface QuizService {
      * @return QuizGenerationResponse with generation details
      */
     QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request);
+
+    /**
+     * Start an asynchronous quiz generation job
+     * 
+     * @param username The username of the user requesting quiz generation
+     * @param request The quiz generation request containing document ID and parameters
+     * @return QuizGenerationResponse with job ID and initial status
+     */
+    QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request);
+
+    /**
+     * Get the status of a quiz generation job
+     * 
+     * @param jobId The generation job ID
+     * @param username The username requesting the status
+     * @return QuizGenerationStatus with current progress and details
+     */
+    QuizGenerationStatus getGenerationStatus(UUID jobId, String username);
+
+    /**
+     * Get the generated quiz from a completed generation job
+     * 
+     * @param jobId The generation job ID
+     * @param username The username requesting the quiz
+     * @return QuizDto of the generated quiz
+     */
+    QuizDto getGeneratedQuiz(UUID jobId, String username);
+
+    /**
+     * Cancel an active quiz generation job
+     * 
+     * @param jobId The generation job ID to cancel
+     * @param username The username requesting the cancellation
+     * @return QuizGenerationStatus with updated status
+     */
+    QuizGenerationStatus cancelGenerationJob(UUID jobId, String username);
+
+    /**
+     * Get a paginated list of generation jobs for a user
+     * 
+     * @param username The username to get jobs for
+     * @param pageable Pagination parameters
+     * @return Page of QuizGenerationStatus objects
+     */
+    Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable);
+
+    /**
+     * Get statistics about generation jobs for a user
+     * 
+     * @param username The username to get statistics for
+     * @return JobStatistics with success rates and timing information
+     */
+    QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username);
 }

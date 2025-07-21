@@ -2,10 +2,11 @@ package uk.gegc.quizmaker.service.quiz;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.quiz.QuizGenerationStatus;
 import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.model.user.User;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,9 +17,14 @@ import java.util.UUID;
 public interface QuizGenerationJobService {
 
     /**
-     * Create a new generation job
+     * Create a new quiz generation job
      */
-    QuizGenerationJob createJob(UUID documentId, String username, String requestData);
+    QuizGenerationJob createJob(User user, Long documentId, String requestData, int totalChunks, int estimatedTimeSeconds);
+
+    /**
+     * Get a job by ID and username
+     */
+    QuizGenerationJob getJobByIdAndUsername(UUID jobId, String username);
 
     /**
      * Get a job by ID
@@ -26,59 +32,49 @@ public interface QuizGenerationJobService {
     Optional<QuizGenerationJob> getJobById(UUID jobId);
 
     /**
-     * Get a job by ID with user authorization
-     */
-    QuizGenerationJob getJobByIdAndUsername(UUID jobId, String username);
-
-    /**
-     * Get all jobs for a user
-     */
-    List<QuizGenerationJob> getJobsByUsername(String username);
-
-    /**
-     * Get jobs for a user with pagination
-     */
-    Page<QuizGenerationJob> getJobsByUsername(String username, Pageable pageable);
-
-    /**
-     * Get active jobs for a user
-     */
-    List<QuizGenerationJob> getActiveJobsByUsername(String username);
-
-    /**
      * Update job progress
      */
-    void updateJobProgress(UUID jobId, int processedChunks, String currentChunk);
+    QuizGenerationJob updateJobProgress(UUID jobId, int processedChunks, int currentChunk, int totalQuestionsGenerated);
 
     /**
      * Mark job as completed
      */
-    void markJobCompleted(UUID jobId, UUID generatedQuizId, int totalQuestions);
+    QuizGenerationJob markJobCompleted(UUID jobId, Long generatedQuizId);
 
     /**
      * Mark job as failed
      */
-    void markJobFailed(UUID jobId, String errorMessage);
+    QuizGenerationJob markJobFailed(UUID jobId, String errorMessage);
 
     /**
      * Cancel a job
      */
-    void cancelJob(UUID jobId, String username);
+    QuizGenerationJob cancelJob(UUID jobId, String username);
 
     /**
-     * Get job status as DTO
+     * Get all jobs for a user with pagination
      */
-    QuizGenerationStatus getJobStatus(UUID jobId, String username);
+    Page<QuizGenerationJob> getJobsByUser(String username, Pageable pageable);
 
     /**
-     * Find stuck jobs (jobs that have been processing for too long)
+     * Get jobs by status
      */
-    List<QuizGenerationJob> findStuckJobs();
+    List<QuizGenerationJob> getJobsByStatus(GenerationStatus status);
 
     /**
-     * Clean up old completed jobs
+     * Get active jobs (non-terminal status)
      */
-    void cleanupOldJobs();
+    List<QuizGenerationJob> getActiveJobs();
+
+    /**
+     * Get jobs by document ID
+     */
+    List<QuizGenerationJob> getJobsByDocument(Long documentId);
+
+    /**
+     * Get jobs created within a time range
+     */
+    List<QuizGenerationJob> getJobsByTimeRange(LocalDateTime start, LocalDateTime end);
 
     /**
      * Get job statistics for a user
@@ -86,29 +82,26 @@ public interface QuizGenerationJobService {
     JobStatistics getJobStatistics(String username);
 
     /**
-     * Check if user has active jobs
+     * Clean up old completed jobs
      */
-    boolean hasActiveJobs(String username);
+    void cleanupOldJobs(int daysToKeep);
 
     /**
-     * Get the most recent job for a document
+     * Get jobs that have been running too long
      */
-    Optional<QuizGenerationJob> getMostRecentJobForDocument(UUID documentId);
+    List<QuizGenerationJob> getStuckJobs(int maxDurationHours);
 
     /**
-     * Count jobs by status for a user
-     */
-    long countJobsByStatus(String username, GenerationStatus status);
-
-    /**
-     * Job statistics record
+     * DTO for job statistics
      */
     record JobStatistics(
-            long totalJobs,
-            long completedJobs,
-            long failedJobs,
-            long activeJobs,
-            double successRate,
-            long averageGenerationTimeSeconds
+        long totalJobs,
+        long completedJobs,
+        long failedJobs,
+        long cancelledJobs,
+        long activeJobs,
+        double averageGenerationTimeSeconds,
+        long totalQuestionsGenerated,
+        LocalDateTime lastJobCreated
     ) {}
 } 
