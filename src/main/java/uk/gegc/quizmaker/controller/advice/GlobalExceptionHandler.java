@@ -18,6 +18,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import uk.gegc.quizmaker.exception.*;
+import uk.gegc.quizmaker.exception.AiServiceException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -84,6 +85,24 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.CONFLICT.value(),
                 "Conflict",
                 List.of(ex.getMessage())
+        );
+    }
+
+    @ExceptionHandler(AiServiceException.class)
+    public ResponseEntity<ErrorResponse> handleAiServiceException(AiServiceException ex) {
+        HttpStatus status = ex.getCause() instanceof org.springframework.web.client.RestClientException
+                ? HttpStatus.SERVICE_UNAVAILABLE
+                : HttpStatus.INTERNAL_SERVER_ERROR;
+
+        return ResponseEntity.status(status).body(
+                new ErrorResponse(
+                        LocalDateTime.now(),
+                        status.value(),
+                        status == HttpStatus.SERVICE_UNAVAILABLE ? "AI Service Unavailable" : "AI Service Error",
+                        List.of(status == HttpStatus.SERVICE_UNAVAILABLE 
+                                ? "The AI service is currently unavailable. Please try again later."
+                                : "An unexpected error occurred with the AI service.")
+                )
         );
     }
 
