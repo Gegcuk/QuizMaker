@@ -1,0 +1,43 @@
+Generate exactly {questionCount} COMPLIANCE questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "Evaluate the following statements for compliance",
+      "difficulty": "{difficulty}",
+      "type": "COMPLIANCE",
+      "content": {
+        "statements": [
+          {"text": "Statement to evaluate", "compliant": true},
+          {"text": "Another statement to evaluate", "compliant": false}
+        ]
+      },
+      "hint": "Optional hint text",
+      "explanation": "Explanation of which statements are compliant and why"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Each question should have 2-4 statements to evaluate
+- Statements should be clearly compliant or non-compliant
+- Include appropriate hints and explanations
+- Base questions directly on the provided content
+- Ensure compliance criteria are clear and unambiguous
+- Make sure statements test understanding of rules, standards, or requirements
+
+DIFFICULTY GUIDELINES:
+- EASY: Basic compliance with simple rules or standards
+- MEDIUM: Complex compliance scenarios, multiple criteria
+- HARD: Nuanced compliance situations, interpretation of standards
+
+QUALITY STANDARDS:
+- Statements should be clear and specific
+- Compliance criteria should be unambiguous
+- Avoid statements that are partially compliant
+- Ensure the evaluation tests meaningful understanding
+- Provide clear context for compliance requirements
+
+Respond with valid JSON only. 

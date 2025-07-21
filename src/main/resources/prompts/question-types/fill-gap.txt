@@ -1,0 +1,44 @@
+Generate exactly {questionCount} FILL_GAP questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "Complete the sentence with the missing word(s)",
+      "difficulty": "{difficulty}",
+      "type": "FILL_GAP",
+      "content": {
+        "text": "The sentence with ___ gaps to fill",
+        "gaps": [
+          {"id": 1, "answer": "correct answer"}
+        ]
+      },
+      "hint": "Optional hint text",
+      "explanation": "Explanation of the correct answer"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Each question should have 1-3 gaps to fill
+- Gaps should be marked with underscores (___)
+- Provide the correct answer for each gap
+- Include appropriate hints and explanations
+- Base questions directly on the provided content
+- Ensure gaps test important concepts or key terms
+- Make sure there is only one correct answer per gap
+
+DIFFICULTY GUIDELINES:
+- EASY: Key terms, names, or basic facts
+- MEDIUM: Important concepts, definitions, or relationships
+- HARD: Complex terms, specific details, or nuanced concepts
+
+QUALITY STANDARDS:
+- Sentences should be clear and grammatically correct
+- Gaps should be placed logically within sentences
+- Correct answers should be specific and unambiguous
+- Avoid gaps that could have multiple correct answers
+- Ensure the context provides enough clues for the answer
+
+Respond with valid JSON only. 

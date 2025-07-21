@@ -1,0 +1,45 @@
+Generate exactly {questionCount} ORDERING questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "Arrange the following items in the correct order",
+      "difficulty": "{difficulty}",
+      "type": "ORDERING",
+      "content": {
+        "items": [
+          {"id": 1, "text": "First item"},
+          {"id": 2, "text": "Second item"},
+          {"id": 3, "text": "Third item"},
+          {"id": 4, "text": "Fourth item"}
+        ]
+      },
+      "hint": "Optional hint text",
+      "explanation": "Explanation of the correct order and why"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Each question should have 3-5 items to order
+- Items should be clearly related and have a logical sequence
+- Include appropriate hints and explanations
+- Base questions directly on the provided content
+- Ensure there is only one correct order
+- Make sure the ordering tests understanding of processes, sequences, or relationships
+
+DIFFICULTY GUIDELINES:
+- EASY: Simple sequences, chronological order, basic processes
+- MEDIUM: Complex processes, cause-and-effect relationships, multi-step procedures
+- HARD: Abstract concepts, complex relationships, multiple criteria for ordering
+
+QUALITY STANDARDS:
+- Items should be clearly stated and related
+- The correct order should be unambiguous
+- Avoid items that could be ordered in multiple valid ways
+- Ensure the sequence tests meaningful understanding
+- Provide clear context for why the order matters
+
+Respond with valid JSON only. 

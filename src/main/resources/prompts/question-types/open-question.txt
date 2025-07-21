@@ -1,0 +1,40 @@
+Generate exactly {questionCount} OPEN questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "The open-ended question that requires explanation",
+      "difficulty": "{difficulty}",
+      "type": "OPEN",
+      "content": {
+        "answer": "A comprehensive answer that demonstrates understanding of the concept"
+      },
+      "hint": "Optional hint text to guide the response",
+      "explanation": "Detailed explanation of the expected answer and key points to include"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Questions should require detailed explanations, not just short answers
+- Include comprehensive model answers that demonstrate expected depth
+- Provide helpful hints to guide students
+- Base questions directly on the provided content
+- Questions should test higher-order thinking skills
+- Ensure questions are open-ended but focused
+
+DIFFICULTY GUIDELINES:
+- EASY: Basic explanations of concepts or processes
+- MEDIUM: Analysis of relationships, comparison of concepts, application of principles
+- HARD: Synthesis of multiple concepts, evaluation of arguments, complex problem-solving
+
+QUALITY STANDARDS:
+- Questions should be clear and specific
+- Model answers should be comprehensive and well-structured
+- Hints should be helpful but not give away the answer
+- Questions should encourage critical thinking
+- Avoid questions that can be answered with simple yes/no responses
+
+Respond with valid JSON only. 
