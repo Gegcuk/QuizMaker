@@ -153,6 +153,13 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
+        // TODO: Implement AI quiz generation logic
+        // This is a stub implementation for the User Request Phase
+        throw new UnsupportedOperationException("AI quiz generation not yet implemented");
+    }
+
+    @Override
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->

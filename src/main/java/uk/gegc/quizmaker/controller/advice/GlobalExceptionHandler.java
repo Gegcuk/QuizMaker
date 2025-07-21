@@ -42,7 +42,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ValidationException.class,
             UnsupportedQuestionTypeException.class,
             UnsupportedFileTypeException.class,
-            ApiError.class
+            ApiError.class,
+            QuizGenerationException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(RuntimeException ex) {

@@ -40,4 +40,13 @@ public interface QuizService {
     void deleteQuizzesByIds(String name, List<UUID> quizIds);
 
     BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String name, BulkQuizUpdateRequest request);
+
+    /**
+     * Generate a quiz from document chunks using AI
+     * 
+     * @param username The username of the user requesting quiz generation
+     * @param request The quiz generation request containing document ID and parameters
+     * @return QuizGenerationResponse with generation details
+     */
+    QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request);
 }

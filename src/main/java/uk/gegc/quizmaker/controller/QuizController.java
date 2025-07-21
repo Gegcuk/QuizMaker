@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.exception.QuizGenerationException;
 
 import java.util.List;
 import java.util.Map;
@@ -380,5 +381,54 @@ public class QuizController {
             Pageable pageable
     ) {
         return ResponseEntity.ok(quizService.getPublicQuizzes(pageable));
+    }
+
+    @Operation(
+            summary = "Generate quiz from document using AI",
+            description = "ADMIN only. Generate a quiz from uploaded document chunks using AI. The document must be processed and have chunks available. Users can specify exactly how many questions of each type to generate per chunk. Supports different scopes: entire document, specific chunks, specific chapter, or specific section.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = GenerateQuizFromDocumentRequest.class))
+            ),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "201",
+                            description = "Quiz generation started successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationResponse.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or invalid request",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Document not found or not processed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generate-from-document")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationResponse> generateQuizFromDocument(
+            @RequestBody @Valid GenerateQuizFromDocumentRequest request,
+            Authentication authentication
+    ) {
+        QuizGenerationResponse response = quizService.generateQuizFromDocument(authentication.getName(), request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }
