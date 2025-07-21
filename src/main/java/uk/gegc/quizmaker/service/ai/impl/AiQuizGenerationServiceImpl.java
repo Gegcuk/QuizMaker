@@ -21,8 +21,10 @@ import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
 import uk.gegc.quizmaker.service.ai.PromptTemplateService;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
@@ -48,6 +50,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final QuestionResponseParser questionResponseParser;
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
+    private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
@@ -403,13 +406,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Create a new generation job and store request data
      */
-    public QuizGenerationJob createGenerationJob(UUID documentId, String username, GenerateQuizFromDocumentRequest request) {
+        public QuizGenerationJob createGenerationJob(UUID documentId, String username, GenerateQuizFromDocumentRequest request) {
+        // Input validation
+        if (username == null) {
+            throw new IllegalArgumentException("Username cannot be null");
+        }
+        if (request == null) {
+            throw new IllegalArgumentException("Request cannot be null");
+        }
+        
         try {
             // Serialize request data to JSON
             String requestData = objectMapper.writeValueAsString(request);
-
+            
+            // Get user by username
+            User user = userRepository.findByUsername(username)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+            
             // Create job entity
             QuizGenerationJob job = new QuizGenerationJob();
+            job.setUser(user);
             job.setDocumentId(documentId);
             job.setStatus(GenerationStatus.PENDING);
             job.setRequestData(requestData);
@@ -435,6 +451,17 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Get job by ID with user authorization
      */
     public QuizGenerationJob getJobByIdAndUsername(UUID jobId, String username) {
+        // Input validation
+        if (jobId == null) {
+            throw new IllegalArgumentException("Job ID cannot be null");
+        }
+        if (username == null) {
+            throw new IllegalArgumentException("Username cannot be null");
+        }
+        if (username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be empty");
+        }
+        
         return jobRepository.findById(jobId)
                 .filter(job -> job.getUser().getUsername().equals(username))
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found or access denied"));
@@ -444,6 +471,20 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Update job progress in database
      */
     public void updateJobProgress(UUID jobId, int processedChunks, String currentChunk) {
+        // Input validation
+        if (jobId == null) {
+            throw new IllegalArgumentException("Job ID cannot be null");
+        }
+        if (processedChunks < 0) {
+            throw new IllegalArgumentException("Processed chunks cannot be negative");
+        }
+        if (currentChunk == null) {
+            throw new IllegalArgumentException("Current chunk cannot be null");
+        }
+        if (currentChunk.trim().isEmpty()) {
+            throw new IllegalArgumentException("Current chunk cannot be empty");
+        }
+        
         QuizGenerationJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
 

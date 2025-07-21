@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,6 +33,23 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob createJob(User user, UUID documentId, String requestData, int totalChunks, int estimatedTimeSeconds) {
+        // Input validation
+        if (user == null) {
+            throw new IllegalArgumentException("User cannot be null");
+        }
+        if (documentId == null) {
+            throw new IllegalArgumentException("Document ID cannot be null");
+        }
+        if (requestData == null) {
+            throw new IllegalArgumentException("Request data cannot be null");
+        }
+        if (totalChunks <= 0) {
+            throw new IllegalArgumentException("Total chunks must be positive");
+        }
+        if (estimatedTimeSeconds <= 0) {
+            throw new IllegalArgumentException("Estimated time must be positive");
+        }
+        
         log.info("Creating quiz generation job for user: {}, document: {}, chunks: {}",
                 user.getUsername(), documentId, totalChunks);
 
@@ -77,6 +95,17 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob updateJobProgress(UUID jobId, int processedChunks, int currentChunk, int totalQuestionsGenerated) {
+        // Input validation
+        if (processedChunks < 0) {
+            throw new IllegalArgumentException("Processed chunks cannot be negative");
+        }
+        if (currentChunk < 0) {
+            throw new IllegalArgumentException("Current chunk cannot be negative");
+        }
+        if (totalQuestionsGenerated < 0) {
+            throw new IllegalArgumentException("Total questions generated cannot be negative");
+        }
+        
         log.debug("Updating job progress for job: {}, processed: {}, current: {}, questions: {}",
                 jobId, processedChunks, currentChunk, totalQuestionsGenerated);
 
@@ -99,7 +128,12 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob markJobCompleted(UUID jobId, UUID generatedQuizId) {
-        log.info("Marking job as completed: {}, generated quiz: {}", jobId, generatedQuizId);
+        // Input validation
+        if (generatedQuizId == null) {
+            throw new IllegalArgumentException("Generated quiz ID cannot be null");
+        }
+        
+        log.info("Marking job as completed: {} with generated quiz: {}", jobId, generatedQuizId);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
@@ -117,6 +151,14 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob markJobFailed(UUID jobId, String errorMessage) {
+        // Input validation
+        if (errorMessage == null) {
+            throw new IllegalArgumentException("Error message cannot be null");
+        }
+        if (errorMessage.trim().isEmpty()) {
+            throw new IllegalArgumentException("Error message cannot be empty");
+        }
+        
         log.error("Marking job as failed: {}, error: {}", jobId, errorMessage);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
@@ -135,6 +177,14 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public QuizGenerationJob cancelJob(UUID jobId, String username) {
+        // Input validation
+        if (username == null) {
+            throw new IllegalArgumentException("Username cannot be null");
+        }
+        if (username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be empty");
+        }
+        
         log.info("Cancelling job: {} for user: {}", jobId, username);
 
         QuizGenerationJob job = getJobByIdAndUsername(jobId, username);
@@ -154,6 +204,17 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public Page<QuizGenerationJob> getJobsByUser(String username, Pageable pageable) {
+        // Input validation
+        if (username == null) {
+            throw new IllegalArgumentException("Username cannot be null");
+        }
+        if (username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be empty");
+        }
+        if (pageable == null) {
+            throw new IllegalArgumentException("Pageable cannot be null");
+        }
+        
         log.debug("Getting jobs for user: {} with pagination", username);
         return jobRepository.findByUser_UsernameOrderByStartedAtDesc(username, pageable);
     }
@@ -161,6 +222,11 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getJobsByStatus(GenerationStatus status) {
+        // Input validation
+        if (status == null) {
+            throw new IllegalArgumentException("Status cannot be null");
+        }
+        
         log.debug("Getting jobs by status: {}", status);
         return jobRepository.findByStatus(status);
     }
@@ -175,6 +241,11 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getJobsByDocument(UUID documentId) {
+        // Input validation
+        if (documentId == null) {
+            throw new IllegalArgumentException("Document ID cannot be null");
+        }
+        
         log.debug("Getting jobs by document: {}", documentId);
         return jobRepository.findByDocumentIdAndStatus(documentId, GenerationStatus.COMPLETED);
     }
@@ -182,6 +253,17 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getJobsByTimeRange(LocalDateTime start, LocalDateTime end) {
+        // Input validation
+        if (start == null) {
+            throw new IllegalArgumentException("Start time cannot be null");
+        }
+        if (end == null) {
+            throw new IllegalArgumentException("End time cannot be null");
+        }
+        if (start.isAfter(end)) {
+            throw new IllegalArgumentException("Start time cannot be after end time");
+        }
+        
         log.debug("Getting jobs by time range: {} to {}", start, end);
         return jobRepository.findByStartedAtBetween(start, end);
     }
@@ -189,6 +271,14 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public JobStatistics getJobStatistics(String username) {
+        // Input validation
+        if (username == null) {
+            throw new IllegalArgumentException("Username cannot be null");
+        }
+        if (username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be empty");
+        }
+        
         log.debug("Getting job statistics for user: {}", username);
 
         // Simplified statistics using available repository methods
@@ -214,6 +304,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         // Get last job created
         LocalDateTime lastJobCreated = userJobs.stream()
                 .map(QuizGenerationJob::getStartedAt)
+                .filter(Objects::nonNull)
                 .max(LocalDateTime::compareTo)
                 .orElse(null);
 
@@ -231,6 +322,11 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     @Override
     public void cleanupOldJobs(int daysToKeep) {
+        // Input validation
+        if (daysToKeep <= 0) {
+            throw new IllegalArgumentException("Days to keep must be positive");
+        }
+        
         log.info("Cleaning up jobs older than {} days", daysToKeep);
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysToKeep);
         jobRepository.deleteOldCompletedJobs(cutoffDate);
@@ -240,6 +336,11 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getStuckJobs(int maxDurationHours) {
+        // Input validation
+        if (maxDurationHours <= 0) {
+            throw new IllegalArgumentException("Max duration hours must be positive");
+        }
+        
         log.debug("Finding stuck jobs running longer than {} hours", maxDurationHours);
         LocalDateTime cutoffTime = LocalDateTime.now().minusHours(maxDurationHours);
         return jobRepository.findStuckJobs(cutoffTime);

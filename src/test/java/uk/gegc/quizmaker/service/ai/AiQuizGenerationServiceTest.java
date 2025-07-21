@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
@@ -31,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -56,6 +58,9 @@ class AiQuizGenerationServiceTest {
 
     @Mock
     private QuizGenerationJobService jobService;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -180,6 +185,7 @@ class AiQuizGenerationServiceTest {
         // Given
         String serializedRequest = "{\"documentId\":\"" + testDocumentId + "\"}";
         when(objectMapper.writeValueAsString(testRequest)).thenReturn(serializedRequest);
+        when(userRepository.findByUsername("testuser")).thenReturn(java.util.Optional.of(testUser));
         when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
         when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
 
@@ -274,5 +280,170 @@ class AiQuizGenerationServiceTest {
         });
 
         verify(jobRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldHandleEmptyQuestionsPerType() {
+        // Given
+        Map<QuestionType, Integer> emptyQuestionsPerType = new HashMap<>();
+        
+        // When
+        int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(3, emptyQuestionsPerType);
+        
+        // Then
+        assertTrue(estimatedTime > 0);
+        // Should still calculate base time even with no questions
+    }
+
+    @Test
+    void shouldHandleZeroChunks() {
+        // Given
+        Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.MCQ_SINGLE, 5);
+        
+        // When
+        int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(0, questionsPerType);
+        
+        // Then
+        assertTrue(estimatedTime > 0);
+        // Should calculate time for question types even with zero chunks
+    }
+
+    @Test
+    void shouldHandleLargeNumberOfChunks() {
+        // Given
+        Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.MCQ_SINGLE, 3);
+        int largeChunkCount = 1000;
+        
+        // When
+        int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(largeChunkCount, questionsPerType);
+        
+        // Then
+        assertTrue(estimatedTime > 0);
+        // Should handle large numbers without overflow
+    }
+
+    @Test
+    void shouldHandleMaximumQuestionTypes() {
+        // Given
+        Map<QuestionType, Integer> allQuestionTypes = new HashMap<>();
+        for (QuestionType type : QuestionType.values()) {
+            allQuestionTypes.put(type, 1);
+        }
+        
+        // When
+        int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(5, allQuestionTypes);
+        
+        // Then
+        assertTrue(estimatedTime > 0);
+        // Should handle all question types
+    }
+
+    @Test
+    void shouldValidateDocumentWithNullChunks() {
+        // Given
+        testDocument.setChunks(null);
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
+        });
+    }
+
+    @Test
+    void shouldValidateDocumentWithEmptyChunks() {
+        // Given
+        testDocument.setChunks(List.of());
+        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
+        });
+    }
+
+    @Test
+    void shouldHandleJobProgressUpdateWithNegativeValues() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, -1, "current");
+        });
+    }
+
+    @Test
+    void shouldHandleJobProgressUpdateWithNullCurrentChunk() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, 1, null);
+        });
+    }
+
+    @Test
+    void shouldHandleJobProgressUpdateWithEmptyCurrentChunk() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, 1, "");
+        });
+    }
+
+    @Test
+    void shouldHandleConcurrentJobAccess() {
+        // Given
+        when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.of(testJob));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
+
+        // When - simulate concurrent access
+        CompletableFuture<Void> future1 = CompletableFuture.runAsync(() -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, 1, "chunk1");
+        });
+        
+        CompletableFuture<Void> future2 = CompletableFuture.runAsync(() -> {
+            aiQuizGenerationService.updateJobProgress(testJobId, 2, "chunk2");
+        });
+
+        // Then - should complete without exceptions
+        assertDoesNotThrow(() -> {
+            CompletableFuture.allOf(future1, future2).join();
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNullUser() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.createGenerationJob(testDocumentId, null, testRequest);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNullRequest() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", null);
+        });
+    }
+
+    @Test
+    void shouldHandleJobRetrievalWithNullJobId() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.getJobByIdAndUsername(null, "testuser");
+        });
+    }
+
+    @Test
+    void shouldHandleJobRetrievalWithNullUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.getJobByIdAndUsername(testJobId, null);
+        });
+    }
+
+    @Test
+    void shouldHandleJobRetrievalWithEmptyUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "");
+        });
     }
 } 

@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -380,5 +381,301 @@ class QuizGenerationJobServiceTest {
         assertEquals(1, result.size());
         assertEquals(testJob, result.get(0));
         verify(jobRepository).findStuckJobs(any(LocalDateTime.class));
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNullUser() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(null, testDocumentId, "requestData", 5, 300);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNullDocumentId() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, null, "requestData", 5, 300);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNullRequestData() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, testDocumentId, null, 5, 300);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNegativeTotalChunks() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, testDocumentId, "requestData", -1, 300);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithNegativeEstimatedTime() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, testDocumentId, "requestData", 5, -1);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithZeroTotalChunks() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, testDocumentId, "requestData", 0, 300);
+        });
+    }
+
+    @Test
+    void shouldHandleJobCreationWithZeroEstimatedTime() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.createJob(testUser, testDocumentId, "requestData", 5, 0);
+        });
+    }
+
+    @Test
+    void shouldHandleUpdateJobProgressWithNegativeProcessedChunks() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.updateJobProgress(testJobId, -1, 1, 5);
+        });
+    }
+
+    @Test
+    void shouldHandleUpdateJobProgressWithNegativeCurrentChunk() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.updateJobProgress(testJobId, 1, -1, 5);
+        });
+    }
+
+    @Test
+    void shouldHandleUpdateJobProgressWithNegativeTotalQuestions() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.updateJobProgress(testJobId, 1, 1, -1);
+        });
+    }
+
+    @Test
+    void shouldHandleMarkJobCompletedWithNullGeneratedQuizId() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.markJobCompleted(testJobId, null);
+        });
+    }
+
+    @Test
+    void shouldHandleMarkJobFailedWithNullErrorMessage() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.markJobFailed(testJobId, null);
+        });
+    }
+
+    @Test
+    void shouldHandleMarkJobFailedWithEmptyErrorMessage() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.markJobFailed(testJobId, "");
+        });
+    }
+
+    @Test
+    void shouldHandleCancelJobWithNullUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.cancelJob(testJobId, null);
+        });
+    }
+
+    @Test
+    void shouldHandleCancelJobWithEmptyUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.cancelJob(testJobId, "");
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByUserWithNullUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByUser(null, PageRequest.of(0, 10));
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByUserWithEmptyUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByUser("", PageRequest.of(0, 10));
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByUserWithNullPageable() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByUser("testuser", null);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByStatusWithNullStatus() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByStatus(null);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByDocumentWithNullDocumentId() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByDocument(null);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByTimeRangeWithNullStart() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByTimeRange(null, LocalDateTime.now());
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByTimeRangeWithNullEnd() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByTimeRange(LocalDateTime.now(), null);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobsByTimeRangeWithInvalidRange() {
+        // Given
+        LocalDateTime start = LocalDateTime.now();
+        LocalDateTime end = start.minusHours(1); // End before start
+
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobsByTimeRange(start, end);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobStatisticsWithNullUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobStatistics(null);
+        });
+    }
+
+    @Test
+    void shouldHandleGetJobStatisticsWithEmptyUsername() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getJobStatistics("");
+        });
+    }
+
+    @Test
+    void shouldHandleCleanupOldJobsWithNegativeDays() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.cleanupOldJobs(-1);
+        });
+    }
+
+    @Test
+    void shouldHandleCleanupOldJobsWithZeroDays() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.cleanupOldJobs(0);
+        });
+    }
+
+    @Test
+    void shouldHandleGetStuckJobsWithNegativeHours() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getStuckJobs(-1);
+        });
+    }
+
+    @Test
+    void shouldHandleGetStuckJobsWithZeroHours() {
+        // When & Then
+        assertThrows(IllegalArgumentException.class, () -> {
+            jobService.getStuckJobs(0);
+        });
+    }
+
+    @Test
+    void shouldHandleConcurrentJobUpdates() {
+        // Given
+        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
+
+        // When - simulate concurrent updates
+        CompletableFuture<Void> future1 = CompletableFuture.runAsync(() -> {
+            jobService.updateJobProgress(testJobId, 1, 1, 5);
+        });
+        
+        CompletableFuture<Void> future2 = CompletableFuture.runAsync(() -> {
+            jobService.updateJobProgress(testJobId, 2, 2, 10);
+        });
+
+        // Then - should complete without exceptions
+        assertDoesNotThrow(() -> {
+            CompletableFuture.allOf(future1, future2).join();
+        });
+    }
+
+    @Test
+    void shouldHandleJobStatisticsWithNoJobs() {
+        // Given
+        when(jobRepository.findByUser_UsernameOrderByStartedAtDesc("testuser")).thenReturn(List.of());
+
+        // When
+        QuizGenerationJobService.JobStatistics statistics = jobService.getJobStatistics("testuser");
+
+        // Then
+        assertNotNull(statistics);
+        assertEquals(0, statistics.totalJobs());
+        assertEquals(0, statistics.activeJobs());
+        assertEquals(0, statistics.completedJobs());
+        assertEquals(0, statistics.failedJobs());
+        assertEquals(0, statistics.cancelledJobs());
+        assertEquals(0.0, statistics.averageGenerationTimeSeconds());
+        assertEquals(0, statistics.totalQuestionsGenerated());
+        assertNull(statistics.lastJobCreated());
+    }
+
+    @Test
+    void shouldHandleJobStatisticsWithNullValues() {
+        // Given
+        testJob.setGenerationTimeSeconds(null);
+        testJob.setTotalQuestionsGenerated(null);
+        testJob.setStartedAt(null);
+        when(jobRepository.findByUser_UsernameOrderByStartedAtDesc("testuser")).thenReturn(List.of(testJob));
+
+        // When
+        QuizGenerationJobService.JobStatistics statistics = jobService.getJobStatistics("testuser");
+
+        // Then
+        assertNotNull(statistics);
+        assertEquals(1, statistics.totalJobs());
+        assertEquals(0.0, statistics.averageGenerationTimeSeconds());
+        assertEquals(0, statistics.totalQuestionsGenerated());
+        assertNull(statistics.lastJobCreated());
     }
 } 
