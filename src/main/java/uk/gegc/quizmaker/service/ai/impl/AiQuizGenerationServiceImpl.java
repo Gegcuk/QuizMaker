@@ -57,7 +57,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
 
     @Override
-    @Async
+    @Async("aiTaskExecutor")
     public void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request) {
         Instant startTime = Instant.now();
         log.info("Starting quiz generation for job {} with document {}", jobId, request.documentId());
@@ -176,7 +176,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
-    @Async
+    @Async("aiTaskExecutor")
     public CompletableFuture<List<Question>> generateQuestionsFromChunk(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,

@@ -20,7 +20,8 @@ import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
+import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
+import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -40,7 +41,7 @@ import static org.mockito.Mockito.*;
 class AiQuizGenerationServiceIntegrationTest {
 
     @Autowired
-    private AiQuizGenerationServiceImpl aiQuizGenerationService;
+    private AiQuizGenerationService aiQuizGenerationService;
 
     @SpyBean
     private org.springframework.ai.chat.client.ChatClient chatClient;
@@ -56,6 +57,9 @@ class AiQuizGenerationServiceIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private QuizGenerationJobService jobService;
 
     private User testUser;
     private Document testDocument;
@@ -141,16 +145,16 @@ class AiQuizGenerationServiceIntegrationTest {
     @Test
     void shouldHandleJobProgressTracking() {
         // Given
-        QuizGenerationJob job = aiQuizGenerationService.createGenerationJob(testDocumentId, testUser.getUsername(), testRequest);
+        QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When
-        aiQuizGenerationService.updateJobProgress(job.getId(), 1, "Processing chunk 1");
-        aiQuizGenerationService.updateJobProgress(job.getId(), 2, "Processing chunk 2");
+        jobService.updateJobProgress(job.getId(), 1, 1, 5);
+        jobService.updateJobProgress(job.getId(), 2, 2, 10);
 
         // Then
         QuizGenerationJob updatedJob = jobRepository.findById(job.getId()).orElseThrow();
         assertEquals(2, updatedJob.getProcessedChunks());
-        assertEquals("Processing chunk 2", updatedJob.getCurrentChunk());
+        assertEquals("2", updatedJob.getCurrentChunk());
     }
 
     @Test
@@ -182,10 +186,10 @@ class AiQuizGenerationServiceIntegrationTest {
     @Test
     void shouldHandleJobRetrievalByUser() {
         // Given
-        QuizGenerationJob job = aiQuizGenerationService.createGenerationJob(testDocumentId, testUser.getUsername(), testRequest);
+        QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When
-        QuizGenerationJob retrievedJob = aiQuizGenerationService.getJobByIdAndUsername(job.getId(), testUser.getUsername());
+        QuizGenerationJob retrievedJob = jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername());
 
         // Then
         assertNotNull(retrievedJob);
@@ -196,11 +200,11 @@ class AiQuizGenerationServiceIntegrationTest {
     @Test
     void shouldHandleJobRetrievalUnauthorized() {
         // Given
-        QuizGenerationJob job = aiQuizGenerationService.createGenerationJob(testDocumentId, testUser.getUsername(), testRequest);
+        QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.ResourceNotFoundException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(job.getId(), "unauthorizeduser");
+        assertThrows(uk.gegc.quizmaker.exception.ValidationException.class, () -> {
+            jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser");
         });
     }
 } 
