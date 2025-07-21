@@ -35,4 +35,5 @@ build/
 .vscode/
 /src/main/resources/local-secret.properties
 /htmlReport/
+.env
 /.env
