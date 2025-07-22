@@ -29,8 +29,12 @@ public class HotspotHandler extends QuestionHandler {
             throw new ValidationException("HOTSPOT requires a non-empty 'imageUrl'");
         }
 
-        if (regions == null || !regions.isArray() || regions.isEmpty()) {
-            throw new ValidationException("HOTSPOT must have at least one region");
+        if (regions == null || !regions.isArray() || regions.size() < 2) {
+            throw new ValidationException("HOTSPOT must have at least 2 regions");
+        }
+
+        if (regions.size() > 6) {
+            throw new ValidationException("HOTSPOT must have at most 6 regions");
         }
 
         Set<Integer> ids = new java.util.HashSet<>();
@@ -65,6 +69,10 @@ public class HotspotHandler extends QuestionHandler {
                 if (!region.has(field) || !region.get(field).canConvertToInt()) {
                     throw new ValidationException("Each region must have integer '" + field + "'");
                 }
+                int value = region.get(field).asInt();
+                if (value < 0) {
+                    throw new ValidationException("Region '" + field + "' must be non-negative");
+                }
             }
         }
         
@@ -85,7 +93,8 @@ public class HotspotHandler extends QuestionHandler {
                 .map(r -> r.get("id").asInt())
                 .collect(Collectors.toSet());
 
-        int selected = response.get("regionId").asInt(-1);
+        JsonNode selectedNode = response.get("selectedRegionId");
+        int selected = selectedNode != null && selectedNode.canConvertToInt() ? selectedNode.asInt() : -1;
         boolean isCorrect = correctIds.contains(selected);
 
         Answer ans = new Answer();

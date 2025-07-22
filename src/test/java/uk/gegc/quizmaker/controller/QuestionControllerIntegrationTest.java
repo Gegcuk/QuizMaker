@@ -135,7 +135,10 @@ public class QuestionControllerIntegrationTest {
                           "type":"HOTSPOT","difficulty":"MEDIUM","questionText":"Click",
                           "content":{
                             "imageUrl":"http://img.png",
-                            "regions":[{"id":1,"x":10,"y":20,"width":30,"height":40,"correct":true}]
+                            "regions":[
+                              {"id":1,"x":10,"y":20,"width":30,"height":40,"correct":true},
+                              {"id":2,"x":50,"y":60,"width":70,"height":80,"correct":false}
+                            ]
                           }
                         }
                         """),
@@ -144,7 +147,8 @@ public class QuestionControllerIntegrationTest {
                           "type":"COMPLIANCE","difficulty":"MEDIUM","questionText":"Agree?",
                           "content":{
                             "statements":[
-                              {"id":1,"text":"Yes","compliant":true}
+                              {"id":1,"text":"Yes","compliant":true},
+                              {"id":2,"text":"No","compliant":false}
                             ]
                           }
                         }

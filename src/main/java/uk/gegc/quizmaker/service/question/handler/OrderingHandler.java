@@ -27,6 +27,10 @@ public class OrderingHandler extends QuestionHandler {
         if (items == null || !items.isArray() || items.size() < 2) {
             throw new ValidationException("ORDERING must have at least 2 items");
         }
+        
+        if (items.size() > 10) {
+            throw new ValidationException("ORDERING must have at most 10 items");
+        }
 
         Set<Integer> ids = new java.util.HashSet<>();
         for (JsonNode it : items) {
@@ -53,9 +57,13 @@ public class OrderingHandler extends QuestionHandler {
                 .map(item -> item.get("id").asInt())
                 .toList();
 
-        List<Integer> userOrder = StreamSupport.stream(response.get("itemIds").spliterator(), false)
-                .map(JsonNode::asInt)
-                .toList();
+        JsonNode itemIdsNode = response.get("orderedItemIds");
+        List<Integer> userOrder = itemIdsNode != null && itemIdsNode.isArray()
+                ? StreamSupport.stream(itemIdsNode.spliterator(), false)
+                        .filter(id -> id.canConvertToInt())
+                        .map(JsonNode::asInt)
+                        .toList()
+                : List.of();
 
         boolean isCorrect = correctOrder.equals(userOrder);
         Answer ans = new Answer();

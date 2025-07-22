@@ -30,7 +30,8 @@ public class OpenQuestionHandler extends QuestionHandler {
                               JsonNode content,
                               JsonNode response) {
         String correct = content.get("answer").asText().trim().toLowerCase();
-        String given = response.get("answer").asText().trim().toLowerCase();
+        JsonNode givenNode = response.get("answer");
+        String given = givenNode != null && givenNode.isTextual() ? givenNode.asText().trim().toLowerCase() : "";
         boolean isCorrect = correct.equals(given);
 
         Answer ans = new Answer();

@@ -60,9 +60,12 @@ public class McqMultiHandler extends QuestionHandler {
                 .map(option -> option.get("id").asText())
                 .collect(Collectors.toSet());
 
-        Set<String> selected = StreamSupport.stream(response.get("selectedOptionIds").spliterator(), false)
-                .map(JsonNode::asText)
-                .collect(Collectors.toSet());
+        JsonNode selectedNode = response.get("selectedOptionIds");
+        Set<String> selected = selectedNode != null && selectedNode.isArray() 
+                ? StreamSupport.stream(selectedNode.spliterator(), false)
+                        .map(JsonNode::asText)
+                        .collect(Collectors.toSet())
+                : Set.of();
 
         boolean isCorrect = correct.equals(selected);
         Answer answer = new Answer();

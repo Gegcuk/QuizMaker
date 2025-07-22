@@ -61,11 +61,16 @@ public class FillGapHandler extends QuestionHandler {
                         gap -> gap.get("answer").asText().trim().toLowerCase()
                 ));
 
-        Map<Integer, String> given = StreamSupport.stream(response.get("gaps").spliterator(), false)
-                .collect(Collectors.toMap(
-                        gap -> gap.get("id").asInt(),
-                        gap -> gap.get("answer").asText().trim().toLowerCase()
-                ));
+        JsonNode answersNode = response.get("answers");
+        Map<Integer, String> given = answersNode != null && answersNode.isArray()
+                ? StreamSupport.stream(answersNode.spliterator(), false)
+                        .filter(answer -> answer.has("gapId") && answer.has("answer") && 
+                                answer.get("gapId").canConvertToInt() && answer.get("answer").isTextual())
+                        .collect(Collectors.toMap(
+                                answer -> answer.get("gapId").asInt(),
+                                answer -> answer.get("answer").asText().trim().toLowerCase()
+                        ))
+                : Map.of();
 
         boolean allMatch = correct.entrySet().stream()
                 .allMatch(e -> e.getValue().equals(given.get(e.getKey())));

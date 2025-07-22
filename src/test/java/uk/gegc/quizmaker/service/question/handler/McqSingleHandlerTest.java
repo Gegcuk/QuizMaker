@@ -8,7 +8,13 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
+
+import java.time.Instant;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,11 +22,22 @@ import static org.junit.jupiter.api.Assertions.*;
 class McqSingleHandlerTest {
     private McqSingleHandler handler;
     private ObjectMapper mapper;
+    private Attempt testAttempt;
+    private Question testQuestion;
 
     @BeforeEach
     void setUp() {
         handler = new McqSingleHandler();
         mapper = new ObjectMapper();
+        
+        // Setup test attempt and question
+        testAttempt = new Attempt();
+        testAttempt.setId(UUID.randomUUID());
+        testAttempt.setStartedAt(Instant.now());
+        
+        testQuestion = new Question();
+        testQuestion.setId(UUID.randomUUID());
+        testQuestion.setType(QuestionType.MCQ_SINGLE);
     }
 
     @Test
@@ -165,6 +182,142 @@ class McqSingleHandlerTest {
     void nullContent_throws() {
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(null)));
+    }
+
+    // Answer Validation Tests (doHandle method)
+    @Test
+    void doHandle_correctAnswer_returnsCorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"b\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_incorrectAnswer_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"a\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_emptyResponse_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_missingSelectedOptionId_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.createObjectNode();
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_nonexistentOptionId_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"nonexistent\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_caseInsensitiveComparison_returnsCorrect() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"A","text":"Option A","correct":false},
+                  {"id":"B","text":"Option B","correct":true}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"b\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect()); // Should be false because "b" != "B"
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_multipleOptions_correctAnswer() throws Exception {
+        // Given
+        JsonNode content = mapper.readTree("""
+                {"options":[
+                  {"id":"a","text":"Option A","correct":false},
+                  {"id":"b","text":"Option B","correct":false},
+                  {"id":"c","text":"Option C","correct":true},
+                  {"id":"d","text":"Option D","correct":false}
+                ]}
+                """);
+        JsonNode response = mapper.readTree("{\"selectedOptionId\":\"c\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
     }
 
     record FakeReq(JsonNode content) implements QuestionContentRequest {

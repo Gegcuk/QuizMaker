@@ -125,7 +125,7 @@ public class AttemptControllerIntegrationTest {
                         """
                                 {"text":"Fill _ here","gaps":[{"id":1,"answer":"foo"}]}
                                 """,
-                        "{\"gaps\":[{\"id\":1,\"answer\":\"foo\"}]}",
+                        "{\"answers\":[{\"gapId\":1,\"answer\":\"foo\"}]}",
                         true
                 ),
                 of(
@@ -137,7 +137,7 @@ public class AttemptControllerIntegrationTest {
                                   {"id":3,"text":"three"}
                                 ]}
                                 """,
-                        "{\"itemIds\":[1,2,3]}",
+                        "{\"orderedItemIds\":[1,2,3]}",
                         true
                 ),
                 of(
@@ -159,7 +159,7 @@ public class AttemptControllerIntegrationTest {
                                   {"id":2,"x":5,"y":5,"width":5,"height":5,"correct":false}
                                 ]}
                                 """,
-                        "{\"regionId\":1}",
+                        "{\"selectedRegionId\":1}",
                         true
                 ),
                 of(
