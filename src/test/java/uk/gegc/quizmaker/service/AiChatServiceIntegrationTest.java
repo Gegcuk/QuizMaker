@@ -12,7 +12,7 @@ import uk.gegc.quizmaker.exception.AiServiceException;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("test-mysql")
 @Import(TestAiConfig.class)
 class AiChatServiceIntegrationTest {
 

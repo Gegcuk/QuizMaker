@@ -66,6 +66,15 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
         QuizGenerationJob savedJob = jobRepository.save(job);
         log.info("Created quiz generation job with ID: {}", savedJob.getId());
+        
+        // Verify the job was actually saved by trying to find it again
+        Optional<QuizGenerationJob> verificationJob = jobRepository.findById(savedJob.getId());
+        log.info("Job verification after save: {}", verificationJob.isPresent() ? "FOUND" : "NOT FOUND");
+        
+        if (verificationJob.isEmpty()) {
+            log.error("CRITICAL: Job was not found immediately after save! This indicates a transaction issue.");
+        }
+        
         return savedJob;
     }
 

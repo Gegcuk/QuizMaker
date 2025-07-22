@@ -16,7 +16,7 @@ import uk.gegc.quizmaker.service.ai.impl.PromptTemplateServiceImpl;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -54,8 +54,8 @@ class PromptTemplateServiceTest {
 
     @BeforeEach
     void setUp() {
-        // Initialize the template cache
-        ReflectionTestUtils.setField(promptTemplateService, "templateCache", new HashMap<>());
+        // Initialize the template cache with ConcurrentHashMap for thread safety
+        ReflectionTestUtils.setField(promptTemplateService, "templateCache", new ConcurrentHashMap<>());
     }
 
     @Test
@@ -303,6 +303,47 @@ class PromptTemplateServiceTest {
         when(resourceLoader.getResource("classpath:prompts/question-types/open-question.txt"))
                 .thenReturn(openTemplateResource);
         when(openTemplateResource.getInputStream()).thenReturn(new ByteArrayInputStream("Generate {questionType} questions with {difficulty} difficulty.".getBytes()));
+    }
+
+    @Test
+    void shouldBeThreadSafe() throws IOException, InterruptedException {
+        // Given
+        setupMcqTemplatesOnly();
+        
+        // When - Multiple threads access the service simultaneously
+        int threadCount = 10;
+        Thread[] threads = new Thread[threadCount];
+        
+        for (int i = 0; i < threadCount; i++) {
+            final int threadId = i;
+            threads[i] = new Thread(() -> {
+                try {
+                    String result = promptTemplateService.buildPromptForChunk(
+                            "Thread " + threadId + " content", 
+                            QuestionType.MCQ_SINGLE, 
+                            2, 
+                            Difficulty.MEDIUM
+                    );
+                    assertNotNull(result);
+                    assertTrue(result.contains("Thread " + threadId + " content"));
+                } catch (Exception e) {
+                    fail("Thread " + threadId + " failed: " + e.getMessage());
+                }
+            });
+        }
+        
+        // Start all threads
+        for (Thread thread : threads) {
+            thread.start();
+        }
+        
+        // Wait for all threads to complete
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        
+        // Then - No ConcurrentModificationException should occur
+        // The test passes if no exception is thrown
     }
 
     private void setupMockTemplates() throws IOException {

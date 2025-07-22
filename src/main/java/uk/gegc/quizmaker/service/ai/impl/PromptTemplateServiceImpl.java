@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.service.ai.PromptTemplateService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
@@ -23,7 +23,7 @@ import java.util.Map;
 public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     private final ResourceLoader resourceLoader;
-    private final Map<String, String> templateCache = new HashMap<>();
+    private final Map<String, String> templateCache = new ConcurrentHashMap<>();
 
     @Override
     public String buildPromptForChunk(

@@ -122,6 +122,10 @@ public class QuizGenerationJob {
         this.totalQuestionsGenerated = totalQuestions;
         this.completedAt = LocalDateTime.now();
         this.progressPercentage = 100.0;
+        // Ensure processedChunks equals totalChunks to maintain consistency with @PreUpdate
+        if (this.totalChunks != null) {
+            this.processedChunks = this.totalChunks;
+        }
     }
 
     /**

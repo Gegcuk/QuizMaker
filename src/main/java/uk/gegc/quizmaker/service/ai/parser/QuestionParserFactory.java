@@ -126,6 +126,20 @@ public class QuestionParserFactory {
         question.setType(questionType);
         question.setContent(questionNode.get("content").toString());
 
+        // Set difficulty - use the one from the AI response or default to MEDIUM
+        if (questionNode.has("difficulty")) {
+            try {
+                String difficultyStr = questionNode.get("difficulty").asText();
+                question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.valueOf(difficultyStr));
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid difficulty value '{}', using MEDIUM as default", questionNode.get("difficulty").asText());
+                question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.MEDIUM);
+            }
+        } else {
+            log.warn("No difficulty field found in question, using MEDIUM as default");
+            question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.MEDIUM);
+        }
+
         if (questionNode.has("hint")) {
             question.setHint(questionNode.get("hint").asText());
         }

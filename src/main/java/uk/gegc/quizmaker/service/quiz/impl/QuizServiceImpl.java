@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
 import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.*;
 import uk.gegc.quizmaker.model.tag.Tag;
@@ -252,6 +253,7 @@ public class QuizServiceImpl implements QuizService {
 
     @EventListener
     @Async("generalTaskExecutor")
+    @Transactional
     public void handleQuizGenerationCompleted(QuizGenerationCompletedEvent event) {
         try {
             createQuizCollectionFromGeneratedQuestions(
@@ -373,6 +375,9 @@ public class QuizServiceImpl implements QuizService {
         quiz.setVisibility(Visibility.PRIVATE); // Start as private
         quiz.setEstimatedTime(estimatedTimeMinutes);
         quiz.setQuestions(new HashSet<>(questions));
+        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
+        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
+        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
 
         // Add document metadata as custom properties (if supported)
         // quiz.setCustomProperty("documentId", documentId.toString());
@@ -411,6 +416,9 @@ public class QuizServiceImpl implements QuizService {
         quiz.setVisibility(Visibility.PRIVATE); // Start as private
         quiz.setEstimatedTime(estimatedTimeMinutes);
         quiz.setQuestions(new HashSet<>(allQuestions));
+        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
+        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
+        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
 
         // Add document metadata as custom properties (if supported)
         // quiz.setCustomProperty("documentId", documentId.toString());

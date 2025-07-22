@@ -11,7 +11,7 @@ import java.util.concurrent.Executor;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("test-mysql")
 class AsyncConfigTest {
 
     @Autowired

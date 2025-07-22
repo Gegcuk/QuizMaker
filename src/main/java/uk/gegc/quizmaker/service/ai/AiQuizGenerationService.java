@@ -25,6 +25,14 @@ public interface AiQuizGenerationService {
     void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request);
 
     /**
+     * Generate a complete quiz from document chunks asynchronously with job data
+     *
+     * @param job     The generation job entity
+     * @param request The quiz generation request containing document ID and parameters
+     */
+    void generateQuizFromDocumentAsync(uk.gegc.quizmaker.model.quiz.QuizGenerationJob job, GenerateQuizFromDocumentRequest request);
+
+    /**
      * Generate questions from a single document chunk asynchronously
      *
      * @param chunk            The document chunk to generate questions from
