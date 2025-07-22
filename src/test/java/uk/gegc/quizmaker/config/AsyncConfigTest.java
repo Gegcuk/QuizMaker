@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.config;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -12,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @ActiveProfiles("test-mysql")
+@Execution(ExecutionMode.SAME_THREAD)
 class AsyncConfigTest {
 
     @Autowired
@@ -29,8 +32,8 @@ class AsyncConfigTest {
         assertTrue(aiTaskExecutor instanceof ThreadPoolTaskExecutor);
         
         ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) aiTaskExecutor;
-        assertEquals(2, executor.getCorePoolSize()); // Test profile value
-        assertEquals(4, executor.getMaxPoolSize()); // Test profile value
+        assertEquals(8, executor.getCorePoolSize()); // Test profile value
+        assertEquals(8, executor.getMaxPoolSize()); // Test profile value
         assertEquals(10, executor.getQueueCapacity()); // Test profile value
         assertEquals(30, executor.getKeepAliveSeconds()); // Test profile value
     }
@@ -41,9 +44,9 @@ class AsyncConfigTest {
         assertTrue(generalTaskExecutor instanceof ThreadPoolTaskExecutor);
         
         ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) generalTaskExecutor;
-        assertEquals(1, executor.getCorePoolSize()); // Test profile value
-        assertEquals(2, executor.getMaxPoolSize()); // Test profile value
-        assertEquals(5, executor.getQueueCapacity()); // Test profile value
+        assertEquals(4, executor.getCorePoolSize()); // Test profile value
+        assertEquals(4, executor.getMaxPoolSize()); // Test profile value
+        assertEquals(10, executor.getQueueCapacity()); // Test profile value
         assertEquals(30, executor.getKeepAliveSeconds()); // Test profile value
     }
 

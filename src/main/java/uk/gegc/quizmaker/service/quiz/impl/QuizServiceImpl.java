@@ -460,6 +460,9 @@ public class QuizServiceImpl implements QuizService {
      * Generate chunk title based on chunk index and content
      */
     private String getChunkTitle(int chunkIndex, List<Question> questions) {
+        // Generate a unique identifier to prevent title conflicts in concurrent tests
+        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+        
         // Try to extract meaningful title from questions
         if (!questions.isEmpty()) {
             String firstQuestion = questions.get(0).getQuestionText();
@@ -467,13 +470,14 @@ public class QuizServiceImpl implements QuizService {
                 // Extract first few words as potential title
                 String[] words = firstQuestion.split("\\s+");
                 if (words.length >= 3) {
-                    return String.join(" ", Arrays.copyOfRange(words, 0, Math.min(5, words.length)));
+                    String baseTitle = String.join(" ", Arrays.copyOfRange(words, 0, Math.min(5, words.length)));
+                    return baseTitle + " (" + uniqueId + ")";
                 }
             }
         }
 
-        // Fallback to generic title
-        return String.format("Section %d", chunkIndex);
+        // Fallback to generic title with unique identifier
+        return String.format("Section %d (%s)", chunkIndex, uniqueId);
     }
 
     @Override

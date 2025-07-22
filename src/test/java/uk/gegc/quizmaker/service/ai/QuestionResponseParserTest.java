@@ -4,14 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
+import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.service.ai.parser.McqQuestionParser;
+import uk.gegc.quizmaker.service.ai.parser.OpenQuestionParser;
 import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
-import uk.gegc.quizmaker.service.ai.parser.impl.QuestionResponseParserImpl;
+import uk.gegc.quizmaker.service.ai.parser.TrueFalseQuestionParser;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 
 import java.util.List;
@@ -23,6 +28,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@Execution(ExecutionMode.CONCURRENT)
 class QuestionResponseParserTest {
 
     @Mock
@@ -35,7 +41,7 @@ class QuestionResponseParserTest {
     private QuestionParserFactory questionParserFactory;
 
     @InjectMocks
-    private QuestionResponseParserImpl questionResponseParser;
+    private uk.gegc.quizmaker.service.ai.parser.impl.QuestionResponseParserImpl questionResponseParser;
 
     private static final String VALID_MCQ_RESPONSE = """
             {

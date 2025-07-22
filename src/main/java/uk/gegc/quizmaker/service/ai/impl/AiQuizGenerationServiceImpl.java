@@ -10,7 +10,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
 import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
@@ -341,9 +340,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         chunkContent, questionType, questionCount, difficulty
                 );
 
-                log.info("=== AI PROMPT SENT ===\nPrompt for {} questions of type {} (attempt {}):\n{}\n=== END PROMPT ===",
-                        questionCount, questionType, retryCount + 1, prompt);
-
                 // Send to AI with timeout
                 ChatResponse response = chatClient.prompt()
                         .user(prompt)
@@ -356,9 +352,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 String aiResponse = response.getResult().getOutput().getText();
 
-                log.info("=== AI RESPONSE RECEIVED ===\nResponse for {} questions of type {} (attempt {}):\n{}\n=== END RESPONSE ===",
-                        questionCount, questionType, retryCount + 1, aiResponse);
-
                 // Validate AI response is not empty
                 if (aiResponse == null || aiResponse.trim().isEmpty()) {
                     throw new AiServiceException("Empty response received from AI service");
@@ -368,11 +361,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 List<Question> questions = questionResponseParser.parseQuestionsFromAIResponse(
                         aiResponse, questionType
                 );
-
-                log.info("=== PARSED QUESTIONS ===\nSuccessfully parsed {} questions of type {}:\n{}",
-                        questions.size(), questionType, questions.stream()
-                                .map(q -> String.format("- %s (difficulty: %s)", q.getQuestionText(), q.getDifficulty()))
-                                .collect(java.util.stream.Collectors.joining("\n")));
 
                 // Validate we got the expected number of questions
                 if (questions.size() != questionCount) {

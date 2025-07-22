@@ -11,8 +11,8 @@ import uk.gegc.quizmaker.service.ai.PromptTemplateService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Implementation of PromptTemplateService for building AI prompts
