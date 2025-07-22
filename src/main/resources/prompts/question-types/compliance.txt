@@ -9,8 +9,8 @@ JSON STRUCTURE:
       "type": "COMPLIANCE",
       "content": {
         "statements": [
-          {"text": "Statement to evaluate", "compliant": true},
-          {"text": "Another statement to evaluate", "compliant": false}
+          {"id": 1, "text": "Statement to evaluate", "compliant": true},
+          {"id": 2, "text": "Another statement to evaluate", "compliant": false}
         ]
       },
       "hint": "Optional hint text",
