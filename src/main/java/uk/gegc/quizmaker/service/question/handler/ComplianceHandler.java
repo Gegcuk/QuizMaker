@@ -19,14 +19,29 @@ public class ComplianceHandler extends QuestionHandler {
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         JsonNode root = request.getContent();
         if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for ORDERING question");
+            throw new ValidationException("Invalid JSON for COMPLIANCE question");
         }
         JsonNode statements = root.get("statements");
         if (statements == null || !statements.isArray() || statements.isEmpty()) {
             throw new ValidationException("COMPLIANCE must have at least one statement");
         }
         boolean hasCompliant = false;
+        Set<Integer> ids = new java.util.HashSet<>();
         for (JsonNode statement : statements) {
+            // Validate id field
+            if (!statement.has("id")) {
+                throw new ValidationException("Each statement must have an 'id' field");
+            }
+            if (!statement.get("id").canConvertToInt()) {
+                throw new ValidationException("Statement 'id' must be an integer");
+            }
+            int id = statement.get("id").asInt();
+            if (ids.contains(id)) {
+                throw new ValidationException("Statement IDs must be unique, found duplicate ID: " + id);
+            }
+            ids.add(id);
+            
+            // Validate text field
             if (!statement.has("text") || statement.get("text").asText().isBlank()) {
                 throw new ValidationException("Each statement must have a non-empty 'text");
             }

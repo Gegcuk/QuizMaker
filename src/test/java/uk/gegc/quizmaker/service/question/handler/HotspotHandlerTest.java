@@ -27,7 +27,7 @@ class HotspotHandlerTest {
     @Test
     void validSingleRegion_doesNotThrow() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"imageUrl":"http://x","regions":[{"x":1,"y":2,"width":3,"height":4}]}
+                  {"imageUrl":"http://x","regions":[{"id":1,"x":1,"y":2,"width":3,"height":4,"correct":true}]}
                 """);
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
     }
@@ -44,7 +44,7 @@ class HotspotHandlerTest {
     @Test
     void blankImageUrl_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"imageUrl":"","regions":[{"x":1,"y":2,"width":3,"height":4}]}
+                  {"imageUrl":"","regions":[{"id":1,"x":1,"y":2,"width":3,"height":4,"correct":true}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -69,7 +69,7 @@ class HotspotHandlerTest {
     @Test
     void regionMissingField_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"imageUrl":"http://x","regions":[{"y":2,"width":3,"height":4}]}
+                  {"imageUrl":"http://x","regions":[{"id":1,"y":2,"width":3,"height":4,"correct":true}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -78,7 +78,43 @@ class HotspotHandlerTest {
     @Test
     void regionNonIntField_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"imageUrl":"http://x","regions":[{"x":"bad","y":2,"width":3,"height":4}]}
+                  {"imageUrl":"http://x","regions":[{"id":1,"x":"bad","y":2,"width":3,"height":4,"correct":true}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void missingIdInRegion_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"imageUrl":"http://x","regions":[{"x":1,"y":2,"width":3,"height":4,"correct":true}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void missingCorrectInRegion_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"imageUrl":"http://x","regions":[{"id":1,"x":1,"y":2,"width":3,"height":4}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void noCorrectRegion_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"imageUrl":"http://x","regions":[{"id":1,"x":1,"y":2,"width":3,"height":4,"correct":false}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void duplicateIds_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"imageUrl":"http://x","regions":[{"id":1,"x":1,"y":2,"width":3,"height":4,"correct":true},{"id":1,"x":5,"y":6,"width":7,"height":8,"correct":false}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));

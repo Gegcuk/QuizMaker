@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
 
 import java.util.List;
+import java.util.Set;
 import java.util.stream.StreamSupport;
 
 
@@ -27,6 +28,7 @@ public class OrderingHandler extends QuestionHandler {
             throw new ValidationException("ORDERING must have at least 2 items");
         }
 
+        Set<Integer> ids = new java.util.HashSet<>();
         for (JsonNode it : items) {
             if (!it.has("id") || !it.has("text") || it.get("text").asText().isBlank()) {
                 throw new ValidationException("Each item needs an 'id' and non-empty 'text'");
@@ -34,6 +36,11 @@ public class OrderingHandler extends QuestionHandler {
             if (!it.get("id").canConvertToInt()) {
                 throw new ValidationException("Item 'id' must be an integer");
             }
+            int id = it.get("id").asInt();
+            if (ids.contains(id)) {
+                throw new ValidationException("Item IDs must be unique, found duplicate ID: " + id);
+            }
+            ids.add(id);
         }
     }
 

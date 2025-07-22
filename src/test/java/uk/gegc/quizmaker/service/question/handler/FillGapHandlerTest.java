@@ -104,6 +104,15 @@ class FillGapHandlerTest {
                 () -> handler.validateContent(new FakeReq(p)));
     }
 
+    @Test
+    void duplicateIds_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"text":"OK","gaps":[{"id":1,"answer":"X"},{"id":1,"answer":"Y"}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
     record FakeReq(JsonNode content) implements QuestionContentRequest {
         @Override
         public QuestionType getType() {

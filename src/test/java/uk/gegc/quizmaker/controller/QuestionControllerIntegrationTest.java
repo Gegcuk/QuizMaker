@@ -78,8 +78,8 @@ public class QuestionControllerIntegrationTest {
                         {
                           "type":"MCQ_SINGLE","difficulty":"EASY","questionText":"Pick one",
                           "content":{"options":[
-                              {"text":"A","correct":false},
-                              {"text":"B","correct":true}
+                              {"id":"a","text":"A","correct":false},
+                              {"id":"b","text":"B","correct":true}
                             ]}
                         }
                         """),
@@ -87,9 +87,9 @@ public class QuestionControllerIntegrationTest {
                         {
                           "type":"MCQ_MULTI","difficulty":"MEDIUM","questionText":"Pick many",
                           "content":{"options":[
-                              {"text":"A","correct":true},
-                              {"text":"B","correct":false},
-                              {"text":"C","correct":true}
+                              {"id":"a","text":"A","correct":true},
+                              {"id":"b","text":"B","correct":false},
+                              {"id":"c","text":"C","correct":true}
                             ]}
                         }
                         """),
@@ -135,7 +135,7 @@ public class QuestionControllerIntegrationTest {
                           "type":"HOTSPOT","difficulty":"MEDIUM","questionText":"Click",
                           "content":{
                             "imageUrl":"http://img.png",
-                            "regions":[{"x":10,"y":20,"width":30,"height":40}]
+                            "regions":[{"id":1,"x":10,"y":20,"width":30,"height":40,"correct":true}]
                           }
                         }
                         """),
@@ -144,7 +144,7 @@ public class QuestionControllerIntegrationTest {
                           "type":"COMPLIANCE","difficulty":"MEDIUM","questionText":"Agree?",
                           "content":{
                             "statements":[
-                              {"text":"Yes","compliant":true}
+                              {"id":1,"text":"Yes","compliant":true}
                             ]
                           }
                         }
@@ -186,8 +186,8 @@ public class QuestionControllerIntegrationTest {
                         {
                           "type":"MCQ_SINGLE","difficulty":"EASY","questionText":"Q?",
                           "content":{"options":[
-                            {"text":"A","correct":false},
-                            {"text":"B","correct":false}
+                            {"id":"a","text":"A","correct":false},
+                            {"id":"b","text":"B","correct":false}
                           ]}
                         }
                         """),
@@ -203,14 +203,14 @@ public class QuestionControllerIntegrationTest {
                 Arguments.of("HOTSPOT missing imageUrl", """
                         {
                           "type":"HOTSPOT","difficulty":"MEDIUM","questionText":"Q?",
-                          "content":{"regions":[{"x":1,"y":2,"width":3,"height":4}]}
+                          "content":{"regions":[{"id":1,"x":1,"y":2,"width":3,"height":4,"correct":true}]}
                         }
                         """),
                 // COMPLIANCE no compliant true
                 Arguments.of("COMPLIANCE no compliant", """
                         {
                           "type":"COMPLIANCE","difficulty":"MEDIUM","questionText":"Q?",
-                          "content":{"statements":[{"text":"X","compliant":false}]}
+                          "content":{"statements":[{"id":1,"text":"X","compliant":false}]}
                         }
                         """),
                 // malformed JSON
@@ -747,7 +747,7 @@ public class QuestionControllerIntegrationTest {
                   "type":"MCQ_SINGLE",
                   "difficulty":"MEDIUM",
                   "questionText":"Pick one",
-                  "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
+                  "content":{"options":[{"id":"a","text":"A","correct":false},{"id":"b","text":"B","correct":true}]}
                 }
                 """;
         String createResp = mockMvc.perform(post("/api/v1/questions")
@@ -762,7 +762,7 @@ public class QuestionControllerIntegrationTest {
                   "type":"MCQ_SINGLE",
                   "difficulty":"MEDIUM",
                   "questionText":"Pick B",
-                  "content":{"options":[{"text":"A","correct":false},{"text":"B","correct":true}]}
+                  "content":{"options":[{"id":"a","text":"A","correct":false},{"id":"b","text":"B","correct":true}]}
                 }
                 """;
         mockMvc.perform(patch("/api/v1/questions/{id}", qid)

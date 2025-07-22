@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
 
+import java.util.Set;
 import java.util.stream.StreamSupport;
 
 @Component
@@ -16,7 +17,7 @@ public class McqSingleHandler extends QuestionHandler {
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         JsonNode root = request.getContent();
         if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for MCQ_SINGLE");
+            throw new ValidationException("Invalid JSON for MCQ_SINGLE question");
         }
 
         JsonNode options = root.get("options");
@@ -25,7 +26,22 @@ public class McqSingleHandler extends QuestionHandler {
         }
 
         long correctCount = 0;
+        Set<String> ids = new java.util.HashSet<>();
         for (JsonNode option : options) {
+            // Validate id field
+            if (!option.has("id")) {
+                throw new ValidationException("Each option must have an 'id' field");
+            }
+            if (!option.get("id").isTextual() || option.get("id").asText().isBlank()) {
+                throw new ValidationException("Option 'id' must be a non-empty string");
+            }
+            String id = option.get("id").asText();
+            if (ids.contains(id)) {
+                throw new ValidationException("Option IDs must be unique, found duplicate ID: " + id);
+            }
+            ids.add(id);
+
+            // Validate text field
             JsonNode textNode = option.get("text");
             if (textNode == null || textNode.asText().isBlank()) {
                 throw new ValidationException("Each option needs a non-empty 'text'");

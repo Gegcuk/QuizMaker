@@ -15,7 +15,7 @@ public class OpenQuestionHandler extends QuestionHandler {
     public void validateContent(QuestionContentRequest request) {
         JsonNode root = request.getContent();
         if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for ORDERING question");
+            throw new ValidationException("Invalid JSON for OPEN question");
         }
 
         JsonNode answer = root.get("answer");

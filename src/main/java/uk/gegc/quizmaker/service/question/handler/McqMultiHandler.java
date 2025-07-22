@@ -18,7 +18,7 @@ public class McqMultiHandler extends QuestionHandler {
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         JsonNode root = request.getContent();
         if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for ORDERING question");
+            throw new ValidationException("Invalid JSON for MCQ_MULTI question");
         }
 
         JsonNode options = root.get("options");
@@ -26,7 +26,22 @@ public class McqMultiHandler extends QuestionHandler {
             throw new ValidationException("MCQ_MULTI must have at least 2 options");
         }
         boolean hasCorrect = false;
+        Set<String> ids = new java.util.HashSet<>();
         for (JsonNode option : options) {
+            // Validate id field
+            if (!option.has("id")) {
+                throw new ValidationException("Each option must have an 'id' field");
+            }
+            if (!option.get("id").isTextual() || option.get("id").asText().isBlank()) {
+                throw new ValidationException("Option 'id' must be a non-empty string");
+            }
+            String id = option.get("id").asText();
+            if (ids.contains(id)) {
+                throw new ValidationException("Option IDs must be unique, found duplicate ID: " + id);
+            }
+            ids.add(id);
+
+            // Validate text field
             if (!option.has("text") || option.get("text").asText().isBlank()) {
                 throw new ValidationException("Each option needs a non-empty 'text'");
             }

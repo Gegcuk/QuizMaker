@@ -27,7 +27,7 @@ class ComplianceHandlerTest {
     @Test
     void validOneStatement_doesNotThrow() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"statements":[{"text":"T","compliant":true}]}
+                  {"statements":[{"id":1,"text":"T","compliant":true}]}
                 """);
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
     }
@@ -51,7 +51,7 @@ class ComplianceHandlerTest {
     @Test
     void missingTextInStatement_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"statements":[{"compliant":true}]}
+                  {"statements":[{"id":1,"compliant":true}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -60,7 +60,7 @@ class ComplianceHandlerTest {
     @Test
     void blankTextInStatement_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"statements":[{"text":" ","compliant":true}]}
+                  {"statements":[{"id":1,"text":" ","compliant":true}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -69,7 +69,25 @@ class ComplianceHandlerTest {
     @Test
     void noneCompliant_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                  {"statements":[{"text":"T","compliant":false}]}
+                  {"statements":[{"id":1,"text":"T","compliant":false}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void missingIdInStatement_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"statements":[{"text":"T","compliant":true}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void duplicateIds_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"statements":[{"id":1,"text":"T","compliant":true},{"id":1,"text":"F","compliant":false}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));

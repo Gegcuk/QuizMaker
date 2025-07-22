@@ -57,6 +57,15 @@ class OrderingHandlerTest {
                 () -> handler.validateContent(new FakeReq(node)));
     }
 
+    @Test
+    void duplicateIds_throws() throws Exception {
+        JsonNode node = mapper.readTree("""
+                    {"items":[{"id":1,"text":"A"},{"id":1,"text":"B"}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(node)));
+    }
+
     private static class FakeReq implements QuestionContentRequest {
         private final JsonNode content;
 
