@@ -40,9 +40,9 @@ class PermissionServiceImplTest {
         String description = "Test permission";
         String resource = "test";
         String action = "read";
-        
+
         when(permissionRepository.existsByPermissionName(permissionName)).thenReturn(false);
-        
+
         Permission expectedPermission = Permission.builder()
                 .permissionId(1L)
                 .permissionName(permissionName)
@@ -50,19 +50,19 @@ class PermissionServiceImplTest {
                 .resource(resource)
                 .action(action)
                 .build();
-        
+
         when(permissionRepository.save(any(Permission.class))).thenReturn(expectedPermission);
-        
+
         // When
         Permission result = permissionService.createPermission(permissionName, description, resource, action);
-        
+
         // Then
         assertNotNull(result);
         assertEquals(permissionName, result.getPermissionName());
         assertEquals(description, result.getDescription());
         assertEquals(resource, result.getResource());
         assertEquals(action, result.getAction());
-        
+
         verify(permissionRepository).existsByPermissionName(permissionName);
         verify(permissionRepository).save(any(Permission.class));
     }
@@ -73,12 +73,12 @@ class PermissionServiceImplTest {
         // Given
         String permissionName = "EXISTING_PERMISSION";
         when(permissionRepository.existsByPermissionName(permissionName)).thenReturn(true);
-        
+
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> 
-            permissionService.createPermission(permissionName, "desc", "resource", "action")
+        assertThrows(IllegalArgumentException.class, () ->
+                permissionService.createPermission(permissionName, "desc", "resource", "action")
         );
-        
+
         verify(permissionRepository).existsByPermissionName(permissionName);
         verify(permissionRepository, never()).save(any());
     }
@@ -92,13 +92,13 @@ class PermissionServiceImplTest {
                 .permissionId(1L)
                 .permissionName(permissionName)
                 .build();
-        
+
         when(permissionRepository.findByPermissionName(permissionName))
                 .thenReturn(Optional.of(expectedPermission));
-        
+
         // When
         Permission result = permissionService.getPermissionByName(permissionName);
-        
+
         // Then
         assertNotNull(result);
         assertEquals(expectedPermission, result);
@@ -112,12 +112,12 @@ class PermissionServiceImplTest {
         String permissionName = "NON_EXISTENT";
         when(permissionRepository.findByPermissionName(permissionName))
                 .thenReturn(Optional.empty());
-        
+
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> 
-            permissionService.getPermissionByName(permissionName)
+        assertThrows(ResourceNotFoundException.class, () ->
+                permissionService.getPermissionByName(permissionName)
         );
-        
+
         verify(permissionRepository).findByPermissionName(permissionName);
     }
 
@@ -129,12 +129,12 @@ class PermissionServiceImplTest {
                 Permission.builder().permissionId(1L).permissionName("PERM1").build(),
                 Permission.builder().permissionId(2L).permissionName("PERM2").build()
         );
-        
+
         when(permissionRepository.findAll()).thenReturn(expectedPermissions);
-        
+
         // When
         List<Permission> result = permissionService.getAllPermissions();
-        
+
         // Then
         assertEquals(expectedPermissions, result);
         verify(permissionRepository).findAll();
@@ -149,12 +149,12 @@ class PermissionServiceImplTest {
                 Permission.builder().permissionId(1L).permissionName("QUIZ_READ").resource(resource).build(),
                 Permission.builder().permissionId(2L).permissionName("QUIZ_CREATE").resource(resource).build()
         );
-        
+
         when(permissionRepository.findByResource(resource)).thenReturn(expectedPermissions);
-        
+
         // When
         List<Permission> result = permissionService.getPermissionsByResource(resource);
-        
+
         // Then
         assertEquals(expectedPermissions, result);
         verify(permissionRepository).findByResource(resource);
@@ -166,25 +166,25 @@ class PermissionServiceImplTest {
         // Given
         Long roleId = 1L;
         Long permissionId = 1L;
-        
+
         Role role = Role.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .permissions(new HashSet<>())
                 .build();
-        
+
         Permission permission = Permission.builder()
                 .permissionId(permissionId)
                 .permissionName("TEST_PERMISSION")
                 .build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
         when(roleRepository.save(any(Role.class))).thenReturn(role);
-        
+
         // When
         permissionService.assignPermissionToRole(roleId, permissionId);
-        
+
         // Then
         assertTrue(role.getPermissions().contains(permission));
         verify(roleRepository).findById(roleId);
@@ -198,14 +198,14 @@ class PermissionServiceImplTest {
         // Given
         Long roleId = 1L;
         Long permissionId = 1L;
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
-        
+
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> 
-            permissionService.assignPermissionToRole(roleId, permissionId)
+        assertThrows(ResourceNotFoundException.class, () ->
+                permissionService.assignPermissionToRole(roleId, permissionId)
         );
-        
+
         verify(roleRepository).findById(roleId);
         verify(permissionRepository, never()).findById(any());
         verify(roleRepository, never()).save(any());
@@ -217,25 +217,25 @@ class PermissionServiceImplTest {
         // Given
         Long roleId = 1L;
         Long permissionId = 1L;
-        
+
         Permission permission = Permission.builder()
                 .permissionId(permissionId)
                 .permissionName("TEST_PERMISSION")
                 .build();
-        
+
         Role role = Role.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .permissions(new HashSet<>(Set.of(permission)))
                 .build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
         when(roleRepository.save(any(Role.class))).thenReturn(role);
-        
+
         // When
         permissionService.removePermissionFromRole(roleId, permissionId);
-        
+
         // Then
         assertFalse(role.getPermissions().contains(permission));
         verify(roleRepository).findById(roleId);
@@ -252,17 +252,17 @@ class PermissionServiceImplTest {
                 Permission.builder().permissionId(1L).permissionName("PERM1").build(),
                 Permission.builder().permissionId(2L).permissionName("PERM2").build()
         );
-        
+
         Role role = Role.builder()
                 .roleId(roleId)
                 .permissions(expectedPermissions)
                 .build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
-        
+
         // When
         Set<Permission> result = permissionService.getRolePermissions(roleId);
-        
+
         // Then
         assertEquals(expectedPermissions, result);
         verify(roleRepository).findById(roleId);
@@ -274,10 +274,10 @@ class PermissionServiceImplTest {
         // Given
         String permissionName = "EXISTING_PERMISSION";
         when(permissionRepository.existsByPermissionName(permissionName)).thenReturn(true);
-        
+
         // When
         boolean result = permissionService.permissionExists(permissionName);
-        
+
         // Then
         assertTrue(result);
         verify(permissionRepository).existsByPermissionName(permissionName);
@@ -289,10 +289,10 @@ class PermissionServiceImplTest {
         // Given
         String permissionName = "NON_EXISTENT";
         when(permissionRepository.existsByPermissionName(permissionName)).thenReturn(false);
-        
+
         // When
         boolean result = permissionService.permissionExists(permissionName);
-        
+
         // Then
         assertFalse(result);
         verify(permissionRepository).existsByPermissionName(permissionName);
@@ -304,10 +304,10 @@ class PermissionServiceImplTest {
         // Given
         when(permissionRepository.existsByPermissionName(any())).thenReturn(false);
         when(permissionRepository.save(any(Permission.class))).thenAnswer(i -> i.getArgument(0));
-        
+
         // When
         permissionService.initializePermissions();
-        
+
         // Then
         // Verify all permissions from enum are checked and created
         int expectedPermissionCount = PermissionName.values().length;
@@ -326,24 +326,24 @@ class PermissionServiceImplTest {
                 .permissionName("TEST_PERMISSION")
                 .roles(new HashSet<>())
                 .build();
-        
+
         Role role1 = Role.builder()
                 .roleId(1L)
                 .permissions(new HashSet<>(Set.of(permission)))
                 .build();
-        
+
         Role role2 = Role.builder()
                 .roleId(2L)
                 .permissions(new HashSet<>(Set.of(permission)))
                 .build();
-        
+
         permission.setRoles(Set.of(role1, role2));
-        
+
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
-        
+
         // When
         permissionService.deletePermission(permissionId);
-        
+
         // Then
         assertFalse(role1.getPermissions().contains(permission));
         assertFalse(role2.getPermissions().contains(permission));
@@ -359,7 +359,7 @@ class PermissionServiceImplTest {
         String newDescription = "Updated description";
         String newResource = "updated_resource";
         String newAction = "updated_action";
-        
+
         Permission permission = Permission.builder()
                 .permissionId(permissionId)
                 .permissionName("TEST_PERMISSION")
@@ -367,13 +367,13 @@ class PermissionServiceImplTest {
                 .resource("old_resource")
                 .action("old_action")
                 .build();
-        
+
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
         when(permissionRepository.save(any(Permission.class))).thenAnswer(i -> i.getArgument(0));
-        
+
         // When
         Permission result = permissionService.updatePermission(permissionId, newDescription, newResource, newAction);
-        
+
         // Then
         assertEquals(newDescription, result.getDescription());
         assertEquals(newResource, result.getResource());

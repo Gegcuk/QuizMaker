@@ -634,7 +634,7 @@ public class QuestionControllerIntegrationTest {
             q.setContent("{\"answer\":" + (i % 2 == 0) + "}");
             questionRepository.save(q);
             questionRepository.flush(); // Ensure each question gets a distinct timestamp
-            
+
             // Add a small delay to ensure timestamps are distinct
             try {
                 Thread.sleep(1);

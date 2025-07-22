@@ -1,0 +1,18 @@
+DOCUMENT CONTENT:
+{content}
+
+GENERATION PARAMETERS:
+- Question Type: {questionType}
+- Number of Questions: {questionCount}
+- Difficulty Level: {difficulty}
+- Content Source: Document chunk {chunkIndex}
+
+INSTRUCTIONS:
+Based on the above content, generate exactly {questionCount} {questionType} questions with {difficulty} difficulty level.
+
+For {difficulty} difficulty:
+- EASY: Basic recall and understanding questions
+- MEDIUM: Application and analysis questions  
+- HARD: Synthesis and evaluation questions
+
+IMPORTANT: Respond with valid JSON only, following the exact structure for {questionType} questions. 

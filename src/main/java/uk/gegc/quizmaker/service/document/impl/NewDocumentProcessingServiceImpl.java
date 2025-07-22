@@ -23,8 +23,8 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.chunker.UniversalChunker;
 import uk.gegc.quizmaker.service.document.chunker.UniversalChunkingService;
-import uk.gegc.quizmaker.service.document.converter.DocumentConversionService;
 import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
+import uk.gegc.quizmaker.service.document.converter.DocumentConversionService;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -48,14 +48,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     private final UniversalChunkingService universalChunkingService;
 
     @Override
-    public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename, 
-                                             ProcessDocumentRequest request) {
+    public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
+                                                ProcessDocumentRequest request) {
         // Step 1: File operations (non-transactional)
         String filePath = saveFileToDisk(fileContent, filename);
-        
+
         // Step 2: Create document entity (transactional)
         Document document = createDocumentEntity(username, filename, fileContent, filePath);
-        
+
         // Step 3: Process document (non-transactional file operations, transactional DB operations)
         try {
             processDocument(document, fileContent, request);
@@ -64,7 +64,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
             updateDocumentStatusOnFailure(document, e.getMessage());
             throw new DocumentProcessingException("Failed to process document: " + e.getMessage(), e);
         }
-        
+
         return documentMapper.toDto(document);
     }
 
@@ -75,11 +75,11 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
         try {
             Path uploadDir = Paths.get("uploads/documents");
             Files.createDirectories(uploadDir);
-            
+
             String uniqueFilename = UUID.randomUUID() + "_" + filename;
             Path filePath = uploadDir.resolve(uniqueFilename);
             Files.write(filePath, fileContent);
-            
+
             return filePath.toString();
         } catch (IOException e) {
             throw new DocumentStorageException("Failed to save file to disk: " + e.getMessage(), e);
@@ -102,7 +102,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
         document.setStatus(Document.DocumentStatus.UPLOADED);
         document.setUploadedAt(LocalDateTime.now());
         document.setUploadedBy(user);
-        
+
         return documentRepository.save(document);
     }
 
@@ -192,7 +192,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
         documentChunk.setSectionTitle(chunk.getSectionTitle());
         documentChunk.setSectionNumber(chunk.getSectionNumber());
         documentChunk.setChunkType(mapChunkType(chunk.getChunkType()));
-        
+
         return documentChunk;
     }
 
@@ -222,14 +222,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public DocumentDto getDocumentById(UUID documentId, String username) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-        
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         if (!document.getUploadedBy().equals(user)) {
             throw new UserNotAuthorizedException(username, documentId.toString(), "access");
         }
-        
+
         return documentMapper.toDto(document);
     }
 
@@ -237,7 +237,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public Page<DocumentDto> getUserDocuments(String username, Pageable pageable) {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         Page<Document> documents = documentRepository.findByUploadedBy(user, pageable);
         return documents.map(documentMapper::toDto);
     }
@@ -246,14 +246,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public List<DocumentChunkDto> getDocumentChunks(UUID documentId, String username) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-        
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         if (!document.getUploadedBy().equals(user)) {
             throw new UserNotAuthorizedException(username, documentId.toString(), "access chunks of");
         }
-        
+
         List<DocumentChunk> chunks = chunkRepository.findByDocumentOrderByChunkIndex(document);
         return chunks.stream().map(documentMapper::toChunkDto).toList();
     }
@@ -262,14 +262,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public DocumentChunkDto getDocumentChunk(UUID documentId, Integer chunkIndex, String username) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-        
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         if (!document.getUploadedBy().equals(user)) {
             throw new UserNotAuthorizedException(username, documentId.toString(), "access chunks of");
         }
-        
+
         DocumentChunk chunk = chunkRepository.findByDocumentIdAndChunkIndex(documentId, chunkIndex);
         if (chunk == null) {
             throw new RuntimeException("Chunk not found: " + documentId + ":" + chunkIndex);
@@ -280,10 +280,10 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     @Override
     public void deleteDocument(String username, UUID documentId) {
         Document document = getDocumentForDeletion(username, documentId);
-        
+
         // Delete file from disk (non-transactional)
         deleteFileFromDisk(document.getFilePath());
-        
+
         // Delete from database (transactional)
         deleteDocumentFromDatabase(document);
     }
@@ -295,14 +295,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public Document getDocumentForDeletion(String username, UUID documentId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-        
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         if (!document.getUploadedBy().equals(user)) {
             throw new UserNotAuthorizedException(username, documentId.toString(), "delete");
         }
-        
+
         return document;
     }
 
@@ -331,13 +331,13 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public DocumentDto reprocessDocument(String username, UUID documentId, ProcessDocumentRequest request) {
         // Step 1: Get document and validate authorization (transactional)
         Document document = getDocumentForReprocessing(username, documentId);
-        
+
         // Step 2: Read file content (non-transactional)
         byte[] fileContent = readFileContent(document.getFilePath());
-        
+
         // Step 3: Delete existing chunks (transactional)
         deleteExistingChunks(document);
-        
+
         // Step 4: Reprocess document (non-transactional processing, transactional DB operations)
         try {
             processDocument(document, fileContent, request);
@@ -345,7 +345,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
             updateDocumentStatusOnFailure(document, e.getMessage());
             throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);
         }
-        
+
         return documentMapper.toDto(document);
     }
 
@@ -356,14 +356,14 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
     public Document getDocumentForReprocessing(String username, UUID documentId) {
         Document document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-        
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
-        
+
         if (!document.getUploadedBy().equals(user)) {
             throw new UserNotAuthorizedException(username, documentId.toString(), "reprocess");
         }
-        
+
         return document;
     }
 

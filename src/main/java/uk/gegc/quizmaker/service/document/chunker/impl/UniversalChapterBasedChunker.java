@@ -25,7 +25,7 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
         List<Chunk> chunks = new ArrayList<>();
         int chunkIndex = 0;
 
-        log.info("Starting universal chapter-based chunking for document: {} ({} characters, {} chapters)", 
+        log.info("Starting universal chapter-based chunking for document: {} ({} characters, {} chapters)",
                 document.getOriginalFilename(), document.getFullContent().length(), document.getChapters().size());
 
         if (!document.getChapters().isEmpty()) {
@@ -49,7 +49,7 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
             log.debug("Detected boundary test scenario, skipping chunk combination");
             return chunks;
         }
-        
+
         return combineSmallChunks(chunks, 5000);
     }
 
@@ -57,9 +57,9 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
      * Split chapter respecting boundaries - keep entire chapter if possible
      */
     private List<Chunk> splitChapterRespectingBoundaries(ConvertedDocument.Chapter chapter,
-                                                        ConvertedDocument document,
-                                                        ProcessDocumentRequest request,
-                                                        int startChunkIndex) {
+                                                         ConvertedDocument document,
+                                                         ProcessDocumentRequest request,
+                                                         int startChunkIndex) {
         List<Chunk> chunks = new ArrayList<>();
         int chunkIndex = startChunkIndex;
 
@@ -69,7 +69,7 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
         // Handle null or empty chapter content
         if (chapterContent == null || chapterContent.trim().isEmpty()) {
             log.warn("Chapter '{}' has no content, checking sections", chapter.getTitle());
-            
+
             // If chapter has no content but has sections, process the sections
             if (!chapter.getSections().isEmpty()) {
                 log.info("Chapter has {} sections, processing sections", chapter.getSections().size());
@@ -84,17 +84,17 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
             }
         }
 
-        log.info("Processing chapter: '{}', content length: {}, maxSize: {}", 
+        log.info("Processing chapter: '{}', content length: {}, maxSize: {}",
                 chapter.getTitle(), chapterContent.length(), maxSize);
 
         if (chapterContent.length() <= maxSize) {
             // Entire chapter fits into one chunk
             Chunk chunk = createChunk(
-                chapter.getTitle(), chapterContent,
-                chapter.getStartPage(), chapter.getEndPage(),
-                chapter.getTitle(), null,
-                chunkIndex, ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED,
-                document
+                    chapter.getTitle(), chapterContent,
+                    chapter.getStartPage(), chapter.getEndPage(),
+                    chapter.getTitle(), null,
+                    chunkIndex, ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED,
+                    document
             );
             chunks.add(chunk);
             log.info("Chapter fits in single chunk: {} characters", chapterContent.length());
@@ -122,10 +122,10 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
      * Split section respecting boundaries - keep entire section if possible
      */
     private List<Chunk> splitSectionRespectingBoundaries(ConvertedDocument.Section section,
-                                                        ConvertedDocument.Chapter chapter,
-                                                        ConvertedDocument document,
-                                                        ProcessDocumentRequest request,
-                                                        int startChunkIndex) {
+                                                         ConvertedDocument.Chapter chapter,
+                                                         ConvertedDocument document,
+                                                         ProcessDocumentRequest request,
+                                                         int startChunkIndex) {
         List<Chunk> chunks = new ArrayList<>();
         int chunkIndex = startChunkIndex;
 
@@ -138,17 +138,17 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
             return chunks;
         }
 
-        log.info("Processing section: '{}', content length: {}, maxSize: {}", 
+        log.info("Processing section: '{}', content length: {}, maxSize: {}",
                 section.getTitle(), sectionContent.length(), maxSize);
 
         if (sectionContent.length() <= maxSize) {
             // Entire section fits into one chunk
             Chunk chunk = createChunk(
-                section.getTitle(), sectionContent,
-                section.getStartPage(), section.getEndPage(),
-                chapter.getTitle(), section.getTitle(),
-                chunkIndex, ProcessDocumentRequest.ChunkingStrategy.SECTION_BASED,
-                document
+                    section.getTitle(), sectionContent,
+                    section.getStartPage(), section.getEndPage(),
+                    chapter.getTitle(), section.getTitle(),
+                    chunkIndex, ProcessDocumentRequest.ChunkingStrategy.SECTION_BASED,
+                    document
             );
             chunks.add(chunk);
             log.info("Section fits in single chunk: {} characters", sectionContent.length());
@@ -159,7 +159,7 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
         log.info("Section too large, splitting by size with enhanced boundary detection");
         chunks.addAll(splitContentBySize(sectionContent, section.getTitle(),
                 section.getStartPage(), section.getEndPage(), request, chunkIndex, document));
-        
+
         return chunks;
     }
 
@@ -180,15 +180,15 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
         while (currentPos < content.length()) {
             int remaining = content.length() - currentPos;
             int targetSize = Math.min(maxSize, remaining);
-            
+
             log.debug("Current position: {}, remaining: {}, target size: {}", currentPos, remaining, targetSize);
-            
+
             if (remaining <= maxSize) {
                 // Last chunk - take all remaining content
                 String chunkContent = content.substring(currentPos).trim();
                 String chunkTitle = titleGenerator.generateChunkTitle(title,
-                    chunkIndex - startChunkIndex,
-                    (int) Math.ceil((double) content.length() / maxSize), true);
+                        chunkIndex - startChunkIndex,
+                        (int) Math.ceil((double) content.length() / maxSize), true);
                 Chunk chunk = createChunk(chunkTitle, chunkContent, startPage, endPage,
                         null, title, chunkIndex, ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document);
                 chunks.add(chunk);
@@ -199,20 +199,20 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
             // Find best split point using sentence boundaries
             String remainingContent = content.substring(currentPos);
             int splitPoint = sentenceBoundaryDetector.findBestSplitPoint(remainingContent, targetSize);
-            
+
             // Ensure we make progress and don't create tiny chunks
             if (splitPoint <= 0 || splitPoint >= remaining) {
                 splitPoint = targetSize;
             }
-            
+
             // Only apply minimum chunk size for very small splits to prevent infinite loops
             // But respect the boundary detection logic for normal cases
             if (splitPoint <= 0 && remaining > 0) {
                 splitPoint = Math.min(10, remaining); // Very small minimum to prevent infinite loops
             }
-            
+
             String chunkContent = content.substring(currentPos, currentPos + splitPoint).trim();
-            
+
             if (chunkContent.isEmpty()) {
                 log.warn("Empty chunk content detected, forcing progress");
                 splitPoint = Math.min(targetSize, remaining);
@@ -220,14 +220,14 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
             }
 
             String chunkTitle = titleGenerator.generateChunkTitle(title,
-                chunkIndex - startChunkIndex,
-                (int) Math.ceil((double) content.length() / maxSize), true);
+                    chunkIndex - startChunkIndex,
+                    (int) Math.ceil((double) content.length() / maxSize), true);
 
             Chunk chunk = createChunk(chunkTitle, chunkContent, startPage, endPage,
                     null, title, chunkIndex, ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document);
 
             chunks.add(chunk);
-            log.info("Created chunk {}: {} characters (target was {})", 
+            log.info("Created chunk {}: {} characters (target was {})",
                     chunkIndex - startChunkIndex + 1, chunkContent.length(), maxSize);
 
             currentPos += splitPoint;
@@ -243,35 +243,35 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
      */
     private List<Chunk> combineSmallChunks(List<Chunk> chunks, int minSize) {
         if (chunks.isEmpty()) return chunks;
-        
+
         log.info("Combining chunks: {} chunks, minSize={}", chunks.size(), minSize);
-        
+
         List<Chunk> result = new ArrayList<>();
         Chunk currentChunk = chunks.get(0);
-        
+
         for (int i = 1; i < chunks.size(); i++) {
             Chunk nextChunk = chunks.get(i);
-            
+
             // If current chunk is small and combining won't exceed max size, combine them
             // Also combine if the combined size would be closer to maxSize than separate chunks
             int combinedSize = currentChunk.getCharacterCount() + nextChunk.getCharacterCount();
             boolean shouldCombine = currentChunk.getCharacterCount() < minSize && combinedSize <= 100000;
-            
+
             // Also combine if both chunks are small and combining gets closer to target size
             if (!shouldCombine && currentChunk.getCharacterCount() < 20000 && nextChunk.getCharacterCount() < 20000) {
                 shouldCombine = combinedSize <= 100000 && combinedSize > Math.max(currentChunk.getCharacterCount(), nextChunk.getCharacterCount());
             }
-            
-            log.debug("Chunk {}: {} chars, Chunk {}: {} chars, Combined: {} chars, Should combine: {}", 
-                    i-1, currentChunk.getCharacterCount(), i, nextChunk.getCharacterCount(), combinedSize, shouldCombine);
-            
+
+            log.debug("Chunk {}: {} chars, Chunk {}: {} chars, Combined: {} chars, Should combine: {}",
+                    i - 1, currentChunk.getCharacterCount(), i, nextChunk.getCharacterCount(), combinedSize, shouldCombine);
+
             if (shouldCombine) {
                 // Combine chunks
                 String combinedContent = currentChunk.getContent() + "\n\n" + nextChunk.getContent();
-                
+
                 // Create a more concise combined title
                 String combinedTitle = currentChunk.getTitle() + " + " + nextChunk.getTitle();
-                
+
                 Chunk combinedChunk = new Chunk();
                 combinedChunk.setTitle(combinedTitle.length() > 100 ? combinedTitle.substring(0, 97) + "..." : combinedTitle);
                 combinedChunk.setContent(combinedContent);
@@ -288,7 +288,7 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
                 combinedChunk.setDocumentTitle(currentChunk.getDocumentTitle());
                 combinedChunk.setDocumentAuthor(currentChunk.getDocumentAuthor());
                 combinedChunk.setConverterType(currentChunk.getConverterType());
-                
+
                 currentChunk = combinedChunk;
             } else {
                 // Keep current chunk as is and move to next
@@ -296,15 +296,15 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
                 currentChunk = nextChunk;
             }
         }
-        
+
         // Add the last chunk
         result.add(currentChunk);
-        
+
         // Update chunk indices
         for (int i = 0; i < result.size(); i++) {
             result.get(i).setChunkIndex(i);
         }
-        
+
         return result;
     }
 
@@ -312,8 +312,8 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
      * Create a chunk with explicit strategy assignment based on logical context
      */
     private Chunk createChunk(String title, String content, Integer startPage, Integer endPage,
-                             String chapterTitle, String sectionTitle, int chunkIndex,
-                             ProcessDocumentRequest.ChunkingStrategy strategy, ConvertedDocument document) {
+                              String chapterTitle, String sectionTitle, int chunkIndex,
+                              ProcessDocumentRequest.ChunkingStrategy strategy, ConvertedDocument document) {
         Chunk chunk = new Chunk();
         chunk.setTitle(title.length() > 100 ? title.substring(0, 97) + "..." : title);
         chunk.setContent(content);
@@ -355,6 +355,6 @@ public class UniversalChapterBasedChunker implements UniversalChunker {
     @Override
     public boolean canHandle(ProcessDocumentRequest.ChunkingStrategy strategy) {
         return strategy == ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED ||
-               strategy == ProcessDocumentRequest.ChunkingStrategy.AUTO;
+                strategy == ProcessDocumentRequest.ChunkingStrategy.AUTO;
     }
 } 

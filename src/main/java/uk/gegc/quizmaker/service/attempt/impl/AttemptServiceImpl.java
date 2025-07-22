@@ -286,11 +286,11 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top) {
-        if(top <= 0){
+        if (top <= 0) {
             return List.of();
         }
 
-        quizRepository.findById(quizId).orElseThrow(() ->new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
         List<Object[]> rows = attemptRepository.getLeaderboardData(quizId);
         return rows.stream()
@@ -331,21 +331,21 @@ public class AttemptServiceImpl implements AttemptService {
                 .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
                 .count();
 
-        double accuracyPercentage = questionsAnswered > 0 
-                ? (double) correctAnswers / questionsAnswered * 100.0 
+        double accuracyPercentage = questionsAnswered > 0
+                ? (double) correctAnswers / questionsAnswered * 100.0
                 : 0.0;
-        double completionPercentage = totalQuestions > 0 
-                ? (double) questionsAnswered / totalQuestions * 100.0 
+        double completionPercentage = totalQuestions > 0
+                ? (double) questionsAnswered / totalQuestions * 100.0
                 : 0.0;
 
-        Duration averageTimePerQuestion = questionsAnswered > 0 
-                ? totalTime.dividedBy(questionsAnswered) 
+        Duration averageTimePerQuestion = questionsAnswered > 0
+                ? totalTime.dividedBy(questionsAnswered)
                 : Duration.ZERO;
 
         List<QuestionTimingStatsDto> questionTimings = attempt.getAnswers().stream()
                 .map(answer -> {
                     Duration questionTime = Duration.between(
-                            attempt.getStartedAt(), 
+                            attempt.getStartedAt(),
                             answer.getAnsweredAt()
                     );
                     return new QuestionTimingStatsDto(
@@ -425,9 +425,9 @@ public class AttemptServiceImpl implements AttemptService {
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
 
         // Log suspicious activity - in a real implementation, this would write to an audit log
-        System.err.println("🚨 SUSPICIOUS ACTIVITY FLAGGED: " + 
-                "Attempt " + attemptId + 
-                " by user " + attempt.getUser().getUsername() + 
+        System.err.println("🚨 SUSPICIOUS ACTIVITY FLAGGED: " +
+                "Attempt " + attemptId +
+                " by user " + attempt.getUser().getUsername() +
                 " - Reason: " + reason);
 
         // You could also update the attempt status or add a flag

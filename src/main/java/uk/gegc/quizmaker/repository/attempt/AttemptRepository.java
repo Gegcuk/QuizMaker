@@ -78,14 +78,14 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     Optional<Attempt> findFullyLoadedById(@Param("id") UUID id);
 
     @Query("""
-        SELECT u.id, u.username, MAX(a.totalScore)
-        FROM Attempt a
-        JOIN a.user u
-        WHERE a.quiz.id = :quizId
-          AND a.status = 'COMPLETED'
-        GROUP BY u.id, u.username
-        ORDER BY MAX(a.totalScore) DESC
-        """)
+            SELECT u.id, u.username, MAX(a.totalScore)
+            FROM Attempt a
+            JOIN a.user u
+            WHERE a.quiz.id = :quizId
+              AND a.status = 'COMPLETED'
+            GROUP BY u.id, u.username
+            ORDER BY MAX(a.totalScore) DESC
+            """)
     List<Object[]> getLeaderboardData(@Param("quizId") UUID quizId);
 
     List<Attempt> findByStartedAtBetween(Instant start, Instant end);

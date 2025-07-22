@@ -12,7 +12,7 @@ import java.util.List;
  */
 @Data
 public class ConvertedDocument {
-    
+
     /**
      * Document metadata
      */
@@ -22,28 +22,28 @@ public class ConvertedDocument {
     private String contentType;
     private Integer totalPages;
     private Long fileSize;
-    
+
     /**
      * The full text content of the document
      */
     private String fullContent;
-    
+
     /**
      * Structured content with chapters and sections
      */
     private List<Chapter> chapters = new ArrayList<>();
-    
+
     /**
      * Any additional metadata extracted from the document
      */
     private String metadata;
-    
+
     /**
      * Processing information
      */
     private String converterType;
     private String processingNotes;
-    
+
     @Data
     public static class Chapter {
         private String title;
@@ -52,7 +52,7 @@ public class ConvertedDocument {
         private Integer endPage;
         private List<Section> sections = new ArrayList<>();
     }
-    
+
     @Data
     public static class Section {
         private String title;

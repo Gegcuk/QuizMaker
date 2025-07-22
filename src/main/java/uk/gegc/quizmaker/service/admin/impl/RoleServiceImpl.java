@@ -26,68 +26,68 @@ import java.util.UUID;
 @Slf4j
 @Transactional
 public class RoleServiceImpl implements RoleService {
-    
+
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final PermissionService permissionService;
     private final RoleMapper roleMapper;
-    
+
     @Override
     public RoleDto createRole(CreateRoleRequest request) {
         if (roleExists(request.getRoleName())) {
             throw new IllegalArgumentException("Role already exists: " + request.getRoleName());
         }
-        
+
         Role role = Role.builder()
                 .roleName(request.getRoleName())
                 .description(request.getDescription())
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
-        
+
         Role savedRole = roleRepository.save(role);
         log.info("Created role: {}", request.getRoleName());
         return roleMapper.toDto(savedRole);
     }
-    
+
     @Override
     public RoleDto updateRole(Long roleId, UpdateRoleRequest request) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
-        
+
         role.setDescription(request.getDescription());
         role.setDefault(request.isDefault());
-        
+
         Role updatedRole = roleRepository.save(role);
         log.info("Updated role: {}", role.getRoleName());
         return roleMapper.toDto(updatedRole);
     }
-    
+
     @Override
     public void deleteRole(Long roleId) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
-        
+
         // Remove role from all users first
         for (User user : role.getUsers()) {
             user.getRoles().remove(role);
             userRepository.save(user);
         }
-        
+
         roleRepository.delete(role);
         log.info("Deleted role: {}", role.getRoleName());
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public RoleDto getRoleById(Long roleId) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
-        
+
         return roleMapper.toDto(role);
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public List<RoleDto> getAllRoles() {
@@ -96,79 +96,79 @@ public class RoleServiceImpl implements RoleService {
                 .map(roleMapper::toDto)
                 .toList();
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public Role getRoleByName(RoleName roleName) {
         return roleRepository.findByRoleName(roleName.name())
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
     }
-    
+
     @Override
     public void assignRoleToUser(UUID userId, Long roleId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
-        
+
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
-        
+
         user.getRoles().add(role);
         userRepository.save(user);
         log.info("Assigned role {} to user {}", role.getRoleName(), user.getUsername());
     }
-    
+
     @Override
     public void removeRoleFromUser(UUID userId, Long roleId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
-        
+
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
-        
+
         user.getRoles().remove(role);
         userRepository.save(user);
         log.info("Removed role {} from user {}", role.getRoleName(), user.getUsername());
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public Set<Role> getUserRoles(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
-        
+
         return user.getRoles();
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public boolean roleExists(String roleName) {
         return roleRepository.existsByRoleName(roleName);
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public Role getDefaultRole() {
         return roleRepository.findByIsDefaultTrue()
                 .orElseGet(() -> getRoleByName(RoleName.ROLE_USER)); // Fallback to USER role
     }
-    
+
     @Override
     public void initializeDefaultRolesAndPermissions() {
         log.info("Initializing default roles and permissions");
-        
+
         // First initialize all permissions
         permissionService.initializePermissions();
-        
+
         // Create roles with appropriate permissions
         createRoleIfNotExists(RoleName.ROLE_USER.name(), "Basic user role", true, getUserPermissions());
         createRoleIfNotExists(RoleName.ROLE_QUIZ_CREATOR.name(), "Quiz creator role", false, getQuizCreatorPermissions());
         createRoleIfNotExists(RoleName.ROLE_MODERATOR.name(), "Moderator role", false, getModeratorPermissions());
         createRoleIfNotExists(RoleName.ROLE_ADMIN.name(), "Administrator role", false, getAdminPermissions());
         createRoleIfNotExists(RoleName.ROLE_SUPER_ADMIN.name(), "Super administrator role", false, getSuperAdminPermissions());
-        
+
         log.info("Default roles and permissions initialization completed");
     }
-    
+
     private void createRoleIfNotExists(String roleName, String description, boolean isDefault, Set<String> permissionNames) {
         if (!roleExists(roleName)) {
             Role role = Role.builder()
@@ -177,9 +177,9 @@ public class RoleServiceImpl implements RoleService {
                     .isDefault(isDefault)
                     .permissions(new HashSet<>())
                     .build();
-            
+
             Role savedRole = roleRepository.save(role);
-            
+
             // Assign permissions to role
             for (String permissionName : permissionNames) {
                 try {
@@ -189,12 +189,12 @@ public class RoleServiceImpl implements RoleService {
                     log.warn("Permission not found: {}", permissionName);
                 }
             }
-            
+
             roleRepository.save(savedRole);
             log.info("Created role: {} with {} permissions", roleName, savedRole.getPermissions().size());
         }
     }
-    
+
     private Set<String> getUserPermissions() {
         return Set.of(
                 PermissionName.QUIZ_READ.name(),
@@ -218,7 +218,7 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.NOTIFICATION_READ.name()
         );
     }
-    
+
     private Set<String> getQuizCreatorPermissions() {
         Set<String> permissions = new HashSet<>(getUserPermissions());
         permissions.addAll(Set.of(
@@ -234,7 +234,7 @@ public class RoleServiceImpl implements RoleService {
         ));
         return permissions;
     }
-    
+
     private Set<String> getModeratorPermissions() {
         Set<String> permissions = new HashSet<>(getQuizCreatorPermissions());
         permissions.addAll(Set.of(
@@ -248,7 +248,7 @@ public class RoleServiceImpl implements RoleService {
         ));
         return permissions;
     }
-    
+
     private Set<String> getAdminPermissions() {
         Set<String> permissions = new HashSet<>(getModeratorPermissions());
         permissions.addAll(Set.of(
@@ -267,7 +267,7 @@ public class RoleServiceImpl implements RoleService {
         ));
         return permissions;
     }
-    
+
     private Set<String> getSuperAdminPermissions() {
         Set<String> permissions = new HashSet<>(getAdminPermissions());
         permissions.addAll(Set.of(

@@ -37,9 +37,11 @@ public interface AttemptService {
 
     // 🔧 Attempt Management
     AttemptDto pauseAttempt(String username, UUID attemptId);
+
     AttemptDto resumeAttempt(String username, UUID attemptId);
 
     // 👨‍💼 Admin Functions
     List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end);
+
     void flagSuspiciousActivity(UUID attemptId, String reason);
 }

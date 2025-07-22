@@ -30,9 +30,9 @@ public class TextDocumentConverter implements DocumentConverter {
 
     @Override
     public boolean canConvert(String contentType, String filename) {
-        return SUPPORTED_CONTENT_TYPES.contains(contentType) || 
-               filename.toLowerCase().endsWith(".txt") ||
-               filename.toLowerCase().endsWith(".text");
+        return SUPPORTED_CONTENT_TYPES.contains(contentType) ||
+                filename.toLowerCase().endsWith(".txt") ||
+                filename.toLowerCase().endsWith(".text");
     }
 
     @Override
@@ -48,47 +48,47 @@ public class TextDocumentConverter implements DocumentConverter {
         }
 
         String text = content.toString();
-        
+
         ConvertedDocument convertedDocument = new ConvertedDocument();
         convertedDocument.setFullContent(text);
         convertedDocument.setOriginalFilename(filename);
         convertedDocument.setContentType("text/plain");
         convertedDocument.setFileSize(fileSize);
         convertedDocument.setConverterType("TEXT_DOCUMENT_CONVERTER");
-        
+
         // Extract title and author from first few lines if possible
         extractMetadata(convertedDocument, text);
-        
+
         // Extract chapters and sections from the text
         extractChaptersAndSections(convertedDocument, text);
-        
+
         return convertedDocument;
     }
 
     private void extractMetadata(ConvertedDocument document, String text) {
         String[] lines = text.split("\n");
-        
+
         // Try to extract title from first non-empty line
         for (String line : lines) {
             String trimmed = line.trim();
             if (!trimmed.isEmpty() && trimmed.length() > 3 && trimmed.length() < 200) {
                 // Check if it looks like a title (not too long, not too short, no special patterns)
                 if (!trimmed.matches(".*\\d{4}.*") && // Not a date
-                    !trimmed.matches(".*\\d{1,2}:\\d{2}.*") && // Not a time
-                    !trimmed.matches("^\\s*\\d+\\s*$") && // Not just a number
-                    !trimmed.matches(".*[A-Z]{3,}.*")) { // Not all caps (likely headers)
+                        !trimmed.matches(".*\\d{1,2}:\\d{2}.*") && // Not a time
+                        !trimmed.matches("^\\s*\\d+\\s*$") && // Not just a number
+                        !trimmed.matches(".*[A-Z]{3,}.*")) { // Not all caps (likely headers)
                     document.setTitle(trimmed);
                     break;
                 }
             }
         }
-        
+
         // Try to extract author from lines containing "by" or "author"
         for (String line : lines) {
             String trimmed = line.trim();
-            if (trimmed.toLowerCase().contains("by ") || 
-                trimmed.toLowerCase().contains("author:") ||
-                trimmed.toLowerCase().contains("author ")) {
+            if (trimmed.toLowerCase().contains("by ") ||
+                    trimmed.toLowerCase().contains("author:") ||
+                    trimmed.toLowerCase().contains("author ")) {
                 String author = trimmed.replaceAll("(?i)(by|author:?)\\s*", "").trim();
                 if (author.length() > 2 && author.length() < 100) {
                     document.setAuthor(author);
@@ -101,24 +101,24 @@ public class TextDocumentConverter implements DocumentConverter {
     private void extractChaptersAndSections(ConvertedDocument document, String text) {
         // Pattern to match chapter headers - simplified to be more permissive
         Pattern chapterPattern = Pattern.compile(
-            "(?i)^\\s*(chapter\\s+\\d+.*?|CHAPTER\\s+\\d+.*?|" +
-            "part\\s+\\d+.*?|PART\\s+\\d+.*?|book\\s+\\d+.*?|BOOK\\s+\\d+.*?)\\s*$",
-            Pattern.MULTILINE
+                "(?i)^\\s*(chapter\\s+\\d+.*?|CHAPTER\\s+\\d+.*?|" +
+                        "part\\s+\\d+.*?|PART\\s+\\d+.*?|book\\s+\\d+.*?|BOOK\\s+\\d+.*?)\\s*$",
+                Pattern.MULTILINE
         );
-        
+
         // Pattern to match section headers
         Pattern sectionPattern = Pattern.compile(
-            "(?i)^\\s*(\\d+\\.\\d+\\s+[^\\n]+|section\\s+\\d+|" +
-            "Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
-            "Practice\\s+Problems?|Review\\s+Questions?|" +
-            "(?:\\d+\\.)+\\d+\\s+[^\\n]+)\\s*$",
-            Pattern.MULTILINE
+                "(?i)^\\s*(\\d+\\.\\d+\\s+[^\\n]+|section\\s+\\d+|" +
+                        "Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
+                        "Practice\\s+Problems?|Review\\s+Questions?|" +
+                        "(?:\\d+\\.)+\\d+\\s+[^\\n]+)\\s*$",
+                Pattern.MULTILINE
         );
 
         String[] lines = text.split("\n");
         int currentChapter = 0;
         int currentSection = 0;
-        
+
         StringBuilder chapterContent = new StringBuilder();
         StringBuilder sectionContent = new StringBuilder();
         ConvertedDocument.Chapter currentChapterObj = null;
@@ -128,13 +128,13 @@ public class TextDocumentConverter implements DocumentConverter {
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].trim();
-            
+
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
             log.debug("Checking line {}: '{}' for chapter pattern", i, line);
             if (chapterMatcher.find()) {
                 log.info("Found chapter header at line {}: '{}'", i, line);
-                
+
                 // Save previous chapter if exists
                 if (currentChapterObj != null) {
                     // Add any remaining section content to chapter
@@ -147,25 +147,25 @@ public class TextDocumentConverter implements DocumentConverter {
                     log.info("Saving chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
                     document.getChapters().add(currentChapterObj);
                 }
-                
+
                 // Start new chapter
                 currentChapter++;
                 currentChapterObj = new ConvertedDocument.Chapter();
                 currentChapterObj.setTitle(line);
                 currentChapterObj.setStartPage(1); // Text files don't have pages, use line numbers
                 chapterContent = new StringBuilder();
-                
+
                 // Reset section for new chapter
                 currentSection = 0;
                 currentSectionObj = null;
                 sectionContent = new StringBuilder();
             }
-            
+
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
                 log.info("Found section header at line {}: '{}'", i, line);
-                
+
                 // Save previous section if exists
                 if (currentSectionObj != null) {
                     currentSectionObj.setContent(sectionContent.toString());
@@ -173,7 +173,7 @@ public class TextDocumentConverter implements DocumentConverter {
                         currentChapterObj.getSections().add(currentSectionObj);
                     }
                 }
-                
+
                 // Start new section
                 currentSection++;
                 currentSectionObj = new ConvertedDocument.Section();
@@ -186,14 +186,14 @@ public class TextDocumentConverter implements DocumentConverter {
                 }
                 sectionContent = new StringBuilder();
             }
-            
+
             // Add line to current content (both chapter and section)
             if (!line.isEmpty()) {
                 chapterContent.append(line).append("\n");
                 sectionContent.append(line).append("\n");
             }
         }
-        
+
         // Save final chapter and section
         if (currentSectionObj != null) {
             currentSectionObj.setContent(sectionContent.toString());
@@ -202,23 +202,23 @@ public class TextDocumentConverter implements DocumentConverter {
                 currentChapterObj.getSections().add(currentSectionObj);
             }
         }
-        
+
         if (currentChapterObj != null) {
             currentChapterObj.setContent(chapterContent.toString());
             currentChapterObj.setEndPage(1);
             log.info("Saving final chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
             document.getChapters().add(currentChapterObj);
         }
-        
+
         log.info("Extracted {} chapters from text document", document.getChapters().size());
         for (ConvertedDocument.Chapter chapter : document.getChapters()) {
-            log.info("Chapter '{}': {} characters, {} sections", 
+            log.info("Chapter '{}': {} characters, {} sections",
                     chapter.getTitle(), chapter.getContent().length(), chapter.getSections().size());
             for (ConvertedDocument.Section section : chapter.getSections()) {
                 log.info("  Section '{}': {} characters", section.getTitle(), section.getContent().length());
             }
         }
-        
+
         // If no chapters were detected, create a single chapter with all content
         if (document.getChapters().isEmpty()) {
             log.info("No chapters detected, creating single chapter with all content");

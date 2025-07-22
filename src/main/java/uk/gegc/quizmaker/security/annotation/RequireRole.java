@@ -11,8 +11,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RequireRole {
     RoleName[] value();
+
     LogicalOperator operator() default LogicalOperator.OR;
-    
+
     enum LogicalOperator {
         AND, OR
     }

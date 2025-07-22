@@ -15,14 +15,14 @@ class TestPdfGeneratorTest {
     void generateTestPdf_Success(@TempDir Path tempDir) throws IOException {
         // Given
         Path pdfPath = tempDir.resolve("test-document.pdf");
-        
+
         // When
         TestPdfGenerator.generateTestPdf(pdfPath.toString());
-        
+
         // Then
         assertTrue(Files.exists(pdfPath));
         assertTrue(Files.size(pdfPath) > 0);
-        
+
         // Verify it's a valid PDF by checking the first few bytes
         byte[] content = Files.readAllBytes(pdfPath);
         String header = new String(content, 0, Math.min(10, content.length));
@@ -33,7 +33,7 @@ class TestPdfGeneratorTest {
     void generateTestPdfInTestResources_Success() throws IOException {
         // When
         TestPdfGenerator.generateTestPdfInTestResources();
-        
+
         // Then
         Path testPdfPath = Path.of("src", "test", "resources", "test-documents", "sample-document.pdf");
         assertTrue(Files.exists(testPdfPath), "Test PDF should be created in test resources");

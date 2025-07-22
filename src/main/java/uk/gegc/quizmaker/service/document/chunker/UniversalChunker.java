@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * Universal chunker interface that works with the standardized ConvertedDocument format.
- * 
+ * <p>
  * This replaces the old ContentChunker interface and works with any document type
  * that has been converted through the document converter system.
  */

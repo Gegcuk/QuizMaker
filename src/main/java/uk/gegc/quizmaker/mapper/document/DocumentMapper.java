@@ -29,13 +29,13 @@ public class DocumentMapper {
         dto.setTotalPages(document.getTotalPages());
         dto.setTotalChunks(document.getTotalChunks());
         dto.setProcessingError(document.getProcessingError());
-        
+
         if (document.getChunks() != null) {
             dto.setChunks(document.getChunks().stream()
                     .map(this::toChunkDto)
                     .collect(Collectors.toList()));
         }
-        
+
         return dto;
     }
 
@@ -59,7 +59,7 @@ public class DocumentMapper {
         dto.setChapterNumber(chunk.getChapterNumber());
         dto.setSectionNumber(chunk.getSectionNumber());
         dto.setChunkType(chunk.getChunkType());
-        
+
         return dto;
     }
 } 

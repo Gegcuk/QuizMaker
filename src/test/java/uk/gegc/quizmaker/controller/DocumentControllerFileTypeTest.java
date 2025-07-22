@@ -50,17 +50,17 @@ class DocumentControllerFileTypeTest {
                 .webAppContextSetup(context)
                 .apply(springSecurity())
                 .build();
-                
+
         testDocumentDto = new DocumentDto();
         testDocumentDto.setId(UUID.randomUUID());
         testDocumentDto.setOriginalFilename("test.pdf");
         testDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
         testDocumentDto.setTotalChunks(5);
-        
+
         // Setup default config values
         when(documentProcessingConfig.createDefaultRequest()).thenReturn(createDefaultRequest());
     }
-    
+
     private ProcessDocumentRequest createDefaultRequest() {
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setMaxChunkSize(4000);
@@ -336,97 +336,97 @@ class DocumentControllerFileTypeTest {
 
     private byte[] createPdfWithChapters() {
         String content = """
-            Chapter 1: Introduction
-            This is the introduction chapter.
-            
-            Chapter 2: Main Content
-            This is the main content chapter.
-            
-            Chapter 3: Conclusion
-            This is the conclusion chapter.
-            """;
+                Chapter 1: Introduction
+                This is the introduction chapter.
+                
+                Chapter 2: Main Content
+                This is the main content chapter.
+                
+                Chapter 3: Conclusion
+                This is the conclusion chapter.
+                """;
         return content.getBytes();
     }
 
     private byte[] createTxtWithSections() {
         String content = """
-            Section 1.1: Background
-            This section provides background information.
-            
-            Section 1.2: Objectives
-            This section outlines the objectives.
-            
-            Section 2.1: Methodology
-            This section describes the methodology.
-            """;
+                Section 1.1: Background
+                This section provides background information.
+                
+                Section 1.2: Objectives
+                This section outlines the objectives.
+                
+                Section 2.1: Methodology
+                This section describes the methodology.
+                """;
         return content.getBytes();
     }
 
     private byte[] createLargePdfContent() {
         StringBuilder content = new StringBuilder();
         content.append("Large PDF document content. ");
-        
+
         // Create a large document with repeated content
         for (int i = 0; i < 1000; i++) {
             content.append("This is paragraph ").append(i).append(" of the large document. ");
             content.append("It contains multiple sentences and should be processed correctly. ");
             content.append("The content is designed to test large file handling. ");
         }
-        
+
         return content.toString().getBytes();
     }
 
     private byte[] createPdfWithSpecialCharacters() {
         String content = """
-            Chapter 1: Special Characters
-            This document contains special characters: é, ñ, ü, ©, ®, ™, €, £, ¥, ¢.
-            
-            Chapter 2: Mathematical Symbols
-            Mathematical symbols: α, β, γ, δ, ε, π, Σ, ∫, ∞, ±.
-            
-            Chapter 3: Currency Symbols
-            Currency symbols: $, €, £, ¥, ¢, ₽, ₹, ₩.
-            """;
+                Chapter 1: Special Characters
+                This document contains special characters: é, ñ, ü, ©, ®, ™, €, £, ¥, ¢.
+                
+                Chapter 2: Mathematical Symbols
+                Mathematical symbols: α, β, γ, δ, ε, π, Σ, ∫, ∞, ±.
+                
+                Chapter 3: Currency Symbols
+                Currency symbols: $, €, £, ¥, ¢, ₽, ₹, ₩.
+                """;
         return content.getBytes();
     }
 
     private byte[] createTxtWithUnicode() {
         String content = """
-            Chapter 1: Unicode Test
-            This document contains Unicode characters: α, β, γ, δ, ε.
-            
-            Chapter 2: Chinese Characters
-            Chinese characters: 你好世界，这是一个测试文档。
-            
-            Chapter 3: Japanese Characters
-            Japanese characters: こんにちは世界、これはテスト文書です。
-            
-            Chapter 4: Korean Characters
-            Korean characters: 안녕하세요 세계, 이것은 테스트 문서입니다.
-            """;
+                Chapter 1: Unicode Test
+                This document contains Unicode characters: α, β, γ, δ, ε.
+                
+                Chapter 2: Chinese Characters
+                Chinese characters: 你好世界，这是一个测试文档。
+                
+                Chapter 3: Japanese Characters
+                Japanese characters: こんにちは世界、これはテスト文書です。
+                
+                Chapter 4: Korean Characters
+                Korean characters: 안녕하세요 세계, 이것은 테스트 문서입니다.
+                """;
         return content.getBytes();
     }
 
     private byte[] createPdfWithMixedContent() {
         String content = """
-            Chapter 1: Text Content
-            This chapter contains plain text content.
-            
-            Chapter 2: Mixed Content
-            This chapter contains:
-            - Bullet points
-            - Numbered lists
-            - Tables and data
-            - Mathematical formulas: E = mc²
-            - Special characters: ©, ®, ™
-            
-            Chapter 3: Complex Structure
-            This chapter has:
-            1.1 Subsection A
-            1.2 Subsection B
-            2.1 Another subsection
-            2.2 Final subsection
-            """;
+                Chapter 1: Text Content
+                This chapter contains plain text content.
+                
+                Chapter 2: Mixed Content
+                This chapter contains:
+                - Bullet points
+                - Numbered lists
+                - Tables and data
+                - Mathematical formulas: E = mc²
+                - Special characters: ©, ®, ™
+                
+                Chapter 3: Complex Structure
+                This chapter has:
+                1.1 Subsection A
+                1.2 Subsection B
+                2.1 Another subsection
+                2.2 Final subsection
+                """;
         return content.getBytes();
     }
 } 

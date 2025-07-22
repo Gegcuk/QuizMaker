@@ -1,0 +1,39 @@
+Generate exactly {questionCount} TRUE_FALSE questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "The statement to be evaluated as true or false",
+      "difficulty": "{difficulty}",
+      "type": "TRUE_FALSE",
+      "content": {
+        "answer": true
+      },
+      "hint": "Optional hint text",
+      "explanation": "Explanation of why the statement is true or false"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Each question must have a clear, unambiguous statement
+- The statement must be definitively true or false based on the content
+- Include appropriate hints and explanations
+- Base statements directly on the provided content
+- Avoid statements that are partially true or ambiguous
+- Ensure statements test understanding, not just memorization
+
+DIFFICULTY GUIDELINES:
+- EASY: Direct statements of facts from the content
+- MEDIUM: Statements requiring understanding of concepts or relationships
+- HARD: Complex statements requiring analysis or synthesis
+
+QUALITY STANDARDS:
+- Statements should be clear and concise
+- Avoid double negatives or confusing language
+- Ensure the answer is definitively true or false
+- Make statements specific enough to be testable
+
+Respond with valid JSON only. 

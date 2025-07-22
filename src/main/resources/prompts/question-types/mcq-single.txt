@@ -1,0 +1,40 @@
+Generate exactly {questionCount} MCQ_SINGLE questions with {difficulty} difficulty based on the provided content.
+
+JSON STRUCTURE:
+{
+  "questions": [
+    {
+      "questionText": "The question text here",
+      "difficulty": "{difficulty}",
+      "type": "MCQ_SINGLE",
+      "content": {
+        "options": [
+          {"id": "a", "text": "Option A text", "correct": false},
+          {"id": "b", "text": "Option B text", "correct": true},
+          {"id": "c", "text": "Option C text", "correct": false},
+          {"id": "d", "text": "Option D text", "correct": false}
+        ]
+      },
+      "hint": "Optional hint text",
+      "explanation": "Explanation of why the correct answer is right"
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Exactly {questionCount} questions
+- Each question must have exactly 4 options (A, B, C, D)
+- Only ONE option must be marked as correct: true
+- All other options must be marked as correct: false
+- Question text should be clear and concise
+- All options should be plausible but only one is definitively correct
+- Include appropriate hints and explanations
+- Base questions directly on the provided content
+- Ensure questions test understanding, not just memorization
+
+DIFFICULTY GUIDELINES:
+- EASY: Basic facts, definitions, simple recall
+- MEDIUM: Application of concepts, analysis of relationships
+- HARD: Complex analysis, synthesis of multiple concepts
+
+Respond with valid JSON only. 

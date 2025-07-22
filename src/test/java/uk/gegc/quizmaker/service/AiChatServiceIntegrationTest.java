@@ -12,7 +12,7 @@ import uk.gegc.quizmaker.exception.AiServiceException;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles("test-mysql")
 @Import(TestAiConfig.class)
 class AiChatServiceIntegrationTest {
 
@@ -35,7 +35,7 @@ class AiChatServiceIntegrationTest {
         assertTrue(response.latency() > 0);
         assertTrue(response.tokensUsed() > 0);
         assertNotNull(response.timestamp());
-        
+
         System.out.println("AI Response: " + response.message());
         System.out.println("Model: " + response.model());
         System.out.println("Latency: " + response.latency() + "ms");
@@ -54,8 +54,8 @@ class AiChatServiceIntegrationTest {
         assertNotNull(response);
         assertNotNull(response.message());
         assertFalse(response.message().isEmpty());
-        assertTrue(response.message().toLowerCase().contains("4") || 
-                  response.message().toLowerCase().contains("four"));
+        assertTrue(response.message().toLowerCase().contains("4") ||
+                response.message().toLowerCase().contains("four"));
     }
 
     @Test
@@ -70,9 +70,9 @@ class AiChatServiceIntegrationTest {
         assertNotNull(response);
         assertNotNull(response.message());
         assertFalse(response.message().isEmpty());
-        assertTrue(response.message().toLowerCase().contains("computer") || 
-                  response.message().toLowerCase().contains("machine") ||
-                  response.message().toLowerCase().contains("device"));
+        assertTrue(response.message().toLowerCase().contains("computer") ||
+                response.message().toLowerCase().contains("machine") ||
+                response.message().toLowerCase().contains("device"));
     }
 
     @Test
@@ -168,12 +168,12 @@ class AiChatServiceIntegrationTest {
         assertNotNull(response2);
         assertNotNull(response1.message());
         assertNotNull(response2.message());
-        
+
         // Both responses should mention Paris (though exact text may vary)
         String response1Lower = response1.message().toLowerCase();
         String response2Lower = response2.message().toLowerCase();
-        
+
         assertTrue(response1Lower.contains("paris") || response2Lower.contains("paris") ||
-                  response1Lower.contains("france") || response2Lower.contains("france"));
+                response1Lower.contains("france") || response2Lower.contains("france"));
     }
 } 

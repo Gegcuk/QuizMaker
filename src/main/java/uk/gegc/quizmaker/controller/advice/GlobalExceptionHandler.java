@@ -18,7 +18,6 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import uk.gegc.quizmaker.exception.*;
-import uk.gegc.quizmaker.exception.AiServiceException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -42,7 +41,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ValidationException.class,
             UnsupportedQuestionTypeException.class,
             UnsupportedFileTypeException.class,
-            ApiError.class
+            ApiError.class,
+            QuizGenerationException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(RuntimeException ex) {
@@ -99,7 +99,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         LocalDateTime.now(),
                         status.value(),
                         status == HttpStatus.SERVICE_UNAVAILABLE ? "AI Service Unavailable" : "AI Service Error",
-                        List.of(status == HttpStatus.SERVICE_UNAVAILABLE 
+                        List.of(status == HttpStatus.SERVICE_UNAVAILABLE
                                 ? "The AI service is currently unavailable. Please try again later."
                                 : "An unexpected error occurred with the AI service.")
                 )
@@ -137,7 +137,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
-    
+
     @ExceptionHandler(DocumentProcessingException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorResponse handleDocumentProcessing(DocumentProcessingException ex) {

@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * Interface for document converters that convert different input formats
  * to a standardized ConvertedDocument format.
- * 
+ * <p>
  * This follows the Strategy pattern, allowing different converters
  * to be implemented for different file formats while maintaining
  * a consistent interface.

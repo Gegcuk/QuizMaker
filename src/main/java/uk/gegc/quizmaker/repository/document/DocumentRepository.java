@@ -14,15 +14,15 @@ import java.util.UUID;
 
 @Repository
 public interface DocumentRepository extends JpaRepository<Document, UUID> {
-    
+
     Page<Document> findByUploadedBy(User user, Pageable pageable);
-    
+
     List<Document> findByUploadedByAndStatus(User user, Document.DocumentStatus status);
-    
+
     @Query("SELECT d FROM Document d WHERE d.uploadedBy = :user AND d.status = :status")
-    Page<Document> findByUserAndStatus(@Param("user") User user, 
-                                      @Param("status") Document.DocumentStatus status, 
-                                      Pageable pageable);
-    
+    Page<Document> findByUserAndStatus(@Param("user") User user,
+                                       @Param("status") Document.DocumentStatus status,
+                                       Pageable pageable);
+
     boolean existsByOriginalFilenameAndUploadedBy(String filename, User user);
 } 

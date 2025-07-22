@@ -24,12 +24,12 @@ class DocumentConverterFactoryTest {
         // Assert
         assertNotNull(converters);
         assertFalse(converters.isEmpty());
-        
+
         // Check that we have the expected converters
         boolean hasPdfConverter = false;
         boolean hasTextConverter = false;
         boolean hasEpubConverter = false;
-        
+
         for (DocumentConverter converter : converters) {
             String converterType = converter.getConverterType();
             if ("PDF_DOCUMENT_CONVERTER".equals(converterType)) {
@@ -40,7 +40,7 @@ class DocumentConverterFactoryTest {
                 hasEpubConverter = true;
             }
         }
-        
+
         assertTrue(hasPdfConverter, "Should have PDF converter");
         assertTrue(hasTextConverter, "Should have Text converter");
         assertTrue(hasEpubConverter, "Should have EPUB converter");

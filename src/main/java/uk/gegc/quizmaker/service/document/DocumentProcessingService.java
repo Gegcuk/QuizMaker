@@ -14,8 +14,8 @@ public interface DocumentProcessingService {
     /**
      * Upload and process a document file
      */
-    DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename, 
-                                       ProcessDocumentRequest request);
+    DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
+                                         ProcessDocumentRequest request);
 
     /**
      * Get document by ID with authorization check

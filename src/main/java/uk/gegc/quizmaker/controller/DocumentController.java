@@ -40,26 +40,26 @@ public class DocumentController {
             @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
             @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
             Authentication authentication) {
-        
+
         String username = authentication.getName();
-        
+
         // Validate input parameters
         documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
-        
+
         // Use configuration defaults if parameters are not provided
         ProcessDocumentRequest request = documentConfig.createDefaultRequest();
-        
+
         if (chunkingStrategy != null) {
             request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()));
         }
         if (maxChunkSize != null) {
             request.setMaxChunkSize(maxChunkSize);
         }
-        
+
         try {
             DocumentDto document = documentProcessingService.uploadAndProcessDocument(
                     username, file.getBytes(), file.getOriginalFilename(), request);
-            
+
             return ResponseEntity.status(HttpStatus.CREATED).body(document);
         } catch (DocumentStorageException e) {
             log.error("Error uploading document - storage issue", e);
@@ -140,9 +140,9 @@ public class DocumentController {
     }
 
     @GetMapping("/{documentId}/chunks/{chunkIndex}")
-    public ResponseEntity<DocumentChunkDto> getDocumentChunk(@PathVariable UUID documentId, 
-                                                           @PathVariable Integer chunkIndex, 
-                                                           Authentication authentication) {
+    public ResponseEntity<DocumentChunkDto> getDocumentChunk(@PathVariable UUID documentId,
+                                                             @PathVariable Integer chunkIndex,
+                                                             Authentication authentication) {
         try {
             String username = authentication.getName();
             DocumentChunkDto chunk = documentProcessingService.getDocumentChunk(documentId, chunkIndex, username);
@@ -198,10 +198,10 @@ public class DocumentController {
             Authentication authentication) {
         try {
             String username = authentication.getName();
-            
+
             // Validate reprocess request
             documentValidationService.validateReprocessRequest(request);
-            
+
             DocumentDto document = documentProcessingService.reprocessDocument(username, documentId, request);
             return ResponseEntity.ok(document);
         } catch (UserNotAuthorizedException e) {

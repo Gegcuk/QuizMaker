@@ -13,9 +13,9 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class PermissionUtil {
-    
+
     private final PermissionEvaluator permissionEvaluator;
-    
+
     /**
      * Ensure current user has the specified permission
      */
@@ -24,7 +24,7 @@ public class PermissionUtil {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
-    
+
     /**
      * Ensure current user has any of the specified permissions
      */
@@ -33,7 +33,7 @@ public class PermissionUtil {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
-    
+
     /**
      * Ensure current user has all of the specified permissions
      */
@@ -42,7 +42,7 @@ public class PermissionUtil {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
-    
+
     /**
      * Ensure current user has the specified role
      */
@@ -51,7 +51,7 @@ public class PermissionUtil {
             throw new ForbiddenException("Insufficient role to access this resource");
         }
     }
-    
+
     /**
      * Ensure current user has any of the specified roles
      */
@@ -60,7 +60,7 @@ public class PermissionUtil {
             throw new ForbiddenException("Insufficient role to access this resource");
         }
     }
-    
+
     /**
      * Ensure current user owns the resource or has admin permission
      */
@@ -69,7 +69,7 @@ public class PermissionUtil {
             throw new ForbiddenException("You can only access your own resources or need admin permissions");
         }
     }
-    
+
     /**
      * Ensure current user owns the resource
      */
@@ -78,14 +78,14 @@ public class PermissionUtil {
             throw new ForbiddenException("You can only access your own resources");
         }
     }
-    
+
     /**
      * Get current authenticated user
      */
     public User getCurrentUser() {
         return permissionEvaluator.getCurrentUser();
     }
-    
+
     /**
      * Get current user ID
      */
@@ -96,21 +96,21 @@ public class PermissionUtil {
         }
         return user.getId();
     }
-    
+
     /**
      * Check if current user is admin
      */
     public boolean isAdmin() {
         return permissionEvaluator.isAdmin();
     }
-    
+
     /**
      * Check if current user is super admin
      */
     public boolean isSuperAdmin() {
         return permissionEvaluator.isSuperAdmin();
     }
-    
+
     /**
      * Ensure current user is authenticated
      */

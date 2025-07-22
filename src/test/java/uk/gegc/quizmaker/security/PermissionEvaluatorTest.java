@@ -46,36 +46,36 @@ class PermissionEvaluatorTest {
     @BeforeEach
     void setUp() {
         SecurityContextHolder.setContext(securityContext);
-        
+
         // Set up permissions
         readPermission = Permission.builder()
                 .permissionId(1L)
                 .permissionName(PermissionName.QUIZ_READ.name())
                 .build();
-        
+
         writePermission = Permission.builder()
                 .permissionId(2L)
                 .permissionName(PermissionName.QUIZ_CREATE.name())
                 .build();
-        
+
         adminPermission = Permission.builder()
                 .permissionId(3L)
                 .permissionName(PermissionName.SYSTEM_ADMIN.name())
                 .build();
-        
+
         // Set up roles
         userRole = Role.builder()
                 .roleId(1L)
                 .roleName(RoleName.ROLE_USER.name())
                 .permissions(Set.of(readPermission))
                 .build();
-        
+
         adminRole = Role.builder()
                 .roleId(2L)
                 .roleName(RoleName.ROLE_ADMIN.name())
                 .permissions(Set.of(readPermission, writePermission, adminPermission))
                 .build();
-        
+
         // Set up test user
         testUser = new User();
         testUser.setId(UUID.randomUUID());
@@ -91,10 +91,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasPermission(PermissionName.QUIZ_READ);
-        
+
         // Then
         assertTrue(result);
     }
@@ -107,10 +107,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE);
-        
+
         // Then
         assertFalse(result);
     }
@@ -120,7 +120,7 @@ class PermissionEvaluatorTest {
     void hasPermission_nullUser() {
         // When
         boolean result = permissionEvaluator.hasPermission(null, PermissionName.QUIZ_READ);
-        
+
         // Then
         assertFalse(result);
     }
@@ -133,13 +133,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAnyPermission(
-                PermissionName.QUIZ_READ, 
+                PermissionName.QUIZ_READ,
                 PermissionName.QUIZ_CREATE
         );
-        
+
         // Then
         assertTrue(result);
     }
@@ -152,13 +152,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAnyPermission(
-                PermissionName.QUIZ_CREATE, 
+                PermissionName.QUIZ_CREATE,
                 PermissionName.QUIZ_DELETE
         );
-        
+
         // Then
         assertFalse(result);
     }
@@ -172,13 +172,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAllPermissions(
-                PermissionName.QUIZ_READ, 
+                PermissionName.QUIZ_READ,
                 PermissionName.QUIZ_CREATE
         );
-        
+
         // Then
         assertTrue(result);
     }
@@ -191,13 +191,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAllPermissions(
-                PermissionName.QUIZ_READ, 
+                PermissionName.QUIZ_READ,
                 PermissionName.QUIZ_CREATE
         );
-        
+
         // Then
         assertFalse(result);
     }
@@ -210,10 +210,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasRole(RoleName.ROLE_USER);
-        
+
         // Then
         assertTrue(result);
     }
@@ -226,10 +226,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasRole(RoleName.ROLE_ADMIN);
-        
+
         // Then
         assertFalse(result);
     }
@@ -242,13 +242,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAnyRole(
-                RoleName.ROLE_USER, 
+                RoleName.ROLE_USER,
                 RoleName.ROLE_ADMIN
         );
-        
+
         // Then
         assertTrue(result);
     }
@@ -262,13 +262,13 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.hasAllRoles(
-                RoleName.ROLE_USER, 
+                RoleName.ROLE_USER,
                 RoleName.ROLE_ADMIN
         );
-        
+
         // Then
         assertTrue(result);
     }
@@ -282,10 +282,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.isResourceOwner(userId);
-        
+
         // Then
         assertTrue(result);
     }
@@ -299,10 +299,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.isResourceOwner(differentUserId);
-        
+
         // Then
         assertFalse(result);
     }
@@ -316,10 +316,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.canAccessResource(userId, PermissionName.QUIZ_ADMIN);
-        
+
         // Then
         assertTrue(result);
     }
@@ -334,10 +334,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.canAccessResource(differentUserId, PermissionName.SYSTEM_ADMIN);
-        
+
         // Then
         assertTrue(result);
     }
@@ -350,10 +350,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         User result = permissionEvaluator.getCurrentUser();
-        
+
         // Then
         assertEquals(testUser, result);
     }
@@ -363,10 +363,10 @@ class PermissionEvaluatorTest {
     void getCurrentUser_notAuthenticated() {
         // Given
         when(securityContext.getAuthentication()).thenReturn(null);
-        
+
         // When
         User result = permissionEvaluator.getCurrentUser();
-        
+
         // Then
         assertNull(result);
     }
@@ -378,10 +378,10 @@ class PermissionEvaluatorTest {
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getPrincipal()).thenReturn("anonymousUser");
-        
+
         // When
         User result = permissionEvaluator.getCurrentUser();
-        
+
         // Then
         assertNull(result);
     }
@@ -394,10 +394,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         Set<String> permissions = permissionEvaluator.getCurrentUserPermissions();
-        
+
         // Then
         assertTrue(permissions.contains(readPermission.getPermissionName()));
         assertEquals(1, permissions.size());
@@ -411,10 +411,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         Set<String> roles = permissionEvaluator.getCurrentUserRoles();
-        
+
         // Then
         assertTrue(roles.contains(userRole.getRoleName()));
         assertEquals(1, roles.size());
@@ -429,10 +429,10 @@ class PermissionEvaluatorTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.isAdmin();
-        
+
         // Then
         assertTrue(result);
     }
@@ -446,15 +446,15 @@ class PermissionEvaluatorTest {
                 .roleName(RoleName.ROLE_SUPER_ADMIN.name())
                 .build();
         testUser.setRoles(Set.of(superAdminRole));
-        
+
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        
+
         // When
         boolean result = permissionEvaluator.isSuperAdmin();
-        
+
         // Then
         assertTrue(result);
     }

@@ -70,7 +70,6 @@
         </dependency>
 
 
-
         <!-- MySQL driver for production DB -->
         <dependency>
             <groupId>com.mysql</groupId>

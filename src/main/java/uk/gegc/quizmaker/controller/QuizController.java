@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.util.List;
@@ -271,7 +272,7 @@ public class QuizController {
             @Parameter(description = "UUID of the quiz", required = true)
             @PathVariable UUID quizId,
             @RequestParam(name = "top", defaultValue = "10") int top
-    ){
+    ) {
         List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
         return ResponseEntity.ok(leaderBoardEntryDtos);
     }
@@ -380,5 +381,250 @@ public class QuizController {
             Pageable pageable
     ) {
         return ResponseEntity.ok(quizService.getPublicQuizzes(pageable));
+    }
+
+    @Operation(
+            summary = "Generate quiz from document using AI (Async)",
+            description = "ADMIN only. Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be processed and have chunks available. Users can specify exactly how many questions of each type to generate per chunk. Supports different scopes: entire document, specific chunks, specific chapter, or specific section. Returns a job ID for tracking progress.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = GenerateQuizFromDocumentRequest.class))
+            ),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "202",
+                            description = "Quiz generation job started successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationResponse.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or invalid request",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Document not found or not processed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "User already has an active generation job",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generate-from-document")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationResponse> generateQuizFromDocument(
+            @RequestBody @Valid GenerateQuizFromDocumentRequest request,
+            Authentication authentication
+    ) {
+        QuizGenerationResponse response = quizService.startQuizGeneration(authentication.getName(), request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @Operation(
+            summary = "Get quiz generation job status",
+            description = "Get the current status and progress of a quiz generation job. Returns detailed information about the generation progress including processed chunks, estimated completion time, and any errors.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Job status retrieved successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationStatus.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not authorized to access this job",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Generation job not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @GetMapping("/generation-status/{jobId}")
+    public ResponseEntity<QuizGenerationStatus> getGenerationStatus(
+            @Parameter(description = "UUID of the generation job", required = true)
+            @PathVariable UUID jobId,
+            Authentication authentication
+    ) {
+        QuizGenerationStatus status = quizService.getGenerationStatus(jobId, authentication.getName());
+        return ResponseEntity.ok(status);
+    }
+
+    @Operation(
+            summary = "Get generated quiz from completed job",
+            description = "Retrieve the final generated quiz once the generation job is completed. This endpoint should only be called after the generation status indicates completion.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Generated quiz retrieved successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizDto.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not authorized to access this quiz",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Generation job or generated quiz not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "Generation job is not yet completed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @GetMapping("/generated-quiz/{jobId}")
+    public ResponseEntity<QuizDto> getGeneratedQuiz(
+            @Parameter(description = "UUID of the generation job", required = true)
+            @PathVariable UUID jobId,
+            Authentication authentication
+    ) {
+        QuizDto quiz = quizService.getGeneratedQuiz(jobId, authentication.getName());
+        return ResponseEntity.ok(quiz);
+    }
+
+    @Operation(
+            summary = "Cancel quiz generation job",
+            description = "Cancel an active quiz generation job. Only jobs that are in PENDING or PROCESSING status can be cancelled.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Generation job cancelled successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationStatus.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Job cannot be cancelled (already completed or failed)",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not authorized to cancel this job",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Generation job not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @DeleteMapping("/generation-status/{jobId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationStatus> cancelGenerationJob(
+            @Parameter(description = "UUID of the generation job to cancel", required = true)
+            @PathVariable UUID jobId,
+            Authentication authentication
+    ) {
+        QuizGenerationStatus status = quizService.cancelGenerationJob(jobId, authentication.getName());
+        return ResponseEntity.ok(status);
+    }
+
+    @Operation(
+            summary = "List user's quiz generation jobs",
+            description = "Get a paginated list of all quiz generation jobs for the authenticated user, ordered by creation time (newest first).",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Generation jobs retrieved successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = Page.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @GetMapping("/generation-jobs")
+    public ResponseEntity<Page<QuizGenerationStatus>> getGenerationJobs(
+            @ParameterObject
+            @PageableDefault(page = 0, size = 20)
+            @SortDefault(sort = "startedAt", direction = Sort.Direction.DESC)
+            Pageable pageable,
+            Authentication authentication
+    ) {
+        Page<QuizGenerationStatus> jobs = quizService.getGenerationJobs(authentication.getName(), pageable);
+        return ResponseEntity.ok(jobs);
+    }
+
+    @Operation(
+            summary = "Get generation job statistics",
+            description = "Get statistics about the user's quiz generation jobs including success rates, average generation times, and job counts by status.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Statistics retrieved successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationJobService.JobStatistics.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @GetMapping("/generation-jobs/statistics")
+    public ResponseEntity<QuizGenerationJobService.JobStatistics> getGenerationJobStatistics(
+            Authentication authentication
+    ) {
+        QuizGenerationJobService.JobStatistics statistics = quizService.getGenerationJobStatistics(authentication.getName());
+        return ResponseEntity.ok(statistics);
     }
 }

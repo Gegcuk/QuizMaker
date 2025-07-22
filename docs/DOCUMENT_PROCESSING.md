@@ -2,11 +2,14 @@
 
 ## Overview
 
-The document processing system allows you to upload large files (PDF, TXT) and automatically split them into smaller, manageable chunks that can be sent to AI services for quiz generation. The system supports intelligent chunking strategies and can handle books, articles, and other large documents.
+The document processing system allows you to upload large files (PDF, TXT) and automatically split them into smaller,
+manageable chunks that can be sent to AI services for quiz generation. The system supports intelligent chunking
+strategies and can handle books, articles, and other large documents.
 
 ## Features
 
 ### Supported File Formats
+
 - **PDF**: Full text extraction with chapter/section detection
 - **TXT**: Plain text files with automatic structure detection
 - **Future**: EPUB support (planned)
@@ -22,6 +25,7 @@ The document processing system allows you to upload large files (PDF, TXT) and a
 ### Intelligent Chunking
 
 The system automatically:
+
 - Detects chapter and section headers using regex patterns
 - Splits large chapters/sections into smaller chunks
 - Maintains sentence boundaries when possible
@@ -42,16 +46,17 @@ document.chunking.default-strategy=CHAPTER_BASED
 
 ### Configuration Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `default-max-chunk-size` | 4000 | Maximum characters per chunk (configurable) |
-| `default-strategy` | CHAPTER_BASED | Default chunking strategy (configurable) |
+| Parameter                | Default       | Description                                 |
+|--------------------------|---------------|---------------------------------------------|
+| `default-max-chunk-size` | 4000          | Maximum characters per chunk (configurable) |
+| `default-strategy`       | CHAPTER_BASED | Default chunking strategy (configurable)    |
 
 **Note**: There are no hardcoded defaults in the code. All values come from the properties file.
 
 ## API Endpoints
 
 ### Upload Document
+
 ```http
 POST /api/documents/upload
 Content-Type: multipart/form-data
@@ -63,36 +68,43 @@ Parameters:
 ```
 
 ### Get Configuration
+
 ```http
 GET /api/documents/config
 ```
 
 ### Get Document
+
 ```http
 GET /api/documents/{documentId}
 ```
 
 ### Get User Documents
+
 ```http
 GET /api/documents?page=0&size=10
 ```
 
 ### Get Document Chunks
+
 ```http
 GET /api/documents/{documentId}/chunks
 ```
 
 ### Get Specific Chunk
+
 ```http
 GET /api/documents/{documentId}/chunks/{chunkIndex}
 ```
 
 ### Delete Document
+
 ```http
 DELETE /api/documents/{documentId}
 ```
 
 ### Reprocess Document
+
 ```http
 POST /api/documents/{documentId}/reprocess
 Content-Type: application/json
@@ -104,6 +116,7 @@ Content-Type: application/json
 ```
 
 ### Get Document Status
+
 ```http
 GET /api/documents/{documentId}/status
 ```
@@ -111,6 +124,7 @@ GET /api/documents/{documentId}/status
 ## Database Schema
 
 ### Documents Table
+
 - `id`: UUID primary key
 - `original_filename`: Original file name
 - `content_type`: MIME type
@@ -127,6 +141,7 @@ GET /api/documents/{documentId}/status
 - `processing_error`: Error message if processing failed
 
 ### Document Chunks Table
+
 - `id`: UUID primary key
 - `document_id`: Foreign key to documents table
 - `chunk_index`: Sequential chunk number
@@ -146,6 +161,7 @@ GET /api/documents/{documentId}/status
 ## Usage Examples
 
 ### Upload a PDF Book
+
 ```bash
 curl -X POST http://localhost:8080/api/documents/upload \
   -F "file=@book.pdf" \
@@ -153,6 +169,7 @@ curl -X POST http://localhost:8080/api/documents/upload \
 ```
 
 ### Upload with Custom Strategy
+
 ```bash
 curl -X POST http://localhost:8080/api/documents/upload \
   -F "file=@book.pdf" \
@@ -161,16 +178,19 @@ curl -X POST http://localhost:8080/api/documents/upload \
 ```
 
 ### Get Current Configuration
+
 ```bash
 curl http://localhost:8080/api/documents/config
 ```
 
 ### Get All Chunks for Processing
+
 ```bash
 curl http://localhost:8080/api/documents/{documentId}/chunks
 ```
 
 ### Process Chunks for AI Quiz Generation
+
 ```javascript
 // Get chunks and send to AI
 const chunks = await fetch('/api/documents/' + documentId + '/chunks');
@@ -184,6 +204,7 @@ for (const chunk of chunkData) {
 ```
 
 ### Reprocess Document with New Settings
+
 ```bash
 curl -X POST http://localhost:8080/api/documents/{documentId}/reprocess \
   -H "Content-Type: application/json" \
@@ -217,6 +238,7 @@ Documents are stored in the `uploads/documents/` directory with UUID-based filen
 ## Error Handling
 
 The system provides comprehensive error handling:
+
 - File format validation
 - Processing status tracking
 - Detailed error messages

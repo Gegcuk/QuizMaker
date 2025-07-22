@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Universal chunking service that works with the standardized ConvertedDocument format.
- * 
+ * <p>
  * This service orchestrates the chunking process by:
  * 1. Finding the appropriate chunker for the requested strategy
  * 2. Chunking the converted document using the universal chunker
@@ -29,22 +29,22 @@ public class UniversalChunkingService {
      */
     public List<UniversalChunker.Chunk> chunkDocument(ConvertedDocument document, ProcessDocumentRequest request) {
         try {
-            log.info("Starting universal chunking for document: {} (strategy: {}, maxSize: {})", 
+            log.info("Starting universal chunking for document: {} (strategy: {}, maxSize: {})",
                     document.getOriginalFilename(), request.getChunkingStrategy(), request.getMaxChunkSize());
-            
+
             // Find the appropriate chunker
             UniversalChunker chunker = findChunker(request.getChunkingStrategy());
-            
+
             // Chunk the document
             List<UniversalChunker.Chunk> chunks = chunker.chunkDocument(document, request);
-            
-            log.info("Successfully chunked document: {} ({} chunks created)", 
+
+            log.info("Successfully chunked document: {} ({} chunks created)",
                     document.getOriginalFilename(), chunks.size());
-            
+
             return chunks;
-            
+
         } catch (Exception e) {
-            String errorMessage = String.format("Failed to chunk document %s: %s", 
+            String errorMessage = String.format("Failed to chunk document %s: %s",
                     document.getOriginalFilename(), e.getMessage());
             log.error(errorMessage, e);
             throw new DocumentProcessingException(errorMessage, e);
@@ -56,15 +56,15 @@ public class UniversalChunkingService {
      */
     private UniversalChunker findChunker(ProcessDocumentRequest.ChunkingStrategy strategy) {
         log.info("Looking for chunker for strategy: {}", strategy);
-        
+
         for (UniversalChunker chunker : universalChunkers) {
             if (chunker.canHandle(strategy)) {
-                log.info("Found chunker: {} for strategy: {}", 
+                log.info("Found chunker: {} for strategy: {}",
                         chunker.getClass().getSimpleName(), strategy);
                 return chunker;
             }
         }
-        
+
         String errorMessage = String.format("No chunker found for strategy: %s", strategy);
         log.error(errorMessage);
         throw new DocumentProcessingException(errorMessage);
@@ -115,5 +115,6 @@ public class UniversalChunkingService {
             String chunkerType,
             ProcessDocumentRequest.ChunkingStrategy supportedStrategy,
             boolean supportsAuto
-    ) {}
+    ) {
+    }
 } 

@@ -8,9 +8,9 @@ import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.repository.document.DocumentChunkRepository;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.impl.NewDocumentProcessingServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -51,14 +51,14 @@ class NewDocumentProcessingServiceIntegrationTest {
         testUser.setActive(true);
         testUser.setDeleted(false);
         User savedUser = userRepository.save(testUser);
-        
+
         // Update the username used in tests to match the saved user
         testUsername = savedUser.getUsername();
 
         // Create a simple test PDF content
         testPdfContent = createSimplePdfContent();
         testFilename = "test.pdf";
-        
+
         testRequest = new ProcessDocumentRequest();
         testRequest.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED);
         testRequest.setMaxChunkSize(4000);
@@ -84,7 +84,7 @@ class NewDocumentProcessingServiceIntegrationTest {
     void uploadAndProcessDocument_InvalidContent_ThrowsException() {
         // Arrange - Create content that definitely won't be a valid PDF
         byte[] invalidContent = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}; // Random bytes
-        
+
         // Act & Assert
         assertThrows(Exception.class, () -> {
             documentProcessingService.uploadAndProcessDocument(
@@ -147,7 +147,7 @@ class NewDocumentProcessingServiceIntegrationTest {
                 "startxref\n" +
                 "364\n" +
                 "%%EOF\n";
-        
+
         return pdfContent.getBytes();
     }
 } 

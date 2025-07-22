@@ -1,0 +1,24 @@
+{
+  "questions": [
+    {
+      "questionText": "All cells contain a nucleus.",
+      "difficulty": "EASY",
+      "type": "TRUE_FALSE",
+      "content": {
+        "answer": false
+      },
+      "hint": "Consider that some cells lack a nucleus",
+      "explanation": "This statement is false. While eukaryotic cells contain a nucleus, prokaryotic cells (like bacteria) do not have a nucleus. Their genetic material is found in the cytoplasm."
+    },
+    {
+      "questionText": "Photosynthesis converts light energy into chemical energy.",
+      "difficulty": "MEDIUM",
+      "type": "TRUE_FALSE",
+      "content": {
+        "answer": true
+      },
+      "hint": "Think about what happens during the process of photosynthesis",
+      "explanation": "This statement is true. During photosynthesis, plants use light energy to convert carbon dioxide and water into glucose and oxygen, effectively converting light energy into chemical energy stored in glucose molecules."
+    }
+  ]
+} 

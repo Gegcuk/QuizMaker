@@ -1041,7 +1041,7 @@ class QuizControllerIntegrationTest {
         // Create a quiz with valid estimated time first
         CreateQuizRequest req = new CreateQuizRequest(
                 "Invalid Time Quiz", "Description",
-                null, null, 
+                null, null,
                 false, false,
                 5, 2, // Valid estimated time for creation
                 categoryId,
@@ -1077,7 +1077,7 @@ class QuizControllerIntegrationTest {
         // Create a quiz with valid estimated time first
         CreateQuizRequest req = new CreateQuizRequest(
                 "Multiple Errors Quiz", "Description",
-                null, null, 
+                null, null,
                 false, false,
                 5, 2, // Valid estimated time for creation
                 categoryId,
@@ -1110,7 +1110,7 @@ class QuizControllerIntegrationTest {
         // Create a quiz with valid estimated time
         CreateQuizRequest req = new CreateQuizRequest(
                 "Invalid Question Quiz", "Description",
-                null, null, 
+                null, null,
                 false, false,
                 10, 5, // Valid estimated time
                 categoryId,

@@ -56,9 +56,9 @@ class RoleServiceImplTest {
                 .description("Test role description")
                 .isDefault(false)
                 .build();
-        
+
         when(roleRepository.existsByRoleName(request.getRoleName())).thenReturn(false);
-        
+
         Role savedRole = Role.builder()
                 .roleId(1L)
                 .roleName(request.getRoleName())
@@ -66,7 +66,7 @@ class RoleServiceImplTest {
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
-        
+
         RoleDto expectedDto = RoleDto.builder()
                 .roleId(1L)
                 .roleName(request.getRoleName())
@@ -74,13 +74,13 @@ class RoleServiceImplTest {
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
-        
+
         when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
         when(roleMapper.toDto(savedRole)).thenReturn(expectedDto);
-        
+
         // When
         RoleDto result = roleService.createRole(request);
-        
+
         // Then
         assertNotNull(result);
         assertEquals(expectedDto, result);
@@ -96,14 +96,14 @@ class RoleServiceImplTest {
         CreateRoleRequest request = CreateRoleRequest.builder()
                 .roleName("EXISTING_ROLE")
                 .build();
-        
+
         when(roleRepository.existsByRoleName(request.getRoleName())).thenReturn(true);
-        
+
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> 
-            roleService.createRole(request)
+        assertThrows(IllegalArgumentException.class, () ->
+                roleService.createRole(request)
         );
-        
+
         verify(roleRepository).existsByRoleName(request.getRoleName());
         verify(roleRepository, never()).save(any());
     }
@@ -117,28 +117,28 @@ class RoleServiceImplTest {
                 .description("Updated description")
                 .isDefault(true)
                 .build();
-        
+
         Role existingRole = Role.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .description("Old description")
                 .isDefault(false)
                 .build();
-        
+
         RoleDto expectedDto = RoleDto.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .description(request.getDescription())
                 .isDefault(request.isDefault())
                 .build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(existingRole));
         when(roleRepository.save(any(Role.class))).thenReturn(existingRole);
         when(roleMapper.toDto(existingRole)).thenReturn(expectedDto);
-        
+
         // When
         RoleDto result = roleService.updateRole(roleId, request);
-        
+
         // Then
         assertEquals(expectedDto, result);
         assertEquals(request.getDescription(), existingRole.getDescription());
@@ -153,14 +153,14 @@ class RoleServiceImplTest {
         // Given
         Long roleId = 999L;
         UpdateRoleRequest request = UpdateRoleRequest.builder().build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
-        
+
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> 
-            roleService.updateRole(roleId, request)
+        assertThrows(ResourceNotFoundException.class, () ->
+                roleService.updateRole(roleId, request)
         );
-        
+
         verify(roleRepository).findById(roleId);
         verify(roleRepository, never()).save(any());
     }
@@ -175,20 +175,20 @@ class RoleServiceImplTest {
                 .roleName("TEST_ROLE")
                 .users(new HashSet<>())
                 .build();
-        
+
         User user1 = new User();
         user1.setRoles(new HashSet<>(Set.of(role)));
-        
+
         User user2 = new User();
         user2.setRoles(new HashSet<>(Set.of(role)));
-        
+
         role.setUsers(Set.of(user1, user2));
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
-        
+
         // When
         roleService.deleteRole(roleId);
-        
+
         // Then
         assertFalse(user1.getRoles().contains(role));
         assertFalse(user2.getRoles().contains(role));
@@ -205,18 +205,18 @@ class RoleServiceImplTest {
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .build();
-        
+
         RoleDto expectedDto = RoleDto.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .build();
-        
+
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(roleMapper.toDto(role)).thenReturn(expectedDto);
-        
+
         // When
         RoleDto result = roleService.getRoleById(roleId);
-        
+
         // Then
         assertEquals(expectedDto, result);
         verify(roleRepository).findById(roleId);
@@ -231,19 +231,19 @@ class RoleServiceImplTest {
                 Role.builder().roleId(1L).roleName("ROLE1").build(),
                 Role.builder().roleId(2L).roleName("ROLE2").build()
         );
-        
+
         List<RoleDto> expectedDtos = Arrays.asList(
                 RoleDto.builder().roleId(1L).roleName("ROLE1").build(),
                 RoleDto.builder().roleId(2L).roleName("ROLE2").build()
         );
-        
+
         when(roleRepository.findAll()).thenReturn(roles);
         when(roleMapper.toDto(roles.get(0))).thenReturn(expectedDtos.get(0));
         when(roleMapper.toDto(roles.get(1))).thenReturn(expectedDtos.get(1));
-        
+
         // When
         List<RoleDto> result = roleService.getAllRoles();
-        
+
         // Then
         assertEquals(2, result.size());
         verify(roleRepository).findAll();
@@ -258,12 +258,12 @@ class RoleServiceImplTest {
                 .roleId(1L)
                 .roleName(roleName.name())
                 .build();
-        
+
         when(roleRepository.findByRoleName(roleName.name())).thenReturn(Optional.of(expectedRole));
-        
+
         // When
         Role result = roleService.getRoleByName(roleName);
-        
+
         // Then
         assertEquals(expectedRole, result);
         verify(roleRepository).findByRoleName(roleName.name());
@@ -275,23 +275,23 @@ class RoleServiceImplTest {
         // Given
         UUID userId = UUID.randomUUID();
         Long roleId = 1L;
-        
+
         User user = new User();
         user.setId(userId);
         user.setRoles(new HashSet<>());
-        
+
         Role role = Role.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .build();
-        
+
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(userRepository.save(any(User.class))).thenReturn(user);
-        
+
         // When
         roleService.assignRoleToUser(userId, roleId);
-        
+
         // Then
         assertTrue(user.getRoles().contains(role));
         verify(userRepository).findById(userId);
@@ -305,23 +305,23 @@ class RoleServiceImplTest {
         // Given
         UUID userId = UUID.randomUUID();
         Long roleId = 1L;
-        
+
         Role role = Role.builder()
                 .roleId(roleId)
                 .roleName("TEST_ROLE")
                 .build();
-        
+
         User user = new User();
         user.setId(userId);
         user.setRoles(new HashSet<>(Set.of(role)));
-        
+
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(userRepository.save(any(User.class))).thenReturn(user);
-        
+
         // When
         roleService.removeRoleFromUser(userId, roleId);
-        
+
         // Then
         assertFalse(user.getRoles().contains(role));
         verify(userRepository).findById(userId);
@@ -338,16 +338,16 @@ class RoleServiceImplTest {
                 Role.builder().roleId(1L).roleName("ROLE1").build(),
                 Role.builder().roleId(2L).roleName("ROLE2").build()
         );
-        
+
         User user = new User();
         user.setId(userId);
         user.setRoles(expectedRoles);
-        
+
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-        
+
         // When
         Set<Role> result = roleService.getUserRoles(userId);
-        
+
         // Then
         assertEquals(expectedRoles, result);
         verify(userRepository).findById(userId);
@@ -359,10 +359,10 @@ class RoleServiceImplTest {
         // Given
         String roleName = "EXISTING_ROLE";
         when(roleRepository.existsByRoleName(roleName)).thenReturn(true);
-        
+
         // When
         boolean result = roleService.roleExists(roleName);
-        
+
         // Then
         assertTrue(result);
         verify(roleRepository).existsByRoleName(roleName);
@@ -377,12 +377,12 @@ class RoleServiceImplTest {
                 .roleName(RoleName.ROLE_USER.name())
                 .isDefault(true)
                 .build();
-        
+
         when(roleRepository.findByIsDefaultTrue()).thenReturn(Optional.of(defaultRole));
-        
+
         // When
         Role result = roleService.getDefaultRole();
-        
+
         // Then
         assertEquals(defaultRole, result);
         verify(roleRepository).findByIsDefaultTrue();
@@ -397,13 +397,13 @@ class RoleServiceImplTest {
                 .roleId(1L)
                 .roleName(RoleName.ROLE_USER.name())
                 .build();
-        
+
         when(roleRepository.findByIsDefaultTrue()).thenReturn(Optional.empty());
         when(roleRepository.findByRoleName(RoleName.ROLE_USER.name())).thenReturn(Optional.of(userRole));
-        
+
         // When
         Role result = roleService.getDefaultRole();
-        
+
         // Then
         assertEquals(userRole, result);
         verify(roleRepository).findByIsDefaultTrue();
@@ -416,17 +416,17 @@ class RoleServiceImplTest {
         // Given
         when(roleRepository.existsByRoleName(any())).thenReturn(false);
         when(roleRepository.save(any(Role.class))).thenAnswer(i -> i.getArgument(0));
-        
+
         Permission permission = Permission.builder()
                 .permissionId(1L)
                 .permissionName("TEST_PERMISSION")
                 .build();
-        
+
         when(permissionService.getPermissionByName(any())).thenReturn(permission);
-        
+
         // When
         roleService.initializeDefaultRolesAndPermissions();
-        
+
         // Then
         verify(permissionService).initializePermissions();
         // Verify roles are created for each RoleName enum value

@@ -1,0 +1,66 @@
+{
+  "questions": [
+    {
+      "questionText": "What is the primary function of the mitochondria in a cell?",
+      "difficulty": "MEDIUM",
+      "type": "MCQ_SINGLE",
+      "content": {
+        "options": [
+          {
+            "id": "a",
+            "text": "To store genetic information",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "To produce energy through cellular respiration",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "To transport proteins throughout the cell",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "To break down waste materials",
+            "correct": false
+          }
+        ]
+      },
+      "hint": "Think about what process provides energy for cellular activities",
+      "explanation": "Mitochondria are known as the powerhouse of the cell because they produce energy through cellular respiration, converting glucose and oxygen into ATP (adenosine triphosphate)."
+    },
+    {
+      "questionText": "Which of the following is NOT a characteristic of living organisms?",
+      "difficulty": "EASY",
+      "type": "MCQ_SINGLE",
+      "content": {
+        "options": [
+          {
+            "id": "a",
+            "text": "Growth and development",
+            "correct": false
+          },
+          {
+            "id": "b",
+            "text": "Response to stimuli",
+            "correct": false
+          },
+          {
+            "id": "c",
+            "text": "Ability to reproduce",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "Ability to conduct electricity",
+            "correct": true
+          }
+        ]
+      },
+      "hint": "Consider which option is not a fundamental characteristic of life",
+      "explanation": "While living organisms can conduct electricity to some degree, this is not a defining characteristic of life. The other options (growth, response to stimuli, reproduction) are fundamental characteristics of living organisms."
+    }
+  ]
+} 

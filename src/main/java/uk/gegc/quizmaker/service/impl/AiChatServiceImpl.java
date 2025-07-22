@@ -22,37 +22,37 @@ public class AiChatServiceImpl implements AiChatService {
     @Override
     public ChatResponseDto sendMessage(String message) {
         Instant start = Instant.now();
-        
+
         // Validate input
         if (message == null || message.trim().isEmpty()) {
             throw new AiServiceException("Message cannot be null or empty");
         }
-        
+
         log.info("Sending message to AI: '{}'", message);
-        
+
         try {
             ChatResponse response = chatClient.prompt()
                     .user(message)
                     .call()
                     .chatResponse();
-            
+
             if (response == null) {
                 throw new AiServiceException("No response received from AI service");
             }
-            
+
             String aiResponse = response.getResult().getOutput().getText();
-            
+
             long latency = Duration.between(start, Instant.now()).toMillis();
-            int tokensUsed = response.getMetadata() != null ? 
-                response.getMetadata().getUsage().getTotalTokens() : aiResponse.length() / 4; // Rough estimate
-            String modelUsed = response.getMetadata() != null ? 
-                response.getMetadata().getModel() : "gpt-3.5-turbo";
-            
-            log.info("AI response received - Model: {}, Tokens: {}, Latency: {}ms", 
+            int tokensUsed = response.getMetadata() != null ?
+                    response.getMetadata().getUsage().getTotalTokens() : aiResponse.length() / 4; // Rough estimate
+            String modelUsed = response.getMetadata() != null ?
+                    response.getMetadata().getModel() : "gpt-3.5-turbo";
+
+            log.info("AI response received - Model: {}, Tokens: {}, Latency: {}ms",
                     modelUsed, tokensUsed, latency);
-            
+
             return new ChatResponseDto(aiResponse, modelUsed, latency, tokensUsed);
-            
+
         } catch (Exception e) {
             log.error("Error calling AI service for message: '{}'", message, e);
             throw new AiServiceException("Failed to get AI response", e);

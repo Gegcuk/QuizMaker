@@ -22,7 +22,7 @@ public class TestPdfGenerator {
             try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
                 // Set font and size
                 contentStream.setFont(PDType1Font.HELVETICA_BOLD, 18);
-                
+
                 // Add title
                 contentStream.beginText();
                 contentStream.newLineAtOffset(50, 750);
@@ -31,7 +31,7 @@ public class TestPdfGenerator {
 
                 // Set font for content
                 contentStream.setFont(PDType1Font.HELVETICA, 12);
-                
+
                 // Add introduction
                 contentStream.beginText();
                 contentStream.newLineAtOffset(50, 720);
@@ -148,7 +148,7 @@ public class TestPdfGenerator {
     public static void generateTestPdfInTestResources() throws IOException {
         Path testResourcesPath = Paths.get("src", "test", "resources", "test-documents");
         Files.createDirectories(testResourcesPath);
-        
+
         String pdfPath = testResourcesPath.resolve("sample-document.pdf").toString();
         generateTestPdf(pdfPath);
     }

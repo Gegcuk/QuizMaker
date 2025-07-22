@@ -7,7 +7,6 @@ import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 import uk.gegc.quizmaker.service.document.converter.DocumentConverter;
 
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 
@@ -107,15 +106,15 @@ class TextDocumentConverterTest {
     void convert_TextWithChapters_ExtractsChapters() throws Exception {
         // Arrange
         String textContent = """
-            Chapter 1: Introduction
-            This is the introduction chapter.
-            
-            Chapter 2: Main Content
-            This is the main content chapter.
-            
-            Chapter 3: Conclusion
-            This is the conclusion chapter.
-            """;
+                Chapter 1: Introduction
+                This is the introduction chapter.
+                
+                Chapter 2: Main Content
+                This is the main content chapter.
+                
+                Chapter 3: Conclusion
+                This is the conclusion chapter.
+                """;
         byte[] content = textContent.getBytes();
         String filename = "test.txt";
         Long fileSize = (long) content.length;
@@ -128,18 +127,18 @@ class TextDocumentConverterTest {
         assertEquals(filename, result.getOriginalFilename());
         assertNotNull(result.getChapters());
         assertTrue(result.getChapters().size() >= 3);
-        
+
         // Check that chapters are detected
         boolean hasChapter1 = false;
         boolean hasChapter2 = false;
         boolean hasChapter3 = false;
-        
+
         for (ConvertedDocument.Chapter chapter : result.getChapters()) {
             if (chapter.getTitle().contains("Chapter 1")) hasChapter1 = true;
             if (chapter.getTitle().contains("Chapter 2")) hasChapter2 = true;
             if (chapter.getTitle().contains("Chapter 3")) hasChapter3 = true;
         }
-        
+
         assertTrue(hasChapter1, "Should contain Chapter 1");
         assertTrue(hasChapter2, "Should contain Chapter 2");
         assertTrue(hasChapter3, "Should contain Chapter 3");
@@ -149,17 +148,17 @@ class TextDocumentConverterTest {
     void convert_TextWithSections_ExtractsSections() throws Exception {
         // Arrange
         String textContent = """
-            Chapter 1: Introduction
-            1.1 Background
-            This section provides background information.
-            
-            1.2 Objectives
-            This section outlines the objectives.
-            
-            Chapter 2: Methodology
-            2.1 Research Design
-            This section describes the research design.
-            """;
+                Chapter 1: Introduction
+                1.1 Background
+                This section provides background information.
+                
+                1.2 Objectives
+                This section outlines the objectives.
+                
+                Chapter 2: Methodology
+                2.1 Research Design
+                This section describes the research design.
+                """;
         byte[] content = textContent.getBytes();
         String filename = "test.txt";
         Long fileSize = (long) content.length;
@@ -170,12 +169,12 @@ class TextDocumentConverterTest {
         // Assert
         assertNotNull(result);
         assertNotNull(result.getChapters());
-        
+
         // Check that chapters and sections are detected
         for (ConvertedDocument.Chapter chapter : result.getChapters()) {
             assertNotNull(chapter.getTitle());
             assertNotNull(chapter.getContent());
-            
+
             // Check if sections are detected
             if (chapter.getSections() != null && !chapter.getSections().isEmpty()) {
                 for (ConvertedDocument.Section section : chapter.getSections()) {
@@ -190,12 +189,12 @@ class TextDocumentConverterTest {
     void convert_TextWithMetadata_ExtractsMetadata() throws Exception {
         // Arrange
         String textContent = """
-            Sample Document Title
-            by John Doe
-            
-            Chapter 1: Introduction
-            This is the introduction.
-            """;
+                Sample Document Title
+                by John Doe
+                
+                Chapter 1: Introduction
+                This is the introduction.
+                """;
         byte[] content = textContent.getBytes();
         String filename = "test.txt";
         Long fileSize = (long) content.length;
@@ -249,12 +248,12 @@ class TextDocumentConverterTest {
     void convert_TextWithSimpleChapters_ExtractsChapters() throws Exception {
         // Arrange - Test with simpler chapter format
         String textContent = """
-            Chapter 1
-            This is chapter 1 content.
-            
-            Chapter 2
-            This is chapter 2 content.
-            """;
+                Chapter 1
+                This is chapter 1 content.
+                
+                Chapter 2
+                This is chapter 2 content.
+                """;
         byte[] content = textContent.getBytes();
         String filename = "simple_chapters.txt";
         Long fileSize = (long) content.length;
@@ -266,16 +265,16 @@ class TextDocumentConverterTest {
         assertNotNull(result);
         assertNotNull(result.getChapters());
         assertTrue(result.getChapters().size() >= 2, "Should detect at least 2 chapters");
-        
+
         // Check that chapters are detected
         boolean hasChapter1 = false;
         boolean hasChapter2 = false;
-        
+
         for (ConvertedDocument.Chapter chapter : result.getChapters()) {
             if (chapter.getTitle().contains("Chapter 1")) hasChapter1 = true;
             if (chapter.getTitle().contains("Chapter 2")) hasChapter2 = true;
         }
-        
+
         assertTrue(hasChapter1, "Should contain Chapter 1");
         assertTrue(hasChapter2, "Should contain Chapter 2");
     }

@@ -1,0 +1,24 @@
+{
+  "questions": [
+    {
+      "questionText": "Explain the process of cellular respiration and its importance to living organisms.",
+      "difficulty": "HARD",
+      "type": "OPEN",
+      "content": {
+        "answer": "Cellular respiration is a complex metabolic process that occurs in the mitochondria of cells. It involves the breakdown of glucose molecules in the presence of oxygen to produce ATP (adenosine triphosphate), carbon dioxide, and water. The process consists of three main stages: glycolysis, the Krebs cycle, and the electron transport chain. Glycolysis breaks down glucose into pyruvate, the Krebs cycle further processes these molecules, and the electron transport chain generates the majority of ATP. This process is crucial because ATP serves as the primary energy currency of cells, powering all cellular activities including muscle contraction, protein synthesis, and active transport. Without cellular respiration, cells would not have the energy needed to maintain life processes."
+      },
+      "hint": "Consider the three main stages and the role of ATP in cellular function",
+      "explanation": "A comprehensive answer should include: 1) Definition of cellular respiration, 2) The three main stages (glycolysis, Krebs cycle, electron transport chain), 3) The role of mitochondria, 4) The production of ATP as the main outcome, 5) The importance of ATP for cellular functions, and 6) The overall equation showing glucose + oxygen → carbon dioxide + water + ATP."
+    },
+    {
+      "questionText": "Compare and contrast the structure and function of plant and animal cells.",
+      "difficulty": "MEDIUM",
+      "type": "OPEN",
+      "content": {
+        "answer": "Plant and animal cells share many common structures including a cell membrane, cytoplasm, nucleus, mitochondria, and endoplasmic reticulum. However, plant cells have several unique features: cell walls made of cellulose for structural support, chloroplasts for photosynthesis, large central vacuoles for storage and turgor pressure, and plasmodesmata for cell-to-cell communication. Animal cells lack these structures but may have centrioles for cell division and lysosomes for waste breakdown. Functionally, plant cells are specialized for photosynthesis and structural support, while animal cells are specialized for movement, communication, and various metabolic processes. Both cell types perform essential life functions but have evolved different adaptations for their respective roles in multicellular organisms."
+      },
+      "hint": "Focus on the unique structures that distinguish plant cells from animal cells",
+      "explanation": "A good comparison should address: 1) Common structures shared by both cell types, 2) Unique plant cell structures (cell wall, chloroplasts, vacuoles), 3) Unique animal cell structures (centrioles, lysosomes), 4) Functional differences related to these structures, and 5) How these differences relate to the organism's lifestyle and needs."
+    }
+  ]
+} 

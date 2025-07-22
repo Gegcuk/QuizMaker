@@ -7,7 +7,6 @@ import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 import uk.gegc.quizmaker.service.document.converter.DocumentConverter;
 
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 
@@ -182,7 +181,7 @@ class PdfDocumentConverterTest {
                 "startxref\n" +
                 "364\n" +
                 "%%EOF\n";
-        
+
         return pdfContent.getBytes();
     }
 } 
