@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.question.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
@@ -31,10 +32,12 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
+import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -55,6 +58,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
     private final AiQuizGenerationService aiQuizGenerationService;
+    private final DocumentProcessingService documentProcessingService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -168,6 +172,29 @@ public class QuizServiceImpl implements QuizService {
         // This method is now deprecated in favor of async generation
         // For backward compatibility, start an async job and return immediately
         return startQuizGeneration(username, request);
+    }
+
+    @Override
+    public QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
+        try {
+            // Step 1: Upload and process document
+            DocumentDto document = documentProcessingService.uploadAndProcessDocument(
+                    username, 
+                    file.getBytes(), 
+                    file.getOriginalFilename(), 
+                    request.toProcessDocumentRequest()
+            );
+
+            // Step 2: Generate quiz from the processed document
+            GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
+            
+            // Step 3: Start generation and return job ID immediately
+            return startQuizGeneration(username, quizRequest);
+            
+        } catch (Exception e) {
+            log.error("Failed to start quiz generation from upload for user: {}", username, e);
+            throw new RuntimeException("Failed to start quiz generation from upload: " + e.getMessage(), e);
+        }
     }
 
     @Override

@@ -702,6 +702,31 @@ Content-Type: application/json
 }
 ```
 
+#### Upload Document and Generate Quiz (Async)
+```http
+POST /v1/quizzes/generate-from-upload
+Authorization: Bearer <access_token>
+Content-Type: multipart/form-data
+
+Parameters:
+- file: The document file to upload
+- chunkingStrategy: AUTO, CHAPTER_BASED, SECTION_BASED, SIZE_BASED, PAGE_BASED (optional, default: CHAPTER_BASED)
+- maxChunkSize: Maximum characters per chunk (optional, default: 50000)
+- quizScope: ENTIRE_DOCUMENT, SPECIFIC_CHUNKS, SPECIFIC_CHAPTER, SPECIFIC_SECTION (optional, default: ENTIRE_DOCUMENT)
+- chunkIndices: [0, 1, 2] (only for SPECIFIC_CHUNKS scope)
+- chapterTitle: "Introduction" (only for SPECIFIC_CHAPTER/SECTION scope)
+- chapterNumber: 1 (only for SPECIFIC_CHAPTER/SECTION scope)
+- quizTitle: "My Quiz" (optional)
+- quizDescription: "Quiz description" (optional)
+- questionsPerType: "{\"MCQ_SINGLE\": 3, \"TRUE_FALSE\": 2}" (required)
+- difficulty: EASY, MEDIUM, HARD (required)
+- estimatedTimePerQuestion: 2 (optional, default: 2)
+- categoryId: "category-uuid" (optional)
+- tagIds: ["tag1-uuid", "tag2-uuid"] (optional)
+
+Response: QuizGenerationResponse (job ID for tracking progress)
+```
+
 #### Get Generation Status
 ```http
 GET /v1/quizzes/generation-status/{jobId}

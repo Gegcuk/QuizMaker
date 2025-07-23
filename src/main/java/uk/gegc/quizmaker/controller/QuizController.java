@@ -24,6 +24,15 @@ import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
+import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.service.document.DocumentValidationService;
+import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.model.question.Difficulty;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.MediaType;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
@@ -44,6 +53,9 @@ public class QuizController {
 
     private final QuizService quizService;
     private final AttemptService attemptService;
+    private final DocumentProcessingService documentProcessingService;
+    private final DocumentValidationService documentValidationService;
+    private final ObjectMapper objectMapper;
 
     @Operation(
             summary = "Create a new quiz",
@@ -438,6 +450,100 @@ public class QuizController {
     }
 
     @Operation(
+            summary = "Upload document and generate quiz in one operation (Async)",
+            description = "ADMIN only. Upload a document, process it, and start quiz generation in a single operation. This endpoint combines document upload and quiz generation for simpler frontend integration. Returns a job ID for tracking progress.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = "multipart/form-data",
+                            schema = @Schema(implementation = GenerateQuizFromUploadRequest.class)
+                    )
+            ),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "202",
+                            description = "Document uploaded, processed, and quiz generation started",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationResponse.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or invalid request",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "422",
+                            description = "Document processing failed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping(value = "/generate-from-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationResponse> generateQuizFromUpload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
+            @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
+            @RequestParam(value = "quizScope", required = false) String quizScope,
+            @RequestParam(value = "chunkIndices", required = false) List<Integer> chunkIndices,
+            @RequestParam(value = "chapterTitle", required = false) String chapterTitle,
+            @RequestParam(value = "chapterNumber", required = false) Integer chapterNumber,
+            @RequestParam(value = "quizTitle", required = false) String quizTitle,
+            @RequestParam(value = "quizDescription", required = false) String quizDescription,
+            @RequestParam(value = "questionsPerType", required = true) String questionsPerTypeJson,
+            @RequestParam(value = "difficulty", required = true) String difficulty,
+            @RequestParam(value = "estimatedTimePerQuestion", required = false) Integer estimatedTimePerQuestion,
+            @RequestParam(value = "categoryId", required = false) UUID categoryId,
+            @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
+            Authentication authentication
+    ) {
+        try {
+            // Validate file upload
+            documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
+
+            // Parse questions per type from JSON string
+            Map<QuestionType, Integer> questionsPerType = parseQuestionsPerType(questionsPerTypeJson);
+
+            // Create the combined request DTO
+            GenerateQuizFromUploadRequest request = new GenerateQuizFromUploadRequest(
+                    chunkingStrategy != null ? ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()) : null,
+                    maxChunkSize,
+                    quizScope != null ? QuizScope.valueOf(quizScope.toUpperCase()) : null,
+                    chunkIndices,
+                    chapterTitle,
+                    chapterNumber,
+                    quizTitle,
+                    quizDescription,
+                    questionsPerType,
+                    Difficulty.valueOf(difficulty.toUpperCase()),
+                    estimatedTimePerQuestion,
+                    categoryId,
+                    tagIds
+            );
+
+            // Process document and start quiz generation
+            QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
+        }
+    }
+
+    @Operation(
             summary = "Get quiz generation job status",
             description = "Get the current status and progress of a quiz generation job. Returns detailed information about the generation progress including processed chunks, estimated completion time, and any errors.",
             security = @SecurityRequirement(name = "bearerAuth"),
@@ -626,5 +732,16 @@ public class QuizController {
     ) {
         QuizGenerationJobService.JobStatistics statistics = quizService.getGenerationJobStatistics(authentication.getName());
         return ResponseEntity.ok(statistics);
+    }
+
+    /**
+     * Parse questions per type from JSON string
+     */
+    private Map<QuestionType, Integer> parseQuestionsPerType(String questionsPerTypeJson) {
+        try {
+            return objectMapper.readValue(questionsPerTypeJson, new TypeReference<Map<QuestionType, Integer>>() {});
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid questionsPerType JSON format: " + e.getMessage());
+        }
     }
 }
