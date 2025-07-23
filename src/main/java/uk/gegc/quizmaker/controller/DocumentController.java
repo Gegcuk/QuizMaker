@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.config.DocumentProcessingConfig;
 import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
+import uk.gegc.quizmaker.dto.document.DocumentConfigDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
@@ -241,7 +242,11 @@ public class DocumentController {
     }
 
     @GetMapping("/config")
-    public ResponseEntity<DocumentProcessingConfig> getConfiguration() {
-        return ResponseEntity.ok(documentConfig);
+    public ResponseEntity<DocumentConfigDto> getConfiguration() {
+        DocumentConfigDto config = new DocumentConfigDto(
+                documentConfig.getDefaultMaxChunkSize(),
+                documentConfig.getDefaultStrategy()
+        );
+        return ResponseEntity.ok(config);
     }
 } 
