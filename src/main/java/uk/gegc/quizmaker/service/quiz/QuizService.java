@@ -2,11 +2,11 @@ package uk.gegc.quizmaker.service.quiz;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
