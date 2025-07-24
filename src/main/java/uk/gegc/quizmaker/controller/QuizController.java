@@ -38,6 +38,12 @@ import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.model.quiz.GenerationStatus;
+import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
 
 import java.util.List;
 import java.util.Map;
@@ -49,12 +55,15 @@ import java.util.UUID;
 @RequestMapping("/api/v1/quizzes")
 @RequiredArgsConstructor
 @Validated
+@Slf4j
 public class QuizController {
 
     private final QuizService quizService;
     private final AttemptService attemptService;
     private final DocumentProcessingService documentProcessingService;
     private final DocumentValidationService documentValidationService;
+    private final QuizGenerationJobService jobService;
+    private final QuizGenerationJobRepository jobRepository;
     private final ObjectMapper objectMapper;
 
     @Operation(
@@ -732,6 +741,83 @@ public class QuizController {
     ) {
         QuizGenerationJobService.JobStatistics statistics = quizService.getGenerationJobStatistics(authentication.getName());
         return ResponseEntity.ok(statistics);
+    }
+
+    @Operation(
+            summary = "Clean up stale pending jobs",
+            description = "Clean up any pending jobs that have been pending for too long (10+ minutes). This is useful for clearing stuck jobs.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Cleanup completed successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = String.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generation-jobs/cleanup-stale")
+    public ResponseEntity<String> cleanupStaleJobs(Authentication authentication) {
+        // This is a simple cleanup operation that doesn't require user-specific logic
+        // In a production system, you might want to restrict this to admin users
+        jobService.cleanupStalePendingJobs();
+        return ResponseEntity.ok("Stale jobs cleaned up successfully");
+    }
+
+    @Operation(
+            summary = "Force cancel a specific job",
+            description = "Force cancel a specific generation job by ID. This is useful for clearing stuck jobs that can't be cancelled normally.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Job cancelled successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = String.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Job not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generation-jobs/{jobId}/force-cancel")
+    public ResponseEntity<String> forceCancelJob(
+            @Parameter(description = "UUID of the job to force cancel", required = true)
+            @PathVariable UUID jobId,
+            Authentication authentication
+    ) {
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Job not found: " + jobId));
+            
+            log.info("Force cancelling job: {} (current status: {})", jobId, job.getStatus());
+            job.setStatus(GenerationStatus.CANCELLED);
+            job.setErrorMessage("Force cancelled by user");
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+            
+            return ResponseEntity.ok("Job " + jobId + " force cancelled successfully");
+        } catch (Exception e) {
+            log.error("Error force cancelling job: {}", jobId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Error cancelling job: " + e.getMessage());
+        }
     }
 
     /**
