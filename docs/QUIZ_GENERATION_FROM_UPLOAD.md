@@ -4,6 +4,8 @@
 
 The `/api/v1/quizzes/generate-from-upload` endpoint allows you to upload a document and start quiz generation in a single API call. This simplifies the frontend integration by combining document upload, processing, and quiz generation initiation into one operation. The actual quiz generation happens asynchronously in the background.
 
+**Note:** This endpoint uses improved chunking logic with a minimum chunk size of 1000 characters to ensure high-quality, substantial chunks for better quiz generation.
+
 ## Endpoint Details
 
 **URL:** `POST /api/v1/quizzes/generate-from-upload`  
@@ -117,6 +119,7 @@ async function startQuizGeneration(file) {
     "TRUE_FALSE": 3
   }));
   formData.append('difficulty', 'MEDIUM');
+  formData.append('quizScope', 'ENTIRE_DOCUMENT'); // ✅ Send as string, not object
 
   try {
     const response = await fetch('/api/v1/quizzes/generate-from-upload', {
@@ -155,7 +158,7 @@ async function generateAdvancedQuiz(file) {
   formData.append('maxChunkSize', '40000');
   
   // Quiz generation
-  formData.append('quizScope', 'ENTIRE_DOCUMENT');
+  formData.append('quizScope', 'ENTIRE_DOCUMENT'); // ✅ String enum value
   formData.append('questionsPerType', JSON.stringify({
     "MCQ_SINGLE": 3,
     "TRUE_FALSE": 2,
@@ -378,4 +381,9 @@ Common validation errors and their solutions:
 4. **"Unauthorized"**
    - Check authentication token
    - Verify user has ADMIN role
-   - Ensure token hasn't expired 
+   - Ensure token hasn't expired
+
+5. **"Cannot deserialize QuizScope"**
+   - Send quizScope as string: `'ENTIRE_DOCUMENT'`
+   - NOT as object: `{"type": "ENTIRE_DOCUMENT"}`
+   - Valid values: `'ENTIRE_DOCUMENT'`, `'SPECIFIC_CHUNKS'`, `'SPECIFIC_CHAPTER'`, `'SPECIFIC_SECTION'` 

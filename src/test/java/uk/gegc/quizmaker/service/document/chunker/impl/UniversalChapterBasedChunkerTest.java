@@ -61,8 +61,6 @@ class UniversalChapterBasedChunkerTest {
 
         when(titleGenerator.generateChunkTitle(anyString(), anyInt(), anyInt(), anyBoolean()))
                 .thenReturn("Document Part 1");
-        when(sentenceBoundaryDetector.findBestSplitPoint(anyString(), anyInt()))
-                .thenReturn(100);
 
         // Act
         List<UniversalChunker.Chunk> result = chunker.chunkDocument(document, request);

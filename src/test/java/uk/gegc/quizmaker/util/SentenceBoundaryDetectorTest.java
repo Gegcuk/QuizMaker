@@ -1,20 +1,15 @@
 package uk.gegc.quizmaker.util;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.mockito.InjectMocks;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Execution(ExecutionMode.CONCURRENT)
-@ExtendWith(MockitoExtension.class)
 class SentenceBoundaryDetectorTest {
 
-    @InjectMocks
-    private SentenceBoundaryDetector detector;
+    private SentenceBoundaryDetector detector = new SentenceBoundaryDetector();
 
     @Test
     void findLastSentenceEnd_WithSimpleSentence_ReturnsCorrectPosition() {
@@ -146,7 +141,7 @@ class SentenceBoundaryDetectorTest {
         int result = detector.findBestSplitPoint(text, maxLength);
 
         // Assert
-        assertEquals(28, result); // Should split at the first sentence end
+        assertEquals(19, result); // Should split at the first sentence end (position after the period and space)
     }
 
     @Test
