@@ -876,63 +876,557 @@ POST /api/v1/compliance/consent-update
 
 ---
 
-## 🚀 Implementation Priority
+## 💳 Payment System Implementation
 
-### Additional Points
-- Introduce feature-flag framework early to enable incremental delivery
-- Establish design system to speed up future UI work
-- Create comprehensive API contract tests to prevent regressions
+### Overview
+QuizMaker will implement a dual payment model supporting both **one-time purchases** (individual quizzes, question packs, premium features) and **subscription-based access** (monthly/yearly plans with unlimited content access). We'll use **Stripe** as our payment provider due to its excellent documentation, robust security, global reach, and comprehensive feature set.
 
-### High Priority (Immediate)
-1. **User Profile Management** - Complete CRUD for users
-2. **Password Reset Flow** - Essential security feature
-3. **Basic Search Functionality** - Core user need
-4. **Quiz Analytics** - Business value
-5. **Notification System** - User engagement
+### Payment Models
 
-### Medium Priority (Next 3 months)
-1. **Social Features** (Comments, Ratings, Following)
-2. **Advanced Quiz Types** - Competitive advantage
-3. **Mobile API Enhancements** - User experience
-4. **Content Management** - Creator tools
-5. **Basic Reporting** - Admin needs
+#### 1. Purchase-Based (One-time Payments)
+- **Premium Quiz Access**: Individual quiz purchases ($1-10 per quiz)
+- **Question Pack Bundles**: Curated question collections ($5-25 per pack)
+- **AI-Generated Quiz Credits**: Pay-per-use AI quiz generation ($0.50-2 per generation)
+- **Export Features**: PDF/Excel export capabilities ($2-5 per export)
+- **Advanced Analytics Reports**: Detailed performance insights ($10-20 per report)
 
-### Low Priority (Future)
-1. **Advanced ML Features** - Innovation
-2. **Complex Integrations** - Enterprise features
-3. **Advanced Analytics** - Deep insights
-4. **Gamification** - Engagement
-5. **Multi-tenancy** - Scalability
+#### 2. Subscription-Based (Recurring Payments)
+- **Basic Plan** ($9.99/month): Up to 10 quiz attempts, basic analytics
+- **Pro Plan** ($19.99/month): Unlimited attempts, advanced analytics, quiz creation
+- **Enterprise Plan** ($49.99/month): All features, team management, API access
+- **Student Plan** ($4.99/month): Discounted access for verified students
+- **Annual Plans**: 20% discount on all monthly plans
 
----
+### Architecture Components
 
-## 📝 Implementation Notes
+#### New Domain Models
+```java
+// Payment-related entities
+@Entity
+public class PaymentPlan {
+    private UUID id;
+    private String name;
+    private String stripeProductId;
+    private String stripePriceId;
+    private BigDecimal price;
+    private String currency;
+    private PlanType type; // SUBSCRIPTION, ONE_TIME
+    private BillingInterval interval; // MONTHLY, YEARLY, null for one-time
+    private Map<String, Object> features; // JSON column for feature limits
+    private boolean active;
+}
 
-### Database Schema Extensions Needed
-- User profiles and preferences tables
-- Social interaction tables (comments, ratings, follows)
-- Notification system tables
-- Media and file management tables
-- Analytics and reporting tables
-- Audit and security logging tables
+@Entity
+public class UserSubscription {
+    private UUID id;
+    private UUID userId;
+    private UUID paymentPlanId;
+    private String stripeSubscriptionId;
+    private String stripeCustomerId;
+    private SubscriptionStatus status;
+    private LocalDateTime currentPeriodStart;
+    private LocalDateTime currentPeriodEnd;
+    private LocalDateTime cancelAt;
+    private boolean cancelAtPeriodEnd;
+}
 
-### New Service Layer Components
-- UserProfileService
-- NotificationService  
-- SearchService
-- AnalyticsService
-- MediaService
-- SecurityService
+@Entity
+public class Purchase {
+    private UUID id;
+    private UUID userId;
+    private UUID purchasableId; // Quiz, QuestionPack, etc.
+    private PurchasableType type;
+    private String stripePaymentIntentId;
+    private BigDecimal amount;
+    private String currency;
+    private PurchaseStatus status;
+    private LocalDateTime purchasedAt;
+    private LocalDateTime expiresAt; // For time-limited purchases
+}
 
-### Infrastructure Considerations
-- File storage solution (AWS S3, MinIO)
-- Search engine integration (Elasticsearch)
-- Caching layer (Redis)
-- Message queue (RabbitMQ, Apache Kafka)
-- CDN for media delivery
-- Background job processing
+@Entity
+public class PaymentTransaction {
+    private UUID id;
+    private UUID userId;
+    private String stripeEventId;
+    private TransactionType type; // PAYMENT, REFUND, CHARGEBACK
+    private BigDecimal amount;
+    private String currency;
+    private TransactionStatus status;
+    private Map<String, Object> metadata; // JSON for Stripe event data
+    private LocalDateTime createdAt;
+}
+```
 
-This comprehensive improvement plan provides a roadmap for evolving QuizMaker from a functional quiz platform into a feature-rich, enterprise-grade learning management system with social features, advanced analytics, and robust user experience. 
+#### Enums and Supporting Types
+```java
+public enum PlanType {
+    SUBSCRIPTION, ONE_TIME
+}
+
+public enum BillingInterval {
+    MONTHLY, YEARLY
+}
+
+public enum SubscriptionStatus {
+    ACTIVE, TRIALING, PAST_DUE, CANCELED, INCOMPLETE, INCOMPLETE_EXPIRED, UNPAID
+}
+
+public enum PurchaseStatus {
+    PENDING, COMPLETED, FAILED, REFUNDED, DISPUTED
+}
+
+public enum PurchasableType {
+    QUIZ, QUESTION_PACK, AI_CREDITS, EXPORT_FEATURE, ANALYTICS_REPORT
+}
+
+public enum TransactionType {
+    PAYMENT, REFUND, CHARGEBACK, SUBSCRIPTION_PAYMENT, SUBSCRIPTION_REFUND
+}
+
+public enum TransactionStatus {
+    PENDING, SUCCEEDED, FAILED, DISPUTED, REFUNDED
+}
+```
+
+### Payment Service Architecture
+
+#### Core Services
+```java
+@Service
+public interface PaymentService {
+    // Subscription Management
+    CreateSubscriptionResponse createSubscription(UUID userId, UUID planId, String paymentMethodId);
+    SubscriptionDto getSubscription(UUID userId);
+    CancelSubscriptionResponse cancelSubscription(UUID userId, boolean cancelAtPeriodEnd);
+    UpdateSubscriptionResponse updateSubscription(UUID userId, UUID newPlanId);
+    
+    // One-time Purchases
+    CreatePaymentResponse createPayment(UUID userId, PurchaseRequest request);
+    PaymentStatusResponse getPaymentStatus(UUID userId, UUID purchaseId);
+    RefundResponse processRefund(UUID purchaseId, BigDecimal amount);
+    
+    // Customer Management
+    CustomerDto createOrUpdateCustomer(UUID userId);
+    PaymentMethodResponse attachPaymentMethod(UUID userId, String paymentMethodId);
+    List<PaymentMethodDto> getPaymentMethods(UUID userId);
+    
+    // Usage & Limits
+    boolean canAccessFeature(UUID userId, String featureName);
+    UsageLimitsDto getUserUsageLimits(UUID userId);
+    void trackUsage(UUID userId, String featureName, int amount);
+}
+
+@Service
+public interface SubscriptionService {
+    boolean isSubscriptionActive(UUID userId);
+    SubscriptionDto getCurrentSubscription(UUID userId);
+    List<PaymentPlanDto> getAvailablePlans();
+    boolean hasFeatureAccess(UUID userId, String featureName);
+    UsageQuotaDto getUsageQuota(UUID userId);
+}
+
+@Service
+public interface WebhookService {
+    void handleStripeWebhook(String payload, String signature);
+    void processSubscriptionUpdated(Subscription stripeSubscription);
+    void processPaymentSucceeded(PaymentIntent paymentIntent);
+    void processInvoicePaid(Invoice invoice);
+    void processCustomerDeleted(Customer customer);
+}
+```
+
+#### Purchase Authorization Service
+```java
+@Service
+@Component
+public class PurchaseAuthorizationService {
+    
+    public boolean canPurchaseQuiz(UUID userId, UUID quizId) {
+        // Check if user already owns this quiz
+        // Check subscription limits
+        // Validate quiz accessibility
+    }
+    
+    public boolean canGenerateAIQuiz(UUID userId) {
+        // Check AI credits balance
+        // Check subscription allowances
+    }
+    
+    public boolean canExportResults(UUID userId, UUID attemptId) {
+        // Check export permissions
+        // Validate ownership
+    }
+}
+```
+
+### REST API Endpoints
+
+#### Subscription Management
+```http
+# Plan Information
+GET /api/v1/payments/plans
+GET /api/v1/payments/plans/{planId}
+
+# Subscription Lifecycle
+POST /api/v1/payments/subscriptions/create
+GET /api/v1/payments/subscriptions/current
+PATCH /api/v1/payments/subscriptions/change-plan
+POST /api/v1/payments/subscriptions/cancel
+POST /api/v1/payments/subscriptions/reactivate
+
+# Payment Methods
+GET /api/v1/payments/payment-methods
+POST /api/v1/payments/payment-methods/attach
+DELETE /api/v1/payments/payment-methods/{paymentMethodId}
+PATCH /api/v1/payments/payment-methods/{paymentMethodId}/set-default
+
+# Billing
+GET /api/v1/payments/billing/history
+GET /api/v1/payments/billing/upcoming
+POST /api/v1/payments/billing/update-details
+GET /api/v1/payments/billing/download-invoice/{invoiceId}
+```
+
+#### One-time Purchases
+```http
+# Purchase Flow
+POST /api/v1/payments/purchases/create-intent
+POST /api/v1/payments/purchases/confirm
+GET /api/v1/payments/purchases/status/{purchaseId}
+GET /api/v1/payments/purchases/history
+
+# Specific Purchase Types
+POST /api/v1/payments/purchases/quiz/{quizId}
+POST /api/v1/payments/purchases/ai-credits
+POST /api/v1/payments/purchases/export/{type}
+POST /api/v1/payments/purchases/analytics-report/{reportType}
+
+# Purchase Management
+GET /api/v1/payments/purchases/owned-content
+POST /api/v1/payments/purchases/{purchaseId}/request-refund
+```
+
+#### Usage and Limits
+```http
+# Current Usage
+GET /api/v1/payments/usage/current
+GET /api/v1/payments/usage/limits
+GET /api/v1/payments/usage/history
+
+# Feature Access
+GET /api/v1/payments/features/available
+POST /api/v1/payments/features/check-access
+```
+
+#### Webhooks (Internal)
+```http
+# Stripe Webhook Endpoint
+POST /api/v1/payments/webhooks/stripe
+```
+
+### Integration with Existing Features
+
+#### Quiz Access Control
+```java
+@RestController
+public class QuizController {
+    
+    @Autowired
+    private PurchaseAuthorizationService purchaseAuth;
+    
+    @GetMapping("/api/v1/quizzes/{quizId}")
+    @PreAuthorize("@purchaseAuthorizationService.canAccessQuiz(authentication.principal.id, #quizId)")
+    public QuizDto getQuiz(@PathVariable UUID quizId) {
+        // Existing quiz retrieval logic
+    }
+    
+    @PostMapping("/api/v1/quizzes/{quizId}/attempt")
+    @PreAuthorize("@purchaseAuthorizationService.canAttemptQuiz(authentication.principal.id, #quizId)")
+    public AttemptDto startQuizAttempt(@PathVariable UUID quizId) {
+        // Existing attempt logic with usage tracking
+        usageTrackingService.trackQuizAttempt(getCurrentUserId());
+    }
+}
+```
+
+#### AI Quiz Generation Integration
+```java
+@RestController
+public class AiController {
+    
+    @PostMapping("/api/v1/ai/generate-quiz")
+    @PreAuthorize("@purchaseAuthorizationService.canGenerateAIQuiz(authentication.principal.id)")
+    public AiGeneratedQuizDto generateQuiz(@RequestBody GenerateQuizRequest request) {
+        // Check AI credits or subscription limits
+        paymentService.trackUsage(getCurrentUserId(), "ai_generation", 1);
+        // Existing AI generation logic
+    }
+}
+```
+
+### Database Schema Extensions
+
+#### New Tables
+```sql
+-- Payment Plans
+CREATE TABLE payment_plans (
+    id CHAR(36) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    stripe_product_id VARCHAR(255),
+    stripe_price_id VARCHAR(255),
+    price DECIMAL(10, 2) NOT NULL,
+    currency CHAR(3) DEFAULT 'USD',
+    type ENUM('SUBSCRIPTION', 'ONE_TIME') NOT NULL,
+    billing_interval ENUM('MONTHLY', 'YEARLY'),
+    features JSON,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- User Subscriptions
+CREATE TABLE user_subscriptions (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    payment_plan_id CHAR(36) NOT NULL,
+    stripe_subscription_id VARCHAR(255),
+    stripe_customer_id VARCHAR(255),
+    status ENUM('ACTIVE', 'TRIALING', 'PAST_DUE', 'CANCELED', 'INCOMPLETE', 'INCOMPLETE_EXPIRED', 'UNPAID') NOT NULL,
+    current_period_start TIMESTAMP,
+    current_period_end TIMESTAMP,
+    cancel_at TIMESTAMP NULL,
+    cancel_at_period_end BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (payment_plan_id) REFERENCES payment_plans(id),
+    UNIQUE KEY unique_active_subscription (user_id, status)
+);
+
+-- Purchases
+CREATE TABLE purchases (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    purchasable_id CHAR(36) NOT NULL,
+    purchasable_type ENUM('QUIZ', 'QUESTION_PACK', 'AI_CREDITS', 'EXPORT_FEATURE', 'ANALYTICS_REPORT') NOT NULL,
+    stripe_payment_intent_id VARCHAR(255),
+    amount DECIMAL(10, 2) NOT NULL,
+    currency CHAR(3) DEFAULT 'USD',
+    status ENUM('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'DISPUTED') NOT NULL,
+    purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NULL,
+    metadata JSON,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_user_purchases (user_id, purchasable_type, status),
+    INDEX idx_purchasable (purchasable_id, purchasable_type)
+);
+
+-- Payment Transactions
+CREATE TABLE payment_transactions (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    stripe_event_id VARCHAR(255) UNIQUE,
+    transaction_type ENUM('PAYMENT', 'REFUND', 'CHARGEBACK', 'SUBSCRIPTION_PAYMENT', 'SUBSCRIPTION_REFUND') NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    currency CHAR(3) DEFAULT 'USD',
+    status ENUM('PENDING', 'SUCCEEDED', 'FAILED', 'DISPUTED', 'REFUNDED') NOT NULL,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_user_transactions (user_id, created_at),
+    INDEX idx_stripe_events (stripe_event_id)
+);
+
+-- Usage Tracking
+CREATE TABLE usage_tracking (
+    id CHAR(36) PRIMARY KEY,
+    user_id CHAR(36) NOT NULL,
+    feature_name VARCHAR(100) NOT NULL,
+    usage_count INT DEFAULT 1,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE KEY unique_user_feature_period (user_id, feature_name, period_start, period_end),
+    INDEX idx_user_usage (user_id, period_start, period_end)
+);
+```
+
+### Security Considerations
+
+#### Stripe Integration Security
+- **Webhook Signature Verification**: Always verify Stripe webhook signatures
+- **Idempotency Keys**: Use idempotency keys for all Stripe API calls
+- **API Key Management**: Store Stripe keys in environment variables
+- **PCI Compliance**: Never store card details; use Stripe's secure vault
+- **HTTPS Only**: All payment endpoints must use HTTPS
+- **Rate Limiting**: Implement rate limiting on payment endpoints
+
+#### Authorization & Access Control
+```java
+@Component
+public class PaymentSecurityService {
+    
+    public boolean canModifySubscription(UUID userId, UUID subscriptionId) {
+        UserSubscription subscription = subscriptionRepository.findById(subscriptionId);
+        return subscription != null && subscription.getUserId().equals(userId);
+    }
+    
+    public boolean canRefundPurchase(UUID userId, UUID purchaseId) {
+        Purchase purchase = purchaseRepository.findById(purchaseId);
+        return purchase != null && 
+               purchase.getUserId().equals(userId) && 
+               purchase.isRefundable();
+    }
+}
+```
+
+### Configuration and Setup
+
+#### Stripe Configuration
+```java
+@Configuration
+public class StripeConfig {
+    
+    @Value("${stripe.api.key}")
+    private String stripeApiKey;
+    
+    @Value("${stripe.webhook.secret}")
+    private String webhookSecret;
+    
+    @PostConstruct
+    public void init() {
+        Stripe.apiKey = stripeApiKey;
+    }
+    
+    @Bean
+    public StripeService stripeService() {
+        return new StripeServiceImpl(webhookSecret);
+    }
+}
+```
+
+#### Application Properties
+```properties
+# Stripe Configuration
+stripe.api.key=${STRIPE_SECRET_KEY}
+stripe.publishable.key=${STRIPE_PUBLISHABLE_KEY}
+stripe.webhook.secret=${STRIPE_WEBHOOK_SECRET}
+stripe.environment=${STRIPE_ENVIRONMENT:test}
+
+# Payment Configuration
+payments.default.currency=USD
+payments.subscription.trial.days=7
+payments.refund.window.days=30
+payments.usage.tracking.enabled=true
+```
+
+### Frontend Integration Points
+
+#### Payment Component Structure
+```typescript
+// React/Vue components needed
+- SubscriptionPlanSelector
+- PaymentMethodManager  
+- CheckoutForm
+- BillingHistoryTable
+- UsageDashboard
+- PurchaseConfirmationModal
+- RefundRequestForm
+```
+
+#### API Client Methods
+```typescript
+// Frontend payment API client
+class PaymentApiClient {
+  async getAvailablePlans(): Promise<PaymentPlan[]>
+  async createSubscription(planId: string, paymentMethodId: string): Promise<Subscription>
+  async createPurchaseIntent(request: PurchaseRequest): Promise<PaymentIntent>
+  async confirmPurchase(purchaseId: string): Promise<Purchase>
+  async getUserUsage(): Promise<UsageLimits>
+  async getBillingHistory(): Promise<Transaction[]>
+  async requestRefund(purchaseId: string, reason: string): Promise<RefundRequest>
+}
+```
+
+### Testing Strategy
+
+#### Unit Tests
+- Payment service logic
+- Subscription status calculations
+- Usage limit validations
+- Purchase authorization checks
+
+#### Integration Tests
+- Stripe webhook processing
+- Payment flow end-to-end
+- Subscription lifecycle management
+- Database transaction integrity
+
+#### Mock Stripe Integration
+```java
+@TestConfiguration
+public class MockStripeConfig {
+    
+    @Bean
+    @Primary
+    public StripeService mockStripeService() {
+        return Mockito.mock(StripeService.class);
+    }
+}
+```
+
+### Monitoring and Analytics
+
+#### Payment Metrics to Track
+- Monthly Recurring Revenue (MRR)
+- Customer Lifetime Value (CLV)
+- Churn rate by plan type
+- Failed payment recovery rate
+- Popular purchase items
+- Subscription upgrade/downgrade patterns
+
+#### Alerting Setup
+- Failed webhook deliveries
+- High chargeback rates
+- Subscription cancellation spikes
+- Payment processing errors
+- Usage limit violations
+
+### Implementation Timeline
+
+#### Phase 1 (Month 1): Foundation
+- Stripe integration setup
+- Basic subscription management
+- Database schema implementation
+- Core payment services
+
+#### Phase 2 (Month 2): Purchase System
+- One-time purchase flow
+- Quiz/content access control
+- Usage tracking implementation
+- Basic webhook processing
+
+#### Phase 3 (Month 3): Advanced Features
+- Comprehensive admin dashboard
+- Advanced analytics
+- Refund management
+- Mobile payment optimization
+
+#### Phase 4 (Month 4): Polish & Scale
+- Performance optimization
+- Advanced security features
+- Comprehensive testing
+- Go-to-market preparation
+
+### Success Metrics
+- **Technical**: 99.9% payment uptime, <2s checkout completion
+- **Business**: 15% monthly subscription conversion rate, <5% churn
+- **User Experience**: <3 clicks to purchase, 90%+ payment success rate
+
+This comprehensive payment system will transform QuizMaker from a free platform into a sustainable SaaS business, supporting both casual users who prefer pay-per-use and power users who benefit from unlimited subscriptions. The dual model maximizes revenue potential while providing flexibility for different user segments. 
 
 ---
 
