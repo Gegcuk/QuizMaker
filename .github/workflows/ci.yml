@@ -52,4 +52,4 @@ jobs:
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        run: ./mvnw clean verify
+        run: ./mvnw clean verify -Dspring.profiles.active=test-mysql

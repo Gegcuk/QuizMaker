@@ -34,6 +34,29 @@
         <java.version>17</java.version>
     </properties>
 
+    <!-- Maven profiles -->
+    <profiles>
+        <!-- Profile for running all tests including OpenAI API tests locally -->
+        <profile>
+            <id>all-tests</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <useUnlimitedThreads>true</useUnlimitedThreads>
+                            <!-- Include all tests when running locally -->
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
     <!-- Dependencies -->
     <dependencies>
 
@@ -228,6 +251,16 @@
                 <configuration>
                     <!-- Allow the JUnit Platform to manage threads -->
                     <useUnlimitedThreads>true</useUnlimitedThreads>
+                    <!-- Exclude OpenAI API tests from CI to avoid costs -->
+                    <excludes>
+                        <exclude>**/AiChatServiceIntegrationTest.java</exclude>
+                        <exclude>**/AiQuizGenerationServiceIntegrationTest.java</exclude>
+                        <exclude>**/EndToEndQuizGenerationIntegrationTest.java</exclude>
+                        <exclude>**/FillGapQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/ComplianceQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/HotspotQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
         </plugins>
