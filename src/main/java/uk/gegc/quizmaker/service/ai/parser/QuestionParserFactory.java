@@ -21,6 +21,10 @@ public class QuestionParserFactory {
     private final McqQuestionParser mcqQuestionParser;
     private final TrueFalseQuestionParser trueFalseQuestionParser;
     private final OpenQuestionParser openQuestionParser;
+    private final FillGapQuestionParser fillGapQuestionParser;
+    private final OrderingQuestionParser orderingQuestionParser;
+    private final ComplianceQuestionParser complianceQuestionParser;
+    private final HotspotQuestionParser hotspotQuestionParser;
 
     /**
      * Parse questions based on the question type
@@ -35,48 +39,20 @@ public class QuestionParserFactory {
             case MCQ_MULTI -> mcqQuestionParser.parseMcqMultiQuestions(contentNode);
             case TRUE_FALSE -> trueFalseQuestionParser.parseTrueFalseQuestions(contentNode);
             case OPEN -> openQuestionParser.parseOpenQuestions(contentNode);
-            case FILL_GAP -> parseFillGapQuestions(contentNode);
-            case ORDERING -> parseOrderingQuestions(contentNode);
-            case COMPLIANCE -> parseComplianceQuestions(contentNode);
-            case HOTSPOT -> parseHotspotQuestions(contentNode);
+            case FILL_GAP -> fillGapQuestionParser.parseFillGapQuestions(contentNode);
+            case ORDERING -> orderingQuestionParser.parseOrderingQuestions(contentNode);
+            case COMPLIANCE -> complianceQuestionParser.parseComplianceQuestions(contentNode);
+            case HOTSPOT -> hotspotQuestionParser.parseHotspotQuestions(contentNode);
         };
     }
 
-    /**
-     * Parse FILL_GAP questions
-     */
-    private List<Question> parseFillGapQuestions(JsonNode contentNode) throws AIResponseParseException {
-        // TODO: Implement specialized FILL_GAP parser
-        log.warn("FILL_GAP parser not yet implemented, using generic parser");
-        return parseGenericQuestions(contentNode, QuestionType.FILL_GAP);
-    }
 
-    /**
-     * Parse ORDERING questions
-     */
-    private List<Question> parseOrderingQuestions(JsonNode contentNode) throws AIResponseParseException {
-        // TODO: Implement specialized ORDERING parser
-        log.warn("ORDERING parser not yet implemented, using generic parser");
-        return parseGenericQuestions(contentNode, QuestionType.ORDERING);
-    }
 
-    /**
-     * Parse COMPLIANCE questions
-     */
-    private List<Question> parseComplianceQuestions(JsonNode contentNode) throws AIResponseParseException {
-        // TODO: Implement specialized COMPLIANCE parser
-        log.warn("COMPLIANCE parser not yet implemented, using generic parser");
-        return parseGenericQuestions(contentNode, QuestionType.COMPLIANCE);
-    }
 
-    /**
-     * Parse HOTSPOT questions
-     */
-    private List<Question> parseHotspotQuestions(JsonNode contentNode) throws AIResponseParseException {
-        // TODO: Implement specialized HOTSPOT parser
-        log.warn("HOTSPOT parser not yet implemented, using generic parser");
-        return parseGenericQuestions(contentNode, QuestionType.HOTSPOT);
-    }
+
+
+
+
 
     /**
      * Generic parser for question types that don't have specialized parsers yet

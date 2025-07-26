@@ -8,6 +8,13 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.dto.question.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
+
+import java.time.Instant;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -16,11 +23,22 @@ public class TrueFalseHandlerTest {
 
     private TrueFalseHandler handler;
     private ObjectMapper objectMapper;
+    private Attempt testAttempt;
+    private Question testQuestion;
 
     @BeforeEach
     void setUp() {
         handler = new TrueFalseHandler();
         objectMapper = new ObjectMapper();
+        
+        // Setup test attempt and question
+        testAttempt = new Attempt();
+        testAttempt.setId(UUID.randomUUID());
+        testAttempt.setStartedAt(Instant.now());
+        
+        testQuestion = new Question();
+        testQuestion.setId(UUID.randomUUID());
+        testQuestion.setType(QuestionType.TRUE_FALSE);
     }
 
     @Test
@@ -50,30 +68,128 @@ public class TrueFalseHandlerTest {
                 () -> handler.validateContent(new FakeRequest(node)));
     }
 
+    // Answer Validation Tests (doHandle method)
     @Test
-    void nullContent_throws() {
-        assertThrows(ValidationException.class,
-                () -> handler.validateContent(new FakeRequest(null)));
+    void doHandle_correctTrueAnswer_returnsCorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.readTree("{\"answer\":true}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
     }
 
-    private static class FakeRequest implements QuestionContentRequest {
+    @Test
+    void doHandle_correctFalseAnswer_returnsCorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":false}");
+        JsonNode response = objectMapper.readTree("{\"answer\":false}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
+    }
 
-        private final JsonNode content;
+    @Test
+    void doHandle_incorrectAnswer_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.readTree("{\"answer\":false}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
 
-        FakeRequest(JsonNode content) {
-            this.content = content;
+    @Test
+    void doHandle_missingAnswerField_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.createObjectNode();
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // When
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_nonBooleanAnswer_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.readTree("{\"answer\":\"maybe\"}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_nullAnswer_returnsIncorrect() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.readTree("{\"answer\":null}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_oppositeAnswers() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":true}");
+        JsonNode response = objectMapper.readTree("{\"answer\":false}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertFalse(answer.getIsCorrect());
+        assertEquals(0.0, answer.getScore());
+    }
+
+    @Test
+    void doHandle_bothFalse() throws Exception {
+        // Given
+        JsonNode content = objectMapper.readTree("{\"answer\":false}");
+        JsonNode response = objectMapper.readTree("{\"answer\":false}");
+        
+        // When
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+        
+        // Then
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
+    }
+
+    record FakeRequest(JsonNode content) implements QuestionContentRequest {
+        @Override
+        public QuestionType getType() {
+            return QuestionType.TRUE_FALSE;
         }
 
         @Override
-        public com.fasterxml.jackson.databind.JsonNode getContent() {
+        public JsonNode getContent() {
             return content;
         }
-
-        @Override
-        public uk.gegc.quizmaker.model.question.QuestionType getType() {
-            return uk.gegc.quizmaker.model.question.QuestionType.TRUE_FALSE;
-        }
     }
-
-
 }

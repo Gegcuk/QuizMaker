@@ -60,6 +60,16 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
     Page<QuizGenerationJob> findByStatus(GenerationStatus status, Pageable pageable);
 
     /**
+     * Find jobs by multiple statuses
+     */
+    List<QuizGenerationJob> findByStatusIn(List<GenerationStatus> statuses);
+
+    /**
+     * Find jobs by status that were started before a specific time
+     */
+    List<QuizGenerationJob> findByStatusAndStartedAtBefore(GenerationStatus status, LocalDateTime time);
+
+    /**
      * Count jobs by status for a user
      */
     @Query("SELECT COUNT(j) FROM QuizGenerationJob j WHERE j.user.username = :username AND j.status = :status")

@@ -27,7 +27,8 @@ public class TrueFalseHandler extends QuestionHandler {
     @Override
     protected Answer doHandle(Attempt attempt, Question question, JsonNode content, JsonNode response) {
         boolean correctAnswer = content.get("answer").asBoolean();
-        boolean userAnswer = response.get("answer").asBoolean(false);
+        JsonNode userAnswerNode = response.get("answer");
+        boolean userAnswer = userAnswerNode != null && userAnswerNode.isBoolean() ? userAnswerNode.asBoolean() : false;
         boolean isCorrect = userAnswer == correctAnswer;
         Answer answer = new Answer();
         answer.setIsCorrect(isCorrect);

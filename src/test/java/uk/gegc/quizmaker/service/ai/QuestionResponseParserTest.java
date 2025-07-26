@@ -10,13 +10,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.service.ai.parser.McqQuestionParser;
-import uk.gegc.quizmaker.service.ai.parser.OpenQuestionParser;
 import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
-import uk.gegc.quizmaker.service.ai.parser.TrueFalseQuestionParser;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 
 import java.util.List;
