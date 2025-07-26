@@ -254,6 +254,7 @@
                     <!-- Exclude OpenAI API tests from CI to avoid costs -->
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
+                        <exclude>**/AiChatControllerIntegrationTest.java</exclude>
                         <exclude>**/AiQuizGenerationServiceIntegrationTest.java</exclude>
                         <exclude>**/EndToEndQuizGenerationIntegrationTest.java</exclude>
                         <exclude>**/FillGapQuestionGenerationIntegrationTest.java</exclude>
