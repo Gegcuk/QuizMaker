@@ -21,8 +21,11 @@ public class QuizMakerDataSourceTest {
         try (var conn = dataSource.getConnection()) {
             String url = conn.getMetaData().getURL();
             System.out.println("Connected to: " + url);
-            // Check for quizmaker_test_mysql (test database for MySQL-specific tests)
-            assertThat(url).contains("quizmaker_test_mysql");
+            // Check for either quizmaker_test_mysql (local) or quizmakerdb (CI)
+            assertThat(url).satisfiesAnyOf(
+                urlAssert -> urlAssert.contains("quizmaker_test_mysql"),
+                urlAssert -> urlAssert.contains("quizmakerdb")
+            );
         }
     }
 
