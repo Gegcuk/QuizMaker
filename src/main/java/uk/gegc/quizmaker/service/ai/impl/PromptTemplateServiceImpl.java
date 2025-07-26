@@ -116,7 +116,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             case FILL_GAP -> "fill-gap.txt";
             case ORDERING -> "ordering.txt";
             case COMPLIANCE -> "compliance.txt";
-            case HOTSPOT -> "mcq-single.txt"; // Fallback to MCQ for hotspot
+            case HOTSPOT -> "hotspot.txt";
         };
     }
 } 

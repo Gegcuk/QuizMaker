@@ -19,7 +19,7 @@ public class HotspotHandler extends QuestionHandler {
     public void validateContent(QuestionContentRequest request) {
         JsonNode root = request.getContent();
         if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for ORDERING question");
+            throw new ValidationException("Invalid JSON for HOTSPOT question");
         }
 
         JsonNode imageUrl = root.get("imageUrl");
@@ -29,16 +29,55 @@ public class HotspotHandler extends QuestionHandler {
             throw new ValidationException("HOTSPOT requires a non-empty 'imageUrl'");
         }
 
-        if (regions == null || !regions.isArray() || regions.isEmpty()) {
-            throw new ValidationException("HOTSPOT must have at least one region");
+        if (regions == null || !regions.isArray() || regions.size() < 2) {
+            throw new ValidationException("HOTSPOT must have at least 2 regions");
         }
 
+        if (regions.size() > 6) {
+            throw new ValidationException("HOTSPOT must have at most 6 regions");
+        }
+
+        Set<Integer> ids = new java.util.HashSet<>();
+        boolean hasCorrectRegion = false;
         for (JsonNode region : regions) {
+            // Validate id field
+            if (!region.has("id")) {
+                throw new ValidationException("Each region must have an 'id' field");
+            }
+            if (!region.get("id").canConvertToInt()) {
+                throw new ValidationException("Region 'id' must be an integer");
+            }
+            int id = region.get("id").asInt();
+            if (ids.contains(id)) {
+                throw new ValidationException("Region IDs must be unique, found duplicate ID: " + id);
+            }
+            ids.add(id);
+            
+            // Validate correct field
+            if (!region.has("correct")) {
+                throw new ValidationException("Each region must have a 'correct' field");
+            }
+            if (!region.get("correct").isBoolean()) {
+                throw new ValidationException("Region 'correct' field must be a boolean");
+            }
+            if (region.get("correct").asBoolean()) {
+                hasCorrectRegion = true;
+            }
+            
+            // Validate coordinate fields
             for (String field : new String[]{"x", "y", "width", "height"}) {
                 if (!region.has(field) || !region.get(field).canConvertToInt()) {
                     throw new ValidationException("Each region must have integer '" + field + "'");
                 }
+                int value = region.get(field).asInt();
+                if (value < 0) {
+                    throw new ValidationException("Region '" + field + "' must be non-negative");
+                }
             }
+        }
+        
+        if (!hasCorrectRegion) {
+            throw new ValidationException("At least one region must be marked as correct");
         }
     }
 
@@ -54,7 +93,8 @@ public class HotspotHandler extends QuestionHandler {
                 .map(r -> r.get("id").asInt())
                 .collect(Collectors.toSet());
 
-        int selected = response.get("regionId").asInt(-1);
+        JsonNode selectedNode = response.get("selectedRegionId");
+        int selected = selectedNode != null && selectedNode.canConvertToInt() ? selectedNode.asInt() : -1;
         boolean isCorrect = correctIds.contains(selected);
 
         Answer ans = new Answer();

@@ -92,6 +92,11 @@ public interface QuizGenerationJobService {
     List<QuizGenerationJob> getStuckJobs(int maxDurationHours);
 
     /**
+     * Clean up stale pending jobs
+     */
+    void cleanupStalePendingJobs();
+
+    /**
      * DTO for job statistics
      */
     record JobStatistics(

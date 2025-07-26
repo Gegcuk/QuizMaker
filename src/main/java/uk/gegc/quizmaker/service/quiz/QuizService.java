@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.service.quiz;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
@@ -51,6 +52,16 @@ public interface QuizService {
      * @return QuizGenerationResponse with generation details
      */
     QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request);
+
+    /**
+     * Upload document and start quiz generation in one operation
+     *
+     * @param username The username of the user requesting quiz generation
+     * @param file     The document file to upload and process
+     * @param request  The combined upload and generation request
+     * @return QuizGenerationResponse with job ID for tracking
+     */
+    QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request);
 
     /**
      * Start an asynchronous quiz generation job

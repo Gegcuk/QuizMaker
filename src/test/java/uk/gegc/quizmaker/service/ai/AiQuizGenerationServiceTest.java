@@ -11,7 +11,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.context.ApplicationEventPublisher;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
 import uk.gegc.quizmaker.exception.AiServiceException;
@@ -20,7 +19,6 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
 import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
 import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
@@ -151,7 +149,7 @@ class AiQuizGenerationServiceTest {
     @Test
     void shouldValidateDocumentForGenerationSuccessfully() {
         // Given
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertDoesNotThrow(() -> {
@@ -162,7 +160,7 @@ class AiQuizGenerationServiceTest {
     @Test
     void shouldThrowDocumentNotFoundExceptionWhenDocumentNotFound() {
         // Given
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.empty());
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
         assertThrows(DocumentNotFoundException.class, () -> {
@@ -177,7 +175,7 @@ class AiQuizGenerationServiceTest {
         otherUser.setUsername("otheruser");
         testDocument.setUploadedBy(otherUser);
 
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> {
@@ -191,7 +189,7 @@ class AiQuizGenerationServiceTest {
         String serializedRequest = "{\"documentId\":\"" + testDocumentId + "\"}";
         when(objectMapper.writeValueAsString(testRequest)).thenReturn(serializedRequest);
         when(userRepository.findByUsername("testuser")).thenReturn(java.util.Optional.of(testUser));
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
         when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
 
         // When
@@ -347,7 +345,7 @@ class AiQuizGenerationServiceTest {
     void shouldValidateDocumentWithNullChunks() {
         // Given
         testDocument.setChunks(null);
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> {
@@ -359,7 +357,7 @@ class AiQuizGenerationServiceTest {
     void shouldValidateDocumentWithEmptyChunks() {
         // Given
         testDocument.setChunks(List.of());
-        when(documentRepository.findById(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> {

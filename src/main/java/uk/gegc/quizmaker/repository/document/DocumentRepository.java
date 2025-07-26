@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
@@ -25,4 +26,10 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
                                        Pageable pageable);
 
     boolean existsByOriginalFilenameAndUploadedBy(String filename, User user);
+
+    /**
+     * Find document by ID with chunks eagerly loaded
+     */
+    @Query("SELECT d FROM Document d LEFT JOIN FETCH d.chunks WHERE d.id = :id")
+    Optional<Document> findByIdWithChunks(@Param("id") UUID id);
 } 

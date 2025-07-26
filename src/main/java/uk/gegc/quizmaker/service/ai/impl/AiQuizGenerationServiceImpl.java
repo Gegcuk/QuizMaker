@@ -126,7 +126,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             validateDocumentForGeneration(request.documentId(), freshJob.getUser().getUsername());
 
             // Get document and chunks
-            Document document = documentRepository.findById(request.documentId())
+            Document document = documentRepository.findByIdWithChunks(request.documentId())
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + request.documentId()));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
@@ -408,7 +408,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     @Override
     public void validateDocumentForGeneration(UUID documentId, String username) {
-        Document document = documentRepository.findById(documentId)
+        Document document = documentRepository.findByIdWithChunks(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
         // Check if document belongs to user
@@ -452,10 +452,23 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     @Override
     public int calculateTotalChunks(UUID documentId, GenerateQuizFromDocumentRequest request) {
         try {
-            Document document = documentRepository.findById(documentId)
+            log.debug("Calculating total chunks for document: {} with scope: {}", documentId, request.quizScope());
+            
+            Document document = documentRepository.findByIdWithChunks(documentId)
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
+            log.debug("Document {} status: {}, chunks: {}", documentId, document.getStatus(), 
+                    document.getChunks() != null ? document.getChunks().size() : "null");
+
             List<DocumentChunk> chunks = getChunksForScope(document, request);
+            log.debug("Found {} chunks for document: {} with scope: {}", chunks.size(), documentId, request.quizScope());
+            
+            if (chunks.isEmpty()) {
+                log.warn("No chunks found for document: {} with scope: {}", documentId, request.quizScope());
+                // Return 1 as default to prevent "Total chunks must be positive" error
+                return 1;
+            }
+            
             return chunks.size();
         } catch (Exception e) {
             log.error("Error calculating total chunks for document: {}", documentId, e);
@@ -492,7 +505,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             job.setRequestData(requestData);
 
             // Calculate estimated completion time
-            Document document = documentRepository.findById(documentId)
+            Document document = documentRepository.findByIdWithChunks(documentId)
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
@@ -558,9 +571,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     private List<DocumentChunk> getChunksForScope(Document document, GenerateQuizFromDocumentRequest request) {
         List<DocumentChunk> allChunks = document.getChunks();
+        log.debug("Document {} has {} total chunks", document.getId(), allChunks != null ? allChunks.size() : 0);
 
         if (request.quizScope() == null || request.quizScope() == QuizScope.ENTIRE_DOCUMENT) {
-            return allChunks;
+            log.debug("Using entire document scope, returning all {} chunks", allChunks != null ? allChunks.size() : 0);
+            return allChunks != null ? allChunks : new ArrayList<>();
         }
 
         switch (request.quizScope()) {
@@ -568,22 +583,31 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (request.chunkIndices() == null || request.chunkIndices().isEmpty()) {
                     throw new IllegalArgumentException("Chunk indices must be specified for SPECIFIC_CHUNKS scope");
                 }
-                return allChunks.stream()
+                List<DocumentChunk> specificChunks = allChunks.stream()
                         .filter(chunk -> request.chunkIndices().contains(chunk.getChunkIndex()))
                         .collect(Collectors.toList());
+                log.debug("Filtered to {} specific chunks for indices: {}", specificChunks.size(), request.chunkIndices());
+                return specificChunks;
 
             case SPECIFIC_CHAPTER:
-                return allChunks.stream()
+                List<DocumentChunk> chapterChunks = allChunks.stream()
                         .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
+                log.debug("Filtered to {} chunks for chapter: title={}, number={}", 
+                        chapterChunks.size(), request.chapterTitle(), request.chapterNumber());
+                return chapterChunks;
 
             case SPECIFIC_SECTION:
-                return allChunks.stream()
+                List<DocumentChunk> sectionChunks = allChunks.stream()
                         .filter(chunk -> matchesSection(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
+                log.debug("Filtered to {} chunks for section: title={}, number={}", 
+                        sectionChunks.size(), request.chapterTitle(), request.chapterNumber());
+                return sectionChunks;
 
             default:
-                return allChunks;
+                log.debug("Using default scope, returning all {} chunks", allChunks != null ? allChunks.size() : 0);
+                return allChunks != null ? allChunks : new ArrayList<>();
         }
     }
 

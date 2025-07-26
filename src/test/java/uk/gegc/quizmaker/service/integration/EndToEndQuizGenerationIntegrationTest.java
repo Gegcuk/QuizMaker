@@ -2,9 +2,13 @@ package uk.gegc.quizmaker.service.integration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -30,17 +34,11 @@ import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 
 @ExtendWith(SpringExtension.class)
 @SpringBootTest(properties = {
@@ -117,11 +115,11 @@ class EndToEndQuizGenerationIntegrationTest {
         testDocument.setUploadedBy(testUser);
         testDocument = documentRepository.save(testDocument);
 
-        // Create document chunks
+        // Create document chunks with more diverse content to support all question types
         List<DocumentChunk> chunks = Arrays.asList(
-                createChunk(0, "Chapter 1: Introduction\nThis is the first chapter of our test document. It contains important information about the basics."),
-                createChunk(1, "Chapter 2: Advanced Topics\nThis chapter covers more advanced concepts and detailed explanations."),
-                createChunk(2, "Chapter 3: Conclusion\nThis final chapter summarizes all the key points and provides conclusions.")
+                createChunk(0, "Chapter 1: Introduction\nThis is the first chapter of our test document. It contains important information about the basics. Java is an object-oriented programming language that was developed by Sun Microsystems. Spring Framework provides dependency injection and inversion of control for Java applications."),
+                createChunk(1, "Chapter 2: Advanced Topics\nThis chapter covers more advanced concepts and detailed explanations. REST stands for Representational State Transfer. When implementing security measures, it's important to follow these steps: first, identify vulnerabilities; second, implement authentication; third, add authorization; fourth, monitor access logs."),
+                createChunk(2, "Chapter 3: Conclusion\nThis final chapter summarizes all the key points and provides conclusions. The database server should be located in a secure environment. Microservices architecture involves breaking down applications into smaller, independent services that communicate through well-defined APIs.")
         );
         
         // Save chunks to database through document relationship
@@ -130,10 +128,16 @@ class EndToEndQuizGenerationIntegrationTest {
         }
         testDocument = documentRepository.save(testDocument);
 
-        // Create test request
+        // Create test request with all supported question types (excluding HOTSPOT)
         Map<QuestionType, Integer> questionsPerType = new HashMap<>();
         questionsPerType.put(QuestionType.MCQ_SINGLE, 2);
-        questionsPerType.put(QuestionType.TRUE_FALSE, 1);
+        questionsPerType.put(QuestionType.MCQ_MULTI, 2);
+        questionsPerType.put(QuestionType.TRUE_FALSE, 2);
+        questionsPerType.put(QuestionType.OPEN, 2);
+        questionsPerType.put(QuestionType.FILL_GAP, 2);
+        questionsPerType.put(QuestionType.ORDERING, 2);
+        questionsPerType.put(QuestionType.COMPLIANCE, 2);
+        // Note: HOTSPOT is excluded as AI cannot generate images
 
         testRequest = new GenerateQuizFromDocumentRequest(
                 testDocument.getId(),
@@ -142,7 +146,7 @@ class EndToEndQuizGenerationIntegrationTest {
                 null,
                 null,
                 "Test Quiz " + uniqueId,
-                "A comprehensive test quiz",
+                "A comprehensive test quiz covering all question types",
                 questionsPerType,
                 Difficulty.MEDIUM,
                 null,
@@ -234,6 +238,47 @@ class EndToEndQuizGenerationIntegrationTest {
             assertTrue(questionCount > 0, "Quiz " + quiz.getTitle() + " should have questions");
         }
 
+        // Verify that questions of all supported types were generated (excluding HOTSPOT)
+        Map<QuestionType, Integer> expectedQuestionCounts = new HashMap<>();
+        expectedQuestionCounts.put(QuestionType.MCQ_SINGLE, 2);
+        expectedQuestionCounts.put(QuestionType.MCQ_MULTI, 2);
+        expectedQuestionCounts.put(QuestionType.TRUE_FALSE, 2);
+        expectedQuestionCounts.put(QuestionType.OPEN, 2);
+        expectedQuestionCounts.put(QuestionType.FILL_GAP, 2);
+        expectedQuestionCounts.put(QuestionType.ORDERING, 2);
+        expectedQuestionCounts.put(QuestionType.COMPLIANCE, 2);
+        // Note: HOTSPOT is excluded as AI cannot generate images
+
+        // Count questions by type in the consolidated quiz
+        Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
+            Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
+            Map<QuestionType, Integer> counts = new HashMap<>();
+            
+            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+                QuestionType type = question.getType();
+                counts.put(type, counts.getOrDefault(type, 0) + 1);
+            }
+            
+            return counts;
+        });
+
+        // Verify that at least the expected number of questions for each type were generated
+        for (Map.Entry<QuestionType, Integer> entry : expectedQuestionCounts.entrySet()) {
+            QuestionType expectedType = entry.getKey();
+            Integer expectedCount = entry.getValue();
+            Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
+            
+            assertTrue(actualCount >= expectedCount, 
+                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
+                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+        }
+
+        // Log the actual question type distribution for debugging
+        System.out.println("Question type distribution in consolidated quiz:");
+        for (Map.Entry<QuestionType, Integer> entry : actualQuestionCounts.entrySet()) {
+            System.out.println("  " + entry.getKey() + ": " + entry.getValue() + " questions");
+        }
+
         Duration totalTime = Duration.between(startTime, Instant.now());
         System.out.println("Total workflow time: " + totalTime.getSeconds() + " seconds");
     }
@@ -282,6 +327,46 @@ class EndToEndQuizGenerationIntegrationTest {
             return quiz.getQuestions().size();
         });
         assertTrue(questionCount > 0);
+
+        // Verify that questions of all supported types were generated (excluding HOTSPOT)
+        Map<QuestionType, Integer> expectedQuestionCounts = new HashMap<>();
+        expectedQuestionCounts.put(QuestionType.MCQ_SINGLE, 2);
+        expectedQuestionCounts.put(QuestionType.MCQ_MULTI, 2);
+        expectedQuestionCounts.put(QuestionType.TRUE_FALSE, 2);
+        expectedQuestionCounts.put(QuestionType.OPEN, 2);
+        expectedQuestionCounts.put(QuestionType.FILL_GAP, 2);
+        expectedQuestionCounts.put(QuestionType.ORDERING, 2);
+        expectedQuestionCounts.put(QuestionType.COMPLIANCE, 2);
+
+        // Count questions by type in the consolidated quiz
+        Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
+            Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
+            Map<QuestionType, Integer> counts = new HashMap<>();
+            
+            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+                QuestionType type = question.getType();
+                counts.put(type, counts.getOrDefault(type, 0) + 1);
+            }
+            
+            return counts;
+        });
+
+        // Verify that at least the expected number of questions for each type were generated
+        for (Map.Entry<QuestionType, Integer> entry : expectedQuestionCounts.entrySet()) {
+            QuestionType expectedType = entry.getKey();
+            Integer expectedCount = entry.getValue();
+            Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
+            
+            assertTrue(actualCount >= expectedCount, 
+                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
+                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+        }
+
+        // Log the actual question type distribution for debugging
+        System.out.println("Question type distribution in async event processing test:");
+        for (Map.Entry<QuestionType, Integer> entry : actualQuestionCounts.entrySet()) {
+            System.out.println("  " + entry.getKey() + ": " + entry.getValue() + " questions");
+        }
     }
 
     @Test
@@ -351,10 +436,16 @@ class EndToEndQuizGenerationIntegrationTest {
 
     @Test
     void shouldHandleDifferentQuestionTypeConfigurations() throws Exception {
-        // Given - Different question type configurations
+        // Given - Different question type configurations with all supported types
         Map<QuestionType, Integer> complexQuestionsPerType = new HashMap<>();
         complexQuestionsPerType.put(QuestionType.MCQ_SINGLE, 3);
+        complexQuestionsPerType.put(QuestionType.MCQ_MULTI, 2);
         complexQuestionsPerType.put(QuestionType.TRUE_FALSE, 2);
+        complexQuestionsPerType.put(QuestionType.OPEN, 1);
+        complexQuestionsPerType.put(QuestionType.FILL_GAP, 2);
+        complexQuestionsPerType.put(QuestionType.ORDERING, 1);
+        complexQuestionsPerType.put(QuestionType.COMPLIANCE, 2);
+        // Note: HOTSPOT is excluded as AI cannot generate images
 
         GenerateQuizFromDocumentRequest complexRequest = new GenerateQuizFromDocumentRequest(
                 testDocument.getId(),
@@ -387,7 +478,38 @@ class EndToEndQuizGenerationIntegrationTest {
             jobRepository.findById(testJobId).orElseThrow()
         );
         assertEquals(GenerationStatus.COMPLETED, job.getStatus());
-        assertTrue(job.getTotalQuestionsGenerated() >= 5); // At least 5 questions total
+        assertTrue(job.getTotalQuestionsGenerated() >= 13); // At least 13 questions total (3+2+2+1+2+1+2)
+
+        // Verify that questions of all configured types were generated
+        UUID generatedQuizId = job.getGeneratedQuizId();
+        Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
+            Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
+            Map<QuestionType, Integer> counts = new HashMap<>();
+            
+            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+                QuestionType type = question.getType();
+                counts.put(type, counts.getOrDefault(type, 0) + 1);
+            }
+            
+            return counts;
+        });
+
+        // Verify that at least the expected number of questions for each type were generated
+        for (Map.Entry<QuestionType, Integer> entry : complexQuestionsPerType.entrySet()) {
+            QuestionType expectedType = entry.getKey();
+            Integer expectedCount = entry.getValue();
+            Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
+            
+            assertTrue(actualCount >= expectedCount, 
+                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
+                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+        }
+
+        // Log the actual question type distribution for debugging
+        System.out.println("Question type distribution in complex configuration test:");
+        for (Map.Entry<QuestionType, Integer> entry : actualQuestionCounts.entrySet()) {
+            System.out.println("  " + entry.getKey() + ": " + entry.getValue() + " questions");
+        }
     }
 
     private DocumentChunk createChunk(int index, String content) {

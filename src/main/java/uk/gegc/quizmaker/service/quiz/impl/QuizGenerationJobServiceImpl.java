@@ -244,7 +244,43 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getActiveJobs() {
         log.debug("Getting active jobs");
-        return jobRepository.findByStatus(GenerationStatus.PENDING);
+        
+        // First, clean up any stale pending jobs (older than 10 minutes)
+        cleanupStalePendingJobs();
+        
+        return jobRepository.findByStatusIn(List.of(GenerationStatus.PENDING, GenerationStatus.PROCESSING));
+    }
+
+    @Override
+    @Transactional
+    public void cleanupStalePendingJobs() {
+        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(10); // 10 minutes timeout
+        log.info("Cleaning up stale pending jobs older than: {}", cutoffTime);
+        
+        // First, let's see all pending jobs
+        List<QuizGenerationJob> allPendingJobs = jobRepository.findByStatus(GenerationStatus.PENDING);
+        log.info("Found {} total pending jobs", allPendingJobs.size());
+        for (QuizGenerationJob job : allPendingJobs) {
+            log.info("Pending job: {} - started at: {} - user: {}", 
+                    job.getId(), job.getStartedAt(), job.getUser().getUsername());
+        }
+        
+        List<QuizGenerationJob> staleJobs = jobRepository.findByStatusAndStartedAtBefore(GenerationStatus.PENDING, cutoffTime);
+        log.info("Found {} stale pending jobs (older than {} minutes)", staleJobs.size(), 10);
+        
+        if (!staleJobs.isEmpty()) {
+            log.warn("Found {} stale pending jobs, marking them as failed", staleJobs.size());
+            for (QuizGenerationJob job : staleJobs) {
+                log.info("Marking stale job {} (started at: {}) as failed", job.getId(), job.getStartedAt());
+                job.setStatus(GenerationStatus.FAILED);
+                job.setErrorMessage("Job timed out - was pending for too long");
+                job.setCompletedAt(LocalDateTime.now());
+                jobRepository.save(job);
+                log.info("Marked stale job {} as failed", job.getId());
+            }
+        } else {
+            log.info("No stale jobs found to clean up");
+        }
     }
 
     @Override

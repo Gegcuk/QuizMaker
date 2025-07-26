@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -9,6 +11,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,20 +19,32 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
+import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.model.question.Difficulty;
+import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.model.quiz.GenerationStatus;
+import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
 import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.service.document.DocumentValidationService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,10 +55,16 @@ import java.util.UUID;
 @RequestMapping("/api/v1/quizzes")
 @RequiredArgsConstructor
 @Validated
+@Slf4j
 public class QuizController {
 
     private final QuizService quizService;
     private final AttemptService attemptService;
+    private final DocumentProcessingService documentProcessingService;
+    private final DocumentValidationService documentValidationService;
+    private final QuizGenerationJobService jobService;
+    private final QuizGenerationJobRepository jobRepository;
+    private final ObjectMapper objectMapper;
 
     @Operation(
             summary = "Create a new quiz",
@@ -438,6 +459,100 @@ public class QuizController {
     }
 
     @Operation(
+            summary = "Upload document and generate quiz in one operation (Async)",
+            description = "ADMIN only. Upload a document, process it, and start quiz generation in a single operation. This endpoint combines document upload and quiz generation for simpler frontend integration. Returns a job ID for tracking progress.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = "multipart/form-data",
+                            schema = @Schema(implementation = GenerateQuizFromUploadRequest.class)
+                    )
+            ),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "202",
+                            description = "Document uploaded, processed, and quiz generation started",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationResponse.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or invalid request",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "422",
+                            description = "Document processing failed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping(value = "/generate-from-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationResponse> generateQuizFromUpload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
+            @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
+            @RequestParam(value = "quizScope", required = false) String quizScope,
+            @RequestParam(value = "chunkIndices", required = false) List<Integer> chunkIndices,
+            @RequestParam(value = "chapterTitle", required = false) String chapterTitle,
+            @RequestParam(value = "chapterNumber", required = false) Integer chapterNumber,
+            @RequestParam(value = "quizTitle", required = false) String quizTitle,
+            @RequestParam(value = "quizDescription", required = false) String quizDescription,
+            @RequestParam(value = "questionsPerType", required = true) String questionsPerTypeJson,
+            @RequestParam(value = "difficulty", required = true) String difficulty,
+            @RequestParam(value = "estimatedTimePerQuestion", required = false) Integer estimatedTimePerQuestion,
+            @RequestParam(value = "categoryId", required = false) UUID categoryId,
+            @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
+            Authentication authentication
+    ) {
+        try {
+            // Validate file upload
+            documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
+
+            // Parse questions per type from JSON string
+            Map<QuestionType, Integer> questionsPerType = parseQuestionsPerType(questionsPerTypeJson);
+
+            // Create the combined request DTO
+            GenerateQuizFromUploadRequest request = new GenerateQuizFromUploadRequest(
+                    chunkingStrategy != null ? ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()) : null,
+                    maxChunkSize,
+                    quizScope != null ? QuizScope.valueOf(quizScope.toUpperCase()) : null,
+                    chunkIndices,
+                    chapterTitle,
+                    chapterNumber,
+                    quizTitle,
+                    quizDescription,
+                    questionsPerType,
+                    Difficulty.valueOf(difficulty.toUpperCase()),
+                    estimatedTimePerQuestion,
+                    categoryId,
+                    tagIds
+            );
+
+            // Process document and start quiz generation
+            QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
+        }
+    }
+
+    @Operation(
             summary = "Get quiz generation job status",
             description = "Get the current status and progress of a quiz generation job. Returns detailed information about the generation progress including processed chunks, estimated completion time, and any errors.",
             security = @SecurityRequirement(name = "bearerAuth"),
@@ -626,5 +741,93 @@ public class QuizController {
     ) {
         QuizGenerationJobService.JobStatistics statistics = quizService.getGenerationJobStatistics(authentication.getName());
         return ResponseEntity.ok(statistics);
+    }
+
+    @Operation(
+            summary = "Clean up stale pending jobs",
+            description = "Clean up any pending jobs that have been pending for too long (10+ minutes). This is useful for clearing stuck jobs.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Cleanup completed successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = String.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generation-jobs/cleanup-stale")
+    public ResponseEntity<String> cleanupStaleJobs(Authentication authentication) {
+        // This is a simple cleanup operation that doesn't require user-specific logic
+        // In a production system, you might want to restrict this to admin users
+        jobService.cleanupStalePendingJobs();
+        return ResponseEntity.ok("Stale jobs cleaned up successfully");
+    }
+
+    @Operation(
+            summary = "Force cancel a specific job",
+            description = "Force cancel a specific generation job by ID. This is useful for clearing stuck jobs that can't be cancelled normally.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Job cancelled successfully",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = String.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "404",
+                            description = "Job not found",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generation-jobs/{jobId}/force-cancel")
+    public ResponseEntity<String> forceCancelJob(
+            @Parameter(description = "UUID of the job to force cancel", required = true)
+            @PathVariable UUID jobId,
+            Authentication authentication
+    ) {
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Job not found: " + jobId));
+            
+            log.info("Force cancelling job: {} (current status: {})", jobId, job.getStatus());
+            job.setStatus(GenerationStatus.CANCELLED);
+            job.setErrorMessage("Force cancelled by user");
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+            
+            return ResponseEntity.ok("Job " + jobId + " force cancelled successfully");
+        } catch (Exception e) {
+            log.error("Error force cancelling job: {}", jobId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Error cancelling job: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Parse questions per type from JSON string
+     */
+    private Map<QuestionType, Integer> parseQuestionsPerType(String questionsPerTypeJson) {
+        try {
+            return objectMapper.readValue(questionsPerTypeJson, new TypeReference<Map<QuestionType, Integer>>() {});
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid questionsPerType JSON format: " + e.getMessage());
+        }
     }
 }

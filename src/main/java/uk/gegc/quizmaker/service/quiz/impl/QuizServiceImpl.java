@@ -12,6 +12,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.question.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
@@ -31,16 +33,17 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
+import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@Transactional
 @RequiredArgsConstructor
 @Slf4j
 public class QuizServiceImpl implements QuizService {
@@ -55,6 +58,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
     private final AiQuizGenerationService aiQuizGenerationService;
+    private final DocumentProcessingService documentProcessingService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -63,6 +67,7 @@ public class QuizServiceImpl implements QuizService {
     private EntityManager entityManager;
 
     @Override
+    @Transactional
     public UUID createQuiz(String username, CreateQuizRequest request) {
         User creator = userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))
@@ -101,6 +106,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
         Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
@@ -128,6 +134,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void deleteQuizById(String username, UUID id) {
         if (!quizRepository.existsById(id)) {
             throw new ResourceNotFoundException("Quiz " + id + " not found");
@@ -136,6 +143,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void deleteQuizzesByIds(String username, List<UUID> quizIds) {
         if (quizIds == null || quizIds.isEmpty()) {
             return;
@@ -147,6 +155,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request) {
         List<UUID> successes = new ArrayList<>();
         Map<UUID, String> failures = new HashMap<>();
@@ -164,6 +173,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
         // This method is now deprecated in favor of async generation
         // For backward compatibility, start an async job and return immediately
@@ -171,6 +181,63 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    public QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
+        try {
+            // Step 1: Process document completely first
+            DocumentDto document = processDocumentCompletely(username, file, request);
+            
+            // Step 2: Verify chunks are available and sufficient
+            verifyDocumentChunks(document.getId(), request);
+            
+            // Step 3: Generate quiz from the processed document
+            GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
+            
+            // Step 4: Start generation and return job ID immediately
+            return startQuizGeneration(username, quizRequest);
+            
+        } catch (Exception e) {
+            log.error("Failed to start quiz generation from upload for user: {}", username, e);
+            throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
+        }
+    }
+
+    @Transactional
+    public DocumentDto processDocumentCompletely(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
+        try {
+            log.info("Starting document processing for user: {}", username);
+            
+            // Process document in its own transaction
+            DocumentDto document = documentProcessingService.uploadAndProcessDocument(
+                    username, 
+                    file.getBytes(), 
+                    file.getOriginalFilename(), 
+                    request.toProcessDocumentRequest()
+            );
+            
+            log.info("Document processed successfully: {} with {} chunks", document.getId(), document.getTotalChunks());
+            
+            return document;
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to read file bytes: " + e.getMessage(), e);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void verifyDocumentChunks(UUID documentId, GenerateQuizFromUploadRequest request) {
+        log.info("Verifying document chunks for document: {}", documentId);
+        
+        // Calculate total chunks to verify they are available
+        int totalChunks = aiQuizGenerationService.calculateTotalChunks(documentId, request.toGenerateQuizFromDocumentRequest(documentId));
+        
+        if (totalChunks <= 0) {
+            throw new RuntimeException("Document has no chunks available for quiz generation. Please try processing the document again.");
+        }
+        
+        log.info("Document verification successful: {} chunks available", totalChunks);
+    }
+
+    @Override
+    @Transactional
     public QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request) {
         // Validate user exists
         User user = userRepository.findByUsername(username)
@@ -193,6 +260,8 @@ public class QuizServiceImpl implements QuizService {
             // Create generation job with proper estimates
             QuizGenerationJob job = jobService.createJob(user, request.documentId(),
                     objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
+            
+            log.info("Created job {} for user {}, starting async generation", job.getId(), username);
 
             // Start async generation
             aiQuizGenerationService.generateQuizFromDocumentAsync(job.getId(), request);
@@ -205,12 +274,14 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
         return QuizGenerationStatus.fromEntity(job);
     }
 
     @Override
+    @Transactional
     public QuizDto getGeneratedQuiz(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
 
@@ -226,6 +297,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizGenerationStatus cancelGenerationJob(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
 
@@ -241,12 +313,14 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
         return jobs.map(QuizGenerationStatus::fromEntity);
     }
 
     @Override
+    @Transactional
     public QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username) {
         return jobService.getJobStatistics(username);
     }
@@ -277,6 +351,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void createQuizCollectionFromGeneratedQuestions(
             UUID jobId,
             Map<Integer, List<Question>> chunkQuestions,
@@ -481,6 +556,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
@@ -493,6 +569,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
@@ -502,6 +579,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
@@ -514,6 +592,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
@@ -523,6 +602,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public void changeCategory(String username, UUID quizId, UUID categoryId) {
         var quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
@@ -535,6 +615,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
 
         Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
@@ -544,6 +625,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    @Transactional
     public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
