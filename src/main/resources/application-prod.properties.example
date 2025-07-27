@@ -1,0 +1,50 @@
+# Production Configuration Example
+# Copy this file to application-prod.properties and update with your actual values
+
+# Database Configuration
+spring.datasource.url=${DB_URL}
+spring.datasource.username=${DB_USERNAME}
+spring.datasource.password=${DB_PASSWORD}
+
+# Disable SQL logging in production
+spring.jpa.show-sql=false
+logging.level.org.hibernate.SQL=WARN
+logging.level.org.springframework=INFO
+logging.level.uk.gegc.quizmaker=INFO
+
+# JWT Configuration
+jwt.secret=${JWT_SECRET}
+jwt.access-expiration-ms=43200000
+jwt.refresh-expiration-ms=604800000
+
+# OpenAI Configuration
+spring.ai.openai.api-key=${OPENAI_API_KEY}
+spring.ai.openai.chat.options.model=gpt-4o-mini
+
+# CORS Configuration for Production
+# IMPORTANT: Replace with your actual production domain(s)
+# NEVER use wildcards (*) or allow all origins in production
+app.cors.allowed-origins=https://quizmaker.yourdomain.com,https://www.quizmaker.yourdomain.com
+# Never use origin patterns in production
+app.cors.use-origin-patterns=false
+app.cors.allowed-methods=GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD
+app.cors.allowed-headers=Authorization,Content-Type,Accept,X-Requested-With,Origin,If-None-Match,Accept-Language
+app.cors.exposed-headers=Location,Link,Content-Disposition,X-Total-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+# Set to false if only using JWT in Authorization header (no cookies)
+app.cors.allow-credentials=true
+app.cors.max-age=3600
+
+# File Upload Configuration
+spring.servlet.multipart.max-file-size=150MB
+spring.servlet.multipart.max-request-size=150MB
+
+# Thread Pool Configuration
+async.ai.core-pool-size=8
+async.ai.max-pool-size=16
+async.ai.queue-capacity=100
+async.ai.keep-alive-seconds=60
+
+async.general.core-pool-size=4
+async.general.max-pool-size=8
+async.general.queue-capacity=50
+async.general.keep-alive-seconds=60 
