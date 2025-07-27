@@ -15,13 +15,19 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
-@Execution(ExecutionMode.CONCURRENT)
+@Execution(ExecutionMode.SAME_THREAD)
 public class JwtAuthenticationFilterTest {
 
     @Mock
@@ -37,17 +43,27 @@ public class JwtAuthenticationFilterTest {
     JwtTokenProvider jwtTokenProvider;
 
     JwtAuthenticationFilter authenticationFilter;
+    private ListAppender<ILoggingEvent> logWatcher;
+    private Logger filterLogger;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
         authenticationFilter = new JwtAuthenticationFilter(jwtTokenProvider);
         SecurityContextHolder.clearContext();
+        
+        // Set up log capture
+        filterLogger = (Logger) LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+        filterLogger.setLevel(Level.DEBUG); // Ensure we capture all log levels
+        logWatcher = new ListAppender<>();
+        logWatcher.start();
+        filterLogger.addAppender(logWatcher);
     }
 
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
+        filterLogger.detachAppender(logWatcher);
     }
 
     @Test
@@ -108,5 +124,59 @@ public class JwtAuthenticationFilterTest {
         verify(jwtTokenProvider, never()).validateToken(anyString());
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("Bearer valid-token → logs successful authentication at DEBUG level")
+    void validBearer_shouldLogSuccessfulAuthentication() throws ServletException, IOException {
+        String token = "valid-token";
+        Authentication authentication = mock(Authentication.class);
+        when(authentication.getName()).thenReturn("testuser");
+
+        when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
+        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
+        when(jwtTokenProvider.getAuthentication(token)).thenReturn(authentication);
+
+        authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
+
+        // Debug: Print all captured logs
+        System.out.println("Filter captured logs: " + logWatcher.list.size());
+        logWatcher.list.forEach(event -> 
+            System.out.println("Filter Log: " + event.getLevel() + " - " + event.getMessage())
+        );
+
+        assertThat(logWatcher.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "Successfully authenticated user: {}")));
+    }
+
+    @Test
+    @DisplayName("Bearer invalid-token → logs security warning with request details")
+    void invalidBearer_shouldLogSecurityWarning() throws ServletException, IOException {
+        String token = "invalid-token";
+        String clientIp = "192.168.1.100";
+        String requestUri = "/api/secure-endpoint";
+        String userAgent = "TestClient/1.0";
+
+        when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
+        when(httpServletRequest.getRemoteAddr()).thenReturn(clientIp);
+        when(httpServletRequest.getRequestURI()).thenReturn(requestUri);
+        when(httpServletRequest.getHeader("User-Agent")).thenReturn(userAgent);
+        when(jwtTokenProvider.validateToken(token)).thenReturn(false);
+
+        authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
+
+        assertThat(logWatcher.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}")));
+                
+        // Verify we logged the security details
+        ILoggingEvent warnEvent = logWatcher.list.stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .findFirst()
+                .orElse(null);
+        
+        assertThat(warnEvent).isNotNull();
+        assertThat(warnEvent.getArgumentArray()).containsExactly(clientIp, requestUri, userAgent);
     }
 }

@@ -1,13 +1,17 @@
 package uk.gegc.quizmaker.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.SignatureException;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -22,6 +26,7 @@ import java.util.Date;
 @Component
 @RequiredArgsConstructor
 @Getter
+@Slf4j
 public class JwtTokenProvider {
 
     private final QuizUserDetailsService quizUserDetailsService;
@@ -90,7 +95,20 @@ public class JwtTokenProvider {
                     .parseSignedClaims(token)
                     .getPayload();
             return true;
-        } catch (JwtException | IllegalArgumentException exception) {
+        } catch (ExpiredJwtException ex) {
+            log.debug("JWT token is expired: {}", ex.getMessage());
+            return false;
+        } catch (MalformedJwtException ex) {
+            log.warn("Malformed JWT token received: {}", ex.getMessage());
+            return false;
+        } catch (SignatureException ex) {
+            log.warn("Invalid JWT signature detected: {}", ex.getMessage());
+            return false;
+        } catch (IllegalArgumentException ex) {
+            log.warn("Illegal argument passed to JWT parser: {}", ex.getMessage());
+            return false;
+        } catch (JwtException ex) {
+            log.error("Unexpected JWT exception: {}", ex.getMessage());
             return false;
         }
     }
