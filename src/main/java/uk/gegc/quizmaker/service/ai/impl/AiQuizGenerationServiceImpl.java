@@ -140,53 +140,85 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
-                    .map(chunk -> generateQuestionsFromChunk(chunk, request.questionsPerType(), request.difficulty()))
+                    .map(chunk -> generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId))
                     .collect(Collectors.toList());
 
-            // Collect all generated questions with progress tracking
+            // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
+            Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
+            Map<QuestionType, Integer> generatedByType = new EnumMap<>(QuestionType.class);
+            Map<QuestionType, Integer> requestedByType = new EnumMap<>(request.questionsPerType());
+            
+            // Initialize counters
+            for (QuestionType type : QuestionType.values()) {
+                generatedByType.put(type, 0);
+            }
+            
             int processedChunks = 0;
 
-            for (CompletableFuture<List<Question>> future : chunkFutures) {
+            // Collect results from all chunks
+            for (int chunkIndex = 0; chunkIndex < chunkFutures.size(); chunkIndex++) {
                 try {
-                    List<Question> chunkQuestions = future.get();
-                    allQuestions.addAll(chunkQuestions);
+                    CompletableFuture<List<Question>> future = chunkFutures.get(chunkIndex);
+                    List<Question> chunkQuestionsList = future.get();
+                    
+                    if (!chunkQuestionsList.isEmpty()) {
+                        allQuestions.addAll(chunkQuestionsList);
+                        chunkQuestions.put(chunkIndex, chunkQuestionsList);
+                        
+                        // Track generated question types
+                        for (Question question : chunkQuestionsList) {
+                            generatedByType.merge(question.getType(), 1, Integer::sum);
+                        }
+                    }
+                    
                     processedChunks++;
 
                     // Update progress in database
                     freshJob.updateProgress(processedChunks, "Processing chunk " + processedChunks + " of " + chunks.size());
                     jobRepository.save(freshJob);
 
-                    log.debug("Completed chunk processing for job {}, total questions: {}",
-                            jobId, allQuestions.size());
+                    log.debug("Completed chunk {} processing for job {}, chunk questions: {}, total questions: {}",
+                            chunkIndex, jobId, chunkQuestionsList.size(), allQuestions.size());
                 } catch (Exception e) {
-                    log.error("Error processing chunk for job {}", jobId, e);
-                    progress.addError("Chunk processing failed: " + e.getMessage());
+                    log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
+                    progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
 
                     // Update job with error
-                    freshJob.updateProgress(processedChunks, "Error in chunk " + processedChunks);
+                    freshJob.updateProgress(processedChunks, "Error in chunk " + chunkIndex);
                     jobRepository.save(freshJob);
                 }
             }
 
-            // Organize questions by chunk for quiz collection creation
-            Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-            int chunkIndex = 0;
-            for (CompletableFuture<List<Question>> future : chunkFutures) {
-                try {
-                    List<Question> chunkQuestionsList = future.get();
-                    if (!chunkQuestionsList.isEmpty()) {
-                        chunkQuestions.put(chunkIndex, chunkQuestionsList);
-                    }
-                    chunkIndex++;
-                } catch (Exception e) {
-                    log.error("Error getting questions for chunk {}", chunkIndex, e);
-                }
+            // Analyze coverage and attempt to fill gaps
+            Map<QuestionType, Integer> missingTypes = findMissingQuestionTypes(requestedByType, generatedByType);
+            
+            if (!missingTypes.isEmpty()) {
+                log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
+                        jobId, missingTypes);
+                
+                // Update job status to show redistribution phase
+                freshJob.updateProgress(chunks.size(), "Analyzing coverage: " + missingTypes.size() + " question types need redistribution");
+                jobRepository.save(freshJob);
+                
+                // Attempt to generate missing types from successful chunks
+                redistributeMissingQuestions(chunks, missingTypes, request.difficulty(), 
+                                           chunkQuestions, allQuestions, generatedByType, jobId);
+                        
+                // Update progress after redistribution
+                String finalCoverage = formatCoverageSummary(generatedByType, requestedByType);
+                freshJob.updateProgress(chunks.size(), "Generation completed with redistribution: " + finalCoverage);
+                jobRepository.save(freshJob);
+            } else {
+                // Update progress when no redistribution needed
+                String coverage = formatCoverageSummary(generatedByType, requestedByType);
+                freshJob.updateProgress(chunks.size(), "Generation completed successfully: " + coverage);
+                jobRepository.save(freshJob);
             }
 
-            // Create quiz collection (individual chunk quizzes + consolidated quiz)
-            log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks.",
-                    jobId, Duration.between(startTime, Instant.now()).getSeconds(), allQuestions.size(), chunkQuestions.size());
+            log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks. Coverage: {}",
+                    jobId, Duration.between(startTime, Instant.now()).getSeconds(), 
+                    allQuestions.size(), chunkQuestions.size(), formatCoverageSummary(generatedByType, requestedByType));
 
             // Publish event to trigger quiz creation
             eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
@@ -231,6 +263,20 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Map<QuestionType, Integer> questionsPerType,
             Difficulty difficulty
     ) {
+        return generateQuestionsFromChunkWithJob(chunk, questionsPerType, difficulty, null);
+    }
+
+    /**
+     * Enhanced version with job status updates
+     */
+    @Async("aiTaskExecutor")
+    @Transactional
+    private CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
+            DocumentChunk chunk,
+            Map<QuestionType, Integer> questionsPerType,
+            Difficulty difficulty,
+            UUID jobId
+    ) {
         return CompletableFuture.supplyAsync(() -> {
             Instant startTime = Instant.now();
             log.debug("Generating questions for chunk {} (index: {})", chunk.getId(), chunk.getChunkIndex());
@@ -255,23 +301,22 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     Integer questionCount = entry.getValue();
 
                     if (questionCount > 0) {
-                        try {
-                            List<Question> questions = generateQuestionsByType(
-                                    chunk.getContent(),
-                                    questionType,
-                                    questionCount,
-                                    difficulty
-                            );
+                        List<Question> questions = generateQuestionsByTypeWithFallbacks(
+                                chunk.getContent(),
+                                questionType,
+                                questionCount,
+                                difficulty,
+                                chunk.getChunkIndex(),
+                                jobId
+                        );
+                        
+                        if (!questions.isEmpty()) {
                             allQuestions.addAll(questions);
-
                             log.debug("Generated {} {} questions for chunk {}",
                                     questions.size(), questionType, chunk.getChunkIndex());
-
-                        } catch (Exception e) {
-                            log.error("Error generating {} questions of type {} for chunk {}",
-                                    questionCount, questionType, chunk.getChunkIndex(), e);
-                            chunkErrors.add(String.format("Failed to generate %s %s questions: %s",
-                                    questionCount, questionType, e.getMessage()));
+                        } else {
+                            chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
+                                    questionType));
                         }
                     }
                 }
@@ -404,6 +449,312 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
 
         throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts");
+    }
+
+    /**
+     * Enhanced question generation with multiple fallback strategies
+     */
+    private List<Question> generateQuestionsByTypeWithFallbacks(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty,
+            Integer chunkIndex,
+            UUID jobId
+    ) {
+        log.debug("Attempting to generate {} {} questions for chunk {} with fallbacks", 
+                questionCount, questionType, chunkIndex);
+
+        // Update job status to show fallback attempt
+        updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
+
+        // Strategy 1: Try normal generation (multiple attempts)
+        int normalAttempts = 3;
+        for (int attempt = 1; attempt <= normalAttempts; attempt++) {
+            try {
+                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + "/3");
+                
+                List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, difficulty);
+                if (questions.size() >= questionCount) {
+                    log.debug("Strategy 1 (normal) succeeded on attempt {} for {} {}", attempt, questionType, chunkIndex);
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
+                    return questions;
+                } else {
+                    log.warn("Strategy 1 (normal) attempt {} generated only {}/{} questions for {} chunk {}", 
+                            attempt, questions.size(), questionCount, questionType, chunkIndex);
+                    // If we got some questions but not enough, and this is the last attempt, return what we have
+                    if (attempt == normalAttempts && !questions.isEmpty()) {
+                        log.info("Strategy 1 (normal) returning partial result: {}/{} questions for {} chunk {}", 
+                                questions.size(), questionCount, questionType, chunkIndex);
+                        updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " partial success (" + questions.size() + "/" + questionCount + ")");
+                        return questions;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
+                        attempt, questionType, chunkIndex, e.getMessage());
+                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + " failed, retrying...");
+                // Continue to next attempt unless this is the last one
+            }
+        }
+
+        // Strategy 2: Try with reduced count (multiple attempts, if requesting more than 1)
+        if (questionCount > 1) {
+            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using reduced count strategy");
+            
+            int reducedAttempts = 2;
+            int reducedCount = Math.max(1, questionCount / 2);
+            
+            for (int attempt = 1; attempt <= reducedAttempts; attempt++) {
+                try {
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + "/2");
+                    log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}", 
+                            reducedCount, attempt, questionType, chunkIndex);
+                    
+                    List<Question> questions = generateQuestionsByType(chunkContent, questionType, reducedCount, difficulty);
+                    if (!questions.isEmpty()) {
+                        log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
+                                attempt, questions.size(), questionCount, questionType, chunkIndex);
+                        updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count success");
+                        return questions;
+                    }
+                } catch (Exception e) {
+                    log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
+                            attempt, questionType, chunkIndex, e.getMessage());
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + " failed");
+                    // Continue to next attempt unless this is the last one
+                }
+            }
+        }
+
+        // Strategy 3: Try with easier difficulty (if not already EASY)
+        if (difficulty != Difficulty.EASY) {
+            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using easier difficulty");
+            
+            try {
+                Difficulty easierDifficulty = getEasierDifficulty(difficulty);
+                log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}", 
+                        easierDifficulty, questionType, chunkIndex);
+                
+                List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, easierDifficulty);
+                if (!questions.isEmpty()) {
+                    log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}", 
+                            questions.size(), questionCount, questionType, chunkIndex);
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty success");
+                    return questions;
+                }
+            } catch (Exception e) {
+                log.warn("Strategy 3 (easier difficulty) failed for {} chunk {}: {}", questionType, chunkIndex, e.getMessage());
+                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty failed");
+            }
+        }
+
+        // Strategy 4: Try alternative question type that might work better with this content
+        QuestionType alternativeType = findAlternativeQuestionType(questionType);
+        if (alternativeType != null) {
+            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": trying " + alternativeType + " instead of " + questionType);
+            
+            try {
+                log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}", 
+                        alternativeType, questionType, chunkIndex);
+                
+                List<Question> questions = generateQuestionsByType(chunkContent, alternativeType, questionCount, difficulty);
+                if (!questions.isEmpty()) {
+                    log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}", 
+                            questions.size(), alternativeType, questionType, chunkIndex);
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative success");
+                    return questions;
+                }
+            } catch (Exception e) {
+                log.warn("Strategy 4 (alternative type) failed for {} chunk {}: {}", alternativeType, chunkIndex, e.getMessage());
+                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative failed");
+            }
+        }
+
+        // Strategy 5: Last resort - try the most reliable question type (MCQ_SINGLE)
+        if (questionType != QuestionType.MCQ_SINGLE) {
+            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": last resort MCQ_SINGLE attempt");
+            
+            try {
+                log.debug("Strategy 5: Last resort - trying MCQ_SINGLE for chunk {}", chunkIndex);
+                
+                List<Question> questions = generateQuestionsByType(chunkContent, QuestionType.MCQ_SINGLE, questionCount, difficulty);
+                if (!questions.isEmpty()) {
+                    log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})", 
+                            questions.size(), chunkIndex, questionType);
+                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": MCQ_SINGLE last resort success");
+                    return questions;
+                }
+            } catch (Exception e) {
+                log.error("Strategy 5 (last resort MCQ) failed for chunk {}: {}", chunkIndex, e.getMessage());
+                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": all fallback strategies failed");
+            }
+        }
+
+        log.error("All fallback strategies failed for {} questions of type {} in chunk {}", 
+                questionCount, questionType, chunkIndex);
+        updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generation failed completely");
+        return new ArrayList<>();
+    }
+
+    /**
+     * Get an easier difficulty level for fallback attempts
+     */
+    private Difficulty getEasierDifficulty(Difficulty current) {
+        return switch (current) {
+            case HARD -> Difficulty.MEDIUM;
+            case MEDIUM -> Difficulty.EASY;
+            case EASY -> Difficulty.EASY; // Already easiest
+        };
+    }
+
+    /**
+     * Find an alternative question type that might work better with certain content
+     */
+    private QuestionType findAlternativeQuestionType(QuestionType original) {
+        return switch (original) {
+            case ORDERING -> QuestionType.MCQ_SINGLE;
+            case HOTSPOT -> QuestionType.MCQ_SINGLE;
+            case COMPLIANCE -> QuestionType.TRUE_FALSE;
+            case FILL_GAP -> QuestionType.OPEN;
+            case OPEN -> QuestionType.TRUE_FALSE;
+            case TRUE_FALSE -> QuestionType.MCQ_SINGLE;
+            case MCQ_SINGLE -> QuestionType.TRUE_FALSE;
+            case MCQ_MULTI -> QuestionType.MCQ_SINGLE;
+            default -> null;
+        };
+    }
+
+    /**
+     * Find question types that are missing or under-represented
+     */
+    private Map<QuestionType, Integer> findMissingQuestionTypes(
+            Map<QuestionType, Integer> requested, 
+            Map<QuestionType, Integer> generated) {
+        
+        Map<QuestionType, Integer> missing = new EnumMap<>(QuestionType.class);
+        
+        for (Map.Entry<QuestionType, Integer> entry : requested.entrySet()) {
+            QuestionType type = entry.getKey();
+            int requestedCount = entry.getValue();
+            int generatedCount = generated.getOrDefault(type, 0);
+            
+            if (generatedCount < requestedCount) {
+                missing.put(type, requestedCount - generatedCount);
+            }
+        }
+        
+        return missing;
+    }
+
+    /**
+     * Attempt to generate missing question types from chunks that performed well
+     */
+    private void redistributeMissingQuestions(
+            List<DocumentChunk> chunks,
+            Map<QuestionType, Integer> missingTypes,
+            Difficulty difficulty,
+            Map<Integer, List<Question>> chunkQuestions,
+            List<Question> allQuestions,
+            Map<QuestionType, Integer> generatedByType,
+            UUID jobId) {
+        
+        // Find chunks that generated questions successfully (have more than average content)
+        List<DocumentChunk> goodChunks = chunks.stream()
+                .filter(chunk -> chunkQuestions.containsKey(chunk.getChunkIndex()))
+                .filter(chunk -> chunk.getContent().length() > 200) // Decent content length
+                .sorted((a, b) -> Integer.compare(
+                        chunkQuestions.get(b.getChunkIndex()).size(),
+                        chunkQuestions.get(a.getChunkIndex()).size()))
+                .limit(Math.min(5, chunks.size())) // Try up to 5 best chunks
+                .collect(Collectors.toList());
+
+        log.debug("Attempting redistribution using {} good chunks", goodChunks.size());
+        updateJobStatusSafely(jobId, "Redistribution: Found " + goodChunks.size() + " suitable chunks for missing types");
+
+        for (Map.Entry<QuestionType, Integer> entry : missingTypes.entrySet()) {
+            QuestionType missingType = entry.getKey();
+            int neededCount = entry.getValue();
+            int attemptedCount = 0;
+
+            log.debug("Attempting to generate {} missing {} questions", neededCount, missingType);
+            updateJobStatusSafely(jobId, "Redistribution: Attempting to generate " + neededCount + " missing " + missingType + " questions");
+
+            for (DocumentChunk chunk : goodChunks) {
+                if (attemptedCount >= neededCount) {
+                    break; // We have enough
+                }
+
+                try {
+                    int countToTry = Math.min(neededCount - attemptedCount, 2); // Max 2 per chunk
+                    
+                    List<Question> redistributedQuestions = generateQuestionsByTypeWithFallbacks(
+                            chunk.getContent(),
+                            missingType,
+                            countToTry,
+                            difficulty,
+                            chunk.getChunkIndex(),
+                            jobId
+                    );
+
+                    if (!redistributedQuestions.isEmpty()) {
+                        allQuestions.addAll(redistributedQuestions);
+                        
+                        // Add to chunk questions (append to existing)
+                        chunkQuestions.computeIfAbsent(chunk.getChunkIndex(), k -> new ArrayList<>())
+                                     .addAll(redistributedQuestions);
+                        
+                        // Update counter
+                        generatedByType.merge(missingType, redistributedQuestions.size(), Integer::sum);
+                        attemptedCount += redistributedQuestions.size();
+
+                        log.info("Redistributed {} {} questions to chunk {}", 
+                                redistributedQuestions.size(), missingType, chunk.getChunkIndex());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to redistribute {} questions to chunk {}: {}", 
+                            missingType, chunk.getChunkIndex(), e.getMessage());
+                }
+            }
+
+            if (attemptedCount > 0) {
+                log.info("Successfully redistributed {}/{} {} questions", 
+                        attemptedCount, neededCount, missingType);
+                updateJobStatusSafely(jobId, "Redistribution: Successfully added " + attemptedCount + "/" + neededCount + " " + missingType + " questions");
+            } else {
+                log.warn("Failed to redistribute any {} questions", missingType);
+                updateJobStatusSafely(jobId, "Redistribution: Could not generate any " + missingType + " questions");
+            }
+        }
+    }
+
+    /**
+     * Format a coverage summary for logging
+     */
+    private String formatCoverageSummary(
+            Map<QuestionType, Integer> generated, 
+            Map<QuestionType, Integer> requested) {
+        
+        List<String> summaryParts = new ArrayList<>();
+        
+        for (Map.Entry<QuestionType, Integer> entry : requested.entrySet()) {
+            QuestionType type = entry.getKey();
+            int requestedCount = entry.getValue();
+            int generatedCount = generated.getOrDefault(type, 0);
+            
+            String coverage = String.format("%s: %d/%d", type, generatedCount, requestedCount);
+            if (generatedCount >= requestedCount) {
+                coverage += " ✓";
+            } else if (generatedCount > 0) {
+                coverage += " ⚠";
+            } else {
+                coverage += " ✗";
+            }
+            
+            summaryParts.add(coverage);
+        }
+        
+        return String.join(", ", summaryParts);
     }
 
     @Override
@@ -565,6 +916,28 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         job.updateProgress(processedChunks, currentChunk);
         jobRepository.save(job);
     }
+
+         /**
+      * Update job status safely, ensuring transaction integrity
+      */
+     private void updateJobStatusSafely(UUID jobId, String statusMessage) {
+         if (jobId == null) {
+             // When called from public interface without jobId, just log
+             log.debug("Job status update (no jobId): {}", statusMessage);
+             return;
+         }
+         
+         try {
+             QuizGenerationJob job = jobRepository.findById(jobId)
+                     .orElse(null);
+             if (job != null) {
+                 job.updateProgress(job.getProcessedChunks(), statusMessage);
+                 jobRepository.save(job);
+             }
+         } catch (Exception e) {
+             log.error("Failed to update job status for job {}: {}", jobId, statusMessage, e);
+         }
+     }
 
     /**
      * Get chunks based on the quiz scope
