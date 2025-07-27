@@ -4,22 +4,28 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import uk.gegc.quizmaker.validation.NoLeadingTrailingSpaces;
+import uk.gegc.quizmaker.validation.ValidPassword;
 
 @Schema(name = "RegisterRequest", description = "Payload for user registration")
 public record RegisterRequest(
         @Schema(description = "Unique username", example = "newUser")
-        @NotBlank(message = "Username must not be blank")
-        @Size(min = 4, max = 20, message = "Username must be between 4 and 20 characters")
+        @NotBlank(message = "{username.blank}")
+        @Size(min = 4, max = 20, message = "{username.length}")
+        @NoLeadingTrailingSpaces
         String username,
 
         @Schema(description = "User email address", example = "user@example.com")
-        @NotBlank(message = "Email must not be blank")
-        @Email(message = "Email must be a valid address")
+        @NotBlank(message = "{email.blank}")
+        @Size(max = 254, message = "{email.max}")
+        @Email(message = "{email.invalid}")
+        @NoLeadingTrailingSpaces
         String email,
 
         @Schema(description = "Password for the new account", example = "P@ssw0rd!")
-        @NotBlank(message = "Password must not be blank")
-        @Size(min = 8, max = 100, message = "Password length must be at least 8 characters")
+        @NotBlank(message = "{password.blank}")
+        @Size(min = 8, max = 100, message = "{password.length}")
+        @ValidPassword
         String password
 ) {
 }
