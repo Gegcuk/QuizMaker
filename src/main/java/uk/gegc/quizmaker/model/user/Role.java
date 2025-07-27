@@ -32,7 +32,7 @@ public class Role {
     @ManyToMany(mappedBy = "roles", fetch = FetchType.LAZY)
     private Set<User> users;
 
-    @ManyToMany(fetch = FetchType.EAGER)
+    @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "role_permissions",
             joinColumns = @JoinColumn(name = "role_id"),

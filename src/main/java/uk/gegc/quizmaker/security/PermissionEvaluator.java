@@ -152,7 +152,7 @@ public class PermissionEvaluator {
         }
 
         String username = authentication.getName();
-        return userRepository.findByUsername(username).orElse(null);
+        return userRepository.findByUsernameWithRolesAndPermissions(username).orElse(null);
     }
 
     /**

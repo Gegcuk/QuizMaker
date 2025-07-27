@@ -178,7 +178,7 @@ class PermissionServiceImplTest {
                 .permissionName("TEST_PERMISSION")
                 .build();
 
-        when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.of(role));
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
         when(roleRepository.save(any(Role.class))).thenReturn(role);
 
@@ -187,7 +187,7 @@ class PermissionServiceImplTest {
 
         // Then
         assertTrue(role.getPermissions().contains(permission));
-        verify(roleRepository).findById(roleId);
+        verify(roleRepository).findByIdWithPermissions(roleId);
         verify(permissionRepository).findById(permissionId);
         verify(roleRepository).save(role);
     }
@@ -199,14 +199,14 @@ class PermissionServiceImplTest {
         Long roleId = 1L;
         Long permissionId = 1L;
 
-        when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
+        when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.empty());
 
         // When & Then
         assertThrows(ResourceNotFoundException.class, () ->
                 permissionService.assignPermissionToRole(roleId, permissionId)
         );
 
-        verify(roleRepository).findById(roleId);
+        verify(roleRepository).findByIdWithPermissions(roleId);
         verify(permissionRepository, never()).findById(any());
         verify(roleRepository, never()).save(any());
     }
@@ -229,7 +229,7 @@ class PermissionServiceImplTest {
                 .permissions(new HashSet<>(Set.of(permission)))
                 .build();
 
-        when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.of(role));
         when(permissionRepository.findById(permissionId)).thenReturn(Optional.of(permission));
         when(roleRepository.save(any(Role.class))).thenReturn(role);
 
@@ -238,7 +238,7 @@ class PermissionServiceImplTest {
 
         // Then
         assertFalse(role.getPermissions().contains(permission));
-        verify(roleRepository).findById(roleId);
+        verify(roleRepository).findByIdWithPermissions(roleId);
         verify(permissionRepository).findById(permissionId);
         verify(roleRepository).save(role);
     }
@@ -258,14 +258,14 @@ class PermissionServiceImplTest {
                 .permissions(expectedPermissions)
                 .build();
 
-        when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
+        when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.of(role));
 
         // When
         Set<Permission> result = permissionService.getRolePermissions(roleId);
 
         // Then
         assertEquals(expectedPermissions, result);
-        verify(roleRepository).findById(roleId);
+        verify(roleRepository).findByIdWithPermissions(roleId);
     }
 
     @Test

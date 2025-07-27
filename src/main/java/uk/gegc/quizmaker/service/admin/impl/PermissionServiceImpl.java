@@ -63,7 +63,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public void assignPermissionToRole(Long roleId, Long permissionId) {
-        Role role = roleRepository.findById(roleId)
+        Role role = roleRepository.findByIdWithPermissions(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
         Permission permission = permissionRepository.findById(permissionId)
@@ -76,7 +76,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public void removePermissionFromRole(Long roleId, Long permissionId) {
-        Role role = roleRepository.findById(roleId)
+        Role role = roleRepository.findByIdWithPermissions(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
         Permission permission = permissionRepository.findById(permissionId)
@@ -90,7 +90,7 @@ public class PermissionServiceImpl implements PermissionService {
     @Override
     @Transactional(readOnly = true)
     public Set<Permission> getRolePermissions(Long roleId) {
-        Role role = roleRepository.findById(roleId)
+        Role role = roleRepository.findByIdWithPermissions(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
         return role.getPermissions();

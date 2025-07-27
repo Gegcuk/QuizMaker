@@ -43,7 +43,7 @@ public class QuizUserDetailsServiceTest {
                 .build();
         user.setRoles(Set.of(role));
 
-        when(userRepository.findByUsername("johndoe")).thenReturn(Optional.of(user));
+        when(userRepository.findByUsernameWithRoles("johndoe")).thenReturn(Optional.of(user));
 
         UserDetails userDetails = quizUserDetailsService.loadUserByUsername("johndoe");
 
@@ -55,8 +55,8 @@ public class QuizUserDetailsServiceTest {
                         .anyMatch(authority -> authority.getAuthority().equals("ROLE_USER"))
         );
 
-        verify(userRepository).findByUsername("johndoe");
-        verify(userRepository, never()).findByEmail(any());
+        verify(userRepository).findByUsernameWithRoles("johndoe");
+        verify(userRepository, never()).findByEmailWithRoles(any());
     }
 
     @Test
@@ -72,9 +72,9 @@ public class QuizUserDetailsServiceTest {
                 .build();
         user.setRoles(Set.of(admin));
 
-        when(userRepository.findByUsername("jane@example.com"))
+        when(userRepository.findByUsernameWithRoles("jane@example.com"))
                 .thenReturn(Optional.empty());
-        when(userRepository.findByEmail("jane@example.com"))
+        when(userRepository.findByEmailWithRoles("jane@example.com"))
                 .thenReturn(Optional.of(user));
 
         UserDetails ud = quizUserDetailsService.loadUserByUsername("jane@example.com");
@@ -86,23 +86,23 @@ public class QuizUserDetailsServiceTest {
                         .stream()
                         .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))
         );
-        verify(userRepository).findByUsername("jane@example.com");
-        verify(userRepository).findByEmail("jane@example.com");
+        verify(userRepository).findByUsernameWithRoles("jane@example.com");
+        verify(userRepository).findByEmailWithRoles("jane@example.com");
     }
 
     @Test
     @DisplayName("loadUserByUsername: sad when user not found")
     void loadUserByUsername_notFound() {
         // given
-        when(userRepository.findByUsername("missing")).thenReturn(Optional.empty());
-        when(userRepository.findByEmail("missing")).thenReturn(Optional.empty());
+        when(userRepository.findByUsernameWithRoles("missing")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRoles("missing")).thenReturn(Optional.empty());
 
         assertThrows(
                 UsernameNotFoundException.class,
                 () -> quizUserDetailsService.loadUserByUsername("missing")
         );
-        verify(userRepository).findByUsername("missing");
-        verify(userRepository).findByEmail("missing");
+        verify(userRepository).findByUsernameWithRoles("missing");
+        verify(userRepository).findByEmailWithRoles("missing");
     }
 
 }
