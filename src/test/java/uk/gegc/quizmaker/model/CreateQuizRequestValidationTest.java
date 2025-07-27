@@ -5,6 +5,7 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -16,16 +17,22 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @Execution(ExecutionMode.CONCURRENT)
 public class CreateQuizRequestValidationTest {
-    private static Validator validator;
+
+    private static ValidatorFactory validatorFactory;
+    private Validator validator;
 
     @BeforeAll
-    static void setUpValidator() {
-        ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
-        validator = factory.getValidator();
+    static void setUpFactory() {
+        validatorFactory = Validation.buildDefaultValidatorFactory();
+    }
+
+    @BeforeEach
+    void setUp() {
+        validator = validatorFactory.getValidator();
     }
 
     private CreateQuizRequest baseRequest() {
@@ -57,11 +64,9 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "title");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Title length must be between 3 and 100 characters",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Title length must be between 3 and 100 characters");
     }
 
     @Test
@@ -76,11 +81,9 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "description");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Description must be at most 1000 characters long",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Description must be at most 1000 characters long");
     }
 
     @Test
@@ -95,11 +98,9 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "estimatedTime");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Estimated time can't be less than 1 minute",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Estimated time can't be less than 1 minute");
     }
 
     @Test
@@ -114,11 +115,9 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "estimatedTime");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Estimated time can't be more than 180 minutes",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Estimated time can't be more than 180 minutes");
     }
 
     @Test
@@ -133,11 +132,9 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "timerDuration");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Timer duration must be at least 1 minute",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Timer duration must be at least 1 minute");
     }
 
     @Test
@@ -152,10 +149,8 @@ public class CreateQuizRequestValidationTest {
         Set<ConstraintViolation<CreateQuizRequest>> violations =
                 validator.validateProperty(req, "timerDuration");
 
-        assertEquals(1, violations.size());
-        assertEquals(
-                "Timer duration must be at most 180 minutes",
-                violations.iterator().next().getMessage()
-        );
+        assertThat(violations).hasSize(1);
+        assertThat(violations.iterator().next().getMessage())
+                .isEqualTo("Timer duration must be at most 180 minutes");
     }
 }
