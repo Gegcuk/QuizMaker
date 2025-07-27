@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,11 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.util.ReflectionTestUtils;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 
 import javax.crypto.SecretKey;
 import java.util.Base64;
@@ -23,7 +29,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Execution(ExecutionMode.CONCURRENT)
+@Execution(ExecutionMode.SAME_THREAD)
 public class JwtTokenProviderTest {
 
     private final long accessTokenValidityInMs = 15 * 60 * 1000;
@@ -31,6 +37,8 @@ public class JwtTokenProviderTest {
     private JwtTokenProvider jwtTokenProvider;
     private SecretKey secretKey;
     private String base64Secret;
+    private ListAppender<ILoggingEvent> logWatcher;
+    private Logger jwtProviderLogger;
 
     @BeforeEach
     void setUp() {
@@ -43,6 +51,23 @@ public class JwtTokenProviderTest {
         ReflectionTestUtils.setField(jwtTokenProvider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
 
         jwtTokenProvider.init();
+        
+        // Set up log capture
+        jwtProviderLogger = (Logger) LoggerFactory.getLogger(JwtTokenProvider.class);
+        jwtProviderLogger.setLevel(Level.DEBUG); // Ensure we capture all log levels
+        logWatcher = new ListAppender<>();
+        logWatcher.start();
+        jwtProviderLogger.addAppender(logWatcher);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (jwtProviderLogger != null && logWatcher != null) {
+            jwtProviderLogger.detachAppender(logWatcher);
+        }
+        if (logWatcher != null) {
+            logWatcher.stop();
+        }
     }
 
     @Test
@@ -213,5 +238,68 @@ public class JwtTokenProviderTest {
         String badToken = "not.a.token";
 
         assertThatThrownBy(() -> jwtTokenProvider.getAuthentication(badToken)).isInstanceOf(JwtException.class);
+    }
+
+    @Test
+    @DisplayName("validateToken: expired token logs appropriate debug message")
+    void validateToken_expiredToken_logsDebugMessage() {
+        // Create a token that was valid but is now expired
+        Date past = new Date(System.currentTimeMillis() - 10000); // 10 seconds ago
+        Date expiration = new Date(System.currentTimeMillis() - 5000); // 5 seconds ago
+        String expired = Jwts.builder()
+                .subject("ExpiredUser")
+                .issuedAt(past)
+                .expiration(expiration)
+                .claim("type", "access")
+                .signWith(secretKey)
+                .compact();
+
+        boolean result = jwtTokenProvider.validateToken(expired);
+        
+        assertThat(result).isFalse();
+        
+        // Debug: Print all captured logs
+        System.out.println("Captured logs: " + logWatcher.list.size());
+        logWatcher.list.forEach(event -> 
+            System.out.println("Log: " + event.getLevel() + " - " + event.getMessage())
+        );
+        
+        assertThat(logWatcher.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "JWT token is expired: {}")));
+    }
+
+    @Test 
+    @DisplayName("validateToken: malformed token logs appropriate warn message")
+    void validateToken_malformedToken_logsWarnMessage() {
+        String malformedToken = "not.a.valid.jwt.token";
+        
+        boolean result = jwtTokenProvider.validateToken(malformedToken);
+        
+        assertThat(result).isFalse();
+        assertThat(logWatcher.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Malformed JWT token received: {}")));
+    }
+
+    @Test
+    @DisplayName("validateToken: invalid signature logs appropriate warn message") 
+    void validateToken_invalidSignature_logsWarnMessage() {
+        SecretKey wrongKey = Jwts.SIG.HS256.key().build();
+        Date now = new Date();
+        String invalidSignatureToken = Jwts.builder()
+                .subject("TestUser")
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + accessTokenValidityInMs))
+                .claim("type", "access")
+                .signWith(wrongKey)
+                .compact();
+
+        boolean result = jwtTokenProvider.validateToken(invalidSignatureToken);
+        
+        assertThat(result).isFalse();
+        assertThat(logWatcher.list)
+                .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT signature detected: {}")));
     }
 }
