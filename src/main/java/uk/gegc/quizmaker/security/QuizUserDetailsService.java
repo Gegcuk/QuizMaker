@@ -23,8 +23,8 @@ public class QuizUserDetailsService implements UserDetailsService {
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
 
-        User user = userRepository.findByUsername(usernameOrEmail)
-                .or(() -> userRepository.findByEmail(usernameOrEmail))
+        User user = userRepository.findByUsernameWithRoles(usernameOrEmail)
+                .or(() -> userRepository.findByEmailWithRoles(usernameOrEmail))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username or email: " + usernameOrEmail));
 
         List<GrantedAuthority> authorities = user.getRoles()
