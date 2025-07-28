@@ -7,12 +7,19 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 
 import java.util.Set;
 import java.util.stream.StreamSupport;
 
 @Component
 public class McqSingleHandler extends QuestionHandler {
+    
+    @Override
+    public QuestionType supportedType() {
+        return QuestionType.MCQ_SINGLE;
+    }
+    
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         JsonNode root = request.getContent();

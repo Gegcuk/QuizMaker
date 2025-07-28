@@ -7,6 +7,7 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 
 import java.util.List;
 import java.util.Set;
@@ -15,6 +16,11 @@ import java.util.stream.StreamSupport;
 
 @Component
 public class ComplianceHandler extends QuestionHandler {
+
+    @Override
+    public QuestionType supportedType() {
+        return QuestionType.COMPLIANCE;
+    }
 
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
@@ -71,7 +77,8 @@ public class ComplianceHandler extends QuestionHandler {
                               Question question,
                               JsonNode content,
                               JsonNode response) {
-        Set<Integer> correct = StreamSupport.stream(content.get("statements").spliterator(), false)
+        Set<Integer> correct = StreamSupport.stream(
+                        content.get("statements").spliterator(), false)
                 .filter(stmt -> stmt.path("compliant").asBoolean(false))
                 .map(stmt -> stmt.get("id").asInt())
                 .collect(Collectors.toSet());

@@ -12,11 +12,18 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 
 import java.time.Instant;
 
 public abstract class QuestionHandler {
     private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Returns the question type that this handler supports
+     * @return the supported question type
+     */
+    public abstract QuestionType supportedType();
 
     public abstract void validateContent(QuestionContentRequest request) throws ValidationException;
 

@@ -7,9 +7,15 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 
 @Component
 public class TrueFalseHandler extends QuestionHandler {
+
+    @Override
+    public QuestionType supportedType() {
+        return QuestionType.TRUE_FALSE;
+    }
 
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
