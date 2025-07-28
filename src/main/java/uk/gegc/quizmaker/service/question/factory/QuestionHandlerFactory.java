@@ -1,38 +1,29 @@
 package uk.gegc.quizmaker.service.question.factory;
 
-import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.service.question.handler.*;
+import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
-@RequiredArgsConstructor
+@Slf4j
 public class QuestionHandlerFactory {
     private final Map<QuestionType, QuestionHandler> handlerMap = new EnumMap<>(QuestionType.class);
 
-    private final McqSingleHandler mcqSingleHandler;
-    private final TrueFalseHandler trueFalseHandler;
-    private final ComplianceHandler complianceHandler;
-    private final FillGapHandler fillGapHandler;
-    private final HotspotHandler hotspotHandler;
-    private final McqMultiHandler mcqMultiHandler;
-    private final OpenQuestionHandler openQuestionHandler;
-    private final OrderingHandler orderingHandler;
-
-    @PostConstruct
-    private void init() {
-        handlerMap.put(QuestionType.MCQ_SINGLE, mcqSingleHandler);
-        handlerMap.put(QuestionType.MCQ_MULTI, mcqMultiHandler);
-        handlerMap.put(QuestionType.COMPLIANCE, complianceHandler);
-        handlerMap.put(QuestionType.TRUE_FALSE, trueFalseHandler);
-        handlerMap.put(QuestionType.FILL_GAP, fillGapHandler);
-        handlerMap.put(QuestionType.HOTSPOT, hotspotHandler);
-        handlerMap.put(QuestionType.OPEN, openQuestionHandler);
-        handlerMap.put(QuestionType.ORDERING, orderingHandler);
+    public QuestionHandlerFactory(List<QuestionHandler> handlers) {
+        log.info("Initializing QuestionHandlerFactory with {} handlers", handlers.size());
+        
+        handlers.forEach(handler -> {
+            QuestionType supportedType = handler.supportedType();
+            log.debug("Registering handler {} for type {}", handler.getClass().getSimpleName(), supportedType);
+            handlerMap.put(supportedType, handler);
+        });
+        
+        log.info("QuestionHandlerFactory initialized with handlers for types: {}", handlerMap.keySet());
     }
 
     public QuestionHandler getHandler(QuestionType type) {

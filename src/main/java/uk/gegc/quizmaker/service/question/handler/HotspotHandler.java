@@ -7,6 +7,7 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.model.question.QuestionType;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -14,6 +15,11 @@ import java.util.stream.StreamSupport;
 
 @Component
 public class HotspotHandler extends QuestionHandler {
+
+    @Override
+    public QuestionType supportedType() {
+        return QuestionType.HOTSPOT;
+    }
 
     @Override
     public void validateContent(QuestionContentRequest request) {
@@ -80,7 +86,6 @@ public class HotspotHandler extends QuestionHandler {
             throw new ValidationException("At least one region must be marked as correct");
         }
     }
-
 
     @Override
     protected Answer doHandle(Attempt attempt,

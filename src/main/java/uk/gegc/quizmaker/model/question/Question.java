@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.model.quiz.Quiz;
@@ -23,6 +25,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "questions")
+@SQLDelete(sql = "UPDATE questions SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE id = ?")
+@SQLRestriction("is_deleted = false")
 public class Question {
 
     @Enumerated(EnumType.STRING)
@@ -62,15 +66,11 @@ public class Question {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @Column(name = "is_deleted",
-            nullable = false,
-            columnDefinition = "boolean default false",
-            insertable = false)
-    private Boolean isDeleted;
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
+    private Boolean isDeleted = false;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
-
 
     @ManyToMany(
             fetch = FetchType.LAZY,
@@ -83,7 +83,6 @@ public class Question {
     )
     private List<Quiz> quizId = new ArrayList<>();
 
-
     @ManyToMany(
             fetch = FetchType.LAZY,
             cascade = {CascadeType.PERSIST, CascadeType.MERGE}
@@ -95,4 +94,16 @@ public class Question {
     )
     private List<Tag> tags = new ArrayList<>();
 
+    @PrePersist
+    public void prePersist() {
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+    }
+
+    @PreRemove
+    private void onSoftDelete() {
+        this.isDeleted = true;
+        this.deletedAt = Instant.now();
+    }
 }
