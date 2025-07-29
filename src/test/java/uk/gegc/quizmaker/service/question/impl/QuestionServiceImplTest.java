@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -91,14 +92,15 @@ class QuestionServiceImplTest {
     @Test
     @DisplayName("createQuestion: missing quiz should throw ResourceNotFoundException")
     void createQuestion_missingQuiz_throws404() {
-        CreateQuestionRequest req = new CreateQuestionRequest();
+        UUID badQuiz = UUID.randomUUID();
+        var req = new CreateQuestionRequest();
         req.setType(QuestionType.TRUE_FALSE);
         req.setDifficulty(Difficulty.EASY);
         req.setQuestionText("Q?");
         req.setContent(objectMapper.createObjectNode().put("answer", true));
-        req.setQuizIds(List.of(UUID.randomUUID()));
+        req.setQuizIds(List.of(badQuiz));
 
-        when(quizRepository.findById(any())).thenReturn(Optional.empty());
+        when(quizRepository.findAllById(List.of(badQuiz))).thenReturn(Collections.emptyList());
 
         assertThatThrownBy(() -> questionService.createQuestion(DUMMY_USER, req))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -189,7 +191,7 @@ class QuestionServiceImplTest {
 
         Tag tag = new Tag();
         tag.setId(tagId);
-        when(tagRepository.findById(tagId)).thenReturn(Optional.of(tag));
+        when(tagRepository.findAllById(List.of(tagId))).thenReturn(List.of(tag));
         when(questionRepository.save(any(Question.class)))
                 .thenAnswer(inv -> {
                     Question q = inv.getArgument(0);
@@ -200,7 +202,7 @@ class QuestionServiceImplTest {
         UUID result = questionService.createQuestion(DUMMY_USER, req);
 
         assertThat(result).isNotNull();
-        verify(tagRepository).findById(tagId);
+        verify(tagRepository).findAllById(List.of(tagId));
         verify(questionRepository).save(any(Question.class));
     }
 
@@ -215,7 +217,7 @@ class QuestionServiceImplTest {
         req.setContent(objectMapper.createObjectNode().put("answer", true));
         req.setTagIds(List.of(badTag));
 
-        when(tagRepository.findById(badTag)).thenReturn(Optional.empty());
+        when(tagRepository.findAllById(List.of(badTag))).thenReturn(Collections.emptyList());
 
         assertThatThrownBy(() -> questionService.createQuestion(DUMMY_USER, req))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -232,9 +234,9 @@ class QuestionServiceImplTest {
         existing.setId(id);
 
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(tagRepository.findById(tagId)).thenReturn(Optional.of(new Tag() {{
-            setId(tagId);
-        }}));
+        Tag tag = new Tag();
+        tag.setId(tagId);
+        when(tagRepository.findAllById(List.of(tagId))).thenReturn(List.of(tag));
         when(questionRepository.save(existing)).thenReturn(existing);
 
         var req = new UpdateQuestionRequest();
@@ -247,7 +249,7 @@ class QuestionServiceImplTest {
         QuestionDto dto = questionService.updateQuestion(DUMMY_USER, id, req);
 
         assertThat(dto.getId()).isEqualTo(id);
-        verify(tagRepository).findById(tagId);
+        verify(tagRepository).findAllById(List.of(tagId));
         verify(questionRepository).save(existing);
     }
 
@@ -259,7 +261,7 @@ class QuestionServiceImplTest {
         existing.setId(id);
 
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(tagRepository.findById(badTag)).thenReturn(Optional.empty());
+        when(tagRepository.findAllById(List.of(badTag))).thenReturn(Collections.emptyList());
 
         var req = new UpdateQuestionRequest();
         req.setType(QuestionType.TRUE_FALSE);

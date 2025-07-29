@@ -23,7 +23,9 @@ import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -40,18 +42,8 @@ public class QuestionServiceImpl implements QuestionService {
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
         questionHandler.validateContent(questionDto);
 
-        List<Quiz> quizzes = Optional.ofNullable(questionDto.getQuizIds())
-                .orElse(Collections.emptyList())
-                .stream()
-                .map(id -> quizRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found")))
-                .toList();
-        List<Tag> tags = Optional.ofNullable(questionDto.getTagIds())
-                .orElse(Collections.emptyList())
-                .stream()
-                .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
-                .toList();
+        List<Quiz> quizzes = loadQuizzesByIds(questionDto.getQuizIds());
+        List<Tag> tags = loadTagsByIds(questionDto.getTagIds());
 
         Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
         questionRepository.save(question);
@@ -83,18 +75,8 @@ public class QuestionServiceImpl implements QuestionService {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
 
-        List<Quiz> quizzes = Optional.ofNullable(request.getQuizIds())
-                .orElse(Collections.emptyList())
-                .stream()
-                .map(id -> quizRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found")))
-                .toList();
-        List<Tag> tags = Optional.ofNullable(request.getTagIds())
-                .orElse(Collections.emptyList())
-                .stream()
-                .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Tag " + id + " not found")))
-                .toList();
+        List<Quiz> quizzes = loadQuizzesByIds(request.getQuizIds());
+        List<Tag> tags = loadTagsByIds(request.getTagIds());
 
         QuestionMapper.updateEntity(question, request, quizzes, tags);
         Question updatedQuestion = questionRepository.save(question);
@@ -107,5 +89,66 @@ public class QuestionServiceImpl implements QuestionService {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
         questionRepository.delete(question);
+    }
+
+    /**
+     * Batch loads quizzes by IDs to avoid N+1 query problem.
+     * Validates that all requested quizzes exist.
+     */
+    private List<Quiz> loadQuizzesByIds(List<UUID> quizIds) {
+        if (quizIds == null || quizIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Quiz> quizzes = quizRepository.findAllById(quizIds);
+        validateAllEntitiesFound(quizzes, quizIds, "Quiz");
+        return quizzes;
+    }
+
+    /**
+     * Batch loads tags by IDs to avoid N+1 query problem.
+     * Validates that all requested tags exist.
+     */
+    private List<Tag> loadTagsByIds(List<UUID> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Tag> tags = tagRepository.findAllById(tagIds);
+        validateAllEntitiesFound(tags, tagIds, "Tag");
+        return tags;
+    }
+
+    /**
+     * Validates that all requested entities were found.
+     * Throws ResourceNotFoundException with details about missing entities.
+     */
+    private <T> void validateAllEntitiesFound(List<T> foundEntities, List<UUID> requestedIds, String entityType) {
+        if (foundEntities.size() != requestedIds.size()) {
+            Set<UUID> foundIds = foundEntities.stream()
+                    .map(entity -> {
+                        if (entity instanceof Quiz) {
+                            return ((Quiz) entity).getId();
+                        } else if (entity instanceof Tag) {
+                            return ((Tag) entity).getId();
+                        }
+                        throw new IllegalStateException("Unsupported entity type: " + entity.getClass());
+                    })
+                    .collect(Collectors.toSet());
+            
+            List<UUID> missingIds = requestedIds.stream()
+                    .filter(id -> !foundIds.contains(id))
+                    .toList();
+            
+            // For single missing entity, use the original format expected by tests
+            if (missingIds.size() == 1) {
+                String entityName = entityType.equals("Quiz") ? "Quiz" : "Tag";
+                throw new ResourceNotFoundException(entityName + " " + missingIds.get(0) + " not found");
+            } else {
+                // For multiple missing entities, use the new format
+                String entityName = entityType.equals("Quiz") ? "Quizzes" : "Tags";
+                throw new ResourceNotFoundException(entityName + " not found: " + missingIds);
+            }
+        }
     }
 }

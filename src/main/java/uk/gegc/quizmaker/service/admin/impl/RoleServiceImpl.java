@@ -82,7 +82,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public RoleDto getRoleById(Long roleId) {
-        Role role = roleRepository.findById(roleId)
+        Role role = roleRepository.findByIdWithPermissions(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
         return roleMapper.toDto(role);
@@ -91,7 +91,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public List<RoleDto> getAllRoles() {
-        List<Role> roles = roleRepository.findAll();
+        List<Role> roles = roleRepository.findAllWithPermissions();
         return roles.stream()
                 .map(roleMapper::toDto)
                 .toList();
@@ -100,13 +100,13 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public Role getRoleByName(RoleName roleName) {
-        return roleRepository.findByRoleName(roleName.name())
+        return roleRepository.findByRoleNameWithPermissions(roleName.name())
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
     }
 
     @Override
     public void assignRoleToUser(UUID userId, Long roleId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdWithRoles(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         Role role = roleRepository.findById(roleId)
@@ -119,7 +119,7 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public void removeRoleFromUser(UUID userId, Long roleId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdWithRoles(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         Role role = roleRepository.findById(roleId)
@@ -133,7 +133,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public Set<Role> getUserRoles(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdWithRoles(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
 
         return user.getRoles();
@@ -148,7 +148,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public Role getDefaultRole() {
-        return roleRepository.findByIsDefaultTrue()
+        return roleRepository.findByIsDefaultTrueWithPermissions()
                 .orElseGet(() -> getRoleByName(RoleName.ROLE_USER)); // Fallback to USER role
     }
 
