@@ -48,7 +48,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     Optional<Attempt> findByIdWithAnswersAndQuestion(@Param("id") UUID id);
 
     @Query("""
-            SELECT a
+            SELECT DISTINCT a
             FROM Attempt a
             LEFT JOIN FETCH a.answers ans
             LEFT JOIN FETCH ans.question q

@@ -436,6 +436,45 @@ public class AttemptServiceImpl implements AttemptService {
         // attemptRepository.save(attempt);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public CurrentQuestionDto getCurrentQuestion(String username, UUID attemptId) {
+        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
+
+        if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Can only get current question for attempts that are in progress");
+        }
+
+        // Get all questions for the quiz and convert to sorted list for consistent ordering
+        List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
+                .sorted(Comparator.comparing(Question::getId))
+                .collect(Collectors.toList());
+        int totalQuestions = allQuestions.size();
+        
+        if (totalQuestions == 0) {
+            throw new IllegalStateException("Quiz has no questions");
+        }
+
+        // Count answers using a separate query to avoid collection issues
+        long answeredCount = answerRepository.countByAttemptId(attemptId);
+        
+        if (answeredCount >= totalQuestions) {
+            throw new IllegalStateException("All questions have already been answered");
+        }
+
+        // Get the current question (next unanswered question)
+        Question currentQuestion = allQuestions.get((int) answeredCount);
+        
+        return new CurrentQuestionDto(
+                safeQuestionMapper.toSafeDto(currentQuestion),
+                (int) answeredCount + 1, // 1-based question number
+                totalQuestions,
+                attempt.getStatus()
+        );
+    }
+
     private void enforceOwnership(Attempt attempt, String username) {
         if (!attempt.getUser().getUsername().equals(username)) {
             throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());
