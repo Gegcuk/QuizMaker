@@ -37,3 +37,13 @@ build/
 /htmlReport/
 .env
 /.env
+docs/conroller/01-auth-controller.md
+.gitignore
+docs/conroller/03-attempt-controller.md
+docs/conroller/04-question-controller.md
+docs/conroller/05-document-controller.md
+.gitignore
+docs/conroller/07-tag-controller.md
+docs/conroller/08-admin-controller.md
+/docs/conroller/02-quiz-controller.md
+/docs/conroller/06-category-controller.md
