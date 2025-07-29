@@ -255,4 +255,243 @@ class AttemptServiceCurrentQuestionTest {
         assertThrows(IllegalStateException.class, () ->
                 attemptService.getCurrentQuestion("testuser", attemptId));
     }
+
+    @Test
+    void getCurrentQuestion_ThirdQuestion_ReturnsThirdQuestion() {
+        // Arrange
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(2L);
+        
+        // Use a custom answer that returns different DTOs based on the question
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenAnswer(invocation -> {
+                    Question question = invocation.getArgument(0);
+                    if (question != null && question.getId().equals(question3.getId())) {
+                        return safeQuestionDto2; // Use question2 DTO for question3
+                    }
+                    return safeQuestionDto1; // Default fallback
+                });
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertNotNull(result.question().getId());
+        assertEquals(3, result.questionNumber());
+        assertEquals(3, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithManyQuestions_ReturnsCorrectQuestion() {
+        // Arrange - Create a quiz with 10 questions
+        Set<Question> manyQuestions = new HashSet<>();
+        for (int i = 1; i <= 10; i++) {
+            Question q = new Question();
+            q.setId(UUID.randomUUID());
+            q.setQuestionText("Question " + i);
+            q.setType(QuestionType.MCQ_SINGLE);
+            q.setDifficulty(Difficulty.EASY);
+            q.setContent("{\"question\": \"Question " + i + "\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+            manyQuestions.add(q);
+        }
+        testQuiz.setQuestions(manyQuestions);
+        
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(7L); // 7 questions answered, so should return question 8
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenReturn(safeQuestionDto1);
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(8, result.questionNumber()); // Should be question 8 (1-based)
+        assertEquals(10, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithSingleQuestion_ReturnsFirstQuestion() {
+        // Arrange - Create a quiz with only 1 question
+        Set<Question> singleQuestion = new HashSet<>();
+        Question q = new Question();
+        q.setId(UUID.randomUUID());
+        q.setQuestionText("Single Question");
+        q.setType(QuestionType.MCQ_SINGLE);
+        q.setDifficulty(Difficulty.EASY);
+        q.setContent("{\"question\": \"Single Question\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+        singleQuestion.add(q);
+        testQuiz.setQuestions(singleQuestion);
+        
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(0L); // No questions answered
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenReturn(safeQuestionDto1);
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(1, result.questionNumber());
+        assertEquals(1, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithSingleQuestion_AllAnswered_ThrowsException() {
+        // Arrange - Create a quiz with only 1 question
+        Set<Question> singleQuestion = new HashSet<>();
+        Question q = new Question();
+        q.setId(UUID.randomUUID());
+        q.setQuestionText("Single Question");
+        q.setType(QuestionType.MCQ_SINGLE);
+        q.setDifficulty(Difficulty.EASY);
+        q.setContent("{\"question\": \"Single Question\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+        singleQuestion.add(q);
+        testQuiz.setQuestions(singleQuestion);
+        
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(1L); // All questions answered
+
+        // Act & Assert
+        assertThrows(IllegalStateException.class, () ->
+                attemptService.getCurrentQuestion("testuser", attemptId));
+    }
+
+    @Test
+    void getCurrentQuestion_QuestionOrdering_ConsistentWithIdSorting() {
+        // Arrange - Create questions with specific IDs to test ordering
+        Question q1 = new Question();
+        q1.setId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        q1.setQuestionText("First Question");
+        q1.setType(QuestionType.MCQ_SINGLE);
+        q1.setDifficulty(Difficulty.EASY);
+        q1.setContent("{\"question\": \"First\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+
+        Question q2 = new Question();
+        q2.setId(UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        q2.setQuestionText("Second Question");
+        q2.setType(QuestionType.MCQ_SINGLE);
+        q2.setDifficulty(Difficulty.EASY);
+        q2.setContent("{\"question\": \"Second\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+
+        Question q3 = new Question();
+        q3.setId(UUID.fromString("00000000-0000-0000-0000-000000000003"));
+        q3.setQuestionText("Third Question");
+        q3.setType(QuestionType.MCQ_SINGLE);
+        q3.setDifficulty(Difficulty.EASY);
+        q3.setContent("{\"question\": \"Third\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
+
+        // Add questions in random order to test sorting
+        Set<Question> questions = new HashSet<>(Arrays.asList(q3, q1, q2));
+        testQuiz.setQuestions(questions);
+        
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(1L); // 1 question answered, should return second question
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenAnswer(invocation -> {
+                    Question question = invocation.getArgument(0);
+                    if (question.getId().equals(q2.getId())) {
+                        return safeQuestionDto2;
+                    }
+                    return safeQuestionDto1;
+                });
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert - Should return the second question (sorted by ID)
+        assertNotNull(result);
+        assertEquals(2, result.questionNumber());
+        assertEquals(3, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithZeroAnswers_ReturnsFirstQuestion() {
+        // Arrange
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(0L); // No answers
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenReturn(safeQuestionDto1);
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(1, result.questionNumber());
+        assertEquals(3, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithPartialAnswers_ReturnsNextQuestion() {
+        // Arrange
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(1L); // 1 answer, should return second question
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenReturn(safeQuestionDto2);
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(2, result.questionNumber());
+        assertEquals(3, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
+
+    @Test
+    void getCurrentQuestion_WithAllButOneAnswered_ReturnsLastQuestion() {
+        // Arrange
+        UUID attemptId = testAttempt.getId();
+        when(attemptRepository.findFullyLoadedById(attemptId))
+                .thenReturn(Optional.of(testAttempt));
+        when(answerRepository.countByAttemptId(attemptId))
+                .thenReturn(2L); // 2 answers, should return third question (last)
+        
+        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+                .thenReturn(safeQuestionDto2);
+
+        // Act
+        CurrentQuestionDto result = attemptService.getCurrentQuestion("testuser", attemptId);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(3, result.questionNumber());
+        assertEquals(3, result.totalQuestions());
+        assertEquals(AttemptStatus.IN_PROGRESS, result.attemptStatus());
+    }
 }

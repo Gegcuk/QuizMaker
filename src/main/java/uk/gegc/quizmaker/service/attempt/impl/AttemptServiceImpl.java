@@ -105,6 +105,45 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public CurrentQuestionDto getCurrentQuestion(String username, UUID attemptId) {
+        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
+
+        if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Can only get current question for attempts that are in progress");
+        }
+
+        // Get all questions for the quiz and convert to sorted list for consistent ordering
+        List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
+                .sorted(Comparator.comparing(Question::getId))
+                .collect(Collectors.toList());
+        int totalQuestions = allQuestions.size();
+        
+        if (totalQuestions == 0) {
+            throw new IllegalStateException("Quiz has no questions");
+        }
+
+        // Count answers using a separate query to avoid collection issues
+        long answeredCount = answerRepository.countByAttemptId(attemptId);
+        
+        if (answeredCount >= totalQuestions) {
+            throw new IllegalStateException("All questions have already been answered");
+        }
+
+        // Get the current question (next unanswered question)
+        Question currentQuestion = allQuestions.get((int) answeredCount);
+        
+        return new CurrentQuestionDto(
+                safeQuestionMapper.toSafeDto(currentQuestion),
+                (int) answeredCount + 1, // 1-based question number
+                totalQuestions,
+                attempt.getStatus()
+        );
+    }
+
+    @Override
     @Transactional
     public AnswerSubmissionDto submitAnswer(String username,
                                             UUID attemptId,
@@ -142,13 +181,39 @@ public class AttemptServiceImpl implements AttemptService {
                             attempt.getQuiz().getId());
         }
 
-        // prevent duplicate answers
-        boolean already = attempt.getAnswers().stream()
-                .map(a -> a.getQuestion().getId())
-                .anyMatch(id -> id.equals(question.getId()));
-        if (already) {
-            throw new IllegalStateException(
-                    "Already answered question " + question.getId() + " in this attempt");
+        // For ONE_BY_ONE mode, enforce sequential question submission
+        if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
+            // Get all questions for the quiz and convert to sorted list for consistent ordering
+            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
+                    .sorted(Comparator.comparing(Question::getId))
+                    .collect(Collectors.toList());
+            
+            // Count answers using the same approach as getCurrentQuestion to ensure consistency
+            long answeredCount = answerRepository.countByAttemptId(attemptId);
+            
+            // Determine which question should be answered next
+            if (answeredCount >= allQuestions.size()) {
+                throw new IllegalStateException("All questions have already been answered");
+            }
+            
+            Question expectedQuestion = allQuestions.get((int) answeredCount);
+            
+            // Verify the submitted question is the expected next question
+            if (!expectedQuestion.getId().equals(question.getId())) {
+                throw new IllegalStateException(
+                        "Expected question " + expectedQuestion.getId() + 
+                        " but received " + question.getId() + 
+                        " (answered count: " + answeredCount + ")");
+            }
+        } else {
+            // For ALL_AT_ONCE mode, just check for duplicate answers
+            boolean already = attempt.getAnswers().stream()
+                    .map(a -> a.getQuestion().getId())
+                    .anyMatch(id -> id.equals(question.getId()));
+            if (already) {
+                throw new IllegalStateException(
+                        "Already answered question " + question.getId() + " in this attempt");
+            }
         }
 
         var handler = handlerFactory.getHandler(question.getType());
@@ -158,15 +223,19 @@ public class AttemptServiceImpl implements AttemptService {
         var baseDto = answerMapper.toDto(answer);
         QuestionForAttemptDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            Set<UUID> done = attempt.getAnswers().stream()
-                    .map(a -> a.getQuestion().getId())
-                    .collect(Collectors.toSet());
-            nextQuestion = attempt.getQuiz().getQuestions().stream()
-                    .filter(q -> !done.contains(q.getId()))
-                    .findFirst()
-                    // 🔒 Use safe mapper to prevent exposing correct answers
-                    .map(safeQuestionMapper::toSafeDto)
-                    .orElse(null);
+            // Get all questions for the quiz and convert to sorted list for consistent ordering
+            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
+                    .sorted(Comparator.comparing(Question::getId))
+                    .collect(Collectors.toList());
+            
+            // Count answers using the same approach as getCurrentQuestion to ensure consistency
+            long answeredCount = answerRepository.countByAttemptId(attemptId);
+            
+            // Check if there are more questions to answer
+            if (answeredCount < allQuestions.size()) {
+                Question nextQ = allQuestions.get((int) answeredCount);
+                nextQuestion = safeQuestionMapper.toSafeDto(nextQ);
+            }
         }
 
         return new AnswerSubmissionDto(
@@ -434,45 +503,6 @@ public class AttemptServiceImpl implements AttemptService {
         // attempt.setFlagged(true);
         // attempt.setFlagReason(reason);
         // attemptRepository.save(attempt);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public CurrentQuestionDto getCurrentQuestion(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
-        enforceOwnership(attempt, username);
-
-        if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
-            throw new IllegalStateException("Can only get current question for attempts that are in progress");
-        }
-
-        // Get all questions for the quiz and convert to sorted list for consistent ordering
-        List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                .sorted(Comparator.comparing(Question::getId))
-                .collect(Collectors.toList());
-        int totalQuestions = allQuestions.size();
-        
-        if (totalQuestions == 0) {
-            throw new IllegalStateException("Quiz has no questions");
-        }
-
-        // Count answers using a separate query to avoid collection issues
-        long answeredCount = answerRepository.countByAttemptId(attemptId);
-        
-        if (answeredCount >= totalQuestions) {
-            throw new IllegalStateException("All questions have already been answered");
-        }
-
-        // Get the current question (next unanswered question)
-        Question currentQuestion = allQuestions.get((int) answeredCount);
-        
-        return new CurrentQuestionDto(
-                safeQuestionMapper.toSafeDto(currentQuestion),
-                (int) answeredCount + 1, // 1-based question number
-                totalQuestions,
-                attempt.getStatus()
-        );
     }
 
     private void enforceOwnership(Attempt attempt, String username) {
