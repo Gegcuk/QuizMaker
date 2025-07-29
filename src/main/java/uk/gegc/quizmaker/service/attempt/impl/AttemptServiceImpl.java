@@ -476,6 +476,20 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
+    @Transactional
+    public void deleteAttempt(String username, UUID attemptId) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        enforceOwnership(attempt, username);
+
+        // Delete all answers associated with this attempt first
+        answerRepository.deleteByAttemptId(attemptId);
+        
+        // Then delete the attempt itself
+        attemptRepository.delete(attempt);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end) {
         Instant startInstant = start.atStartOfDay().atZone(java.time.ZoneOffset.UTC).toInstant();
