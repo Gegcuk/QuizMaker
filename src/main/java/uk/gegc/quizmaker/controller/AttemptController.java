@@ -133,8 +133,46 @@ public class AttemptController {
             Authentication authentication
     ) {
         String username = authentication.getName();
-        AttemptDetailsDto details = attemptService.getAttemptDetail(username, attemptId);
-        return ResponseEntity.ok(details);
+        AttemptDetailsDto attempt = attemptService.getAttemptDetail(username, attemptId);
+        return ResponseEntity.ok(attempt);
+    }
+
+    @Operation(
+            summary = "Get current question for an attempt",
+            description = "Retrieve the current question for an in-progress attempt. This is useful when resuming an attempt after closing the browser."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Current question returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = CurrentQuestionDto.class),
+                            examples = @ExampleObject(name = "success", value = """
+                                    {
+                                      "question": {
+                                        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                        "type": "MULTIPLE_CHOICE",
+                                        "content": "What is the capital of France?",
+                                        "options": ["London", "Berlin", "Paris", "Madrid"]
+                                      },
+                                      "questionNumber": 3,
+                                      "totalQuestions": 10,
+                                      "attemptStatus": "IN_PROGRESS"
+                                    }
+                                    """))
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered")
+    })
+    @GetMapping("/{attemptId}/current-question")
+    public ResponseEntity<CurrentQuestionDto> getCurrentQuestion(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        CurrentQuestionDto currentQuestion = attemptService.getCurrentQuestion(username, attemptId);
+        return ResponseEntity.ok(currentQuestion);
     }
 
     @Operation(summary = "Submit a single answer", description = "Submit an answer to a specific question within an attempt.")

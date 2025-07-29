@@ -40,6 +40,19 @@ public interface AttemptService {
 
     AttemptDto resumeAttempt(String username, UUID attemptId);
 
+    /**
+     * Get the current question for an existing attempt.
+     * This is useful when a user wants to resume an attempt and needs to see the current question.
+     *
+     * @param username  the username of the authenticated user
+     * @param attemptId the UUID of the attempt
+     * @return CurrentQuestionDto containing the current question and progress information
+     * @throws ResourceNotFoundException if the attempt is not found
+     * @throws AccessDeniedException if the user doesn't own the attempt
+     * @throws IllegalStateException if the attempt is not in progress or all questions are answered
+     */
+    CurrentQuestionDto getCurrentQuestion(String username, UUID attemptId);
+
     // 👨‍💼 Admin Functions
     List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end);
 
