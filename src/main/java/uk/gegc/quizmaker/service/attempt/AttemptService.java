@@ -41,6 +41,17 @@ public interface AttemptService {
     AttemptDto resumeAttempt(String username, UUID attemptId);
 
     /**
+     * Delete an attempt and all its associated answers.
+     * Users can only delete their own attempts.
+     *
+     * @param username  the username of the authenticated user
+     * @param attemptId the UUID of the attempt to delete
+     * @throws ResourceNotFoundException if the attempt is not found
+     * @throws AccessDeniedException if the user doesn't own the attempt
+     */
+    void deleteAttempt(String username, UUID attemptId);
+
+    /**
      * Get the current question for an existing attempt.
      * This is useful when a user wants to resume an attempt and needs to see the current question.
      *

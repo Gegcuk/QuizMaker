@@ -314,6 +314,24 @@ public class AttemptController {
         return ResponseEntity.ok(result);
     }
 
+    @Operation(summary = "Delete an attempt", description = "Delete an attempt and all its associated answers. Users can only delete their own attempts.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Attempt deleted successfully"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found")
+    })
+    @DeleteMapping("/{attemptId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAttempt(
+            @Parameter(description = "UUID of the attempt to delete", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        attemptService.deleteAttempt(username, attemptId);
+    }
+
     @Operation(summary = "Get shuffled questions", description = "Get questions for a quiz in randomized order (safe, without answers).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Shuffled questions returned")
