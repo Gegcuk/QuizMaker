@@ -35,7 +35,7 @@ class AiChatControllerTest {
                 """;
         ChatResponseDto mockResponse = new ChatResponseDto(
                 "Hello! How can I help you today?",
-                "gpt-4o-mini",
+                "gpt-4.1-mini",
                 1500L,
                 25
         );
@@ -49,7 +49,7 @@ class AiChatControllerTest {
                         .content(jsonRequest))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Hello! How can I help you today?"))
-                .andExpect(jsonPath("$.model").value("gpt-4o-mini"))
+                .andExpect(jsonPath("$.model").value("gpt-4.1-mini"))
                 .andExpect(jsonPath("$.latency").value(1500))
                 .andExpect(jsonPath("$.tokensUsed").value(25))
                 .andExpect(jsonPath("$.timestamp").exists());
@@ -64,7 +64,7 @@ class AiChatControllerTest {
                 """;
         ChatResponseDto mockResponse = new ChatResponseDto(
                 "2+2 equals 4!",
-                "gpt-4o-mini",
+                "gpt-4.1-mini",
                 800L,
                 15
         );
@@ -78,6 +78,6 @@ class AiChatControllerTest {
                         .content(jsonRequest))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("2+2 equals 4!"))
-                .andExpect(jsonPath("$.model").value("gpt-4o-mini"));
+                .andExpect(jsonPath("$.model").value("gpt-4.1-mini"));
     }
 } 

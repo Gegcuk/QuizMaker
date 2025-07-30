@@ -29,6 +29,9 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
+import org.slf4j.Logger;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +42,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -68,6 +72,15 @@ class AiQuizGenerationServiceTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private AiRateLimitConfig rateLimitConfig;
+
+    @Mock
+    private Logger aiResponseLogger;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
 
@@ -81,6 +94,13 @@ class AiQuizGenerationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Configure logger mock to handle info calls
+        lenient().doNothing().when(aiResponseLogger).info(anyString());
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class), any(Object.class));
+        
         testUser = new User();
         testUser.setUsername("testuser");
 
@@ -126,6 +146,14 @@ class AiQuizGenerationServiceTest {
                 null, // categoryId
                 List.of() // tagIds
         );
+    }
+
+    private void setupRateLimitConfig() {
+        // Set up rate limit configuration for tests that need it
+        when(rateLimitConfig.getMaxRetries()).thenReturn(3);
+        when(rateLimitConfig.getBaseDelayMs()).thenReturn(1000L);
+        when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
+        when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
     }
 
     @Test

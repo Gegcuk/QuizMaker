@@ -19,7 +19,7 @@ jwt.refresh-expiration-ms=604800000
 
 # OpenAI Configuration
 spring.ai.openai.api-key=${OPENAI_API_KEY}
-spring.ai.openai.chat.options.model=gpt-4o-mini
+spring.ai.openai.chat.options.model=gpt-4.1-mini
 
 # CORS Configuration for Production
 # IMPORTANT: Replace with your actual production domain(s)
