@@ -24,6 +24,8 @@ import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.service.ai.PromptTemplateService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
+import ch.qos.logback.classic.Logger;
 
 import java.lang.reflect.Method;
 import java.util.*;
@@ -31,6 +33,7 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AiQuizGenerationServiceFallbackTest {
@@ -61,6 +64,12 @@ class AiQuizGenerationServiceFallbackTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private AiRateLimitConfig rateLimitConfig;
+
+    @Mock
+    private Logger aiResponseLogger;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -98,8 +107,53 @@ class AiQuizGenerationServiceFallbackTest {
         testChunk.setContent("This is a comprehensive test chunk content about machine learning algorithms and their applications in artificial intelligence. The content is long enough to generate meaningful questions.");
     }
 
+    private void setupRateLimitConfig() {
+        // Set up rate limit configuration for tests that need it
+        lenient().when(rateLimitConfig.getMaxRetries()).thenReturn(3);
+        lenient().when(rateLimitConfig.getBaseDelayMs()).thenReturn(1000L);
+        lenient().when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
+        lenient().when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
+    }
+
+    private void setupLoggerStubbing() {
+        // Configure logger mock to handle info calls
+        lenient().doNothing().when(aiResponseLogger).info(anyString());
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class));
+        lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class), any(Object.class));
+    }
+
     @Nested
     class HelperMethodsTest {
+
+        @BeforeEach
+        void setUpHelperMethods() {
+            // Helper methods don't use logger, so no logger stubbing needed
+            // Only set up the test data that's needed
+            mockQuestion1 = new Question();
+            mockQuestion1.setId(UUID.randomUUID());
+            mockQuestion1.setType(QuestionType.MCQ_SINGLE);
+            mockQuestion1.setQuestionText("Test question 1");
+            mockQuestion1.setDifficulty(Difficulty.MEDIUM);
+
+            mockQuestion2 = new Question();
+            mockQuestion2.setId(UUID.randomUUID());
+            mockQuestion2.setType(QuestionType.MCQ_SINGLE);
+            mockQuestion2.setQuestionText("Test question 2");
+            mockQuestion2.setDifficulty(Difficulty.MEDIUM);
+
+            mockQuestion3 = new Question();
+            mockQuestion3.setId(UUID.randomUUID());
+            mockQuestion3.setType(QuestionType.TRUE_FALSE);
+            mockQuestion3.setQuestionText("Test question 3");
+            mockQuestion3.setDifficulty(Difficulty.MEDIUM);
+
+            testChunk = new DocumentChunk();
+            testChunk.setId(UUID.randomUUID());
+            testChunk.setChunkIndex(1);
+            testChunk.setContent("This is a comprehensive test chunk content about machine learning algorithms and their applications in artificial intelligence. The content is long enough to generate meaningful questions.");
+        }
 
         @Test
         void getEasierDifficulty_shouldReturnCorrectDifficulty() throws Exception {
@@ -196,6 +250,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy1Success_shouldReturnQuestions() throws Exception {
             // Given - Strategy 1 succeeds on first attempt
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
             
@@ -221,6 +277,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy1PartialSuccess_shouldReturnPartialResults() throws Exception {
             // Given - Strategy 1 fails initially but returns partial results after retries
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -258,6 +316,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy2Success_shouldReturnReducedCount() throws Exception {
             // Given - Strategy 1 completely fails (no partial results), Strategy 2 succeeds
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -297,6 +357,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy3Success_shouldReturnEasierDifficulty() throws Exception {
             // Given - Strategy 1 and 2 fail, Strategy 3 succeeds with easier difficulty
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -341,6 +403,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy4Success_shouldReturnAlternativeType() throws Exception {
             // Given - Strategies 1-3 fail, Strategy 4 succeeds with alternative type
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -390,6 +454,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy5Success_shouldReturnMCQSingle() throws Exception {
             // Given - Strategies 1-4 fail, Strategy 5 (last resort MCQ) succeeds
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -443,6 +509,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_allStrategiesFail_shouldReturnEmptyList() throws Exception {
             // Given - All strategies fail
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -502,6 +570,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_singleQuestionCount_shouldSkipStrategy2() throws Exception {
             // Given - Single question request should skip strategy 2 (reduced count)
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 
@@ -540,6 +610,8 @@ class AiQuizGenerationServiceFallbackTest {
         @Test
         void generateQuestionsByTypeWithFallbacks_easyDifficulty_shouldSkipStrategy3() throws Exception {
             // Given - Easy difficulty should skip strategy 3 (easier difficulty)
+            setupRateLimitConfig();
+            setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
 

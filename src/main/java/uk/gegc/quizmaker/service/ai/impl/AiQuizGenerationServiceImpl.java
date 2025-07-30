@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.ai.impl;
 
+import ch.qos.logback.classic.Logger;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +11,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.config.AiResponseLoggingConfig;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
 import uk.gegc.quizmaker.event.QuizGenerationCompletedEvent;
@@ -56,6 +59,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final Logger aiResponseLogger;
+    private final AiRateLimitConfig rateLimitConfig;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -271,7 +276,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     @Async("aiTaskExecutor")
     @Transactional
-    private CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
+    public CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
             Difficulty difficulty,
@@ -375,7 +380,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             throw new IllegalArgumentException("Difficulty cannot be null");
         }
 
-        int maxRetries = 3;
+        int maxRetries = rateLimitConfig.getMaxRetries();
         int retryCount = 0;
 
         while (retryCount < maxRetries) {
@@ -396,6 +401,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 }
 
                 String aiResponse = response.getResult().getOutput().getText();
+
+                // Log AI response for analysis
+                aiResponseLogger.info("=== AI RESPONSE START ===");
+                aiResponseLogger.info("Question Type: {}", questionType);
+                aiResponseLogger.info("Expected Count: {}", questionCount);
+                aiResponseLogger.info("Difficulty: {}", difficulty);
+                aiResponseLogger.info("Response: {}", aiResponse);
+                aiResponseLogger.info("=== AI RESPONSE END ===");
 
                 // Validate AI response is not empty
                 if (aiResponse == null || aiResponse.trim().isEmpty()) {
@@ -437,6 +450,22 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             } catch (Exception e) {
                 log.error("Error generating {} questions of type {} (attempt {})",
                         questionCount, questionType, retryCount + 1, e);
+
+                // Check if this is a rate limit error (429)
+                if (isRateLimitError(e)) {
+                    long delayMs = calculateBackoffDelay(retryCount);
+                    log.warn("Rate limit hit for {} questions of type {} (attempt {}). Waiting {} ms before retry.",
+                            questionCount, questionType, retryCount + 1, delayMs);
+                    
+                    if (retryCount < maxRetries - 1) {
+                        sleepForRateLimit(delayMs);
+                        retryCount++;
+                        log.info("Retrying after rate limit delay for type {}", questionType);
+                        continue;
+                    } else {
+                        throw new AiServiceException("Rate limit exceeded after " + maxRetries + " attempts. Please try again later.", e);
+                    }
+                }
 
                 if (retryCount < maxRetries - 1) {
                     retryCount++;
@@ -1074,6 +1103,55 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         public Instant getStartTime() {
             return startTime;
+        }
+    }
+
+    /**
+     * Check if the exception is a rate limit error (429)
+     */
+    public boolean isRateLimitError(Exception e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        
+        // Check for common rate limit indicators
+        return message.contains("429") || 
+               message.contains("rate limit") || 
+               message.contains("rate_limit_exceeded") ||
+               message.contains("Too Many Requests") ||
+               message.contains("TPM") ||
+               message.contains("RPM");
+    }
+
+    /**
+     * Calculate exponential backoff delay with jitter
+     * Uses configuration values for base delay, max delay, and jitter factor
+     */
+    public long calculateBackoffDelay(int retryCount) {
+        // Exponential backoff: 2^retryCount * baseDelay
+        long exponentialDelay = rateLimitConfig.getBaseDelayMs() * (long) Math.pow(2, retryCount);
+        
+        // Add jitter to prevent thundering herd
+        double jitterRange = rateLimitConfig.getJitterFactor();
+        double jitter = (1.0 - jitterRange) + (Math.random() * 2 * jitterRange);
+        
+        long delayWithJitter = (long) (exponentialDelay * jitter);
+        
+        // Cap at maximum delay
+        return Math.min(delayWithJitter, rateLimitConfig.getMaxDelayMs());
+    }
+
+    /**
+     * Sleep for the specified delay during rate limiting
+     * This method can be overridden in tests to avoid actual sleeping
+     */
+    protected void sleepForRateLimit(long delayMs) {
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new AiServiceException("Interrupted while waiting for rate limit", ie);
         }
     }
 } 
