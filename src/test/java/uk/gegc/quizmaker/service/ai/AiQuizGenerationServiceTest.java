@@ -11,6 +11,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
 import uk.gegc.quizmaker.exception.AiServiceException;
@@ -56,6 +57,9 @@ class AiQuizGenerationServiceTest {
 
     @Mock
     private Logger aiResponseLogger;
+
+    @Mock
+    private AiRateLimitConfig rateLimitConfig;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;

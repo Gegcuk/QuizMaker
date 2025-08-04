@@ -247,8 +247,6 @@ class AiQuizGenerationServiceFallbackTest {
             verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any());
         }
 
-
-
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy1PartialSuccess_shouldReturnPartialResults() throws Exception {
             // Given - Strategy 1 fails initially but returns partial results after retries
@@ -655,6 +653,6 @@ class AiQuizGenerationServiceFallbackTest {
         when(callResponseSpec.chatResponse()).thenReturn(chatResponse);
         when(chatResponse.getResult()).thenReturn(generation);
         when(generation.getOutput()).thenReturn(assistantMessage);
-                 when(assistantMessage.getText()).thenReturn("Mock AI response");
-     }
- }  
+        when(assistantMessage.getText()).thenReturn("Mock AI response");
+    }
+}  
