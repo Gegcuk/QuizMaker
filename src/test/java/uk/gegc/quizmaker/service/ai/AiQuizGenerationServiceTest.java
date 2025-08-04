@@ -10,7 +10,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.client.ChatClient;
+import org.slf4j.Logger;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;
 import uk.gegc.quizmaker.exception.AiServiceException;
@@ -27,11 +27,6 @@ import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
-import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
-import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
-import uk.gegc.quizmaker.config.AiRateLimitConfig;
-import org.slf4j.Logger;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.HashMap;
 import java.util.List;
@@ -42,29 +37,16 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
 class AiQuizGenerationServiceTest {
 
     @Mock
-    private ChatClient chatClient;
-
-    @Mock
     private DocumentRepository documentRepository;
 
     @Mock
-    private PromptTemplateService promptTemplateService;
-
-    @Mock
-    private QuestionResponseParser questionResponseParser;
-
-    @Mock
     private QuizGenerationJobRepository jobRepository;
-
-    @Mock
-    private QuizGenerationJobService jobService;
 
     @Mock
     private UserRepository userRepository;
@@ -73,13 +55,7 @@ class AiQuizGenerationServiceTest {
     private ObjectMapper objectMapper;
 
     @Mock
-    private AiRateLimitConfig rateLimitConfig;
-
-    @Mock
     private Logger aiResponseLogger;
-
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -148,14 +124,6 @@ class AiQuizGenerationServiceTest {
         );
     }
 
-    private void setupRateLimitConfig() {
-        // Set up rate limit configuration for tests that need it
-        when(rateLimitConfig.getMaxRetries()).thenReturn(3);
-        when(rateLimitConfig.getBaseDelayMs()).thenReturn(1000L);
-        when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
-        when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
-    }
-
     @Test
     void shouldCalculateEstimatedGenerationTimeCorrectly() {
         // Given
@@ -180,9 +148,7 @@ class AiQuizGenerationServiceTest {
         when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
-        assertDoesNotThrow(() -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
-        });
+        assertDoesNotThrow(() -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
     }
 
     @Test
@@ -191,9 +157,7 @@ class AiQuizGenerationServiceTest {
         when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(DocumentNotFoundException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
-        });
+        assertThrows(DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
     }
 
     @Test
@@ -206,9 +170,7 @@ class AiQuizGenerationServiceTest {
         when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
     }
 
     @Test
@@ -240,9 +202,7 @@ class AiQuizGenerationServiceTest {
         });
 
         // When & Then
-        assertThrows(AiServiceException.class, () -> {
-            aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", testRequest);
-        });
+        assertThrows(AiServiceException.class, () -> aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", testRequest));
     }
 
     @Test
@@ -265,9 +225,7 @@ class AiQuizGenerationServiceTest {
         when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser");
-        });
+        assertThrows(ResourceNotFoundException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser"));
     }
 
     @Test
@@ -280,9 +238,7 @@ class AiQuizGenerationServiceTest {
         when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.of(testJob));
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser");
-        });
+        assertThrows(ResourceNotFoundException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(testJobId, "testuser"));
     }
 
     @Test
@@ -306,9 +262,7 @@ class AiQuizGenerationServiceTest {
         when(jobRepository.findById(testJobId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, 2, "3");
-        });
+        assertThrows(ResourceNotFoundException.class, () -> aiQuizGenerationService.updateJobProgress(testJobId, 2, "3"));
 
         verify(jobRepository, never()).save(any());
     }
@@ -376,9 +330,7 @@ class AiQuizGenerationServiceTest {
         when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
     }
 
     @Test
@@ -388,33 +340,25 @@ class AiQuizGenerationServiceTest {
         when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
     }
 
     @Test
     void shouldHandleJobProgressUpdateWithNegativeValues() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, -1, "current");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.updateJobProgress(testJobId, -1, "current"));
     }
 
     @Test
     void shouldHandleJobProgressUpdateWithNullCurrentChunk() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, 1, null);
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.updateJobProgress(testJobId, 1, null));
     }
 
     @Test
     void shouldHandleJobProgressUpdateWithEmptyCurrentChunk() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, 1, "");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.updateJobProgress(testJobId, 1, ""));
     }
 
     @Test
@@ -424,13 +368,9 @@ class AiQuizGenerationServiceTest {
         when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
 
         // When - simulate concurrent access
-        CompletableFuture<Void> future1 = CompletableFuture.runAsync(() -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, 1, "chunk1");
-        });
+        CompletableFuture<Void> future1 = CompletableFuture.runAsync(() -> aiQuizGenerationService.updateJobProgress(testJobId, 1, "chunk1"));
         
-        CompletableFuture<Void> future2 = CompletableFuture.runAsync(() -> {
-            aiQuizGenerationService.updateJobProgress(testJobId, 2, "chunk2");
-        });
+        CompletableFuture<Void> future2 = CompletableFuture.runAsync(() -> aiQuizGenerationService.updateJobProgress(testJobId, 2, "chunk2"));
 
         // Then - should complete without exceptions
         assertDoesNotThrow(() -> {
@@ -441,40 +381,30 @@ class AiQuizGenerationServiceTest {
     @Test
     void shouldHandleJobCreationWithNullUser() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.createGenerationJob(testDocumentId, null, testRequest);
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.createGenerationJob(testDocumentId, null, testRequest));
     }
 
     @Test
     void shouldHandleJobCreationWithNullRequest() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", null);
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.createGenerationJob(testDocumentId, "testuser", null));
     }
 
     @Test
     void shouldHandleJobRetrievalWithNullJobId() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(null, "testuser");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(null, "testuser"));
     }
 
     @Test
     void shouldHandleJobRetrievalWithNullUsername() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(testJobId, null);
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(testJobId, null));
     }
 
     @Test
     void shouldHandleJobRetrievalWithEmptyUsername() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.getJobByIdAndUsername(testJobId, "");
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(testJobId, ""));
     }
 } 

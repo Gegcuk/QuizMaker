@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.repository.user;
 
+import jakarta.persistence.EntityManager;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,8 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.model.user.Permission;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
-
-import jakarta.persistence.EntityManager;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
