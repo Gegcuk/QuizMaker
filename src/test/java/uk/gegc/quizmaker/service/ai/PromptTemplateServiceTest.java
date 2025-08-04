@@ -109,9 +109,7 @@ class PromptTemplateServiceTest {
         when(nonexistentResource.getInputStream()).thenThrow(new IOException("File not found"));
 
         // When & Then
-        assertThrows(RuntimeException.class, () -> {
-            promptTemplateService.loadPromptTemplate("nonexistent.txt");
-        });
+        assertThrows(RuntimeException.class, () -> promptTemplateService.loadPromptTemplate("nonexistent.txt"));
     }
 
     @Test
@@ -153,21 +151,17 @@ class PromptTemplateServiceTest {
     @Test
     void shouldHandleNullChunkContent() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            promptTemplateService.buildPromptForChunk(
-                    null, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
-            );
-        });
+        assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
+                null, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
+        ));
     }
 
     @Test
     void shouldHandleEmptyChunkContent() {
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            promptTemplateService.buildPromptForChunk(
-                    "", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
-            );
-        });
+        assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
+                "", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
+        ));
     }
 
     @Test
@@ -192,11 +186,9 @@ class PromptTemplateServiceTest {
         String chunkContent = "Test content";
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            promptTemplateService.buildPromptForChunk(
-                    chunkContent, QuestionType.MCQ_SINGLE, -1, Difficulty.EASY
-            );
-        });
+        assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
+                chunkContent, QuestionType.MCQ_SINGLE, -1, Difficulty.EASY
+        ));
     }
 
     @Test
@@ -205,11 +197,9 @@ class PromptTemplateServiceTest {
         String chunkContent = "Test content";
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            promptTemplateService.buildPromptForChunk(
-                    chunkContent, QuestionType.MCQ_SINGLE, 1, null
-            );
-        });
+        assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
+                chunkContent, QuestionType.MCQ_SINGLE, 1, null
+        ));
     }
 
     @Test
@@ -349,30 +339,4 @@ class PromptTemplateServiceTest {
         // The test passes if no exception is thrown
     }
 
-    private void setupMockTemplates() throws IOException {
-        // Setup system prompt
-        when(resourceLoader.getResource("classpath:prompts/base/system-prompt.txt"))
-                .thenReturn(systemPromptResource);
-        when(systemPromptResource.getInputStream()).thenReturn(new ByteArrayInputStream(SYSTEM_PROMPT.getBytes()));
-
-        // Setup context template
-        when(resourceLoader.getResource("classpath:prompts/base/context-template.txt"))
-                .thenReturn(contextTemplateResource);
-        when(contextTemplateResource.getInputStream()).thenReturn(new ByteArrayInputStream(CONTEXT_TEMPLATE.getBytes()));
-
-        // Setup MCQ template
-        when(resourceLoader.getResource("classpath:prompts/question-types/mcq-single.txt"))
-                .thenReturn(mcqTemplateResource);
-        when(mcqTemplateResource.getInputStream()).thenReturn(new ByteArrayInputStream(MCQ_TEMPLATE.getBytes()));
-
-        // Setup TRUE_FALSE template
-        when(resourceLoader.getResource("classpath:prompts/question-types/true-false.txt"))
-                .thenReturn(trueFalseTemplateResource);
-        when(trueFalseTemplateResource.getInputStream()).thenReturn(new ByteArrayInputStream("Generate {questionType} questions with {difficulty} difficulty.".getBytes()));
-
-        // Setup OPEN template
-        when(resourceLoader.getResource("classpath:prompts/question-types/open-question.txt"))
-                .thenReturn(openTemplateResource);
-        when(openTemplateResource.getInputStream()).thenReturn(new ByteArrayInputStream("Generate {questionType} questions with {difficulty} difficulty.".getBytes()));
-    }
-} 
+}

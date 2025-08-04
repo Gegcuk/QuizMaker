@@ -28,10 +28,10 @@ import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

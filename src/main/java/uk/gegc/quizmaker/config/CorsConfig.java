@@ -9,7 +9,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.List;
 
 /**
  * CORS (Cross-Origin Resource Sharing) configuration for the QuizMaker application.

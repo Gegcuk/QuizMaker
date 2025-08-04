@@ -1,11 +1,9 @@
 package uk.gegc.quizmaker.service.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
@@ -35,9 +33,6 @@ class AiQuizGenerationServiceIntegrationTest {
     @Autowired
     private AiQuizGenerationService aiQuizGenerationService;
 
-    @MockitoSpyBean
-    private org.springframework.ai.chat.client.ChatClient chatClient;
-
     @Autowired
     private DocumentRepository documentRepository;
 
@@ -46,9 +41,6 @@ class AiQuizGenerationServiceIntegrationTest {
 
     @Autowired
     private QuizGenerationJobRepository jobRepository;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     @Autowired
     private QuizGenerationJobService jobService;
@@ -159,9 +151,7 @@ class AiQuizGenerationServiceIntegrationTest {
         final User savedOtherUser = userRepository.save(otherUser);
 
         // When & Then
-        assertThrows(IllegalArgumentException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, savedOtherUser.getUsername());
-        });
+        assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, savedOtherUser.getUsername()));
     }
 
     @Test
@@ -170,9 +160,7 @@ class AiQuizGenerationServiceIntegrationTest {
         UUID nonExistentDocumentId = UUID.randomUUID();
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.DocumentNotFoundException.class, () -> {
-            aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername());
-        });
+        assertThrows(uk.gegc.quizmaker.exception.DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername()));
     }
 
     @Test
@@ -195,8 +183,6 @@ class AiQuizGenerationServiceIntegrationTest {
         QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.ValidationException.class, () -> {
-            jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser");
-        });
+        assertThrows(uk.gegc.quizmaker.exception.ValidationException.class, () -> jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser"));
     }
 } 

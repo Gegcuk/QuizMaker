@@ -1,12 +1,12 @@
 package uk.gegc.quizmaker.service.ai;
 
+import ch.qos.logback.classic.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
-import ch.qos.logback.classic.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;

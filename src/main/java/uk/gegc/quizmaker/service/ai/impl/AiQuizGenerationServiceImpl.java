@@ -11,7 +11,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.config.AiResponseLoggingConfig;
 import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.QuizScope;

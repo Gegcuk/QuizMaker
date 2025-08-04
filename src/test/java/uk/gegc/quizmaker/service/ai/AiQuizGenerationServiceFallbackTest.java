@@ -1,39 +1,32 @@
 package uk.gegc.quizmaker.service.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.context.ApplicationEventPublisher;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.exception.AiServiceException;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.repository.document.DocumentRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
-import uk.gegc.quizmaker.service.ai.PromptTemplateService;
-import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
-import uk.gegc.quizmaker.config.AiRateLimitConfig;
-import ch.qos.logback.classic.Logger;
 
 import java.lang.reflect.Method;
-import java.util.*;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AiQuizGenerationServiceFallbackTest {
@@ -42,28 +35,10 @@ class AiQuizGenerationServiceFallbackTest {
     private ChatClient chatClient;
 
     @Mock
-    private DocumentRepository documentRepository;
-
-    @Mock
     private PromptTemplateService promptTemplateService;
 
     @Mock
     private QuestionResponseParser questionResponseParser;
-
-    @Mock
-    private QuizGenerationJobRepository jobRepository;
-
-    @Mock
-    private QuizGenerationJobService jobService;
-
-    @Mock
-    private UserRepository userRepository;
-
-    @Mock
-    private ObjectMapper objectMapper;
-
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private AiRateLimitConfig rateLimitConfig;
@@ -271,8 +246,6 @@ class AiQuizGenerationServiceFallbackTest {
             assertEquals(3, result.size());
             verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any());
         }
-
-
 
         @Test
         void generateQuestionsByTypeWithFallbacks_strategy1PartialSuccess_shouldReturnPartialResults() throws Exception {
@@ -656,7 +629,7 @@ class AiQuizGenerationServiceFallbackTest {
     }
 
     // Helper method to mock successful AI response
-    private void mockSuccessfulAiResponse(List<Question> questions) throws Exception {
+    private void mockSuccessfulAiResponse(List<Question> questions) {
         // Always set up the ChatClient mock chain, even when questions is null
         mockChatClientChain();
 
@@ -680,6 +653,6 @@ class AiQuizGenerationServiceFallbackTest {
         when(callResponseSpec.chatResponse()).thenReturn(chatResponse);
         when(chatResponse.getResult()).thenReturn(generation);
         when(generation.getOutput()).thenReturn(assistantMessage);
-                 when(assistantMessage.getText()).thenReturn("Mock AI response");
-     }
- }  
+        when(assistantMessage.getText()).thenReturn("Mock AI response");
+    }
+}  

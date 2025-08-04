@@ -22,7 +22,6 @@ import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;

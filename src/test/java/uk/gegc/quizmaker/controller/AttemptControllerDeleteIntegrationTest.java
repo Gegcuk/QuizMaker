@@ -14,13 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.attempt.Attempt;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 
-import java.time.Instant;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
