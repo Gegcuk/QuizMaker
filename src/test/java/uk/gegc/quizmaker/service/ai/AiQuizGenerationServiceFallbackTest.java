@@ -46,6 +46,12 @@ class AiQuizGenerationServiceFallbackTest {
     @Mock
     private Logger aiResponseLogger;
 
+    @Mock
+    private AiRateLimitConfig rateLimitConfig;
+
+    @Mock
+    private Logger aiResponseLogger;
+
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
 

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.impl;
 
+import ch.qos.logback.classic.Logger;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -9,6 +10,7 @@ import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.dto.ai.ChatResponseDto;
 import uk.gegc.quizmaker.exception.AiServiceException;
 import uk.gegc.quizmaker.service.AiChatService;
+import uk.gegc.quizmaker.config.AiRateLimitConfig;
 
 import java.time.Duration;
 import java.time.Instant;
