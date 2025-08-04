@@ -128,6 +128,14 @@ class AiQuizGenerationServiceTest {
         );
     }
 
+    private void setupRateLimitConfig() {
+        // Set up rate limit configuration for tests that need it
+        when(rateLimitConfig.getMaxRetries()).thenReturn(3);
+        when(rateLimitConfig.getBaseDelayMs()).thenReturn(1000L);
+        when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
+        when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
+    }
+
     @Test
     void shouldCalculateEstimatedGenerationTimeCorrectly() {
         // Given
