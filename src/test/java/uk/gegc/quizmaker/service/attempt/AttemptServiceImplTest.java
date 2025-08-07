@@ -10,10 +10,23 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
+import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
+import uk.gegc.quizmaker.mapper.AnswerMapper;
+import uk.gegc.quizmaker.mapper.AttemptMapper;
+import uk.gegc.quizmaker.mapper.SafeQuestionMapper;
+import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
+import uk.gegc.quizmaker.repository.question.AnswerRepository;
+import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.attempt.impl.AttemptServiceImpl;
+import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.service.scoring.ScoringService;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +34,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,6 +45,22 @@ class AttemptServiceImplTest {
     QuizRepository quizRepository;
     @Mock
     AttemptRepository attemptRepository;
+    @Mock
+    UserRepository userRepository;
+    @Mock
+    AttemptMapper attemptMapper;
+    @Mock
+    QuestionRepository questionRepository;
+    @Mock
+    QuestionHandlerFactory handlerFactory;
+    @Mock
+    AnswerRepository answerRepository;
+    @Mock
+    AnswerMapper answerMapper;
+    @Mock
+    ScoringService scoringService;
+    @Mock
+    SafeQuestionMapper safeQuestionMapper;
 
     @InjectMocks
     AttemptServiceImpl service;
@@ -86,5 +116,44 @@ class AttemptServiceImplTest {
 
         assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("startAttempt returns correct metadata without firstQuestion")
+    void startAttempt_returnsMetadataWithoutFirstQuestion() {
+        // Given
+        String username = "testuser";
+        UUID quizId = UUID.randomUUID();
+        AttemptMode mode = AttemptMode.ONE_BY_ONE;
+
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setUsername(username);
+
+        Quiz quiz = new Quiz();
+        quiz.setId(quizId);
+        quiz.setIsTimerEnabled(true);
+        quiz.setTimerDuration(30);
+        // no questions collection setup here; totalQuestions derived from size (defaults 0)
+
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
+        when(attemptRepository.saveAndFlush(any(Attempt.class))).thenAnswer(invocation -> {
+            Attempt attempt = invocation.getArgument(0);
+            attempt.setId(UUID.randomUUID());
+            attempt.setStartedAt(java.time.Instant.now());
+            return attempt;
+        });
+
+        // When
+        StartAttemptResponse response = service.startAttempt(username, quizId, mode);
+
+        // Then
+        assertThat(response.attemptId()).isNotNull();
+        assertThat(response.quizId()).isEqualTo(quizId);
+        assertThat(response.mode()).isEqualTo(mode);
+        assertThat(response.totalQuestions()).isEqualTo(0);
+        assertThat(response.timeLimitMinutes()).isEqualTo(30);
+        assertThat(response.startedAt()).isNotNull();
     }
 }

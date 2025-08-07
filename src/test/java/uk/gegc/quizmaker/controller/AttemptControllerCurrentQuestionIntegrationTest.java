@@ -189,10 +189,10 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         List<Question> sortedQuestions = testQuiz.getQuestions().stream()
                 .sorted(Comparator.comparing(Question::getId))
                 .collect(java.util.stream.Collectors.toList());
-        Question firstQuestion = sortedQuestions.get(0);
+        Question first = sortedQuestions.get(0);
         
         uk.gegc.quizmaker.model.question.Answer answer = new uk.gegc.quizmaker.model.question.Answer();
-        answer.setQuestion(firstQuestion);
+        answer.setQuestion(first);
         answer.setAnsweredAt(Instant.now());
         answer.setAttempt(testAttempt);
         answer.setResponse("{\"selectedOption\": \"4\"}");  // User selected "4" as answer
