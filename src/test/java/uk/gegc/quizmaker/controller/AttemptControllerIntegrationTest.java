@@ -731,23 +731,66 @@ public class AttemptControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("startAttempt returns first question")
-    void startAttempt_returnsFirstQuestion() throws Exception {
-        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+    @DisplayName("POST /api/v1/attempts/quizzes/{quizId} returns attempt metadata")
+    void startAttempt_returnsMetadata() throws Exception {
+        createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
 
         mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
-                .andExpect(jsonPath("$.firstQuestion.id", is(questionId.toString())));
+                .andExpect(jsonPath("$.quizId", is(quizId.toString())))
+                .andExpect(jsonPath("$.mode", is("ALL_AT_ONCE")))
+                .andExpect(jsonPath("$.totalQuestions", is(1)))
+                .andExpect(jsonPath("$.timeLimitMinutes").isEmpty())
+                .andExpect(jsonPath("$.startedAt").exists())
+                .andExpect(jsonPath("$.firstQuestion").doesNotExist());
     }
 
     @Test
-    @DisplayName("startAttempt quiz has no questions returns null firstQuestion")
-    void startAttempt_quizHasNoQuestions_returnsNullFirstQuestion() throws Exception {
+    @DisplayName("startAttempt with no time limit returns null timeLimitMinutes")
+    void startAttempt_noTimeLimit_returnsNullTimeLimit() throws Exception {
         mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
-                .andExpect(jsonPath("$.firstQuestion").value(nullValue()));
+                .andExpect(jsonPath("$.timeLimitMinutes").isEmpty());
+    }
+
+    @Test
+    @DisplayName("Complete attempt flow: start -> get current question -> submit answer")
+    void completeAttemptFlow() throws Exception {
+        // Given: create a question
+        createDummyQuestion(TRUE_FALSE, "{\"answer\": true }");
+
+        // Start attempt
+        String startResult = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.attemptId").exists())
+                .andExpect(jsonPath("$.firstQuestion").doesNotExist())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode startNode = objectMapper.readTree(startResult);
+        UUID attemptId = UUID.fromString(startNode.get("attemptId").asText());
+
+        // Get current question
+        String questionResult = mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", attemptId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.question.id").exists())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode questionNode = objectMapper.readTree(questionResult);
+        UUID currentQuestionId = UUID.fromString(questionNode.get("question").get("id").asText());
+
+        // Submit answer for the returned current question
+        var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"));
+        mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(answerRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId").value(currentQuestionId.toString()));
     }
 
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {

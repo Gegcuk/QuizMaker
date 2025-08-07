@@ -69,12 +69,21 @@ public class AttemptServiceImpl implements AttemptService {
         attempt.setMode(mode);
         attempt.setStatus(AttemptStatus.IN_PROGRESS);
 
-        Attempt saved = attemptRepository.save(attempt);
-        Question first = quiz.getQuestions().stream().findFirst().orElse(null);
-        // 🔒 Use safe mapper to prevent exposing correct answers
-        QuestionForAttemptDto dto = first != null ? safeQuestionMapper.toSafeDto(first) : null;
+        Attempt saved = attemptRepository.saveAndFlush(attempt);
 
-        return new StartAttemptResponse(saved.getId(), dto);
+        int totalQuestions = quiz.getQuestions().size();
+        Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
+                ? quiz.getTimerDuration()
+                : null;
+
+        return new StartAttemptResponse(
+                saved.getId(),
+                quiz.getId(),
+                mode,
+                totalQuestions,
+                timeLimitMinutes,
+                saved.getStartedAt()
+        );
     }
 
     @Override
