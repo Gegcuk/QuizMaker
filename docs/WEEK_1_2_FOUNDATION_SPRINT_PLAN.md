@@ -29,31 +29,53 @@
 - **Keep only** `QuizModerationAudit` table
 - **Remove** JSON `auditTrail` from Quiz entity
 - Query "last 10" when needed from the table
+- **Keep all events** - UI queries last 10, ops need full history
 
 ### 3. **Permission-Based Authorization**
 - Replace `@PreAuthorize("hasRole('MODERATOR')")` with permission checks
 - Use `@auth.can(authentication, 'QUIZ_MODERATE', #orgId)`
 - Use `@auth.hasPermission(authentication, #quizId, 'Quiz', 'UPDATE')`
+- **Make bindings authoritative** early in @auth service
 
 ### 4. **Scoped Role Bindings**
 - Introduce `user_role_bindings(user_id, role_id, scope='ORG', scope_id)`
 - Keep `Role` → `Permission` bundles
 - Store enum as data for easy migration later
+- **Pick bindings as source of truth** in authorization checks
 
 ### 5. **Hash-Based Material Change Detection**
 - Add `content_hash` and `presentation_hash` to Quiz
+- **Define exact DTO fields** in content_hash (questions, answers, scoring, per-question metadata)
+- **Normalize inputs** (sort questions by stable key) to ignore reordering
 - Recompute hashes from DTOs on save
-- Avoid deep object comparisons
 
 ### 6. **Secure Share-Links**
 - Store **hashed token** (SHA256) in DB
+- **Add server-side pepper** in hash: `sha256(pepper || token)`
 - Mint httpOnly, SameSite=Lax, Secure cookies
+- **One-time semantics = atomic** - consume and revoke in same transaction
 - Add revoke endpoint with cookie invalidation
 
 ### 7. **Derived Balance Design**
 - Treat balance as **derived** from double-entry ledger
 - Keep wallet metadata only (caps, reset date)
 - Don't persist balance as truth
+
+### 8. **Optimistic Locking & State Management**
+- Add `@Version` to Quiz entity for concurrent edits
+- Create `ModerationStateMachine` enum helper for transitions
+- Return 409 on conflict
+
+### 9. **Visibility Invariants**
+- **Enforce in repository specs** (not only controller checks)
+- `PUBLISHED && PUBLIC` for public catalog
+- `PUBLISHED && ORG && org_id=:orgId` for org catalog
+
+### 10. **Enhanced Security & Atomicity**
+- **Rate-limit both** POST /share-link and GET /shared/{token}
+- **Revoke active share-links** on unpublish
+- **Single @ControllerAdvice** for error shaping
+- **Include method+path** in idempotency key scope
 
 ---
 
@@ -66,6 +88,7 @@
    - Add `PENDING_REVIEW` and `REJECTED` to existing `QuizStatus` enum
    - Add `reviewedAt`, `reviewedBy`, `rejectionReason` fields to Quiz entity
    - Add `content_hash` and `presentation_hash` fields for change detection
+   - Add `@Version` field for optimistic locking
    - **Remove** `auditTrail` JSON field (use table instead)
 
 2. **Create Moderation Audit Model**
@@ -75,10 +98,10 @@
        @Id
        private UUID id;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private Quiz quiz;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private User moderator;
        
        @Enumerated(EnumType.STRING)
@@ -90,22 +113,37 @@
    }
    ```
 
-3. **Database Migration**
+3. **Create ModerationStateMachine Helper**
+   ```java
+   public enum ModerationStateMachine {
+       DRAFT(Set.of(PENDING_REVIEW)),
+       PENDING_REVIEW(Set.of(PUBLISHED, REJECTED, DRAFT)),
+       PUBLISHED(Set.of(PENDING_REVIEW, DRAFT)),
+       REJECTED(Set.of(PENDING_REVIEW, DRAFT));
+       
+       public boolean canTransitionTo(QuizStatus targetStatus);
+       public static boolean isValidTransition(QuizStatus from, QuizStatus to);
+   }
+   ```
+
+4. **Database Migration**
    - Create Flyway migration script
    - Add indexes for `quizzes(status, visibility, created_at)`
    - Add indexes for `quiz_moderation_audit(quiz_id, created_at)`
    - Use `BINARY(16)` for UUID fields
 
 #### Deliverables
-- [ ] Quiz entity updated with moderation fields and hashes
-- [ ] QuizModerationAudit entity created with UUID
+- [ ] Quiz entity updated with moderation fields, hashes, and @Version
+- [ ] QuizModerationAudit entity created with UUID and LAZY fetching
+- [ ] ModerationStateMachine helper for transitions
 - [ ] Database migration script ready
-- [ ] Unit tests for new fields
+- [ ] Unit tests for new fields and transitions
 
 #### Acceptance Criteria
 - Quiz can transition between DRAFT → PENDING_REVIEW → PUBLISHED/REJECTED
-- Audit trail captures all moderation actions in table
+- Audit trail captures all moderation actions in table (keep all events)
 - Content and presentation hashes are computed correctly
+- Optimistic locking prevents concurrent modification conflicts
 - Database indexes are optimized for moderation queries
 
 ---
@@ -123,14 +161,22 @@
        public void unpublishQuiz(UUID quizId, UUID moderatorId, String reason);
        public List<Quiz> getPendingReviewQuizzes(UUID orgId);
        public List<QuizModerationAudit> getQuizAuditTrail(UUID quizId);
+       
+       // Derive orgId from quiz for security
+       private UUID getQuizOrganizationId(UUID quizId);
    }
    ```
 
 2. **Implement Hash-Based Change Detection**
    ```java
    public class QuizHashCalculator {
-       public String calculateContentHash(QuizDto quizDto);
-       public String calculatePresentationHash(QuizDto quizDto);
+       public String calculateContentHash(QuizDto quizDto) {
+           // Define exact fields: questions, answers, scoring, per-question metadata
+           // Normalize: sort questions by stable key, ignore IDs/order
+       }
+       public String calculatePresentationHash(QuizDto quizDto) {
+           // title, description, images, layout
+       }
        public boolean hasContentChanged(Quiz original, QuizDto updated);
        public boolean hasPresentationChanged(Quiz original, QuizDto updated);
    }
@@ -141,18 +187,22 @@
    - Auto-transition to PENDING_REVIEW on content hash changes of PUBLISHED quizzes
    - Auto-revert to DRAFT on any edits of PENDING_REVIEW quizzes
    - Recompute hashes on save
+   - **Enforce visibility invariants** in repository specs
 
 #### Deliverables
-- [ ] ModerationService with all core methods
-- [ ] QuizHashCalculator for change detection
-- [ ] QuizService updated with moderation rules
+- [ ] ModerationService with org-scoped operations
+- [ ] QuizHashCalculator with exact field definitions
+- [ ] QuizService updated with moderation rules and optimistic locking
+- [ ] Repository specs for visibility enforcement
 - [ ] Integration tests for moderation workflows
 
 #### Acceptance Criteria
-- Hash-based change detection works correctly
+- **Given a published quiz, when a content hash changes, then status → PENDING_REVIEW, audit row created, previous visibility unchanged until approval**
+- Hash-based change detection works with normalized inputs
 - Non-material edits (tags, category) don't affect status
 - All moderation actions are audited in table
 - Business rules are enforced consistently
+- Optimistic locking prevents conflicts
 
 ---
 
@@ -165,11 +215,11 @@
    @RequestMapping("/api/v1/admin/quizzes")
    public class ModerationController {
        @PostMapping("/{quizId}/approve")
-       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', #orgId)")
+       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', @moderationService.getQuizOrganizationId(#quizId))")
        public ResponseEntity<Void> approveQuiz(@PathVariable UUID quizId, @RequestBody ApproveRequest request);
        
        @PostMapping("/{quizId}/reject")
-       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', #orgId)")
+       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', @moderationService.getQuizOrganizationId(#quizId))")
        public ResponseEntity<Void> rejectQuiz(@PathVariable UUID quizId, @RequestBody RejectRequest request);
        
        @GetMapping("/pending-review")
@@ -189,22 +239,36 @@
    public ResponseEntity<Void> unpublishQuiz(@PathVariable UUID quizId, @RequestBody UnpublishRequest request);
    ```
 
-3. **Create DTOs**
+3. **Create DTOs with Privacy Protection**
    - `ApproveRequest`, `RejectRequest`, `UnpublishRequest`
-   - `QuizModerationAuditDto`
+   - `QuizModerationAuditDto` with `@JsonIgnore` on sensitive fields
    - `PendingReviewQuizDto`
 
+4. **Create Single ControllerAdvice**
+   ```java
+   @ControllerAdvice
+   public class GlobalExceptionHandler {
+       @ExceptionHandler(OptimisticLockingFailureException.class)
+       public ResponseEntity<ErrorResponse> handleOptimisticLocking(OptimisticLockingFailureException ex);
+       
+       @ExceptionHandler(Exception.class)
+       public ResponseEntity<ErrorResponse> handleGeneric(Exception ex);
+   }
+   ```
+
 #### Deliverables
-- [ ] ModerationController with permission-based authorization
+- [ ] ModerationController with org-scoped authorization
 - [ ] QuizController updated with moderation endpoints
-- [ ] All DTOs created and validated
+- [ ] All DTOs created with privacy protection
+- [ ] Single ControllerAdvice for error shaping
 - [ ] OpenAPI documentation updated
 
 #### Acceptance Criteria
-- All moderation endpoints use permission checks
+- All moderation endpoints derive orgId from quiz (not query param)
 - Authorization is enforced with org scope
 - Request/response DTOs are properly validated
 - API documentation is complete
+- 409 returned on optimistic locking conflicts
 
 ---
 
@@ -218,13 +282,13 @@
        @Id
        private UUID id;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private Quiz quiz;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private User createdBy;
        
-       private String tokenHash; // SHA256 hash of the token
+       private String tokenHash; // SHA256(pepper || token)
        private ShareLinkScope scope; // QUIZ_VIEW, QUIZ_ATTEMPT_START
        private Instant expiresAt;
        private boolean oneTime;
@@ -236,32 +300,40 @@
 2. **Create ShareLinkService**
    ```java
    @Service
+   @Transactional
    public class ShareLinkService {
        public ShareLink createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request);
        public ShareLink validateToken(String token);
        public void revokeShareLink(UUID shareLinkId, UUID userId);
        public List<ShareLink> getUserShareLinks(UUID userId);
        public void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress);
+       
+       // Atomic one-time consumption
+       public ShareLink consumeOneTimeToken(String token);
+       
+       // Revoke on unpublish
+       public void revokeActiveShareLinksForQuiz(UUID quizId);
    }
    ```
 
 3. **Token Generation & Security**
    - Implement secure token generation (cryptographically random)
-   - Hash tokens with SHA256 before storage
+   - **Add server-side pepper** in hash: `sha256(pepper || token)`
    - Add rate limiting for token creation and consumption
    - Implement token validation with proper error handling
 
 #### Deliverables
-- [ ] ShareLink entity with hashed tokens
-- [ ] ShareLinkService with core methods
-- [ ] Secure token generation and hashing utility
-- [ ] Rate limiting configuration
+- [ ] ShareLink entity with peppered hashes
+- [ ] ShareLinkService with atomic one-time consumption
+- [ ] Secure token generation and peppered hashing utility
+- [ ] Rate limiting configuration for creation and consumption
 
 #### Acceptance Criteria
-- Tokens are cryptographically secure and hashed
+- Tokens are cryptographically secure with peppered hashes
 - Rate limiting prevents abuse on creation and consumption
 - All share link operations are properly validated
 - Database indexes are optimized for token lookups
+- **A one-time link can be used once across concurrent requests; subsequent attempts return 410 Gone**
 
 ---
 
@@ -307,12 +379,14 @@
 - [ ] Cookie management with httpOnly, Secure, SameSite
 - [ ] Share link analytics tracking with privacy protection
 - [ ] Integration tests for share link flow
+- [ ] Revoke active share-links on unpublish
 
 #### Acceptance Criteria
 - Share links can be created, accessed, and revoked
 - Cookies are properly set with security attributes
 - Analytics events are tracked with privacy protection
 - Security is maintained throughout the flow
+- **Rate-limit both POST /share-link and GET /shared/{token}**
 
 ---
 
@@ -349,10 +423,10 @@
        @Id
        private UUID id;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private Organization organization;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private User user;
        
        @Enumerated(EnumType.STRING)
@@ -363,17 +437,17 @@
    }
    ```
 
-3. **Create UserRoleBinding Entity (Future-Proof)**
+3. **Create UserRoleBinding Entity (Source of Truth)**
    ```java
    @Entity
    public class UserRoleBinding {
        @Id
        private UUID id;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private User user;
        
-       @ManyToOne
+       @ManyToOne(fetch = FetchType.LAZY)
        private Role role;
        
        private String scope; // 'ORG', 'GLOBAL'
@@ -405,7 +479,7 @@
 #### Deliverables
 - [ ] Organization entity with UUID
 - [ ] OrganizationMembership entity for role management
-- [ ] UserRoleBinding entity for future flexibility
+- [ ] UserRoleBinding entity as source of truth
 - [ ] OrganizationWallet entity (balance derived from ledger)
 - [ ] Database migration scripts
 
@@ -414,6 +488,7 @@
 - Members can be assigned roles
 - Role bindings support future B2B needs
 - Wallet structure supports token management without balance drift
+- **A user not in org can never see quizzes with visibility=ORG via any endpoint or facet**
 
 ---
 
@@ -430,6 +505,9 @@
        public void updateMemberRole(UUID orgId, UUID userId, OrganizationRole newRole);
        public List<OrganizationMembership> getOrganizationMembers(UUID orgId);
        public boolean hasRole(UUID orgId, UUID userId, OrganizationRole role);
+       
+       // Mirror membership enum into default binding
+       public void createDefaultBinding(UUID userId, UUID orgId, OrganizationRole role);
    }
    ```
 
@@ -446,27 +524,31 @@
    }
    ```
 
-3. **Implement Permission-Based Authorization**
+3. **Implement Permission-Based Authorization (Bindings First)**
    ```java
    @Component
    public class AuthorizationService {
        public boolean can(Authentication auth, String permission, UUID orgId);
        public boolean hasPermission(Authentication auth, UUID resourceId, String resourceType, String action);
        public boolean hasRole(Authentication auth, UUID orgId, String role);
+       
+       // Use bindings as source of truth
+       private boolean checkBindingPermissions(Authentication auth, String permission, UUID orgId);
    }
    ```
 
 #### Deliverables
-- [ ] OrganizationService with member management
+- [ ] OrganizationService with member management and default bindings
 - [ ] OrganizationWalletService with derived balance
-- [ ] Permission-based authorization service
+- [ ] Permission-based authorization service using bindings
 - [ ] Unit tests for all services
 
 #### Acceptance Criteria
 - Organizations can be created and members managed
-- Permission-based authorization is enforced
+- Permission-based authorization uses bindings as source of truth
 - Token operations use derived balance
 - All business logic is tested
+- **Wire @auth to bindings first, then mirror membership enum into default binding**
 
 ---
 
@@ -499,13 +581,14 @@
 
 3. **Update QuizService for Organization Scoping**
    - Filter quizzes by organization membership
-   - Enforce visibility rules based on user's org permissions
+   - **Enforce visibility rules in repository specs**: `PUBLISHED && ORG && org_id=:orgId`
    - Update quiz listing to respect org boundaries
 
 #### Deliverables
 - [ ] OrganizationController with permission-based authorization
 - [ ] Quiz entity updated for organization support
 - [ ] QuizService updated with org scoping
+- [ ] Repository specs for visibility enforcement
 - [ ] Integration tests for org workflows
 
 #### Acceptance Criteria
@@ -513,6 +596,7 @@
 - Members can be added with proper permissions
 - Quiz visibility respects organization boundaries
 - All operations use permission-based authorization
+- **Visibility invariants enforced in repository specs**
 
 ---
 
@@ -525,6 +609,9 @@
    public class CorrelationIdFilter extends OncePerRequestFilter {
        @Override
        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain);
+       
+       // Propagate to async contexts
+       private void propagateToAsyncContext();
    }
    ```
 
@@ -536,6 +623,8 @@
        private String key;
        
        private UUID actorId;
+       private String method; // HTTP method
+       private String path;   // Request path
        private Instant firstSeenAt;
        private String resultHash; // Hash of response, not full body
        private String resourceLocation; // Location/ID of created resource
@@ -544,7 +633,7 @@
    
    @Service
    public class IdempotencyService {
-       public IdempotencyResult processRequest(String key, UUID actorId, Supplier<String> operation);
+       public IdempotencyResult processRequest(String key, UUID actorId, String method, String path, Supplier<String> operation);
        public void cleanupExpiredKeys();
    }
    ```
@@ -558,17 +647,42 @@
    }
    ```
 
+4. **Async Context Propagation**
+   ```java
+   @Configuration
+   public class AsyncConfig {
+       @Bean
+       public TaskDecorator taskDecorator() {
+           return runnable -> {
+               Map<String, String> contextMap = MDC.getCopyOfContextMap();
+               return () -> {
+                   if (contextMap != null) {
+                       MDC.setContextMap(contextMap);
+                   }
+                   try {
+                       runnable.run();
+                   } finally {
+                       MDC.clear();
+                   }
+               };
+           };
+       }
+   }
+   ```
+
 #### Deliverables
-- [ ] Single correlation ID filter
-- [ ] Idempotency store with hash and resource location
+- [ ] Single correlation ID filter with async propagation
+- [ ] Idempotency store with method+path scope
 - [ ] Structured logging with privacy protection
+- [ ] Async context propagation for correlation IDs
 - [ ] Cleanup job for expired keys
 
 #### Acceptance Criteria
-- Correlation IDs are propagated across all requests
-- Idempotency prevents duplicate operations
+- Correlation IDs are propagated across all requests and async contexts
+- Idempotency prevents duplicate operations with method+path scope
 - Structured logs are generated with privacy protection
 - All components are properly integrated
+- **Replaying the same Idempotency-Key returns the original 201 payload and Location, not a second resource**
 
 ---
 
@@ -580,7 +694,7 @@
    @Service
    public class EnhancedSearchService {
        public SearchResult searchQuizzes(SearchRequest request);
-       public List<SearchFacet> getSearchFacets(String query);
+       public List<SearchFacet> getSearchFacets(String query, UUID orgId);
    }
    
    public class SearchRequest {
@@ -598,7 +712,10 @@
    ```java
    @Component
    public class ETagService {
-       public String generateETag(Object entity);
+       public String generateETag(Object entity) {
+           // Generate from {updatedAt, content_hash, presentation_hash}
+           // Don't include counters or time-based fields
+       }
        public boolean isNotModified(String etag, HttpServletRequest request);
        public void setETagHeader(String etag, HttpServletResponse response);
    }
@@ -610,18 +727,22 @@
    - Test organization creation and member management
    - Test search with various filters
    - Test idempotency across all endpoints
+   - Test visibility enforcement
 
 #### Deliverables
-- [ ] Enhanced search with faceted filtering
-- [ ] ETag implementation for caching
+- [ ] Enhanced search with faceted filtering and org scoping
+- [ ] ETag implementation with strong, deterministic generation
 - [ ] Comprehensive integration test suite
 - [ ] Performance benchmarks
+- [ ] Facet caching (10-30s)
 
 #### Acceptance Criteria
-- Search works with multiple filters
-- ETags improve caching performance
+- Search works with multiple filters and org scoping
+- ETags improve caching performance with strong generation
 - All integration tests pass
 - Performance meets requirements
+- **Scope all facet counts to the same visibility filter as search results**
+- **With If-None-Match set to current ETag, server returns 304 with empty body**
 
 ---
 
@@ -634,6 +755,7 @@
 - [ ] IdempotencyService key management
 - [ ] All DTOs validation
 - [ ] Hash calculation and change detection
+- [ ] ModerationStateMachine transitions
 
 ### Integration Tests
 - [ ] Complete moderation workflow
@@ -642,12 +764,15 @@
 - [ ] Search with various filters
 - [ ] Idempotency across endpoints
 - [ ] Permission-based authorization
+- [ ] Visibility enforcement
+- [ ] Optimistic locking conflicts
 
 ### Performance Tests
 - [ ] Search performance with large datasets
 - [ ] Share link token validation performance
 - [ ] Organization member queries
 - [ ] Database query optimization
+- [ ] Facet caching performance
 
 ---
 
@@ -663,6 +788,7 @@ quizmaker.moderation.max-audit-trail-size=10
 quizmaker.share-links.default-expiry-hours=168
 quizmaker.share-links.rate-limit-per-minute=10
 quizmaker.share-links.cookie-ttl-seconds=3600
+quizmaker.share-links.token-pepper=${TOKEN_PEPPER_SECRET}
 
 # Organizations
 quizmaker.organizations.default-monthly-budget=1000
@@ -676,6 +802,9 @@ quizmaker.idempotency.cleanup-interval-minutes=60
 quizmaker.logging.correlation-id-header=X-Correlation-ID
 quizmaker.logging.structured-format=true
 quizmaker.logging.redact-sensitive=true
+
+# Search
+quizmaker.search.facet-cache-ttl-seconds=30
 ```
 
 ### Database Indexes
@@ -688,6 +817,7 @@ CREATE INDEX idx_quiz_moderation_audit_quiz_created ON quiz_moderation_audit(qui
 -- Share links
 CREATE INDEX idx_share_links_token_hash ON share_links(token_hash);
 CREATE INDEX idx_share_links_quiz_expires ON share_links(quiz_id, expires_at);
+CREATE UNIQUE INDEX idx_share_links_token_active ON share_links(token_hash) WHERE revoked_at IS NULL;
 
 -- Organizations
 CREATE INDEX idx_org_memberships_org_user ON organization_memberships(organization_id, user_id);
@@ -710,6 +840,7 @@ CREATE INDEX idx_idempotency_ttl ON idempotency_keys(ttl);
 - [ ] Search returns results within 200ms
 - [ ] Idempotency prevents duplicate operations
 - [ ] Permission-based authorization working
+- [ ] Visibility invariants enforced
 
 ### Performance Metrics
 - [ ] Database queries optimized (N+1 eliminated)
@@ -717,6 +848,7 @@ CREATE INDEX idx_idempotency_ttl ON idempotency_keys(ttl);
 - [ ] Share link validation < 50ms
 - [ ] Organization member queries < 100ms
 - [ ] Hash calculation < 10ms
+- [ ] Facet caching working
 
 ### Quality Metrics
 - [ ] 90%+ test coverage
@@ -724,6 +856,7 @@ CREATE INDEX idx_idempotency_ttl ON idempotency_keys(ttl);
 - [ ] No critical security vulnerabilities
 - [ ] API documentation complete
 - [ ] Privacy protection in place
+- [ ] Optimistic locking working
 
 ---
 
@@ -731,16 +864,19 @@ CREATE INDEX idx_idempotency_ttl ON idempotency_keys(ttl);
 
 ### Technical Risks
 1. **Database Performance**: Monitor query performance, add indexes as needed
-2. **Token Security**: Use cryptographically secure random generation and hashing
+2. **Token Security**: Use cryptographically secure random generation and peppered hashing
 3. **RBAC Complexity**: Start with scoped bindings, migrate from enum gradually
 4. **Idempotency Storage**: Use hash and resource location, not full response body
 5. **Balance Drift**: Derive balance from ledger, never store as field
+6. **Concurrent Conflicts**: Optimistic locking prevents race conditions
+7. **Privacy Leaks**: Hash sensitive data in logs and analytics
 
 ### Business Risks
 1. **Moderation Backlog**: Implement auto-approval for trusted users
 2. **Share Link Abuse**: Implement rate limiting and monitoring
 3. **Organization Complexity**: Start with basic roles, expand with bindings
 4. **Privacy Compliance**: Hash sensitive data in logs and analytics
+5. **Double-Spend Attacks**: Atomic one-time token consumption
 
 ---
 
@@ -757,7 +893,10 @@ A task is considered complete when:
 - [ ] Code review is approved
 - [ ] Privacy protection is implemented
 - [ ] UUIDs are used consistently
+- [ ] Optimistic locking is working
+- [ ] Visibility invariants are enforced
+- [ ] Atomic operations are implemented
 
 ---
 
-*This sprint plan provides a detailed roadmap for implementing the foundation features with proper technical architecture. Each day builds upon the previous, ensuring a solid foundation for the QuizMaker MVP.*
+*This sprint plan provides a detailed roadmap for implementing the foundation features with proper technical architecture and edge case handling. Each day builds upon the previous, ensuring a solid foundation for the QuizMaker MVP.*
