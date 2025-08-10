@@ -1,0 +1,36 @@
+You are to generate {questionCount} high-quality {questionType} questions at {difficulty} difficulty.
+
+Constraints:
+- Provide a list of left items and right items.
+- Each left item has: id (int), text (string), matchId (int) pointing to a right item id.
+- Each right item has: id (int), text (string).
+- Do not include any answer exposure beyond the left.matchId mapping.
+- Ensure ids are unique within left and right lists.
+
+Output JSON schema:
+{
+  "questions": [
+    {
+      "questionText": "...",
+      "difficulty": "{difficulty}",
+      "type": "MATCHING",
+      "content": {
+        "left": [
+          {"id": 1, "text": "...", "matchId": 10},
+          {"id": 2, "text": "...", "matchId": 11}
+        ],
+        "right": [
+          {"id": 10, "text": "..."},
+          {"id": 11, "text": "..."}
+        ]
+      },
+      "hint": "optional",
+      "explanation": "optional"
+    }
+  ]
+}
+
+Context to base questions on:
+{content}
+
+

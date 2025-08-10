@@ -43,6 +43,7 @@ public class QuestionParserFactory {
             case ORDERING -> orderingQuestionParser.parseOrderingQuestions(contentNode);
             case COMPLIANCE -> complianceQuestionParser.parseComplianceQuestions(contentNode);
             case HOTSPOT -> hotspotQuestionParser.parseHotspotQuestions(contentNode);
+            case MATCHING -> parseGenericQuestions(contentNode, QuestionType.MATCHING);
         };
     }
 

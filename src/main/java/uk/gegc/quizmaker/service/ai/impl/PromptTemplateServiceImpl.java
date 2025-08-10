@@ -117,6 +117,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             case ORDERING -> "ordering.txt";
             case COMPLIANCE -> "compliance.txt";
             case HOTSPOT -> "hotspot.txt";
+            case MATCHING -> "matching.txt";
         };
     }
 } 

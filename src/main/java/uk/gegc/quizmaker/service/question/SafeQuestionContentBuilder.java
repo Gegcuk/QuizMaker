@@ -29,6 +29,7 @@ public class SafeQuestionContentBuilder {
                 case COMPLIANCE -> buildSafeComplianceContent(root);
                 case HOTSPOT -> buildSafeHotspotContent(root);
                 case ORDERING -> buildSafeOrderingContent(root);
+                case MATCHING -> buildSafeMatchingContent(root);
             };
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to build safe content for question", e);
@@ -130,6 +131,36 @@ public class SafeQuestionContentBuilder {
         });
 
         safe.set("items", items);
+        return safe;
+    }
+
+    private JsonNode buildSafeMatchingContent(JsonNode root) {
+        ObjectNode safe = MAPPER.createObjectNode();
+        ArrayNode left = MAPPER.createArrayNode();
+        ArrayNode right = MAPPER.createArrayNode();
+
+        // Left side terms
+        root.withArray("left").forEach(node -> {
+            ObjectNode safeLeft = MAPPER.createObjectNode();
+            safeLeft.put("id", node.get("id").asInt());
+            safeLeft.put("text", node.get("text").asText());
+            left.add(safeLeft);
+        });
+
+        // Right side options (shuffled to avoid positional hints)
+        List<JsonNode> rightList = new ArrayList<>();
+        root.withArray("right").forEach(rightList::add);
+        Collections.shuffle(rightList);
+        rightList.forEach(node -> {
+            ObjectNode safeRight = MAPPER.createObjectNode();
+            safeRight.put("id", node.get("id").asInt());
+            safeRight.put("text", node.get("text").asText());
+            // omit mapping/answer fields
+            right.add(safeRight);
+        });
+
+        safe.set("left", left);
+        safe.set("right", right);
         return safe;
     }
 } 

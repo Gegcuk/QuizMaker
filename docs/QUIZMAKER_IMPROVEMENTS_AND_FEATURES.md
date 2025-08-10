@@ -1,924 +1,275 @@
 # QuizMaker Project Improvements & Future Features
 
 ## 📋 Table of Contents
-1. [🔧 Core System Improvements](#core-system-improvements)
-2. [🚀 Missing Features & Endpoints](#missing-features--endpoints)
-3. [📊 Data Models & DTOs](#data-models--dtos)
-4. [🔐 Security & Authentication](#security--authentication)
-5. [👥 Social & Community Features](#social--community-features)
-6. [📈 Analytics & Business Intelligence](#analytics--business-intelligence)
-7. [🧩 Advanced Quiz Features](#advanced-quiz-features)
-8. [🎯 User Experience & Accessibility](#user-experience--accessibility)
-9. [⚙️ System Administration](#system-administration)
-10. [🚀 Performance & Scalability](#performance--scalability)
-11. [🔗 Integrations & APIs](#integrations--apis)
-12. [📱 Mobile & Progressive Web App](#mobile--progressive-web-app)
-13. [💳 Payment System & Monetization](#payment-system--monetization)
-14. [🌠 Market-Disrupting Moonshot Ideas](#market-disrupting-moonshot-ideas)
+1. [📊 Current Implementation Status](#current-implementation-status)
+2. [🎯 MVP Features (First Release) - STREAMLINED](#mvp-features-first-release---streamlined)
+3. [🔧 Big Rocks to Fix First](#big-rocks-to-fix-first)
+4. [💼 Commercial Features (Revenue Generation) - SIMPLIFIED](#commercial-features-revenue-generation---simplified)
+5. [🏢 B2B Features (Organization Ready)](#b2b-features-organization-ready)
+6. [🚀 Future Features (Advanced Capabilities)](#future-features-advanced-capabilities)
+7. [🌠 Moonshot Ideas (Market Disruption)](#moonshot-ideas-market-disruption)
+8. [📅 Implementation Sequencing (Realistic 6-8 Weeks)](#implementation-sequencing-realistic-6-8-weeks)
 
 ---
 
-## 🔧 Core System Improvements
+## 📊 Current Implementation Status (August 2025)
 
-### Missing CRUD Operations
+### ✅ Implemented Features
+- **Attempts**: Start, list, get details, current question, submit answer (single/batch), complete, stats, pause/resume, delete, shuffled questions
+- **Quizzes**: CRUD, add/remove question, add/remove tag, change category, visibility toggle, status change, list public, AI generation from document/upload (async), generation status, retrieve generated quiz, cancel/force-cancel jobs, list jobs, job stats, cleanup stale jobs, results summary, leaderboard
 
-#### User Management Controller
-**Status:** ❌ Missing entirely
-```java
-@RestController
-@RequestMapping("/api/v1/users")
-public class UserController {
-    // GET /api/v1/users - List users (Admin)
-    // GET /api/v1/users/{userId} - Get user profile
-    // PATCH /api/v1/users/{userId} - Update user profile
-    // DELETE /api/v1/users/{userId} - Delete user (Admin/Self)
-    // POST /api/v1/users/{userId}/activate - Activate user (Admin)
-    // POST /api/v1/users/{userId}/deactivate - Deactivate user (Admin)
-    // GET /api/v1/users/{userId}/stats - User statistics
-    // POST /api/v1/users/{userId}/avatar - Upload avatar
-    // PATCH /api/v1/users/{userId}/roles - Update user roles (Admin)
-}
-```
+### ⚠️ Partially Implemented
+- **Social**: Models/DTOs/services exist for bookmarks, comments, followers, ratings; controllers are placeholders (no endpoints yet)
+- **Groups/Communities**: Not implemented
 
-#### Missing Operations in Existing Controllers
-
-**AttemptController:**
-- ❌ `DELETE /api/v1/attempts/{attemptId}` - Delete attempt
-- ❌ `GET /api/v1/attempts/{attemptId}/review` - Review completed attempt
-- ❌ `POST /api/v1/attempts/{attemptId}/restart` - Restart attempt
-- ❌ `GET /api/v1/attempts/active` - Get user's active attempts
-- ✅ `POST /api/v1/attempts/{attemptId}/notes` - Attach instructor notes to an attempt for richer feedback
-
-**QuizController:**
-- ❌ `POST /api/v1/quizzes/{quizId}/duplicate` - Duplicate quiz
-- ❌ `POST /api/v1/quizzes/{quizId}/export` - Export quiz
-- ❌ `POST /api/v1/quizzes/import` - Import quiz
-- ❌ `GET /api/v1/quizzes/{quizId}/analytics` - Quiz analytics
-- ❌ `GET /api/v1/quizzes/{quizId}/preview` - Preview quiz
-- ✅ `GET /api/v1/quizzes/{quizId}/versions` - Retrieve historical quiz versions for auditing
-- ❌ `POST /api/v1/quizzes/{quizId}/clone-with-modifications` - Smart cloning with bulk question modifications
-- ❌ `PUT /api/v1/quizzes/{quizId}/bulk-questions` - Bulk question operations (import, update, reorder)
-
-**DocumentController:**
-- ❌ `POST /api/documents/{documentId}/share` - Share document
-- ❌ `GET /api/documents/shared` - List shared documents
-- ❌ `POST /api/documents/{documentId}/bookmark` - Bookmark document
-
-### Advanced Operations
-- ❌ `GET /api/v1/users/{userId}/learning-journey` - Track complete learning progression across all content
-- ❌ `POST /api/v1/questions/{questionId}/variants` - Create multiple versions of the same question for A/B testing
-- ❌ `GET /api/v1/attempts/cross-quiz-analysis` - Compare user performance across different quiz topics
+### ❌ Missing Features
+- **Share via link**: No dedicated share/invite token endpoints; visibility toggle (PUBLIC/PRIVATE) exists
+- **User Management Controller**: Missing entirely
+- **Advanced Analytics**: Basic results summary and leaderboard exist; deeper analytics missing
 
 ---
 
-## 🚀 Missing Features & Endpoints
+## 🔧 Big Rocks to Fix First (Before Building More)
+
+### 1. Cut Scope Hard for MVP
+**Lock in 3-4 hero flows and make them silky smooth:**
+
+1. **Create → Edit → Submit for Review → Moderate → Publish Public**
+2. **Attempt Flow**: Start → Answer → Complete → See Own Results
+3. **AI Quiz Generation**: From document (async job) with clear progress/errors
+4. **Basic Search/Discovery**: Public catalog + simple search
+
+### 2. Authorization Model
+- Implement **scoped RBAC + moderation states** (already outlined)
+- Don't bolt on features until auth + visibility rules are rock solid
+- Add `PENDING_REVIEW` and `REJECTED` statuses to existing quiz model
+
+### 3. Background Jobs
+- Standardize on **one pattern**: job table + idempotency + retries
+- Extend existing generation job pattern, don't invent new ones later
+- Single Job interface: `status`, `errorCode`, `progress`, `payload`, `startedAt/finishedAt` + retry policy
+
+### 4. Observability & DX
+- Add **correlation IDs** (MDC), structured logs, basic metrics
+- Crisp error contracts
+- You'll thank yourself when production arrives
+
+---
+
+## 🎯 MVP Features (First Release) - STREAMLINED
 
 ### Authentication & Account Management
-
-#### Password Management
-```http
-POST /api/v1/auth/forgot-password
-POST /api/v1/auth/reset-password
-POST /api/v1/auth/change-password
-```
-
-#### Two-Factor Authentication
-```http
-POST /api/v1/auth/2fa/setup
-POST /api/v1/auth/2fa/verify
-POST /api/v1/auth/2fa/disable
-GET /api/v1/auth/2fa/backup-codes
-```
-
-#### Account Security
-```http
-GET /api/v1/auth/sessions
-DELETE /api/v1/auth/sessions/{sessionId}
-GET /api/v1/auth/login-history
-POST /api/v1/auth/verify-email
-POST /api/v1/auth/resend-verification
-```
-
-#### OAuth Integration
-```http
-GET /api/v1/auth/oauth/providers
-GET /api/v1/auth/oauth/{provider}/authorize
-POST /api/v1/auth/oauth/{provider}/callback
-```
-
-#### API Key Management
-```http
-GET /api/v1/auth/api-keys
-POST /api/v1/auth/api-keys
-DELETE /api/v1/auth/api-keys/{keyId}
-```
+- POST `/api/v1/auth/forgot-password` - Request password reset email/token
+- POST `/api/v1/auth/reset-password` - Submit new password with valid token
+- POST `/api/v1/auth/verify-email` - Verify email using token
+- POST `/api/v1/auth/resend-verification` - Resend verification email
 
 ### Search & Discovery
-```http
-GET /api/v1/search/quizzes?q={query}
-GET /api/v1/search/users?q={query}
-GET /api/v1/search/questions?q={query}
-GET /api/v1/search/autocomplete
-GET /api/v1/discover/trending
-GET /api/v1/discover/recommended
-GET /api/v1/discover/nearby
-```
+- GET `/api/v1/search?type=quiz&q=...&page=..` - **Unified search** scoped to public quizzes only
 
-### File Management
-```http
-POST /api/v1/files/upload
-GET /api/v1/files/{fileId}
-DELETE /api/v1/files/{fileId}
-GET /api/v1/files/user/{userId}
-```
+### Attempt Review (Fold into existing endpoints)
+- GET `/api/v1/attempts/{id}` - **Extend existing** to include review view if completed
+- POST `/api/v1/attempts/{id}/restart` - Restart attempt (idempotent)
+- GET `/api/v1/attempts/active` - Get user's active attempts
 
-### Advanced Features
-- `POST /api/v1/notifications/webhooks` – Push notifications to external systems
-- `POST /api/v1/ai/smart-hints` – AI-powered contextual hints during quiz attempts
-- `GET /api/v1/marketplace/quiz-templates` – Browse and purchase premium quiz templates
-- `POST /api/v1/voice/speech-to-text` – Voice answer submission for accessibility
-- `GET /api/v1/trends/viral-quizzes` – Discover trending viral quiz content
-- `POST /api/v1/collaboration/real-time-editing` – Collaborative quiz creation with live cursors
-- `GET /api/v1/micro-learning/bite-sized` – Daily micro-learning quiz suggestions
+### User Management Controller (Bare Minimum)
+- GET `/api/v1/users/me` - Get current user profile
+- PATCH `/api/v1/users/me` - Update current user profile
+- POST `/api/v1/users/me/avatar` - Upload avatar
+- GET `/api/v1/admin/users` - **Admin list** behind role check (defer bulk actions)
 
----
+### Share-Links (Quizzes Only)
 
-## 📊 Data Models & DTOs
+#### Scope & Security
+- **Token scopes**: `QUIZ_VIEW` (default) and optional `QUIZ_ATTEMPT_START` (for campaigns)
+- **Token fields**: `quizId`, `scope`, `expiresAt`, `oneTime`, `createdBy`, `revokedAt`
+- **No edit scopes** via link
 
-### Missing DTOs
+#### Flow
+1. `POST /api/v1/quizzes/{id}/share-link` → opaque token
+2. `GET /api/v1/quizzes/shared/{token}` → server validates → issues short-lived, httpOnly cookie **bound to that quiz** → redirect to normal viewer route
+3. `DELETE /api/v1/quizzes/shared/{tokenId}` to revoke
 
-#### User Profile DTOs
-```java
-public record UserProfileDto(
-    UUID id,
-    String username,
-    String email,
-    String displayName,
-    String bio,
-    String avatarUrl,
-    LocalDateTime joinedAt,
-    UserStatsDto stats,
-    List<BadgeDto> badges,
-    UserPreferencesDto preferences
-) {}
+#### Guardrails
+- Rate-limit token creation & consumption
+- Optionally require login for `QUIZ_ATTEMPT_START` (recommended to avoid spam/cheating)
+- Guest access via share-link: allow only `QUIZ_VIEW` by default
 
-public record UpdateProfileRequest(
-    @Size(max = 50) String displayName,
-    @Size(max = 500) String bio,
-    String avatarUrl,
-    UserPreferencesDto preferences
-) {}
+#### DX
+- Link management UI: list, copy, revoke, set expiry/one-time
+- Analytics: count views/starts via link (event props include `shareTokenId`)
 
-public record UserStatsDto(
-    int totalQuizzesTaken,
-    int totalQuizzesCreated,
-    double averageScore,
-    int totalPoints,
-    int currentStreak,
-    int longestStreak
-) {}
-```
+### Public Publishing with Moderation
 
-#### Enhanced Quiz DTOs
-```java
-public record QuizStatsDto(
-    int totalAttempts,
-    double averageScore,
-    double averageCompletionTime,
-    int totalRatings,
-    double averageRating,
-    Map<Difficulty, Integer> difficultyDistribution,
-    List<PopularTimeSlotDto> popularTimes
-) {}
+#### Re-review for Material Edits (No Versioning Yet)
+- **Rules**:
+  - `PUBLISHED` quiz: material edit → flip to `PENDING_REVIEW` and clear publish flags
+  - `PENDING_REVIEW`: any edit by owner → revert to `DRAFT`
+  - **Material** = title/description, questions content, correct answers, scoring
+  - **NOT material** = tags, category, thumbnail (make list explicit in code)
+  - Add tiny **diff detector** (field whitelist) to decide
 
-public record QuizPreviewDto(
-    UUID id,
-    String title,
-    String description,
-    int questionCount,
-    int estimatedTime,
-    Difficulty difficulty,
-    double averageRating,
-    int totalAttempts,
-    List<String> topicTags
-) {}
-```
+#### Moderation Completeness
+- **Endpoints**:
+  - POST `/api/v1/quizzes/{id}/submit-for-review`
+  - POST `/api/v1/admin/quizzes/{id}/approve`
+  - POST `/api/v1/admin/quizzes/{id}/reject`
+  - POST `/api/v1/quizzes/{id}/unpublish`
+  - GET `/api/v1/admin/quizzes/pending-review`
+- **Audit trail**: who/when/why; keep last 10 actions on quiz for now
+- Only `PUBLISHED + PUBLIC` are listed in catalog (single invariant)
 
-#### Social DTOs
-```java
-public record CommentDto(
-    UUID id,
-    String content,
-    UserSummaryDto author,
-    LocalDateTime createdAt,
-    LocalDateTime updatedAt,
-    int likes,
-    boolean isLikedByUser,
-    List<CommentReplyDto> replies
-) {}
+### Content Safety
+- Minimal profanity/PII filter for public publishing (LLM moderation or keyword lists)
+- POST `/api/v1/admin/content/{contentId}/flag` - Flag inappropriate content
 
-public record NotificationDto(
-    UUID id,
-    NotificationType type,
-    String title,
-    String message,
-    boolean isRead,
-    LocalDateTime createdAt,
-    Map<String, Object> metadata
-) {}
-```
-
-### Enhanced Existing DTOs
-
-#### AttemptDto Improvements
-```java
-public record AttemptDetailsDto(
-    // ... existing fields ...
-    AttemptMetadataDto metadata,
-    List<AttemptMilestoneDto> milestones,
-    Map<String, Object> analytics
-) {}
-
-public record AttemptMetadataDto(
-    String deviceType,
-    String browserInfo,
-    String ipAddress,
-    boolean wasResumed,
-    int pauseCount,
-    Duration totalPauseTime
-) {}
-```
-
-#### QuestionDto Improvements
-```java
-public record QuestionDto(
-    // ... existing fields ...
-    QuestionStatsDto stats,
-    List<String> tags,
-    String sourceDocument,
-    LocalDateTime lastUpdated,
-    int usageCount,
-    double averageScore
-) {}
-```
-
-### Advanced DTOs for Future Features
-- **QuizVersionDto** – represent different saved versions of a quiz for rollback
-- **MediaAssetDto** – unify metadata for images, audio and video used inside questions
-- **DeviceInfoDto** – capture client device details for analytics & moderation
-- **LearningPathDto** – represent structured learning sequences with prerequisites
-- **CompetencyMappingDto** – map quiz questions to specific skills and competencies
-- **AdaptiveDifficultyDto** – store dynamic difficulty adjustment parameters and history
-- **CollaborationSessionDto** – track real-time collaborative editing sessions
-- **PerformanceBenchmarkDto** – compare user performance against industry/peer benchmarks
-- **ContextualHintDto** – store AI-generated hints with user interaction tracking
+### Emails
+- Password reset, verification, and moderation decisions
+- Basic email service integration
 
 ---
 
-## 🔐 Security & Authentication
+## 💼 Commercial Features (Revenue Generation) - SIMPLIFIED
 
-### Missing Security Features
+### Payments Apply **Only** to AI Generation
 
-#### Account Security
-- ❌ Password strength validation
-- ❌ Account lockout after failed attempts
-- ❌ Session management (active sessions, force logout)
-- ❌ Login history tracking
-- ❌ Suspicious activity detection
-- ✅ CAPTCHA / reCAPTCHA integration on sensitive endpoints
+#### Credit Model (Laser-Focused)
+- **Only bill for `AI_QUIZ_GENERATION`** (doc upload + generation). Everything else free
+- **Preflight estimate**: `POST /api/v1/ai/estimate` returns token cost given doc size/pages/chunking params. Show to user before they commit
+- **Reserve-commit-release**:
+  - `POST /api/v1/tokens/reserve` (requires `estimateId`)
+  - Job starts → `POST /api/v1/tokens/commit`
+  - On failure/cancel → `POST /api/v1/tokens/release`
+  - All **idempotent** via `Idempotency-Key`
 
-#### Advanced Authentication
-- ❌ OAuth2 integration (Google, GitHub, Microsoft)
-- ❌ SAML SSO support
-- ❌ API key management for integrations
-- ❌ Device registration and management
-- ✅ Biometric authentication support on mobile (FaceID / TouchID)
+#### Stripe Integration
+- **Packs only** (Checkout + webhook). Ledger is double-entry; balance is derived
+- GET `/api/v1/tokens/packs` - List available token packs and pricing
+- POST `/api/v1/tokens/purchase` - Create Stripe Checkout session for token pack
+- POST `/api/v1/payments/stripe/webhook` - Stripe webhook to finalize purchases
 
-#### Data Protection
-- ❌ Data export (GDPR compliance)
-- ❌ Data deletion requests
-- ❌ Consent management
-- ❌ Audit trail for sensitive operations
-- ✅ End-to-end encryption option for private quizzes
+#### Token Management
+- GET `/api/v1/tokens/balance` - Get current token balance
+- GET `/api/v1/tokens/ledger` - Paginated token transactions
+- GET `/api/v1/tokens/rates` - Cost table per operation (by size)
 
-### Advanced Security Features (Future)
-- ❌ Blockchain-based certificate verification for completed quizzes
-- ❌ Zero-knowledge proof authentication for anonymous testing
-- ❌ Behavioral biometrics (typing patterns, mouse movements) for continuous authentication
-- ❌ Hardware security key support (WebAuthn/FIDO2) for enterprise users
-- ❌ Risk-based authentication with machine learning fraud detection
-- ❌ Decentralized identity verification using DID (Decentralized Identifiers)
+#### Abuse & Predictability
+- Per-user/org **monthly free allowance** (e.g., N small docs). Hard cap configurable per org
+- **Job size caps** and per-minute rate limits
+- **Retry policy**: retries don't bill extra; charge once per successful start
 
-### GDPR Compliance Endpoints
-```http
-POST /api/v1/users/export-data
-POST /api/v1/users/delete-account
-GET /api/v1/users/consent-status
-PUT /api/v1/users/consent
-```
+### Defer to Later Phases
+- **Customer portal** - Handle via Stripe dashboard for now
+- **Quotes/refunds** - Handle refunds from Stripe dashboard
+- **Promos** - Add complexity and support debt
+- **Auto top-up** - Do once you see traction
+- **API keys** - Future "platform" phase only
 
 ---
 
-## 👥 Social & Community Features
+## 🏢 B2B Features (Organization Ready)
 
-### Core Social Features
-```http
-# Comments
-GET /api/v1/quizzes/{quizId}/comments
-POST /api/v1/quizzes/{quizId}/comments
-PUT /api/v1/comments/{commentId}
-DELETE /api/v1/comments/{commentId}
+### Tenancy & RBAC (ORG First)
 
-# Ratings
-POST /api/v1/quizzes/{quizId}/rate
-GET /api/v1/quizzes/{quizId}/ratings
-DELETE /api/v1/quizzes/{quizId}/rate
+#### Organizations + Org-Scoped Role Bindings
+- Introduce **organizations** + **org-scoped role bindings** immediately (departments/groups can follow)
+- Default roles per org: `ORG_ADMIN`, `CREATOR`, `LEARNER`, `MODERATOR`, `AUDITOR`
+- Private **org catalog**: `visibility=ORG` plus RBAC; public catalog unaffected
 
-# Following
-POST /api/v1/users/{userId}/follow
-DELETE /api/v1/users/{userId}/follow
-GET /api/v1/users/{userId}/followers
-GET /api/v1/users/{userId}/following
+#### Endpoints
+- POST `/api/v1/orgs` (seed admin)
+- POST `/api/v1/orgs/{orgId}/roles` (custom role)
+- POST `/api/v1/roles/bindings` (assign role to user in org)
+- GET `/api/v1/orgs/{orgId}/catalog` (org-visible quizzes)
 
-# Bookmarks
-POST /api/v1/quizzes/{quizId}/bookmark
-DELETE /api/v1/quizzes/{quizId}/bookmark
-GET /api/v1/users/bookmarks
-```
+### Org Wallets & Budgets
 
-### Community Features
-```http
-# Groups/Communities
-GET /api/v1/groups
-POST /api/v1/groups
-GET /api/v1/groups/{groupId}
-POST /api/v1/groups/{groupId}/join
-DELETE /api/v1/groups/{groupId}/leave
-GET /api/v1/groups/{groupId}/members
-POST /api/v1/groups/{groupId}/quizzes
+#### Wallet Management
+- Each org has a **wallet** (credits live at org level, not personal) with per-role **spend permissions**:
+  - `AI_SPEND` for Creators
+  - `AI_SPEND_MANAGE` for Admins
+- Budgets: monthly caps; optional **dept budgets** later
 
-# Discussions
-GET /api/v1/discussions
-POST /api/v1/discussions
-GET /api/v1/discussions/{discussionId}
-POST /api/v1/discussions/{discussionId}/replies
+### Sales Blockers to Remove Early
 
-# Challenges
-GET /api/v1/challenges
-POST /api/v1/challenges
-POST /api/v1/challenges/{challengeId}/participate
-GET /api/v1/challenges/{challengeId}/leaderboard
-```
+#### SSO Preparation
+- SSO later (OIDC/SAML), but prepare: user table must store ext IDs; keep email unique per org
 
-### Gamification
-```http
-# Achievements/Badges
-GET /api/v1/achievements
-GET /api/v1/users/{userId}/achievements
-POST /api/v1/achievements/{achievementId}/claim
-
-# Points & Levels
-GET /api/v1/users/{userId}/points
-POST /api/v1/points/transfer
-GET /api/v1/leaderboards/global
-GET /api/v1/leaderboards/weekly
-
-# Streaks
-GET /api/v1/users/{userId}/streaks
-POST /api/v1/streaks/maintain
-```
-
-### Advanced Social Features
-- Live chat rooms for quiz sessions and study groups
-- Polls embedded within quizzes to gather peer opinions
-- Shareable quiz "stories" (ephemeral, Instagram-style) to boost engagement
-- Virtual study spaces with ambient sounds and co-working features
-- Mentor-mentee matching system based on quiz performance and expertise
-- Social learning challenges with team-based leaderboards
-- Peer review system for user-generated quiz content
-- Community-driven quiz translation and localization
-- Social proof badges showing friends' quiz completions and achievements
+#### Compliance & Governance
+- **Audit logs** (CSV export) & **data export** endpoints per org
+- **DPAs/data residency**: document only for now; ensure region-agnostic storage flags in config
 
 ---
 
-## 📈 Analytics & Business Intelligence
+## 🚀 Future Features (Advanced Capabilities)
 
-### Advanced Analytics Endpoints
-```http
-# Quiz Analytics
-GET /api/v1/analytics/quizzes/{quizId}/performance
-GET /api/v1/analytics/quizzes/{quizId}/completion-rates
-GET /api/v1/analytics/quizzes/{quizId}/question-difficulty
-GET /api/v1/analytics/quizzes/{quizId}/time-analysis
+### Social: Keep Surface Area Tiny
+- POST `/api/v1/quizzes/{quizId}/comments` - Add comment to quiz
+- DELETE `/api/v1/comments/{commentId}` - Delete comment
+- POST `/api/v1/quizzes/{quizId}/bookmark` - Bookmark quiz
+- DELETE `/api/v1/quizzes/{quizId}/bookmark` - Remove bookmark
+- GET `/api/v1/users/bookmarks` - List user bookmarks
+- POST `/api/v1/reports` - Report content (moderators see simple queue)
+- **Delay**: ratings/follows until moderation capacity exists
 
-# User Analytics  
-GET /api/v1/analytics/users/{userId}/learning-path
-GET /api/v1/analytics/users/{userId}/knowledge-gaps
-GET /api/v1/analytics/users/{userId}/progress-trends
+### Analytics: Build Events, Not Warehouse
+- Emit **product analytics events** (PostHog/Segment style):
+  - Quiz viewed/started/completed
+  - Question shown/answered
+  - AI generation requested/completed/failure
+  - Publish approved/rejected
+- Keep **one simple in-app analytics** view per quiz:
+  - Attempts count, completion rate, avg score, question difficulty histogram
+- Later: ETL to warehouse when you need cohorts and funnels
 
-# System Analytics
-GET /api/v1/analytics/system/usage-stats
-GET /api/v1/analytics/system/popular-content
-GET /api/v1/analytics/system/user-engagement
-```
+### Performance & Scalability: Right-Sized Investments
+- Add **caching** only on read-heavy endpoints (public catalog, quiz details)
+- Add **indexes** for search predicates you actually use (title, tags join table, status+visibility)
+- **N+1**: Check repo methods on quiz → questions and attempt → answers. Use `@EntityGraph`/fetch joins where safe
 
-### Reporting Features
-```http
-# Report Generation
-POST /api/v1/reports/generate
-GET /api/v1/reports/{reportId}
-GET /api/v1/reports/templates
-POST /api/v1/reports/schedule
+### Security Must-Haves (Quick Wins)
+- Move **JWT secret** out of resources; use env/secret manager
+- **Bootstrap superadmin** on empty DB via env (no manual inserts)
+- **@PreAuthorize** on all mutations; Specs to filter **list** endpoints (no leakage)
+- **Validation**: DTO validation groups for create vs update; max lengths; file upload MIME/type/size checks
+- **Abuse protection**: Simple rate limiting on auth and AI endpoints
 
-# Export Formats
-GET /api/v1/export/quiz/{quizId}/pdf
-GET /api/v1/export/quiz/{quizId}/excel
-GET /api/v1/export/results/{attemptId}/pdf
-```
+### API Surface Hygiene
+- Prefer **resource-centric** routes and avoid deep, bespoke trees
+- Use **singular verbs** consistently: `duplicate`, `export`, `share`, `schedule`
+- Add **idempotency** for all POSTs that change money or jobs
+- Versioning: keep **/api/v1**, but don't ship **deprecation APIs** yet
 
-### Advanced Analytics Features
-- Real-time analytics dashboard using WebSockets
-- A/B testing framework for question wording effectiveness
-- Heat-map visualization of answer choice positions
-- Predictive analytics for learning outcome forecasting
-- Cross-platform user journey analytics (web, mobile, API integrations)
-- Comparative cohort analysis with industry benchmarking
-- Sentiment analysis of quiz feedback and comments
-- Performance degradation detection and early warning alerts
-- Revenue attribution tracking for monetized quiz content
-
-### Business Intelligence Features
-- Revenue attribution for paid quizzes
-- Cohort analysis dashboards for learner retention
-- Forecasting models for quiz popularity trends
-- Customer lifetime value prediction using machine learning
-- Market basket analysis for quiz bundling optimization
-- A/B testing framework with statistical significance calculations
-- ROI tracking for marketing campaigns and feature investments
-- Competitive analysis dashboard with industry benchmarking
-- Automated business insights generation with natural language summaries
-
-### Advanced Reporting
-```http
-# Custom Reports
-POST /api/v1/reports/custom
-GET /api/v1/reports/custom/{reportId}/data
-POST /api/v1/reports/custom/{reportId}/share
-GET /api/v1/reports/dashboard
-
-# Data Export
-POST /api/v1/export/bulk-data
-GET /api/v1/export/{exportId}/status
-GET /api/v1/export/{exportId}/download
-```
-
-### Machine Learning Features
-```http
-# ML Insights
-GET /api/v1/ml/user-clustering
-GET /api/v1/ml/content-recommendations
-GET /api/v1/ml/difficulty-prediction
-POST /api/v1/ml/retrain-models
-```
+### Advanced Features (Defer from MVP)
+- **Adaptive quizzes** and **collaborative editing** - R&D track, don't block core UX
+- **Advanced question types** - Start with existing types, expand later
+- **Gamification** - Focus on core value first
+- **Third-party integrations** - Build platform foundation first
 
 ---
 
-## 🧩 Advanced Quiz Features
+## 📅 Implementation Sequencing (Realistic 6-8 Weeks)
 
-### Quiz Types & Modes
-```http
-# Adaptive Quizzes
-POST /api/v1/quizzes/{quizId}/adaptive-session
-GET /api/v1/quizzes/{quizId}/difficulty-adjustment
+### Week 1-2: Foundation
+- **Moderation** (incl. **unpublish** + audits), share-links (+ revoke), search facets, ETag
+- **Org skeleton** + org-scoped roles (`ORG_ADMIN`, `CREATOR`, `LEARNER`, `MODERATOR`)
+- **Idempotency store** + correlation IDs
 
-# Collaborative Quizzes
-POST /api/v1/quizzes/collaborative
-POST /api/v1/quizzes/{quizId}/invite-collaborators
-GET /api/v1/quizzes/{quizId}/collaboration-status
+### Week 3-4: Core Features
+- **Payments for generation**: Checkout, webhook, ledger, reserve/commit/release, estimates
+- **Org wallet** + `AI_SPEND` permissions; per-org caps
 
-# Timed Challenges
-POST /api/v1/quizzes/{quizId}/speed-challenge
-GET /api/v1/challenges/daily
-POST /api/v1/challenges/custom
-```
+### Week 5-6: Social & Analytics
+- **Minimal social** (comments/bookmarks/report) behind flag
+- **Basic per-quiz analytics**; indexes; N+1 passes; rate limits
 
-### Quiz Scheduling
-```http
-POST /api/v1/quizzes/{quizId}/schedule
-GET /api/v1/quizzes/scheduled
-PUT /api/v1/quizzes/{quizId}/schedule/{scheduleId}
-DELETE /api/v1/quizzes/{quizId}/schedule/{scheduleId}
-```
-
-### Advanced Question Types
-- ❌ Drag & Drop questions
-- ❌ Image annotation questions
-- ❌ Audio/Video questions
-- ❌ Code completion questions
-- ❌ Mathematical equation questions
-- ❌ Interactive simulations
-
-### Advanced Quiz Features
-- Branching scenario questions with narrative paths
-- Team-based collaborative quiz mode with shared timers
-- In-quiz power-ups (e.g., "50/50", "extra time") configurable per quiz
-- Augmented reality (AR) question overlays using device cameras
-- Procedurally generated questions using AI and question templates
-- Conditional question logic with skip patterns and dependencies
-- Multi-modal assessment combining video, audio, and text responses
-- Blockchain-verified quiz completion certificates with smart contracts
-- Adaptive question difficulty based on real-time performance analysis
+### Week 7-8: Polish & Launch
+- **Creator ergonomics**: duplicate quiz, bulk question import (CSV/JSON), preview
+- **Docs/OpenAPI/Postman**; sales one-pager for B2B (org features + governance)
 
 ---
 
-## 🎯 User Experience & Accessibility
-
-### Personalization
-```http
-# Recommendations
-GET /api/v1/recommendations/quizzes
-GET /api/v1/recommendations/topics
-GET /api/v1/recommendations/users
-
-# Learning Paths
-GET /api/v1/learning-paths
-POST /api/v1/learning-paths
-GET /api/v1/learning-paths/{pathId}/progress
-POST /api/v1/learning-paths/{pathId}/enroll
-
-# Preferences
-GET /api/v1/users/preferences
-PUT /api/v1/users/preferences
-GET /api/v1/users/notification-settings
-PUT /api/v1/users/notification-settings
-```
-
-### Accessibility Features
-```http
-# Accessibility Options
-GET /api/v1/accessibility/options
-PUT /api/v1/users/accessibility-settings
-GET /api/v1/quizzes/{quizId}/accessibility-info
-
-# Text-to-Speech
-POST /api/v1/tts/generate
-GET /api/v1/tts/{audioId}
-```
-
-### Offline Support
-```http
-# Offline Sync
-GET /api/v1/sync/manifest
-POST /api/v1/sync/upload
-GET /api/v1/sync/conflicts
-POST /api/v1/sync/resolve
-```
-
-### Advanced UX Features
-- Auto dark-mode based on OS/theme preference
-- AI-powered text-to-speech for questions and explanations
-- Keyboard shortcut palette for power users
-- Immersive VR quiz environments for fully engaging experiences
-- Smart notification timing based on user's optimal learning hours
-- Contextual micro-animations that celebrate progress milestones
-- Personalized difficulty curve that adapts to individual learning pace
-- One-handed mobile quiz mode for accessibility and convenience
-- Ambient background music selection to enhance focus during quizzes
-
----
-
-## ⚙️ System Administration
-
-### Enhanced Admin Features
-```http
-# System Management
-GET /api/v1/admin/system/health-detailed
-POST /api/v1/admin/system/maintenance-mode
-GET /api/v1/admin/system/metrics
-POST /api/v1/admin/system/cache/clear
-
-# User Management
-GET /api/v1/admin/users/suspicious-activity
-POST /api/v1/admin/users/{userId}/ban
-POST /api/v1/admin/users/{userId}/unban
-GET /api/v1/admin/users/inactive
-POST /api/v1/admin/users/bulk-action
-
-# Content Moderation
-GET /api/v1/admin/content/flagged
-POST /api/v1/admin/content/{contentId}/approve
-POST /api/v1/admin/content/{contentId}/reject
-GET /api/v1/admin/reports/abuse
-```
-
-### Configuration Management
-```http
-# System Settings
-GET /api/v1/admin/settings
-PUT /api/v1/admin/settings
-GET /api/v1/admin/feature-flags
-PUT /api/v1/admin/feature-flags/{flagId}
-
-# Email Templates
-GET /api/v1/admin/email-templates
-PUT /api/v1/admin/email-templates/{templateId}
-POST /api/v1/admin/email-templates/test
-```
-
-### Advanced Admin Features
-- Multi-tenant administration dashboard
-- Configuration change audit logs with diff view
-- Zero-downtime rolling feature-flag rollouts
-- Automated content moderation using AI-powered filters
-- Smart resource allocation based on usage patterns and predictions
-- Advanced user segmentation for targeted feature rollouts
-- Cross-system health monitoring with intelligent alerting
-- Automated backup verification and disaster recovery testing
-- Dynamic load balancing with intelligent traffic routing
-
----
-
-## 🚀 Performance & Scalability
-
-### Caching Endpoints
-```http
-# Cache Management
-GET /api/v1/cache/stats
-POST /api/v1/cache/warm-up
-DELETE /api/v1/cache/{cacheKey}
-POST /api/v1/cache/invalidate-pattern
-```
-
-### Rate Limiting
-```http
-# Rate Limit Info
-GET /api/v1/rate-limit/status
-GET /api/v1/rate-limit/quotas
-POST /api/v1/rate-limit/request-increase
-```
-
-### Background Jobs
-```http
-# Job Management
-GET /api/v1/jobs
-GET /api/v1/jobs/{jobId}
-POST /api/v1/jobs/{jobId}/cancel
-POST /api/v1/jobs/{jobId}/retry
-GET /api/v1/jobs/failed
-```
-
-### Advanced Performance Features
-- Predictive autoscaling hints based on historical load
-- Cost-aware query planner with recommendations
-- Adaptive cache invalidation using machine learning signals
-- Edge computing deployment for global latency optimization
-- Intelligent database sharding with automatic rebalancing
-- Real-time performance anomaly detection and auto-remediation
-- Advanced compression algorithms for quiz data transmission
-- Lazy loading with intelligent prefetching based on user behavior
-- Multi-region active-active deployment with conflict resolution
-
----
-
-## 🔗 Integrations & APIs
-
-### Webhooks
-```http
-# Webhook Management
-GET /api/v1/webhooks
-POST /api/v1/webhooks
-PUT /api/v1/webhooks/{webhookId}
-DELETE /api/v1/webhooks/{webhookId}
-GET /api/v1/webhooks/{webhookId}/deliveries
-POST /api/v1/webhooks/{webhookId}/test
-```
-
-### Third-party Integrations
-```http
-# LMS Integration
-POST /api/v1/integrations/lms/sync
-GET /api/v1/integrations/lms/courses
-POST /api/v1/integrations/lms/grade-passback
-
-# Analytics Integration
-POST /api/v1/integrations/analytics/track-event
-GET /api/v1/integrations/analytics/reports
-
-# Calendar Integration
-POST /api/v1/integrations/calendar/schedule-quiz
-GET /api/v1/integrations/calendar/events
-```
-
-### API Versioning
-```http
-# Version Management
-GET /api/versions
-GET /api/v2/...  # Future API versions
-GET /api/v1/deprecation-notices
-```
-
-### Advanced Integration Features
-- Slack/MS Teams quiz result notifications
-- Zapier connectors for "new quiz completed" triggers
-- SCORM export/import for LMS compatibility
-- Native integration with popular video conferencing platforms (Zoom, Teams, Meet)
-- Automated grade synchronization with student information systems
-- API-first architecture with GraphQL support for flexible data fetching
-- Blockchain integration for immutable quiz result verification
-- IoT device integration for physical quiz interactions (buzzers, sensors)
-- Marketplace API for third-party quiz content providers
-
----
-
-## 📱 Mobile & Progressive Web App
-
-### Mobile-Specific Features
-```http
-# Push Notifications
-POST /api/v1/mobile/register-device
-PUT /api/v1/mobile/device-settings
-POST /api/v1/mobile/push-test
-
-# Offline Sync
-GET /api/v1/mobile/sync-manifest
-POST /api/v1/mobile/sync-data
-GET /api/v1/mobile/sync-status
-```
-
-### Progressive Web App
-```http
-# PWA Support
-GET /api/v1/pwa/manifest
-GET /api/v1/pwa/service-worker
-GET /api/v1/pwa/offline-resources
-```
-
-### Advanced Mobile Features
-- Haptic feedback cues for correct/incorrect answers
-- Offline voice recognition for answer dictation
-- Low-bandwidth media placeholders for slow networks
-- Apple Watch companion app for micro-quizzes and notifications
-- Gesture-controlled navigation for hands-free interaction
-- Smart brightness adjustment based on ambient light and time of day
-- Wearable device integration for biometric feedback during quizzes
-- Voice-controlled quiz creation and editing for accessibility
-- Cross-device continuation (start on mobile, finish on desktop)
-
----
-
-## 💳 Payment System & Monetization
-
-### Payment Models
-
-#### 1. Purchase-Based (One-time Payments)
-- **Premium Quiz Access**: Individual quiz purchases ($1-10 per quiz)
-- **Question Pack Bundles**: Curated question collections ($5-25 per pack)
-- **AI-Generated Quiz Credits**: Pay-per-use AI quiz generation ($0.50-2 per generation)
-- **Export Features**: PDF/Excel export capabilities ($2-5 per export)
-- **Advanced Analytics Reports**: Detailed performance insights ($10-20 per report)
-
-#### 2. Subscription-Based (Recurring Payments)
-- **Basic Plan** ($9.99/month): Up to 10 quiz attempts, basic analytics
-- **Pro Plan** ($19.99/month): Unlimited attempts, advanced analytics, quiz creation
-- **Enterprise Plan** ($49.99/month): All features, team management, API access
-- **Student Plan** ($4.99/month): Discounted access for verified students
-- **Annual Plans**: 20% discount on all monthly plans
-
-### Core Payment Endpoints
-
-#### Subscription Management
-```http
-# Plan Information
-GET /api/v1/payments/plans
-GET /api/v1/payments/plans/{planId}
-
-# Subscription Lifecycle
-POST /api/v1/payments/subscriptions/create
-GET /api/v1/payments/subscriptions/current
-PATCH /api/v1/payments/subscriptions/change-plan
-POST /api/v1/payments/subscriptions/cancel
-POST /api/v1/payments/subscriptions/reactivate
-
-# Payment Methods
-GET /api/v1/payments/payment-methods
-POST /api/v1/payments/payment-methods/attach
-DELETE /api/v1/payments/payment-methods/{paymentMethodId}
-PATCH /api/v1/payments/payment-methods/{paymentMethodId}/set-default
-
-# Billing
-GET /api/v1/payments/billing/history
-GET /api/v1/payments/billing/upcoming
-POST /api/v1/payments/billing/update-details
-GET /api/v1/payments/billing/download-invoice/{invoiceId}
-```
-
-#### One-time Purchases
-```http
-# Purchase Flow
-POST /api/v1/payments/purchases/create-intent
-POST /api/v1/payments/purchases/confirm
-GET /api/v1/payments/purchases/status/{purchaseId}
-GET /api/v1/payments/purchases/history
-
-# Specific Purchase Types
-POST /api/v1/payments/purchases/quiz/{quizId}
-POST /api/v1/payments/purchases/ai-credits
-POST /api/v1/payments/purchases/export/{type}
-POST /api/v1/payments/purchases/analytics-report/{reportType}
-
-# Purchase Management
-GET /api/v1/payments/purchases/owned-content
-POST /api/v1/payments/purchases/{purchaseId}/request-refund
-```
-
-#### Usage and Limits
-```http
-# Current Usage
-GET /api/v1/payments/usage/current
-GET /api/v1/payments/usage/limits
-GET /api/v1/payments/usage/history
-
-# Feature Access
-GET /api/v1/payments/features/available
-POST /api/v1/payments/features/check-access
-```
-
-### Key Domain Models
-
-#### Payment Entities
-```java
-@Entity
-public class PaymentPlan {
-    private UUID id;
-    private String name;
-    private String stripeProductId;
-    private String stripePriceId;
-    private BigDecimal price;
-    private String currency;
-    private PlanType type; // SUBSCRIPTION, ONE_TIME
-    private BillingInterval interval; // MONTHLY, YEARLY, null for one-time
-    private Map<String, Object> features; // JSON column for feature limits
-    private boolean active;
-}
-
-@Entity
-public class UserSubscription {
-    private UUID id;
-    private UUID userId;
-    private UUID paymentPlanId;
-    private String stripeSubscriptionId;
-    private String stripeCustomerId;
-    private SubscriptionStatus status;
-    private LocalDateTime currentPeriodStart;
-    private LocalDateTime currentPeriodEnd;
-    private LocalDateTime cancelAt;
-    private boolean cancelAtPeriodEnd;
-}
-
-@Entity
-public class Purchase {
-    private UUID id;
-    private UUID userId;
-    private UUID purchasableId; // Quiz, QuestionPack, etc.
-    private PurchasableType type;
-    private String stripePaymentIntentId;
-    private BigDecimal amount;
-    private String currency;
-    private PurchaseStatus status;
-    private LocalDateTime purchasedAt;
-    private LocalDateTime expiresAt; // For time-limited purchases
-}
-```
-
-### Implementation Timeline
-
-#### Phase 1 (Month 1): Foundation
-- Stripe integration setup
-- Basic subscription management
-- Database schema implementation
-- Core payment services
-
-#### Phase 2 (Month 2): Purchase System
-- One-time purchase flow
-- Quiz/content access control
-- Usage tracking implementation
-- Basic webhook processing
-
-#### Phase 3 (Month 3): Advanced Features
-- Comprehensive admin dashboard
-- Advanced analytics
-- Refund management
-- Mobile payment optimization
-
-#### Phase 4 (Month 4): Polish & Scale
-- Performance optimization
-- Advanced security features
-- Comprehensive testing
-- Go-to-market preparation
-
----
-
-## 🌠 Market-Disrupting Moonshot Ideas
+## 🌠 Moonshot Ideas (Market Disruption)
 
 ### 1. Neural-Adaptive Quiz Experience
 Leverage inexpensive consumer EEG headsets (e.g., Muse, NeuroSky) to **adapt quiz difficulty in real-time based on learner focus and stress levels**. By measuring brainwave patterns, QuizMaker could detect when a user is overly stressed or bored and dynamically adjust question difficulty, pacing, and encouragement messages. This "mind-responsive" experience would create an unforgettable *a-ha!* moment, position QuizMaker at the cutting edge of ed-tech, and open doors to partnerships with wearable manufacturers and neuro-learning research institutions.
@@ -938,7 +289,54 @@ Develop **fully immersive AR/VR quiz environments** where users physically walk 
 - 🔄 **In Progress** - Feature is currently being developed
 - 📋 **Planned** - Feature is planned for future implementation
 - 🚀 **Moonshot** - Revolutionary feature requiring significant R&D
+- 🎯 **MVP Priority** - Core features for first release
+- 💼 **Revenue** - Monetization features
+- 🔧 **Foundation** - Must-have infrastructure
+- 🏢 **B2B** - Organization-focused features
 
 ---
 
-*This document serves as a comprehensive roadmap for QuizMaker's evolution from a basic quiz platform to a cutting-edge, feature-rich learning ecosystem. Each section represents a strategic area of development that will enhance user experience, expand functionality, and position QuizMaker as a market leader in educational technology.* 
+## 🎯 Product/Market Sanity
+
+### ICP Split
+- **Individual creators** vs **team/org customers**
+- Keep org features behind flags until you see B2B pull
+
+### Pricing Strategy
+- Start with **token packs only**
+- Add subscriptions later (org plan with seats)
+
+### Activation Path
+- The true "a-ha" is: **doc → AI → quiz → publish → attempts → analytics**
+- Make that path frictionless and free up to a small limit
+
+### B2B Focus
+- Ship **org + wallets + moderation + public catalog**
+- Leave departments/groups, SSO, SCIM for the next quarter
+
+---
+
+## 🗄️ Data & Infrastructure Notes
+
+### Indexes
+- `quizzes(status, visibility, created_at)`, `quiz_title`, tag join
+- `jobs(status, type, created_at)`
+- `ledger(user_or_org_id, created_at)`, `(idempotency_key)`
+- `share_links(quiz_id, expires_at)`
+
+### Idempotency Store
+- `(key, actorId, firstSeenAt, resultHash, ttl)`, with cleanup job
+
+### Observability
+- Correlation ID across web, jobs, Stripe webhook
+- Counters for generation starts/fails, ledger anomalies, moderation actions
+
+---
+
+## 🎯 Realistic Usage Scenario
+
+**The "A-ha!" Moment**: A corporate training manager discovers QuizMaker while struggling to create engaging compliance training. She uploads a dense 50-page compliance manual and uses AI generation to create an interactive quiz in minutes. The quiz includes scenario-based questions that employees actually enjoy taking. When she sees the detailed analytics showing knowledge gaps and learning patterns, she realizes she can now make data-driven decisions about training effectiveness. The social features allow employees to discuss tricky scenarios, creating a collaborative learning environment. This transforms her from a frustrated trainer into a learning analytics expert, and QuizMaker becomes the cornerstone of her company's learning strategy.
+
+---
+
+*This document serves as a streamlined roadmap for QuizMaker's evolution from MVP to a comprehensive learning ecosystem. The focus is on shipping faster, avoiding dead-ends, and keeping the codebase maintainable as you grow. Each section represents a strategic area of development that will enhance user experience, expand functionality, and position QuizMaker as a market leader in educational technology.* 
