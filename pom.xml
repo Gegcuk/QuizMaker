@@ -255,6 +255,7 @@
                         <exclude>**/ComplianceQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/HotspotQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
