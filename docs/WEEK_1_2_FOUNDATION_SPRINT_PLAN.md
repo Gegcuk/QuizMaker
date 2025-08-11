@@ -19,7 +19,7 @@
 ### Development Tools
 - [ ] **Dev seed data**: one org + admin + creator + moderator + a couple quizzes
 - [ ] **Feature flags**: `feature.shareLinks`, `feature.org` (default on in dev, off in prod)
-- [ ] **Problem+JSON errors**: standard envelope for easier client integration
+- [x] **Problem+JSON errors**: standard envelope for easier client integration
 
 ---
 
@@ -174,11 +174,11 @@
    ```
 
 #### Deliverables
-- [ ] Quiz entity updated with moderation fields, hashes, and @Version
-- [ ] QuizModerationAudit entity created with UUID and LAZY fetching
-- [ ] ModerationStateMachine helper for transitions
+- [x] Quiz entity updated with moderation fields, hashes, and @Version
+- [x] QuizModerationAudit entity created with UUID and LAZY fetching
+- [x] ModerationStateMachine helper for transitions
 - [ ] Database migration script with backfill and down script
-- [ ] Unit tests for new fields and transitions
+- [x] Unit tests for new fields and transitions
 
 #### Acceptance Criteria
 - Quiz can transition between DRAFT → PENDING_REVIEW → PUBLISHED/REJECTED
@@ -201,8 +201,8 @@
        public void approveQuiz(UUID quizId, UUID moderatorId, String reason);
        public void rejectQuiz(UUID quizId, UUID moderatorId, String reason);
        public void unpublishQuiz(UUID quizId, UUID moderatorId, String reason);
-       public List<Quiz> getPendingReviewQuizzes(UUID orgId);
-       public List<QuizModerationAudit> getQuizAuditTrail(UUID quizId);
+       public List<PendingReviewQuizDto> getPendingReviewQuizzes(UUID orgId);
+       public List<QuizModerationAuditDto> getQuizAuditTrail(UUID quizId);
    }
    ```
 
@@ -229,10 +229,10 @@
    - **Enforce visibility invariants** in repository specs
 
 #### Deliverables
-- [ ] ModerationService with org-scoped operations
-- [ ] QuizHashCalculator with exact field definitions
-- [ ] QuizService updated with moderation rules and optimistic locking
-- [ ] Repository specs for visibility enforcement
+- [x] ModerationService with org-scoped operations (service implemented; org scoping pending)
+- [x] QuizHashCalculator with exact field definitions (initial implementation; Q/A hashing pending)
+- [x] QuizService updated with moderation rules and optimistic locking
+- [x] Repository specs for visibility enforcement (PUBLIC && PUBLISHED enforced)
 - [ ] Integration tests for moderation workflows
 
 #### Acceptance Criteria
@@ -304,10 +304,10 @@
    ```
 
 #### Deliverables
-- [ ] ModerationController with clean authorization pattern
-- [ ] QuizController updated with moderation endpoints
-- [ ] All DTOs created with privacy protection
-- [ ] Single ControllerAdvice with Problem+JSON errors
+- [x] ModerationController with clean authorization pattern (basic role guard; scoped auth pending)
+- [x] QuizController updated with moderation endpoints (placeholders added)
+- [x] All DTOs created with privacy protection
+- [x] Single ControllerAdvice with Problem+JSON errors
 - [ ] OpenAPI documentation updated
 
 #### Acceptance Criteria
@@ -349,14 +349,14 @@
    @Service
    @Transactional
    public class ShareLinkService {
-       public ShareLink createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request);
-       public ShareLink validateToken(String token);
+       public ShareLinkDto createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request);
+       public ShareLinkDto validateToken(String token);
        public void revokeShareLink(UUID shareLinkId, UUID userId);
-       public List<ShareLink> getUserShareLinks(UUID userId);
+       public List<ShareLinkDto> getUserShareLinks(UUID userId);
        public void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress);
        
        // Atomic one-time consumption
-       public ShareLink consumeOneTimeToken(String token);
+       public ShareLinkDto consumeOneTimeToken(String token);
        
        // Revoke on unpublish
        public void revokeActiveShareLinksForQuiz(UUID quizId);
@@ -555,11 +555,11 @@
    ```java
    @Service
    public class OrganizationService {
-       public Organization createOrganization(CreateOrganizationRequest request, UUID adminUserId);
-       public OrganizationMembership addMember(UUID orgId, UUID userId, OrganizationRole role);
+       public OrganizationDto createOrganization(CreateOrganizationRequest request, UUID adminUserId);
+       public OrganizationMemberDto addMember(UUID orgId, UUID userId, OrganizationRole role);
        public void removeMember(UUID orgId, UUID userId);
-       public void updateMemberRole(UUID orgId, UUID userId, OrganizationRole newRole);
-       public List<OrganizationMembership> getOrganizationMembers(UUID orgId);
+       public OrganizationMemberDto updateMemberRole(UUID orgId, UUID userId, OrganizationRole newRole);
+       public List<OrganizationMemberDto> getOrganizationMembers(UUID orgId);
        public boolean hasRole(UUID orgId, UUID userId, OrganizationRole role);
        
        // Mirror membership enum into default binding
@@ -571,10 +571,10 @@
    ```java
    @Service
    public class OrganizationWalletService {
-       public OrganizationWallet getWallet(UUID orgId);
+       public OrganizationWalletDto getWallet(UUID orgId);
        public void addTokens(UUID orgId, Long amount, String reason);
        public boolean consumeTokens(UUID orgId, Long amount, String reason);
-       public List<WalletTransaction> getTransactionHistory(UUID orgId);
+       public List<WalletTransactionDto> getTransactionHistory(UUID orgId);
        public void setMonthlyBudget(UUID orgId, Long budget);
        public Long getBalance(UUID orgId); // Derived from ledger
    }
@@ -805,13 +805,13 @@
 ## 🧪 Testing Strategy
 
 ### Unit Tests
-- [ ] ModerationService business logic
+- [x] ModerationService business logic
 - [ ] ShareLinkService token operations
 - [ ] OrganizationService member management
 - [ ] IdempotencyService key management
 - [ ] All DTOs validation
-- [ ] Hash calculation and change detection
-- [ ] ModerationStateMachine transitions
+- [x] Hash calculation and change detection
+- [x] ModerationStateMachine transitions
 
 ### Integration Tests
 - [ ] Complete moderation workflow
