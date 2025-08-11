@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.quiz;
 
+import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
  * Note: Current QuizDto does not include questions/answers payloads yet.
  * This method normalizes and hashes the quiz's core content fields and tag IDs in a stable order.
  */
+@Component
 public class QuizHashCalculator {
 
     public String calculateContentHash(QuizDto quizDto) {
