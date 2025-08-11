@@ -1,6 +1,5 @@
-name: Continuous Integration
+name: CI
 
-# 1. Trigger on pushes & PRs to main
 on:
   push:
     branches: [ master, main ]
@@ -8,59 +7,67 @@ on:
     branches: [ master, main ]
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
+
+    env:
+      # App secrets (masked). Provide test-safe defaults if not set.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'test-noop' }}
+      OPENAI_MODEL:   ${{ secrets.OPENAI_MODEL   || 'disabled' }}
+      JWT_SECRET:     ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
+      TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
+      SPRING_PROFILES_ACTIVE: test
+      # Point Spring to the service hostname, not localhost
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: bestuser
+      SPRING_DATASOURCE_PASSWORD: bestuser
 
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.4  # LTS line
         env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: quizmakerdb
+          MYSQL_DATABASE: quizmaker_test
           MYSQL_USER: bestuser
           MYSQL_PASSWORD: bestuser
-        ports:
-          - 3306:3306
+          MYSQL_ROOT_PASSWORD: root
+        # No port mapping needed; the job can reach the service via hostname "mysql"
         options: >-
-          --health-cmd="mysqladmin ping --silent"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot --silent"
+          --health-interval=10s --health-timeout=5s --health-retries=10
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-
-      - name: Wait for MySQL
-        run: |
-          until mysqladmin ping -h 127.0.0.1 --silent; do
-            echo "Waiting for MySQL..."
-            sleep 5
-          done
-          echo "MySQL is ready!"
-          
-      - name: Create test database
-        run: |
-          mysql -h 127.0.0.1 -u bestuser -pbestuser -e "CREATE DATABASE IF NOT EXISTS quizmakerdb;"
-          echo "Test database created!"
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
-          distribution: 'corretto'
+          distribution: temurin
           java-version: '17'
+          cache: maven
 
-      - name: Build & verify
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
-          DB_URL: ${{ secrets.DB_URL }}
-          DB_USERNAME: ${{ secrets.DB_USERNAME }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          # Additional environment variables for CI
-          SPRING_PROFILES_ACTIVE: test-mysql
-          SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/quizmakerdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-          SPRING_DATASOURCE_USERNAME: bestuser
-          SPRING_DATASOURCE_PASSWORD: bestuser
-        run: ./mvnw clean verify -Dspring.profiles.active=test-mysql
+      - name: Wait for MySQL to be healthy
+        run: |
+          for i in {1..60}; do
+            mysqladmin ping -h mysql -uroot -proot --silent && echo "MySQL OK" && break
+            echo "Waiting for MySQL..."; sleep 2
+          done
+
+      - name: Flyway migrate (fail fast on schema issues)
+        run: |
+          ./mvnw -B -V -q -DskipTests \
+            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            flyway:migrate | cat
+
+      - name: Run tests
+        run: ./mvnw -B -T 1C test | cat
+
+      - name: Upload surefire reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**

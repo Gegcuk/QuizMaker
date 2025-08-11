@@ -8,6 +8,21 @@
 
 ---
 
+## 🚀 Day-0 Preparation Checklist (1 Hour)
+
+### Environment Setup
+- [ ] **Env secrets present**: JWT, TOKEN_PEPPER_SECRET, DB, email, Stripe test keys
+- [ ] **Flyway enabled** in all profiles (dev, test, prod)
+- [ ] **Postman/Insomnia collection** stubbed with auth + a few endpoints
+- [ ] **CI runs tests + migrations** on a throwaway DB
+
+### Development Tools
+- [ ] **Dev seed data**: one org + admin + creator + moderator + a couple quizzes
+- [ ] **Feature flags**: `feature.shareLinks`, `feature.org` (default on in dev, off in prod)
+- [ ] **Problem+JSON errors**: standard envelope for easier client integration
+
+---
+
 ## 🎯 Sprint Objectives
 
 1. **Moderation System** - Complete workflow with audit trails
@@ -31,11 +46,11 @@
 - Query "last 10" when needed from the table
 - **Keep all events** - UI queries last 10, ops need full history
 
-### 3. **Permission-Based Authorization**
-- Replace `@PreAuthorize("hasRole('MODERATOR')")` with permission checks
-- Use `@auth.can(authentication, 'QUIZ_MODERATE', #orgId)`
-- Use `@auth.hasPermission(authentication, #quizId, 'Quiz', 'UPDATE')`
-- **Make bindings authoritative** early in @auth service
+### 3. **Permission-Based Authorization (Clean Pattern)**
+- **Don't call services from SpEL**
+- Use `@auth.hasPermission(authentication, #quizId, 'Quiz', 'MODERATE')`
+- Let @auth load the quiz → derive orgId → check bindings/ACLs internally
+- Avoid circular dependencies and cleaner architecture
 
 ### 4. **Scoped Role Bindings**
 - Introduce `user_role_bindings(user_id, role_id, scope='ORG', scope_id)`
@@ -53,6 +68,7 @@
 - Store **hashed token** (SHA256) in DB
 - **Add server-side pepper** in hash: `sha256(pepper || token)`
 - Mint httpOnly, SameSite=Lax, Secure cookies
+- **Set cookie Path to quiz viewer route** (e.g., `/quizzes/{id}`) to minimize CSRF surface
 - **One-time semantics = atomic** - consume and revoke in same transaction
 - Add revoke endpoint with cookie invalidation
 
@@ -64,7 +80,8 @@
 ### 8. **Optimistic Locking & State Management**
 - Add `@Version` to Quiz entity for concurrent edits
 - Create `ModerationStateMachine` enum helper for transitions
-- Return 409 on conflict
+- **Standardize 409 response** with clear error code `QUIZ_VERSION_CONFLICT`
+- Return 409 on conflict so client can refetch and retry
 
 ### 9. **Visibility Invariants**
 - **Enforce in repository specs** (not only controller checks)
@@ -77,6 +94,12 @@
 - **Single @ControllerAdvice** for error shaping
 - **Include method+path** in idempotency key scope
 
+### 11. **Migration Safety & Backfill**
+- **Default new columns to NULL**: `reviewedAt`, `rejectionReason`, `hashes`
+- **Backfill existing quizzes**: `status=DRAFT`, `visibility=PRIVATE`, `hashes` computed once
+- **Add down script** (or rollback notes) for first migration
+- **Test migrations** on throwaway DB in CI
+
 ---
 
 ## 📅 Day-by-Day Implementation Plan
@@ -86,8 +109,8 @@
 #### Tasks
 1. **Add Moderation Status to Quiz Model**
    - Add `PENDING_REVIEW` and `REJECTED` to existing `QuizStatus` enum
-   - Add `reviewedAt`, `reviewedBy`, `rejectionReason` fields to Quiz entity
-   - Add `content_hash` and `presentation_hash` fields for change detection
+   - Add `reviewedAt`, `reviewedBy`, `rejectionReason` fields to Quiz entity (default NULL)
+   - Add `content_hash` and `presentation_hash` fields for change detection (default NULL)
    - Add `@Version` field for optimistic locking
    - **Remove** `auditTrail` JSON field (use table instead)
 
@@ -126,17 +149,35 @@
    }
    ```
 
-4. **Database Migration**
-   - Create Flyway migration script
-   - Add indexes for `quizzes(status, visibility, created_at)`
-   - Add indexes for `quiz_moderation_audit(quiz_id, created_at)`
-   - Use `BINARY(16)` for UUID fields
+4. **Database Migration with Safety**
+   ```sql
+   -- Migration V1__add_moderation_fields.sql
+   ALTER TABLE quizzes 
+   ADD COLUMN reviewed_at TIMESTAMP NULL,
+   ADD COLUMN reviewed_by BINARY(16) NULL,
+   ADD COLUMN rejection_reason TEXT NULL,
+   ADD COLUMN content_hash VARCHAR(64) NULL,
+   ADD COLUMN presentation_hash VARCHAR(64) NULL,
+   ADD COLUMN version INT NOT NULL DEFAULT 0;
+   
+   -- Backfill existing quizzes
+   UPDATE quizzes SET 
+       status = 'DRAFT',
+       visibility = 'PRIVATE',
+       version = 0
+   WHERE status IS NULL OR visibility IS NULL;
+   
+   -- Down script (rollback)
+   -- ALTER TABLE quizzes DROP COLUMN reviewed_at, DROP COLUMN reviewed_by, 
+   -- DROP COLUMN rejection_reason, DROP COLUMN content_hash, 
+   -- DROP COLUMN presentation_hash, DROP COLUMN version;
+   ```
 
 #### Deliverables
 - [ ] Quiz entity updated with moderation fields, hashes, and @Version
 - [ ] QuizModerationAudit entity created with UUID and LAZY fetching
 - [ ] ModerationStateMachine helper for transitions
-- [ ] Database migration script ready
+- [ ] Database migration script with backfill and down script
 - [ ] Unit tests for new fields and transitions
 
 #### Acceptance Criteria
@@ -145,6 +186,7 @@
 - Content and presentation hashes are computed correctly
 - Optimistic locking prevents concurrent modification conflicts
 - Database indexes are optimized for moderation queries
+- **Migration safely backfills existing data**
 
 ---
 
@@ -161,9 +203,6 @@
        public void unpublishQuiz(UUID quizId, UUID moderatorId, String reason);
        public List<Quiz> getPendingReviewQuizzes(UUID orgId);
        public List<QuizModerationAudit> getQuizAuditTrail(UUID quizId);
-       
-       // Derive orgId from quiz for security
-       private UUID getQuizOrganizationId(UUID quizId);
    }
    ```
 
@@ -215,11 +254,11 @@
    @RequestMapping("/api/v1/admin/quizzes")
    public class ModerationController {
        @PostMapping("/{quizId}/approve")
-       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', @moderationService.getQuizOrganizationId(#quizId))")
+       @PreAuthorize("@auth.hasPermission(authentication, #quizId, 'Quiz', 'MODERATE')")
        public ResponseEntity<Void> approveQuiz(@PathVariable UUID quizId, @RequestBody ApproveRequest request);
        
        @PostMapping("/{quizId}/reject")
-       @PreAuthorize("@auth.can(authentication, 'QUIZ_MODERATE', @moderationService.getQuizOrganizationId(#quizId))")
+       @PreAuthorize("@auth.hasPermission(authentication, #quizId, 'Quiz', 'MODERATE')")
        public ResponseEntity<Void> rejectQuiz(@PathVariable UUID quizId, @RequestBody RejectRequest request);
        
        @GetMapping("/pending-review")
@@ -244,31 +283,39 @@
    - `QuizModerationAuditDto` with `@JsonIgnore` on sensitive fields
    - `PendingReviewQuizDto`
 
-4. **Create Single ControllerAdvice**
+4. **Create Single ControllerAdvice with Standardized Errors**
    ```java
    @ControllerAdvice
    public class GlobalExceptionHandler {
        @ExceptionHandler(OptimisticLockingFailureException.class)
-       public ResponseEntity<ErrorResponse> handleOptimisticLocking(OptimisticLockingFailureException ex);
+       public ResponseEntity<ProblemDetail> handleOptimisticLocking(OptimisticLockingFailureException ex) {
+           ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+               HttpStatus.CONFLICT, 
+               "Quiz has been modified by another user. Please refresh and try again."
+           );
+           problem.setProperty("errorCode", "QUIZ_VERSION_CONFLICT");
+           problem.setProperty("correlationId", MDC.get("correlationId"));
+           return ResponseEntity.status(409).body(problem);
+       }
        
        @ExceptionHandler(Exception.class)
-       public ResponseEntity<ErrorResponse> handleGeneric(Exception ex);
+       public ResponseEntity<ProblemDetail> handleGeneric(Exception ex);
    }
    ```
 
 #### Deliverables
-- [ ] ModerationController with org-scoped authorization
+- [ ] ModerationController with clean authorization pattern
 - [ ] QuizController updated with moderation endpoints
 - [ ] All DTOs created with privacy protection
-- [ ] Single ControllerAdvice for error shaping
+- [ ] Single ControllerAdvice with Problem+JSON errors
 - [ ] OpenAPI documentation updated
 
 #### Acceptance Criteria
-- All moderation endpoints derive orgId from quiz (not query param)
+- All moderation endpoints use clean authorization (no service calls in SpEL)
 - Authorization is enforced with org scope
 - Request/response DTOs are properly validated
 - API documentation is complete
-- 409 returned on optimistic locking conflicts
+- **409 returned with QUIZ_VERSION_CONFLICT error code for optimistic locking conflicts**
 
 ---
 
@@ -358,11 +405,20 @@
    }
    ```
 
-2. **Implement Cookie Management**
+2. **Implement Cookie Management with Scoped Path**
    ```java
    @Component
    public class ShareLinkCookieManager {
-       public void setShareLinkCookie(HttpServletResponse response, String token, UUID quizId);
+       public void setShareLinkCookie(HttpServletResponse response, String token, UUID quizId) {
+           Cookie cookie = new Cookie("share_token", token);
+           cookie.setPath("/quizzes/" + quizId); // Scoped to quiz viewer route
+           cookie.setHttpOnly(true);
+           cookie.setSecure(true);
+           cookie.setAttribute("SameSite", "Lax");
+           cookie.setMaxAge(3600); // 1 hour
+           response.addCookie(cookie);
+       }
+       
        public String getShareLinkToken(HttpServletRequest request);
        public void clearShareLinkCookie(HttpServletResponse response);
        public void invalidateCookiesForQuiz(UUID quizId);
@@ -376,14 +432,14 @@
 
 #### Deliverables
 - [ ] ShareLinkController with all endpoints
-- [ ] Cookie management with httpOnly, Secure, SameSite
+- [ ] Cookie management with scoped path and security attributes
 - [ ] Share link analytics tracking with privacy protection
 - [ ] Integration tests for share link flow
 - [ ] Revoke active share-links on unpublish
 
 #### Acceptance Criteria
 - Share links can be created, accessed, and revoked
-- Cookies are properly set with security attributes
+- **Cookies are scoped to quiz viewer route** with security attributes
 - Analytics events are tracked with privacy protection
 - Security is maintained throughout the flow
 - **Rate-limit both POST /share-link and GET /shared/{token}**
@@ -805,6 +861,10 @@ quizmaker.logging.redact-sensitive=true
 
 # Search
 quizmaker.search.facet-cache-ttl-seconds=30
+
+# Feature Flags
+quizmaker.features.share-links=true
+quizmaker.features.organizations=true
 ```
 
 ### Database Indexes
