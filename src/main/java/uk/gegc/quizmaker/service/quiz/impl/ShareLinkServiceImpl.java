@@ -213,8 +213,16 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     @Override
     @Transactional
     public ShareLinkDto consumeOneTimeToken(String token) {
+        return consumeOneTimeToken(token, null, null);
+    }
+
+    @Override
+    @Transactional
+    public ShareLinkDto consumeOneTimeToken(String token, String userAgent, String ipAddress) {
         String tokenHash = sha256Hex(tokenPepper + token);
-        ShareLink link = shareLinkRepository.findByTokenHashAndRevokedAtIsNull(tokenHash)
+        
+        // First, try to find the token (including revoked ones)
+        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
 
         if (!link.isOneTime()) {
@@ -224,19 +232,26 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
                     link.getExpiresAt(), link.isOneTime(), link.getRevokedAt(), link.getCreatedAt());
         }
 
-        // Expiry and revocation checks
+        // Check if already revoked
+        if (link.getRevokedAt() != null) {
+            throw new uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException("Token already used");
+        }
+
+        // Expiry check
         if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
             throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
         }
-        if (link.getRevokedAt() != null) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Token revoked");
+
+        // Record usage before consuming (for one-time tokens)
+        if (userAgent != null || ipAddress != null) {
+            recordShareLinkUsage(tokenHash, userAgent, ipAddress);
         }
 
         // Atomic consumption via guarded update
         Instant now2 = Instant.now();
         int updated = shareLinkRepository.consumeOneTime(tokenHash, now2);
         if (updated == 0) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Token already used or invalid");
+            throw new uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException("Token already used");
         }
         // reflect state in returned DTO
         link.setRevokedAt(now2);

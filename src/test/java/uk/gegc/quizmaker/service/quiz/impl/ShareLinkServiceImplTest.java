@@ -242,14 +242,14 @@ class ShareLinkServiceImplTest {
     }
 
     @Test
-    @DisplayName("consumeOneTimeToken: atomic race - first call succeeds, second fails")
+    @DisplayName("consumeOneTimeToken: atomic race - first call succeeds, second throws ShareLinkAlreadyUsedException")
     void consumeOneTimeToken_atomicRace() {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
         link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
         link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
         
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class)))
                 .thenReturn(1)  // First call succeeds
                 .thenReturn(0); // Second call fails
@@ -258,20 +258,12 @@ class ShareLinkServiceImplTest {
         ShareLinkDto dto1 = service.consumeOneTimeToken("RAW");
         assertThat(dto1.oneTime()).isTrue();
 
-        // For the second call, we need to mock the link as not revoked initially
-        // but then the service will set revokedAt after the first call
-        ShareLink link2 = new ShareLink();
-        link2.setOneTime(true);
-        link2.setQuiz(new Quiz()); link2.getQuiz().setId(UUID.randomUUID());
-        link2.setCreatedBy(new User()); link2.getCreatedBy().setId(UUID.randomUUID());
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link2));
-
-        // Second call should fail
+        // Second call should throw ShareLinkAlreadyUsedException
         assertThatThrownBy(() -> service.consumeOneTimeToken("RAW"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
-                .hasMessageContaining("Token already used or invalid");
+                .isInstanceOf(uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException.class)
+                .hasMessageContaining("Token already used");
 
-        verify(shareLinkRepository, times(2)).consumeOneTime(anyString(), any(Instant.class));
+        verify(shareLinkRepository, times(1)).consumeOneTime(anyString(), any(Instant.class));
     }
 
     @Test
@@ -541,7 +533,7 @@ class ShareLinkServiceImplTest {
         link.setOneTime(true);
         link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
         link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
 
         ShareLinkDto dto = service.consumeOneTimeToken("RAW");
@@ -556,7 +548,7 @@ class ShareLinkServiceImplTest {
         link.setOneTime(false);
         link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
         link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
 
         ShareLinkDto dto = service.consumeOneTimeToken("RAW");
         assertThat(dto.oneTime()).isFalse();
@@ -566,28 +558,73 @@ class ShareLinkServiceImplTest {
     @Test
     @DisplayName("consumeOneTimeToken: unknown token -> not found")
     void consumeOneTimeToken_unknown() {
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.empty());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.consumeOneTimeToken("X")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
-    @DisplayName("consumeOneTimeToken: expired or revoked -> ValidationException")
-    void consumeOneTimeToken_invalidStates() {
-        ShareLink expired = new ShareLink();
-        expired.setOneTime(true);
-        expired.setExpiresAt(Instant.now().minusSeconds(1));
-        expired.setQuiz(new Quiz()); expired.getQuiz().setId(UUID.randomUUID());
-        expired.setCreatedBy(new User()); expired.getCreatedBy().setId(UUID.randomUUID());
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(expired));
-        assertThatThrownBy(() -> service.consumeOneTimeToken("X")).isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class);
+    @DisplayName("consumeOneTimeToken: already revoked throws ShareLinkAlreadyUsedException")
+    void consumeOneTimeToken_alreadyRevoked() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(true);
+        link.setRevokedAt(Instant.now()); // Already revoked
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        
+        assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
+                .isInstanceOf(uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException.class)
+                .hasMessageContaining("Token already used");
+        verify(shareLinkRepository, never()).consumeOneTime(anyString(), any(Instant.class));
+    }
 
-        ShareLink revoked = new ShareLink();
-        revoked.setOneTime(true);
-        revoked.setRevokedAt(Instant.now());
-        revoked.setQuiz(new Quiz()); revoked.getQuiz().setId(UUID.randomUUID());
-        revoked.setCreatedBy(new User()); revoked.getCreatedBy().setId(UUID.randomUUID());
-        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(revoked));
-        assertThatThrownBy(() -> service.consumeOneTimeToken("Y")).isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class);
+    @Test
+    @DisplayName("consumeOneTimeToken: expired token throws ValidationException")
+    void consumeOneTimeToken_expired() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(true);
+        link.setExpiresAt(Instant.now().minusSeconds(1)); // Expired
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        
+        assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
+                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .hasMessageContaining("Token expired");
+        verify(shareLinkRepository, never()).consumeOneTime(anyString(), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: records usage before consuming for one-time tokens")
+    void consumeOneTimeToken_recordsUsage() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(true);
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
+        when(usageRepository.save(any(ShareLinkUsage.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.consumeOneTimeToken("RAW", "User-Agent", "127.0.0.1");
+
+        verify(usageRepository).save(any(ShareLinkUsage.class));
+        verify(shareLinkRepository).consumeOneTime(anyString(), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: overloaded method delegates to main method")
+    void consumeOneTimeToken_delegation() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(true);
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
+
+        ShareLinkDto dto = service.consumeOneTimeToken("RAW");
+        assertThat(dto.oneTime()).isTrue();
+        verify(shareLinkRepository).consumeOneTime(anyString(), any(Instant.class));
     }
 
     @Test
@@ -661,7 +698,7 @@ class ShareLinkServiceImplTest {
     }
 
     @Test
-    @DisplayName("validateToken: throws ValidationException when revoked")
+    @DisplayName("validateToken: throws ResourceNotFoundException when revoked")
     void validateToken_revoked() {
         // For revoked tokens, the findByTokenHashAndRevokedAtIsNull won't find them
         // So we need to test this differently - the service will throw ResourceNotFoundException
@@ -669,6 +706,18 @@ class ShareLinkServiceImplTest {
         assertThatThrownBy(() -> service.validateToken("t"))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Invalid or unknown token");
+    }
+
+    @Test
+    @DisplayName("hashToken: returns SHA-256 hash of token with pepper")
+    void hashToken_success() {
+        String token = "test-token";
+        String hash = service.hashToken(token);
+        
+        assertThat(hash).isNotNull();
+        assertThat(hash).matches("[0-9A-F]{64}");
+        // The hash should be the same for the same token
+        assertThat(service.hashToken(token)).isEqualTo(hash);
     }
 
     // (no helpers required)

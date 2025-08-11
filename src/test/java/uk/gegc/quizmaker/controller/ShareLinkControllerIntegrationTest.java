@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.PermissionRepository;
+import uk.gegc.quizmaker.service.quiz.ShareLinkService;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -74,6 +75,8 @@ class ShareLinkControllerIntegrationTest {
     PermissionRepository permissionRepository;
     @Autowired
     JdbcTemplate jdbcTemplate;
+    @Autowired
+    ShareLinkService shareLinkService;
 
     private UUID userId;
     private UUID quizId;
@@ -419,17 +422,18 @@ class ShareLinkControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/shared/{token} with invalid token -> returns 404 NOT_FOUND")
-    void accessSharedQuiz_invalidToken_returns404() throws Exception {
+    @DisplayName("GET /api/v1/quizzes/shared/{token} with malformed token -> returns 400 BAD_REQUEST")
+    void accessSharedQuiz_invalidToken_returns400() throws Exception {
         String invalidToken = "invalid-token-123";
 
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}", invalidToken))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]").value(containsString("Invalid token format")));
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/shared/{token} with expired token -> returns 404 NOT_FOUND")
-    void accessSharedQuiz_expiredToken_returns404() throws Exception {
+    @DisplayName("GET /api/v1/quizzes/shared/{token} with expired token -> returns 400 BAD_REQUEST")
+    void accessSharedQuiz_expiredToken_returns400() throws Exception {
         // Create a share link with past expiry
         CreateShareLinkRequest createRequest = new CreateShareLinkRequest(
                 ShareLinkScope.QUIZ_VIEW,
@@ -442,15 +446,24 @@ class ShareLinkControllerIntegrationTest {
         // Don't set ID manually - let Hibernate generate it
         shareLink.setQuiz(quizRepository.findById(quizId).orElseThrow());
         shareLink.setCreatedBy(userRepository.findById(userId).orElseThrow());
-        shareLink.setTokenHash("expired-token-hash");
+        
+        // Generate a properly formatted token and its hash
+        String token = "expired-token-1234567890123456789012345678901234567890123";
+        // The token needs to be exactly 43 characters for the regex to pass
+        if (token.length() != 43) {
+            token = token.substring(0, 43);
+        }
+        String tokenHash = shareLinkService.hashToken(token);
+        shareLink.setTokenHash(tokenHash);
         shareLink.setScope(ShareLinkScope.QUIZ_VIEW);
         shareLink.setExpiresAt(Instant.now().minusSeconds(3600));
         shareLink.setOneTime(false);
         shareLink.setCreatedAt(Instant.now());
         shareLink = shareLinkRepository.save(shareLink);
 
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}", "expired-token"))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/quizzes/shared/{token}", token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details[0]").value(containsString("Token expired")));
     }
 
     @Test
@@ -514,7 +527,7 @@ class ShareLinkControllerIntegrationTest {
 
         // Try to consume it again
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isGone());
     }
 
     @Test

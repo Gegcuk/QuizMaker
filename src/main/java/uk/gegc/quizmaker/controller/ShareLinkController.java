@@ -8,25 +8,32 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
+import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.service.quiz.ShareLinkService;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
+@Validated
 @RestController
 @RequestMapping("/api/v1/quizzes")
 @RequiredArgsConstructor
@@ -34,6 +41,8 @@ import java.util.UUID;
 @Tag(name = "Share Links", description = "Share link management endpoints")
 @SecurityRequirement(name = "bearerAuth")
 public class ShareLinkController {
+
+    private static final Pattern TOKEN_RE = Pattern.compile("^[A-Za-z0-9_-]{43}$");
 
     private final ShareLinkService shareLinkService;
 
@@ -58,7 +67,8 @@ public class ShareLinkController {
         
         log.info("Creating share link for quiz {} by user {}", quizId, authentication.getName());
         
-        UUID userId = UUID.fromString(authentication.getName());
+        UUID userId = safeParseUuid(authentication.getName())
+                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
         CreateShareLinkResponse response = shareLinkService.createShareLink(quizId, userId, request);
         
         log.info("Share link created successfully for quiz {} with ID {}", quizId, response.link().id());
@@ -83,7 +93,8 @@ public class ShareLinkController {
         
         log.info("Revoking share link {} by user {}", tokenId, authentication.getName());
         
-        UUID userId = UUID.fromString(authentication.getName());
+        UUID userId = safeParseUuid(authentication.getName())
+                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
         shareLinkService.revokeShareLink(tokenId, userId);
         
         log.info("Share link {} revoked successfully", tokenId);
@@ -105,6 +116,10 @@ public class ShareLinkController {
             @Parameter(description = "Share token") @PathVariable String token,
             HttpServletRequest request,
             HttpServletResponse response) {
+        
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
         
         String userAgent = request.getHeader("User-Agent");
         String ipAddress = getClientIpAddress(request);
@@ -142,13 +157,17 @@ public class ShareLinkController {
             @Parameter(description = "Share token") @PathVariable String token,
             HttpServletRequest request) {
         
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
+        
         String userAgent = request.getHeader("User-Agent");
         String ipAddress = getClientIpAddress(request);
         
         log.info("Consuming one-time token, IP: {}, User-Agent: {}", 
                 maskIpAddress(ipAddress), truncateUserAgent(userAgent));
         
-        ShareLinkDto shareLink = shareLinkService.consumeOneTimeToken(token);
+        ShareLinkDto shareLink = shareLinkService.consumeOneTimeToken(token, userAgent, ipAddress);
         
         log.info("One-time token consumed successfully for quiz {}", shareLink.quizId());
         return ResponseEntity.ok(shareLink);
@@ -167,7 +186,9 @@ public class ShareLinkController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ShareLinkDto>> getUserShareLinks(Authentication authentication) {
         
-        UUID userId = UUID.fromString(authentication.getName());
+        UUID userId = safeParseUuid(authentication.getName())
+                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
+        
         log.info("Retrieving share links for user {}", userId);
         
         List<ShareLinkDto> shareLinks = shareLinkService.getUserShareLinks(userId);
@@ -180,15 +201,28 @@ public class ShareLinkController {
      * Sets a secure cookie for share link access with proper security attributes.
      */
     private void setShareLinkCookie(HttpServletResponse response, String token, UUID quizId) {
-        Cookie cookie = new Cookie("share_token", token);
-        cookie.setPath("/quizzes/" + quizId); // Scoped to quiz viewer route
-        cookie.setHttpOnly(true);
-        cookie.setSecure(true);
-        cookie.setAttribute("SameSite", "Lax");
-        cookie.setMaxAge(3600); // 1 hour
-        response.addCookie(cookie);
+        ResponseCookie cookie = ResponseCookie.from("share_token", token)
+                .path("/quizzes/" + quizId)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Lax")
+                .maxAge(Duration.ofHours(1))
+                .build();
+
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
         
         log.debug("Set share link cookie for quiz {} with path {}", quizId, cookie.getPath());
+    }
+
+    /**
+     * Safely parses a UUID string, returning Optional.empty() if invalid.
+     */
+    private Optional<UUID> safeParseUuid(String uuidString) {
+        try {
+            return Optional.of(UUID.fromString(uuidString));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
     }
 
     /**

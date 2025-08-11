@@ -13,6 +13,7 @@ public interface ShareLinkService {
     java.util.List<ShareLinkDto> getUserShareLinks(UUID userId);
     void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress);
     ShareLinkDto consumeOneTimeToken(String token);
+    ShareLinkDto consumeOneTimeToken(String token, String userAgent, String ipAddress);
     void revokeActiveShareLinksForQuiz(UUID quizId);
     String hashToken(String token);
 }
