@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public interface ShareLinkService {
     ShareLinkDto createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request);
+    ShareLinkDto validateToken(String token);
 }
 
 

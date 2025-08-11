@@ -63,6 +63,36 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public ShareLinkDto validateToken(String token) {
+        String pepper = System.getenv("TOKEN_PEPPER_SECRET");
+        String tokenHash = sha256Hex((pepper != null ? pepper : "") + token);
+        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
+
+        // Expiry check
+        if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
+        }
+
+        // Revoked check
+        if (link.getRevokedAt() != null) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Token revoked");
+        }
+
+        return new ShareLinkDto(
+                link.getId(),
+                link.getQuiz().getId(),
+                link.getCreatedBy().getId(),
+                link.getScope(),
+                link.getExpiresAt(),
+                link.isOneTime(),
+                link.getRevokedAt(),
+                link.getCreatedAt()
+        );
+    }
+
     private static String sha256Hex(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

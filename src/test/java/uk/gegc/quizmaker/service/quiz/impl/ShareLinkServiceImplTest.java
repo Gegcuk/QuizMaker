@@ -66,6 +66,67 @@ class ShareLinkServiceImplTest {
     }
 
     @Test
+    @DisplayName("validateToken: returns DTO for valid, non-expired, non-revoked token")
+    void validateToken_success() {
+        ShareLink link = new ShareLink();
+        link.setId(UUID.randomUUID());
+        Quiz quiz = new Quiz(); quiz.setId(UUID.randomUUID());
+        User user = new User(); user.setId(UUID.randomUUID());
+        link.setQuiz(quiz);
+        link.setCreatedBy(user);
+        link.setScope(ShareLinkScope.QUIZ_VIEW);
+        link.setOneTime(false);
+        link.setExpiresAt(Instant.now().plusSeconds(3600));
+        link.setCreatedAt(Instant.now());
+
+        // hash of token with pepper (empty pepper for test)
+        String token = "ABC";
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+
+        ShareLinkDto dto = service.validateToken(token);
+        assertThat(dto.quizId()).isEqualTo(quiz.getId());
+        assertThat(dto.createdBy()).isEqualTo(user.getId());
+        assertThat(dto.scope()).isEqualTo(ShareLinkScope.QUIZ_VIEW);
+    }
+
+    @Test
+    @DisplayName("validateToken: throws not found for unknown token")
+    void validateToken_unknown() {
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.validateToken("nope"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Invalid or unknown token");
+    }
+
+    @Test
+    @DisplayName("validateToken: throws ValidationException when expired")
+    void validateToken_expired() {
+        ShareLink link = new ShareLink();
+        link.setExpiresAt(Instant.now().minusSeconds(1));
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        assertThatThrownBy(() -> service.validateToken("t"))
+                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .hasMessageContaining("expired");
+    }
+
+    @Test
+    @DisplayName("validateToken: throws ValidationException when revoked")
+    void validateToken_revoked() {
+        ShareLink link = new ShareLink();
+        link.setRevokedAt(Instant.now());
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+        assertThatThrownBy(() -> service.validateToken("t"))
+                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .hasMessageContaining("revoked");
+    }
+
+    // (no helpers required)
+
+    @Test
     @DisplayName("createShareLink: defaults scope to QUIZ_VIEW when null, oneTime=false when null, expiresAt can be null")
     void createShareLink_defaults() {
         UUID quizId = UUID.randomUUID();
