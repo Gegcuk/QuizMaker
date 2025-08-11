@@ -214,6 +214,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
+    @ExceptionHandler(ShareLinkAlreadyUsedException.class)
+    @ResponseStatus(HttpStatus.GONE)
+    public ErrorResponse handleShareLinkAlreadyUsed(ShareLinkAlreadyUsedException ex) {
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.GONE.value(),
+                "Gone",
+                List.of(ex.getMessage())
+        );
+    }
+
     @ExceptionHandler(ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleConstraintViolation(ConstraintViolationException ex) {
