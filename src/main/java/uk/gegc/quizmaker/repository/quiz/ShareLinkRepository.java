@@ -9,6 +9,8 @@ import java.util.UUID;
 @Repository
 public interface ShareLinkRepository extends JpaRepository<ShareLink, UUID> {
     java.util.Optional<ShareLink> findByTokenHash(String tokenHash);
+    java.util.List<ShareLink> findAllByCreatedBy_IdOrderByCreatedAtDesc(UUID userId);
+    java.util.List<ShareLink> findAllByQuiz_IdAndRevokedAtIsNull(UUID quizId);
 }
 
 

@@ -9,9 +9,11 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLink;
 import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
+import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
+import uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.nio.charset.StandardCharsets;
@@ -27,6 +29,7 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     private final ShareLinkRepository shareLinkRepository;
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;
+    private final ShareLinkUsageRepository usageRepository;
 
     @Override
     @Transactional
@@ -120,6 +123,83 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
         }
         link.setRevokedAt(java.time.Instant.now());
         shareLinkRepository.save(link);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<ShareLinkDto> getUserShareLinks(UUID userId) {
+        java.util.List<ShareLink> links = shareLinkRepository.findAllByCreatedBy_IdOrderByCreatedAtDesc(userId);
+        return links.stream()
+                .map(l -> new ShareLinkDto(
+                        l.getId(),
+                        l.getQuiz().getId(),
+                        l.getCreatedBy().getId(),
+                        l.getScope(),
+                        l.getExpiresAt(),
+                        l.isOneTime(),
+                        l.getRevokedAt(),
+                        l.getCreatedAt()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress) {
+        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
+
+        ShareLinkUsage usage = new ShareLinkUsage();
+        usage.setShareLink(link);
+        usage.setUserAgent(userAgent);
+        usage.setIpHash(sha256Hex(ipAddress != null ? ipAddress : ""));
+        usageRepository.save(usage);
+    }
+
+    @Override
+    @Transactional
+    public ShareLinkDto consumeOneTimeToken(String token) {
+        String pepper = System.getenv("TOKEN_PEPPER_SECRET");
+        String tokenHash = sha256Hex((pepper != null ? pepper : "") + token);
+        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
+
+        if (!link.isOneTime()) {
+            // Not one-time: just return dto
+            return new ShareLinkDto(
+                    link.getId(), link.getQuiz().getId(), link.getCreatedBy().getId(), link.getScope(),
+                    link.getExpiresAt(), link.isOneTime(), link.getRevokedAt(), link.getCreatedAt());
+        }
+
+        // Expiry and revocation checks
+        if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
+        }
+        if (link.getRevokedAt() != null) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Token revoked");
+        }
+
+        // Atomic consumption: mark revokedAt now
+        link.setRevokedAt(java.time.Instant.now());
+        shareLinkRepository.save(link);
+
+        return new ShareLinkDto(
+                link.getId(), link.getQuiz().getId(), link.getCreatedBy().getId(), link.getScope(),
+                link.getExpiresAt(), link.isOneTime(), link.getRevokedAt(), link.getCreatedAt());
+    }
+
+    @Override
+    @Transactional
+    public void revokeActiveShareLinksForQuiz(UUID quizId) {
+        java.util.List<ShareLink> links = shareLinkRepository.findAllByQuiz_IdAndRevokedAtIsNull(quizId);
+        if (links.isEmpty()) {
+            return; // idempotent
+        }
+        java.time.Instant now = java.time.Instant.now();
+        for (ShareLink l : links) {
+            l.setRevokedAt(now);
+        }
+        shareLinkRepository.saveAll(links);
     }
 }
 

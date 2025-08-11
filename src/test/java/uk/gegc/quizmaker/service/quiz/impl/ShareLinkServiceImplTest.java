@@ -31,6 +31,7 @@ import static org.mockito.Mockito.*;
 class ShareLinkServiceImplTest {
 
     @Mock private ShareLinkRepository shareLinkRepository;
+    @Mock private uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository usageRepository;
     @Mock private QuizRepository quizRepository;
     @Mock private UserRepository userRepository;
 
@@ -118,6 +119,135 @@ class ShareLinkServiceImplTest {
         service.revokeShareLink(linkId, userId);
         // no additional save beyond potential noop; allow or verify not called
         verify(shareLinkRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getUserShareLinks: returns list of user links ordered by createdAt desc")
+    void getUserShareLinks_success() {
+        UUID userId = UUID.randomUUID();
+        ShareLink a = new ShareLink(); a.setId(UUID.randomUUID());
+        ShareLink b = new ShareLink(); b.setId(UUID.randomUUID());
+        // minimal required nested to map DTOs
+        Quiz qa = new Quiz(); qa.setId(UUID.randomUUID()); a.setQuiz(qa);
+        User ua = new User(); ua.setId(userId); a.setCreatedBy(ua);
+        Quiz qb = new Quiz(); qb.setId(UUID.randomUUID()); b.setQuiz(qb);
+        User ub = new User(); ub.setId(userId); b.setCreatedBy(ub);
+
+        when(shareLinkRepository.findAllByCreatedBy_IdOrderByCreatedAtDesc(userId)).thenReturn(java.util.List.of(a, b));
+
+        var result = service.getUserShareLinks(userId);
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).createdBy()).isEqualTo(userId);
+        verify(shareLinkRepository).findAllByCreatedBy_IdOrderByCreatedAtDesc(userId);
+    }
+
+    @Test
+    @DisplayName("getUserShareLinks: empty list when none")
+    void getUserShareLinks_empty() {
+        UUID userId = UUID.randomUUID();
+        when(shareLinkRepository.findAllByCreatedBy_IdOrderByCreatedAtDesc(userId)).thenReturn(java.util.List.of());
+        var result = service.getUserShareLinks(userId);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("recordShareLinkUsage: saves usage with hashed IP and UA")
+    void recordShareLinkUsage_success() {
+        ShareLink link = new ShareLink();
+        link.setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+
+        service.recordShareLinkUsage("HASH", "UA", "127.0.0.1");
+        verify(usageRepository).save(any(uk.gegc.quizmaker.model.quiz.ShareLinkUsage.class));
+    }
+
+    @Test
+    @DisplayName("recordShareLinkUsage: unknown tokenHash -> not found")
+    void recordShareLinkUsage_notFound() {
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.recordShareLinkUsage("X", "UA", "127.0.0.1"))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(usageRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: one-time valid token gets consumed (revoked)")
+    void consumeOneTimeToken_success() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(true);
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+
+        ShareLinkDto dto = service.consumeOneTimeToken("RAW");
+        assertThat(dto.oneTime()).isTrue();
+        verify(shareLinkRepository).save(link);
+        assertThat(link.getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: non one-time token just returns DTO (no revoke)")
+    void consumeOneTimeToken_nonOneTime() {
+        ShareLink link = new ShareLink();
+        link.setOneTime(false);
+        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
+
+        ShareLinkDto dto = service.consumeOneTimeToken("RAW");
+        assertThat(dto.oneTime()).isFalse();
+        verify(shareLinkRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: unknown token -> not found")
+    void consumeOneTimeToken_unknown() {
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.consumeOneTimeToken("X")).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("consumeOneTimeToken: expired or revoked -> ValidationException")
+    void consumeOneTimeToken_invalidStates() {
+        ShareLink expired = new ShareLink();
+        expired.setOneTime(true);
+        expired.setExpiresAt(Instant.now().minusSeconds(1));
+        expired.setQuiz(new Quiz()); expired.getQuiz().setId(UUID.randomUUID());
+        expired.setCreatedBy(new User()); expired.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(expired));
+        assertThatThrownBy(() -> service.consumeOneTimeToken("X")).isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class);
+
+        ShareLink revoked = new ShareLink();
+        revoked.setOneTime(true);
+        revoked.setRevokedAt(Instant.now());
+        revoked.setQuiz(new Quiz()); revoked.getQuiz().setId(UUID.randomUUID());
+        revoked.setCreatedBy(new User()); revoked.getCreatedBy().setId(UUID.randomUUID());
+        when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(revoked));
+        assertThatThrownBy(() -> service.consumeOneTimeToken("Y")).isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class);
+    }
+
+    @Test
+    @DisplayName("revokeActiveShareLinksForQuiz: revokes all active links and saves batch")
+    void revokeActiveShareLinksForQuiz_success() {
+        UUID quizId = UUID.randomUUID();
+        ShareLink a = new ShareLink(); a.setRevokedAt(null); a.setQuiz(new Quiz()); a.getQuiz().setId(quizId);
+        ShareLink b = new ShareLink(); b.setRevokedAt(null); b.setQuiz(new Quiz()); b.getQuiz().setId(quizId);
+        when(shareLinkRepository.findAllByQuiz_IdAndRevokedAtIsNull(quizId)).thenReturn(java.util.List.of(a, b));
+
+        service.revokeActiveShareLinksForQuiz(quizId);
+
+        assertThat(a.getRevokedAt()).isNotNull();
+        assertThat(b.getRevokedAt()).isNotNull();
+        verify(shareLinkRepository).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("revokeActiveShareLinksForQuiz: idempotent when none active")
+    void revokeActiveShareLinksForQuiz_idempotent() {
+        UUID quizId = UUID.randomUUID();
+        when(shareLinkRepository.findAllByQuiz_IdAndRevokedAtIsNull(quizId)).thenReturn(java.util.List.of());
+        service.revokeActiveShareLinksForQuiz(quizId);
+        verify(shareLinkRepository, never()).saveAll(anyList());
     }
 
     @Test
