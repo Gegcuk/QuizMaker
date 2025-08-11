@@ -1,11 +1,13 @@
 package uk.gegc.quizmaker.dto.quiz;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.UUID;
 
 @Schema(name = "PendingReviewQuizDto", description = "Summary of a quiz pending moderation review")
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public record PendingReviewQuizDto(
         @Schema(description = "Quiz UUID") UUID id,
         @Schema(description = "Title") String title,
