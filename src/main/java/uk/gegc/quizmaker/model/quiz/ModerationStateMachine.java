@@ -6,7 +6,8 @@ public enum ModerationStateMachine {
     DRAFT(Set.of(QuizStatus.PENDING_REVIEW)),
     PENDING_REVIEW(Set.of(QuizStatus.PUBLISHED, QuizStatus.REJECTED, QuizStatus.DRAFT)),
     PUBLISHED(Set.of(QuizStatus.PENDING_REVIEW, QuizStatus.DRAFT)),
-    REJECTED(Set.of(QuizStatus.PENDING_REVIEW, QuizStatus.DRAFT));
+    REJECTED(Set.of(QuizStatus.PENDING_REVIEW, QuizStatus.DRAFT)),
+    ARCHIVED(Set.of());
 
     private final Set<QuizStatus> allowedTransitions;
 

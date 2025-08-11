@@ -78,6 +78,15 @@ public class Quiz {
     @Column(name = "presentation_hash", length = 64)
     private String presentationHash;
 
+    @Column(name = "submitted_for_review_at")
+    private Instant submittedForReviewAt;
+
+    @Column(name = "locked_for_review")
+    private Boolean lockedForReview;
+
+    @Column(name = "publish_on_approve")
+    private Boolean publishOnApprove;
+
     @Version
     @Column(name = "version")
     private Integer version;
@@ -137,6 +146,12 @@ public class Quiz {
         }
         if (status == null) {
             status = QuizStatus.DRAFT;
+        }
+        if (lockedForReview == null) {
+            lockedForReview = false;
+        }
+        if (publishOnApprove == null) {
+            publishOnApprove = false;
         }
     }
 

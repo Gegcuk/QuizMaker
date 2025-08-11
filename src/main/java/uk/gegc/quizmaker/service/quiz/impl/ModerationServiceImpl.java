@@ -1,10 +1,12 @@
 package uk.gegc.quizmaker.service.quiz.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.quiz.PendingReviewQuizDto;
 import uk.gegc.quizmaker.dto.quiz.QuizModerationAuditDto;
+import uk.gegc.quizmaker.exception.ForbiddenException;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
@@ -13,12 +15,16 @@ import uk.gegc.quizmaker.model.quiz.ModerationStateMachine;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.QuizModerationAudit;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
+import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.security.PermissionEvaluator;
 
 import java.time.Instant;
+import java.time.Clock;
 import java.util.UUID;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -31,6 +37,7 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
     private final UserRepository userRepository;
     private final QuizMapper quizMapper;
     private final QuizModerationAuditRepository auditRepository;
+    private final PermissionEvaluator permissionEvaluator;
 
     @Override
     @Transactional
@@ -41,6 +48,12 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User " + userId + " not found"));
 
+        // Defensive authorization: creator or has moderation permission
+        if (!(quiz.getCreator() != null && userId.equals(quiz.getCreator().getId())
+                || permissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE))) {
+            throw new ForbiddenException("Not allowed to submit this quiz for review");
+        }
+
         // Only DRAFT or REJECTED can move to PENDING_REVIEW
         if (!ModerationStateMachine.isValidTransition(quiz.getStatus(), QuizStatus.PENDING_REVIEW)) {
             throw new ValidationException("Quiz status " + quiz.getStatus() + " cannot transition to PENDING_REVIEW");
@@ -50,18 +63,19 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
         quiz.setReviewedAt(null);
         quiz.setReviewedBy(null);
         quiz.setRejectionReason(null);
+        quiz.setSubmittedForReviewAt(Instant.now());
+        quiz.setLockedForReview(Boolean.TRUE);
 
-        // Create audit row (in-memory; persisted with cascade or explicit repo when added later)
+        // Create audit row
         QuizModerationAudit audit = new QuizModerationAudit();
         audit.setQuiz(quiz);
         audit.setModerator(user);
         audit.setAction(ModerationAction.SUBMIT);
         audit.setReason("Submitted for review");
-        audit.setCorrelationId(null);
-        audit.setCreatedAt(Instant.now());
+        audit.setCorrelationId(MDC.get("correlationId"));
 
-        quizRepository.save(quiz);
-        // Persisting audit would require a repository; per scope, we only implement submitForReview method behavior on Quiz
+        quizRepository.saveAndFlush(quiz);
+        auditRepository.save(audit);
     }
 
     @Override
@@ -82,16 +96,20 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
         quiz.setReviewedAt(Instant.now());
         quiz.setReviewedBy(moderator);
         quiz.setRejectionReason(null);
+        quiz.setLockedForReview(Boolean.FALSE);
+        if (Boolean.TRUE.equals(quiz.getPublishOnApprove())) {
+            quiz.setVisibility(Visibility.PUBLIC);
+        }
 
         QuizModerationAudit audit = new QuizModerationAudit();
         audit.setQuiz(quiz);
         audit.setModerator(moderator);
         audit.setAction(ModerationAction.APPROVE);
         audit.setReason(reason);
-        audit.setCorrelationId(null);
-        audit.setCreatedAt(Instant.now());
+        audit.setCorrelationId(MDC.get("correlationId"));
 
-        quizRepository.save(quiz);
+        quizRepository.saveAndFlush(quiz);
+        auditRepository.save(audit);
     }
 
     @Override
@@ -112,16 +130,17 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
         quiz.setReviewedAt(Instant.now());
         quiz.setReviewedBy(moderator);
         quiz.setRejectionReason(reason);
+        quiz.setLockedForReview(Boolean.FALSE);
 
         QuizModerationAudit audit = new QuizModerationAudit();
         audit.setQuiz(quiz);
         audit.setModerator(moderator);
         audit.setAction(ModerationAction.REJECT);
         audit.setReason(reason);
-        audit.setCorrelationId(null);
-        audit.setCreatedAt(Instant.now());
+        audit.setCorrelationId(MDC.get("correlationId"));
 
-        quizRepository.save(quiz);
+        quizRepository.saveAndFlush(quiz);
+        auditRepository.save(audit);
     }
 
     @Override
@@ -141,17 +160,18 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
         quiz.setStatus(QuizStatus.DRAFT);
         quiz.setReviewedAt(Instant.now());
         quiz.setReviewedBy(moderator);
-        quiz.setRejectionReason(reason);
+        quiz.setRejectionReason(null);
+        quiz.setLockedForReview(Boolean.FALSE);
 
         QuizModerationAudit audit = new QuizModerationAudit();
         audit.setQuiz(quiz);
         audit.setModerator(moderator);
         audit.setAction(ModerationAction.UNPUBLISH);
         audit.setReason(reason);
-        audit.setCorrelationId(null);
-        audit.setCreatedAt(Instant.now());
+        audit.setCorrelationId(MDC.get("correlationId"));
 
-        quizRepository.save(quiz);
+        quizRepository.saveAndFlush(quiz);
+        auditRepository.save(audit);
     }
 
     @Override
