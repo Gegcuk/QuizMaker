@@ -1,6 +1,4 @@
 package uk.gegc.quizmaker.service.ai.impl;
-
-import ch.qos.logback.classic.Logger;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -58,7 +56,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
-    private final Logger aiResponseLogger;
     private final AiRateLimitConfig rateLimitConfig;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
@@ -401,13 +398,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 String aiResponse = response.getResult().getOutput().getText();
 
-                // Log AI response for analysis
-                aiResponseLogger.info("=== AI RESPONSE START ===");
-                aiResponseLogger.info("Question Type: {}", questionType);
-                aiResponseLogger.info("Expected Count: {}", questionCount);
-                aiResponseLogger.info("Difficulty: {}", difficulty);
-                aiResponseLogger.info("Response: {}", aiResponse);
-                aiResponseLogger.info("=== AI RESPONSE END ===");
+                // AI response logging disabled to avoid generating per-run files
 
                 // Validate AI response is not empty
                 if (aiResponse == null || aiResponse.trim().isEmpty()) {

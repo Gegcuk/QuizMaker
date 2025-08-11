@@ -8,6 +8,7 @@ import ch.qos.logback.core.FileAppender;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,7 @@ public class AiResponseLoggingConfig {
     private static final String LOG_FILE_PREFIX = "ai-responses";
 
     @Bean
+    @Lazy
     public Logger aiResponseLogger() {
         LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
         

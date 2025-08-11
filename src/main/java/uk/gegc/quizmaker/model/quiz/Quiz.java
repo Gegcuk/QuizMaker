@@ -27,7 +27,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Table(name = "quizzes", uniqueConstraints = @UniqueConstraint(columnNames = {"creator_id", "title"}))
-@SQLDelete(sql = "UPDATE quizzes SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP WHERE quiz_id = ?")
+@SQLDelete(sql = "UPDATE quizzes SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP, version = version + 1 WHERE quiz_id = ? AND version = ?")
 @SQLRestriction("is_deleted = false")
 public class Quiz {
 
@@ -61,6 +61,26 @@ public class Quiz {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private QuizStatus status;
+
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reviewed_by")
+    private User reviewedBy;
+
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
+
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
+    @Column(name = "presentation_hash", length = 64)
+    private String presentationHash;
+
+    @Version
+    @Column(name = "version")
+    private Integer version;
 
     @Column(name = "estimated_time_min", nullable = false)
     private Integer estimatedTime;
