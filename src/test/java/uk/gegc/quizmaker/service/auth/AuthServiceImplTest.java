@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.service.auth;
 
 import io.jsonwebtoken.Claims;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,9 +28,11 @@ import uk.gegc.quizmaker.mapper.UserMapper;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.service.EmailService;
 import uk.gegc.quizmaker.service.auth.impl.AuthServiceImpl;
 
 import java.time.LocalDateTime;
@@ -39,8 +42,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -59,8 +62,26 @@ class AuthServiceImplTest {
     @Mock
     private JwtTokenProvider jwtTokenProvider;
 
+    @Mock
+    private PasswordResetTokenRepository passwordResetTokenRepository;
+
+    @Mock
+    private EmailService emailService;
+
     @InjectMocks
     private AuthServiceImpl authService;
+
+    private User testUser;
+    private UUID userId;
+
+    @BeforeEach
+    void setUp() {
+        userId = UUID.randomUUID();
+        testUser = new User();
+        testUser.setId(userId);
+        testUser.setEmail("test@example.com");
+        testUser.setUsername("testuser");
+    }
 
     @Test
     @DisplayName("register: saves new user and returns UserDto")
@@ -264,5 +285,61 @@ class AuthServiceImplTest {
 
         assertThrows(ResourceNotFoundException.class,
                 () -> authService.getCurrentUser(auth));
+    }
+
+    @Test
+    void generatePasswordResetToken_UserExists_CreatesTokenAndSendsEmail() {
+        // Given
+        String email = "test@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser));
+        when(passwordResetTokenRepository.save(any())).thenReturn(null);
+        doNothing().when(passwordResetTokenRepository).invalidateUserTokens(userId);
+        doNothing().when(emailService).sendPasswordResetEmail(eq(email), any());
+
+        // When
+        authService.generatePasswordResetToken(email);
+
+        // Then
+        verify(userRepository).findByEmail(email);
+        verify(passwordResetTokenRepository).invalidateUserTokens(userId);
+        verify(passwordResetTokenRepository).save(any());
+        verify(emailService).sendPasswordResetEmail(eq(email), any());
+    }
+
+    @Test
+    void generatePasswordResetToken_UserDoesNotExist_DoesNothing() {
+        // Given
+        String email = "nonexistent@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        // When
+        authService.generatePasswordResetToken(email);
+
+        // Then
+        verify(userRepository).findByEmail(email);
+        verify(passwordResetTokenRepository, never()).invalidateUserTokens(any());
+        verify(passwordResetTokenRepository, never()).save(any());
+        verify(emailService, never()).sendPasswordResetEmail(any(), any());
+    }
+
+    @Test
+    void generatePasswordResetToken_ValidatesTokenGeneration() {
+        // Given
+        String email = "test@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser));
+        when(passwordResetTokenRepository.save(any())).thenReturn(null);
+        doNothing().when(passwordResetTokenRepository).invalidateUserTokens(userId);
+        doNothing().when(emailService).sendPasswordResetEmail(eq(email), any());
+
+        // When
+        authService.generatePasswordResetToken(email);
+
+        // Then
+        verify(passwordResetTokenRepository).save(argThat(token -> {
+            return token.getUserId().equals(userId) &&
+                   token.getEmail().equals(email) &&
+                   !token.isUsed() &&
+                   token.getTokenHash() != null;
+        }));
     }
 }

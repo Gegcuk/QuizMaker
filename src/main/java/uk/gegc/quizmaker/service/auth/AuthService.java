@@ -18,4 +18,6 @@ public interface AuthService {
     void logout(String token);
 
     UserDto getCurrentUser(Authentication authentication);
+    
+    void generatePasswordResetToken(String email);
 }

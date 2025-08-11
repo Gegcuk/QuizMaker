@@ -18,22 +18,30 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import uk.gegc.quizmaker.dto.auth.ForgotPasswordRequest;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.service.RateLimitService;
+import uk.gegc.quizmaker.service.auth.AuthService;
 
 import java.util.Locale;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,6 +66,12 @@ public class AuthControllerIntegrationTest {
     private MockMvc mockMvc;
     @Autowired
     private MessageSource messageSource;
+
+    @MockitoBean
+    private AuthService authService;
+
+    @MockitoBean
+    private RateLimitService rateLimitService;
 
     /**
      * Helper method to get validation messages from ValidationMessages.properties
@@ -376,4 +390,59 @@ public class AuthControllerIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void forgotPassword_ValidEmail_ReturnsAccepted() throws Exception {
+        // Given
+        ForgotPasswordRequest request = new ForgotPasswordRequest("test@example.com");
+        
+        doNothing().when(rateLimitService).checkRateLimit(eq("forgot-password"), eq("test@example.com"));
+        doNothing().when(authService).generatePasswordResetToken("test@example.com");
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isAccepted())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.message").value("If the email exists, a reset link was sent."));
+    }
+
+    @Test
+    void forgotPassword_InvalidEmail_ReturnsBadRequest() throws Exception {
+        // Given
+        ForgotPasswordRequest request = new ForgotPasswordRequest("invalid-email");
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void forgotPassword_RateLimitExceeded_ReturnsTooManyRequests() throws Exception {
+        // Given
+        ForgotPasswordRequest request = new ForgotPasswordRequest("test@example.com");
+        
+        doThrow(new RuntimeException("Rate limit exceeded")).when(rateLimitService)
+                .checkRateLimit(eq("forgot-password"), eq("test@example.com"));
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    void forgotPassword_EmptyEmail_ReturnsBadRequest() throws Exception {
+        // Given
+        ForgotPasswordRequest request = new ForgotPasswordRequest("");
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
 }

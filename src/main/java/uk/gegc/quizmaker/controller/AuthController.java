@@ -15,11 +15,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import uk.gegc.quizmaker.dto.auth.ForgotPasswordRequest;
+import uk.gegc.quizmaker.dto.auth.ForgotPasswordResponse;
 import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 
 @Tag(name = "Authentication", description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user")
@@ -29,6 +32,7 @@ import uk.gegc.quizmaker.service.auth.AuthService;
 public class AuthController {
 
     private final AuthService authService;
+    private final RateLimitService rateLimitService;
 
     @Operation(
             summary = "Register a new user",
@@ -129,5 +133,34 @@ public class AuthController {
             Authentication authentication
     ) {
         return ResponseEntity.ok(authService.getCurrentUser(authentication));
+    }
+
+    @Operation(
+            summary = "Forgot password",
+            description = "Initiates a password reset process. If the email exists, a reset link will be sent."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "Request accepted"),
+            @ApiResponse(responseCode = "400", description = "Invalid email format"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+    })
+    @PostMapping("/forgot-password")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ResponseEntity<ForgotPasswordResponse> forgotPassword(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Email address for password reset",
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = ForgotPasswordRequest.class))
+            )
+            @Valid @RequestBody ForgotPasswordRequest request
+    ) {
+        // Rate limiting check
+        rateLimitService.checkRateLimit("forgot-password", request.email());
+        
+        // Generate reset token (if email exists)
+        authService.generatePasswordResetToken(request.email());
+        
+        return ResponseEntity.accepted()
+                .body(new ForgotPasswordResponse("If the email exists, a reset link was sent."));
     }
 }
