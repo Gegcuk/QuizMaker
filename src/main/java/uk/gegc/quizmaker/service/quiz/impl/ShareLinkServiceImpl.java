@@ -1,10 +1,12 @@
 package uk.gegc.quizmaker.service.quiz.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
+import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLink;
@@ -15,12 +17,21 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.model.user.PermissionName;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.UUID;
+import jakarta.annotation.PostConstruct;
+import java.time.Instant;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 @Service
 @RequiredArgsConstructor
@@ -30,31 +41,64 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;
     private final ShareLinkUsageRepository usageRepository;
+    private final PermissionEvaluator permissionEvaluator;
+
+    @Value("${quizmaker.share-links.token-pepper:}")
+    private String tokenPepper;
+
+    @Value("${quizmaker.share-links.default-expiry-hours:168}")
+    private long defaultExpiryHours;
+
+    @Value("${quizmaker.share-links.max-expiry-hours:720}")
+    private long maxExpiryHours;
+
+    @PostConstruct
+    void checkPepperConfigured() {
+        if (tokenPepper == null || tokenPepper.isBlank()) {
+            throw new IllegalStateException("quizmaker.share-links.token-pepper is not configured");
+        }
+    }
 
     @Override
     @Transactional
-    public ShareLinkDto createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request) {
+    public CreateShareLinkResponse createShareLink(UUID quizId, UUID userId, CreateShareLinkRequest request) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
         User creator = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User " + userId + " not found"));
 
-        // Generate server-side token and store peppered hash
-        String token = HexFormat.of().withUpperCase().formatHex(java.util.UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
-        String pepper = System.getenv("TOKEN_PEPPER_SECRET");
-        String tokenHash = sha256Hex((pepper != null ? pepper : "") + token);
+        // Authorization: owner or admin/moderator
+        if (!(quiz.getCreator() != null && userId.equals(quiz.getCreator().getId())
+                || permissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN)
+                || permissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE))) {
+            throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to share this quiz");
+        }
+
+        // Generate server-side token (URL-safe base64) and store peppered hash
+        String token = newToken();
+        String tokenHash = sha256Hex(tokenPepper + token);
 
         ShareLink link = new ShareLink();
         link.setQuiz(quiz);
         link.setCreatedBy(creator);
         link.setTokenHash(tokenHash);
         link.setScope(request.scope() != null ? request.scope() : ShareLinkScope.QUIZ_VIEW);
-        link.setExpiresAt(request.expiresAt());
+        // Expiry validation & TTL policy
+        Instant now = Instant.now();
+        Instant exp = request.expiresAt() != null ? request.expiresAt() : now.plus(Duration.ofHours(defaultExpiryHours));
+        if (exp.isBefore(now)) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Expiry must be in the future");
+        }
+        Instant cap = now.plus(Duration.ofHours(maxExpiryHours));
+        if (exp.isAfter(cap)) {
+            exp = cap;
+        }
+        link.setExpiresAt(exp);
         link.setOneTime(Boolean.TRUE.equals(request.oneTime()));
         link.setRevokedAt(null);
 
         ShareLink saved = shareLinkRepository.save(link);
-        return new ShareLinkDto(
+        ShareLinkDto dto = new ShareLinkDto(
                 saved.getId(),
                 quiz.getId(),
                 creator.getId(),
@@ -64,24 +108,19 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
                 saved.getRevokedAt(),
                 saved.getCreatedAt()
         );
+        return new CreateShareLinkResponse(dto, token);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ShareLinkDto validateToken(String token) {
-        String pepper = System.getenv("TOKEN_PEPPER_SECRET");
-        String tokenHash = sha256Hex((pepper != null ? pepper : "") + token);
-        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+        String tokenHash = sha256Hex(tokenPepper + token);
+        ShareLink link = shareLinkRepository.findByTokenHashAndRevokedAtIsNull(tokenHash)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
 
         // Expiry check
         if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
             throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
-        }
-
-        // Revoked check
-        if (link.getRevokedAt() != null) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Token revoked");
         }
 
         return new ShareLinkDto(
@@ -106,14 +145,26 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
         }
     }
 
+    private static final SecureRandom RNG = new SecureRandom();
+    private static String newToken() {
+        byte[] b = new byte[32];
+        RNG.nextBytes(b);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
     @Override
     @Transactional
     public void revokeShareLink(UUID shareLinkId, UUID userId) {
         ShareLink link = shareLinkRepository.findById(shareLinkId)
                 .orElseThrow(() -> new ResourceNotFoundException("ShareLink " + shareLinkId + " not found"));
 
-        // Only owner or admin-like flows would be allowed; with no auth service here, enforce creator match
-        if (link.getCreatedBy() == null || !link.getCreatedBy().getId().equals(userId)) {
+        User actor = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User " + userId + " not found"));
+
+        // Owner or admin/moderator can revoke
+        if (!(link.getCreatedBy() != null && link.getCreatedBy().getId().equals(userId)
+                || permissionEvaluator.hasPermission(actor, PermissionName.QUIZ_ADMIN)
+                || permissionEvaluator.hasPermission(actor, PermissionName.QUIZ_MODERATE))) {
             throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to revoke this share link");
         }
 
@@ -146,22 +197,24 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     @Override
     @Transactional
     public void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress) {
-        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+        ShareLink link = shareLinkRepository.findByTokenHashAndRevokedAtIsNull(tokenHash)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
 
         ShareLinkUsage usage = new ShareLinkUsage();
         usage.setShareLink(link);
-        usage.setUserAgent(userAgent);
-        usage.setIpHash(sha256Hex(ipAddress != null ? ipAddress : ""));
+        String ua = userAgent == null ? null : (userAgent.length() > 256 ? userAgent.substring(0, 256) : userAgent);
+        usage.setUserAgent(ua);
+        String bucket = LocalDate.now(ZoneOffset.UTC).toString();
+        String ip = ipAddress == null ? "" : ipAddress;
+        usage.setIpHash(sha256Hex(tokenPepper + ":" + bucket + ":" + ip));
         usageRepository.save(usage);
     }
 
     @Override
     @Transactional
     public ShareLinkDto consumeOneTimeToken(String token) {
-        String pepper = System.getenv("TOKEN_PEPPER_SECRET");
-        String tokenHash = sha256Hex((pepper != null ? pepper : "") + token);
-        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+        String tokenHash = sha256Hex(tokenPepper + token);
+        ShareLink link = shareLinkRepository.findByTokenHashAndRevokedAtIsNull(tokenHash)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
 
         if (!link.isOneTime()) {
@@ -179,9 +232,14 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
             throw new uk.gegc.quizmaker.exception.ValidationException("Token revoked");
         }
 
-        // Atomic consumption: mark revokedAt now
-        link.setRevokedAt(java.time.Instant.now());
-        shareLinkRepository.save(link);
+        // Atomic consumption via guarded update
+        Instant now2 = Instant.now();
+        int updated = shareLinkRepository.consumeOneTime(tokenHash, now2);
+        if (updated == 0) {
+            throw new uk.gegc.quizmaker.exception.ValidationException("Token already used or invalid");
+        }
+        // reflect state in returned DTO
+        link.setRevokedAt(now2);
 
         return new ShareLinkDto(
                 link.getId(), link.getQuiz().getId(), link.getCreatedBy().getId(), link.getScope(),
