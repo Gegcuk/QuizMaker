@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.service.quiz.ShareLinkService;
+import uk.gegc.quizmaker.util.ShareLinkCookieManager;
 
 import java.time.Duration;
 import java.util.List;
@@ -45,6 +46,7 @@ public class ShareLinkController {
     private static final Pattern TOKEN_RE = Pattern.compile("^[A-Za-z0-9_-]{43}$");
 
     private final ShareLinkService shareLinkService;
+    private final ShareLinkCookieManager cookieManager;
 
     @PostMapping("/{quizId}/share-link")
     @Operation(
@@ -135,7 +137,7 @@ public class ShareLinkController {
         shareLinkService.recordShareLinkUsage(tokenHash, userAgent, ipAddress);
         
         // Set secure cookie for quiz access
-        setShareLinkCookie(response, token, shareLink.quizId());
+        cookieManager.setShareLinkCookie(response, token, shareLink.quizId());
         
         log.info("Share link {} accessed successfully for quiz {}", shareLink.id(), shareLink.quizId());
         return ResponseEntity.ok(shareLink);
@@ -197,22 +199,7 @@ public class ShareLinkController {
         return ResponseEntity.ok(shareLinks);
     }
 
-    /**
-     * Sets a secure cookie for share link access with proper security attributes.
-     */
-    private void setShareLinkCookie(HttpServletResponse response, String token, UUID quizId) {
-        ResponseCookie cookie = ResponseCookie.from("share_token", token)
-                .path("/quizzes/" + quizId)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Lax")
-                .maxAge(Duration.ofHours(1))
-                .build();
 
-        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        
-        log.debug("Set share link cookie for quiz {} with path {}", quizId, cookie.getPath());
-    }
 
     /**
      * Safely parses a UUID string, returning Optional.empty() if invalid.
