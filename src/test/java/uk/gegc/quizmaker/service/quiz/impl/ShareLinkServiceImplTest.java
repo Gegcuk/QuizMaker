@@ -66,6 +66,61 @@ class ShareLinkServiceImplTest {
     }
 
     @Test
+    @DisplayName("revokeShareLink: creator can revoke, sets revokedAt and saves")
+    void revokeShareLink_success() {
+        UUID linkId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ShareLink link = new ShareLink();
+        User creator = new User(); creator.setId(userId);
+        link.setCreatedBy(creator);
+
+        when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
+
+        service.revokeShareLink(linkId, userId);
+
+        assertThat(link.getRevokedAt()).isNotNull();
+        verify(shareLinkRepository).save(link);
+    }
+
+    @Test
+    @DisplayName("revokeShareLink: non-creator forbidden")
+    void revokeShareLink_forbidden() {
+        UUID linkId = UUID.randomUUID();
+        ShareLink link = new ShareLink();
+        User creator = new User(); creator.setId(UUID.randomUUID());
+        link.setCreatedBy(creator);
+        when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
+        assertThatThrownBy(() -> service.revokeShareLink(linkId, UUID.randomUUID()))
+                .isInstanceOf(uk.gegc.quizmaker.exception.ForbiddenException.class);
+        verify(shareLinkRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("revokeShareLink: missing link -> not found")
+    void revokeShareLink_notFound() {
+        UUID linkId = UUID.randomUUID();
+        when(shareLinkRepository.findById(linkId)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.revokeShareLink(linkId, UUID.randomUUID()))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("revokeShareLink: idempotent when already revoked")
+    void revokeShareLink_idempotent() {
+        UUID linkId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        ShareLink link = new ShareLink();
+        User creator = new User(); creator.setId(userId);
+        link.setCreatedBy(creator);
+        link.setRevokedAt(Instant.now());
+        when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
+
+        service.revokeShareLink(linkId, userId);
+        // no additional save beyond potential noop; allow or verify not called
+        verify(shareLinkRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("validateToken: returns DTO for valid, non-expired, non-revoked token")
     void validateToken_success() {
         ShareLink link = new ShareLink();

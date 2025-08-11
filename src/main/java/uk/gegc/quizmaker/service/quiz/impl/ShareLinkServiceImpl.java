@@ -102,6 +102,25 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
             throw new IllegalStateException("SHA-256 not available", e);
         }
     }
+
+    @Override
+    @Transactional
+    public void revokeShareLink(UUID shareLinkId, UUID userId) {
+        ShareLink link = shareLinkRepository.findById(shareLinkId)
+                .orElseThrow(() -> new ResourceNotFoundException("ShareLink " + shareLinkId + " not found"));
+
+        // Only owner or admin-like flows would be allowed; with no auth service here, enforce creator match
+        if (link.getCreatedBy() == null || !link.getCreatedBy().getId().equals(userId)) {
+            throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to revoke this share link");
+        }
+
+        if (link.getRevokedAt() != null) {
+            // idempotent: already revoked
+            return;
+        }
+        link.setRevokedAt(java.time.Instant.now());
+        shareLinkRepository.save(link);
+    }
 }
 
 
