@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.service;
 
 import org.springframework.stereotype.Service;
+import uk.gegc.quizmaker.exception.RateLimitExceededException;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -26,7 +27,7 @@ public class RateLimitService {
         if (lastRequest != null && lastRequest.isAfter(oneMinuteAgo)) {
             int count = requestCount.getOrDefault(rateLimitKey, 0);
             if (count >= 5) { // 5 requests per minute as per MVP plan
-                throw new RuntimeException("Rate limit exceeded. Please try again later.");
+                throw new RateLimitExceededException("Too many requests for " + operation);
             }
             requestCount.put(rateLimitKey, count + 1);
         } else {

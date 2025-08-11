@@ -8,6 +8,9 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.service.EmailService;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -34,16 +37,28 @@ public class EmailServiceImpl implements EmailService {
             message.setText(createPasswordResetEmailContent(resetToken));
             
             mailSender.send(message);
-            log.info("Password reset email sent successfully to: {}", email);
+            log.info("Password reset email sent successfully to: {}", maskEmail(email));
         } catch (Exception e) {
-            log.error("Failed to send password reset email to: {}", email, e);
+            log.error("Failed to send password reset email to: {}", maskEmail(email), e);
             // Don't throw the exception to maintain security through obscurity
             // The user won't know if the email was sent or not
         }
     }
 
+    private String maskEmail(String email) {
+        if (email == null || email.isEmpty()) {
+            return "***";
+        }
+        int atIndex = email.indexOf('@');
+        if (atIndex <= 1) {
+            return "***@" + (atIndex > 0 ? email.substring(atIndex + 1) : "***");
+        }
+        return email.charAt(0) + "***@" + email.substring(atIndex + 1);
+    }
+
     private String createPasswordResetEmailContent(String resetToken) {
-        String resetUrl = baseUrl + "/reset-password?token=" + resetToken;
+        String encodedToken = URLEncoder.encode(resetToken, StandardCharsets.UTF_8);
+        String resetUrl = baseUrl + "/reset-password?token=" + encodedToken;
         
         return String.format("""
             Hello,

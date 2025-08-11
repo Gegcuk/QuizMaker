@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +25,8 @@ import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
+
+import java.util.Optional;
 
 @Tag(name = "Authentication", description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user")
 @RestController
@@ -145,17 +148,22 @@ public class AuthController {
             @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
     })
     @PostMapping("/forgot-password")
-    @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<ForgotPasswordResponse> forgotPassword(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Email address for password reset",
                     required = true,
                     content = @Content(schema = @Schema(implementation = ForgotPasswordRequest.class))
             )
-            @Valid @RequestBody ForgotPasswordRequest request
+            @Valid @RequestBody ForgotPasswordRequest request,
+            HttpServletRequest httpRequest
     ) {
-        // Rate limiting check
-        rateLimitService.checkRateLimit("forgot-password", request.email());
+        // Get client IP (respecting X-Forwarded-For header)
+        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
+                .map(x -> x.split(",")[0].trim())
+                .orElse(httpRequest.getRemoteAddr());
+        
+        // Rate limiting check by email + IP
+        rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + clientIp);
         
         // Generate reset token (if email exists)
         authService.generatePasswordResetToken(request.email());
