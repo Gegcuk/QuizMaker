@@ -47,4 +47,14 @@ async.ai.keep-alive-seconds=60
 async.general.core-pool-size=4
 async.general.max-pool-size=8
 async.general.queue-capacity=50
-async.general.keep-alive-seconds=60 
+async.general.keep-alive-seconds=60
+
+# Flyway enabled in production
+spring.flyway.enabled=true
+
+# Feature flags (off by default in prod unless explicitly enabled)
+quizmaker.features.share-links=false
+quizmaker.features.organizations=false
+
+# Share Links security
+quizmaker.share-links.token-pepper=${TOKEN_PEPPER_SECRET}
