@@ -247,6 +247,11 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     }
 
     @Override
+    public String hashToken(String token) {
+        return sha256Hex(tokenPepper + token);
+    }
+
+    @Override
     @Transactional
     public void revokeActiveShareLinksForQuiz(UUID quizId) {
         java.util.List<ShareLink> links = shareLinkRepository.findAllByQuiz_IdAndRevokedAtIsNull(quizId);

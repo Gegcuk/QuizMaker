@@ -14,6 +14,7 @@ public interface ShareLinkService {
     void recordShareLinkUsage(String tokenHash, String userAgent, String ipAddress);
     ShareLinkDto consumeOneTimeToken(String token);
     void revokeActiveShareLinksForQuiz(UUID quizId);
+    String hashToken(String token);
 }
 
 
