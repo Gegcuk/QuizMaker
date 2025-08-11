@@ -14,6 +14,9 @@ import java.util.regex.Pattern;
 
 /**
  * Utility class to analyze logged AI responses and identify patterns of non-compliance
+ *
+ * Note: External ai-responses_*.log files are no longer generated. This analyzer will
+ * only operate if such files already exist from previous runs or are provided manually.
  */
 @Component
 @Slf4j
@@ -39,7 +42,7 @@ public class AiResponseAnalyzer {
             // Find the most recent AI response log file
             Path latestLogFile = findLatestAiResponseLog(logsDir);
             if (latestLogFile == null) {
-                log.info("No AI response log files found.");
+                log.info("No AI response log files found. External ai-responses logs are no longer produced.");
                 return;
             }
 

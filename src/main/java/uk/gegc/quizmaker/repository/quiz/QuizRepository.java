@@ -7,10 +7,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 @Repository
 public interface QuizRepository extends JpaRepository<Quiz, UUID> {
@@ -32,4 +34,8 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID> {
     Optional<Quiz> findByIdWithQuestions(@Param("id") UUID id);
 
     Page<Quiz> findAllByVisibility(Visibility visibility, Pageable pageable);
+
+    Page<Quiz> findAllByVisibilityAndStatus(Visibility visibility, QuizStatus status, Pageable pageable);
+
+    List<Quiz> findAllByStatusOrderByCreatedAtDesc(QuizStatus status);
 }

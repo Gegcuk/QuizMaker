@@ -2,7 +2,9 @@ package uk.gegc.quizmaker.mapper;
 
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
+import uk.gegc.quizmaker.dto.quiz.PendingReviewQuizDto;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
+import uk.gegc.quizmaker.dto.quiz.QuizModerationAuditDto;
 import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
@@ -84,6 +86,27 @@ public class QuizMapper {
                 quiz.getTags().stream().map(Tag::getId).collect(Collectors.toList()),
                 quiz.getCreatedAt(),
                 quiz.getUpdatedAt()
+        );
+    }
+
+    public PendingReviewQuizDto toPendingReviewDto(Quiz quiz) {
+        return new PendingReviewQuizDto(
+                quiz.getId(),
+                quiz.getTitle(),
+                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
+                quiz.getCreatedAt()
+        );
+    }
+
+    public QuizModerationAuditDto toAuditDto(uk.gegc.quizmaker.model.quiz.QuizModerationAudit audit) {
+        return new QuizModerationAuditDto(
+                audit.getId(),
+                audit.getQuiz() != null ? audit.getQuiz().getId() : null,
+                audit.getModerator() != null ? audit.getModerator().getId() : null,
+                audit.getAction(),
+                audit.getReason(),
+                audit.getCreatedAt(),
+                audit.getCorrelationId()
         );
     }
 }

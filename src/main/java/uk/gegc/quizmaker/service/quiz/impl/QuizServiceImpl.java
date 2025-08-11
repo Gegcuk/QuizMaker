@@ -37,6 +37,7 @@ import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
+import uk.gegc.quizmaker.service.quiz.QuizHashCalculator;
 import uk.gegc.quizmaker.service.quiz.QuizService;
 
 import java.io.IOException;
@@ -59,6 +60,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizGenerationJobService jobService;
     private final AiQuizGenerationService aiQuizGenerationService;
     private final DocumentProcessingService documentProcessingService;
+    private final QuizHashCalculator quizHashCalculator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -85,6 +87,10 @@ public class QuizServiceImpl implements QuizService {
                 .collect(Collectors.toSet());
 
         Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
+        // Enforce visibility invariant on creation: PUBLIC quizzes are published
+        if (quiz.getVisibility() == Visibility.PUBLIC) {
+            quiz.setStatus(QuizStatus.PUBLISHED);
+        }
         return quizRepository.save(quiz).getId();
     }
 
@@ -112,6 +118,12 @@ public class QuizServiceImpl implements QuizService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
 
+        // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
+        if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
+            // Auto-revert to DRAFT on any edits of PENDING_REVIEW quizzes
+            quiz.setStatus(QuizStatus.DRAFT);
+        }
+
         Category category;
         if (req.categoryId() != null) {
             category = categoryRepository.findById(req.categoryId())
@@ -129,7 +141,28 @@ public class QuizServiceImpl implements QuizService {
                         .collect(Collectors.toSet()))
                 .orElse(null);
 
+        String beforeContentHash = quiz.getContentHash();
+
         quizMapper.updateEntity(quiz, req, category, tags);
+
+        // Recompute hashes on save
+        QuizDto draftDto = quizMapper.toDto(quiz);
+        String newContentHash = quizHashCalculator.calculateContentHash(draftDto);
+        String newPresentationHash = quizHashCalculator.calculatePresentationHash(draftDto);
+        quiz.setContentHash(newContentHash);
+        quiz.setPresentationHash(newPresentationHash);
+
+        // If published and content hash changes, auto transition to PENDING_REVIEW
+        if (beforeContentHash != null
+                && quiz.getStatus() == QuizStatus.PUBLISHED
+                && !beforeContentHash.equalsIgnoreCase(newContentHash)) {
+            quiz.setStatus(QuizStatus.PENDING_REVIEW);
+            // clear review outcome fields when moving to pending
+            quiz.setReviewedAt(null);
+            quiz.setReviewedBy(null);
+            quiz.setRejectionReason(null);
+        }
+
         return quizMapper.toDto(quizRepository.save(quiz));
     }
 
@@ -687,7 +720,8 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getPublicQuizzes(Pageable pageable) {
-        return quizRepository.findAllByVisibility(Visibility.PUBLIC, pageable)
+        // Enforce visibility invariants: public catalog shows PUBLISHED && PUBLIC
+        return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
                 .map(quizMapper::toDto);
     }
 }
