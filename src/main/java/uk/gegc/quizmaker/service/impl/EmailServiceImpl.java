@@ -31,6 +31,12 @@ public class EmailServiceImpl implements EmailService {
     @Value("${app.auth.reset-token-ttl-minutes:60}")
     private long resetTokenTtlMinutes;
 
+    @Value("${app.email.verification.subject:Email Verification - QuizMaker}")
+    private String verificationSubject;
+
+    @Value("${app.auth.verification-token-ttl-minutes:1440}")
+    private long verificationTokenTtlMinutes;
+
     @PostConstruct
     void verifyEmailConfiguration() {
         if (fromEmail == null || fromEmail.isBlank()) {
@@ -48,11 +54,27 @@ public class EmailServiceImpl implements EmailService {
             message.setText(createPasswordResetEmailContent(resetToken));
             
             mailSender.send(message);
-            log.info("Password reset email sent successfully to: {}", maskEmail(email));
+            log.info("Password reset email sent to: {}", maskEmail(email));
         } catch (Exception e) {
             log.error("Failed to send password reset email to: {}", maskEmail(email), e);
-            // Don't throw the exception to maintain security through obscurity
-            // The user won't know if the email was sent or not
+            throw new RuntimeException("Failed to send password reset email", e);
+        }
+    }
+
+    @Override
+    public void sendEmailVerificationEmail(String email, String verificationToken) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject(verificationSubject);
+            message.setText(createEmailVerificationContent(verificationToken));
+            
+            mailSender.send(message);
+            log.info("Email verification email sent to: {}", maskEmail(email));
+        } catch (Exception e) {
+            log.error("Failed to send email verification email to: {}", maskEmail(email), e);
+            throw new RuntimeException("Failed to send email verification email", e);
         }
     }
 
@@ -89,6 +111,29 @@ public class EmailServiceImpl implements EmailService {
             Best regards,
             The QuizMaker Team
             """, resetUrl, timeDescription);
+    }
+
+    private String createEmailVerificationContent(String verificationToken) {
+        String encodedToken = URLEncoder.encode(verificationToken, StandardCharsets.UTF_8);
+        String verificationUrl = baseUrl + "/verify-email?token=" + encodedToken;
+        
+        String timeDescription = formatTimeDescription(verificationTokenTtlMinutes);
+
+        return String.format("""
+            Hello,
+
+            Thank you for registering with QuizMaker!
+
+            To complete your registration and verify your email address, please click on the following link:
+            %s
+
+            This link will expire in %s for security reasons.
+
+            If you did not create a QuizMaker account, please ignore this email.
+
+            Best regards,
+            The QuizMaker Team
+            """, verificationUrl, timeDescription);
     }
     
     private String formatTimeDescription(long minutes) {

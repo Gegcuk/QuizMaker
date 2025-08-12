@@ -57,6 +57,9 @@ public class User implements Persistable<UUID> {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "user_roles",

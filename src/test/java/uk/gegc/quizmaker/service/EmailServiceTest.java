@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.service.impl.EmailServiceImpl;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(MockitoExtension.class)
 class EmailServiceTest {
@@ -44,7 +45,7 @@ class EmailServiceTest {
     }
 
     @Test
-    void sendPasswordResetEmail_WhenMailSenderThrowsException_ShouldLogErrorAndNotThrow() {
+    void sendPasswordResetEmail_WhenMailSenderThrowsException_ShouldThrowRuntimeException() {
         // Given
         String email = "user@example.com";
         String resetToken = "test-token-123";
@@ -52,8 +53,10 @@ class EmailServiceTest {
         doThrow(new RuntimeException("SMTP error")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // When & Then
-        // Should not throw exception
-        emailService.sendPasswordResetEmail(email, resetToken);
+        // Should throw RuntimeException
+        assertThrows(RuntimeException.class, () -> {
+            emailService.sendPasswordResetEmail(email, resetToken);
+        });
         
         verify(mailSender, times(1)).send(any(SimpleMailMessage.class));
     }

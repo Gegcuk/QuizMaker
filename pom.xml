@@ -285,6 +285,9 @@
                 <artifactId>flyway-maven-plugin</artifactId>
                 <version>10.17.0</version>
                 <configuration>
+                    <url>jdbc:mysql://localhost:3306/quizmakerdb?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=UTC</url>
+                    <user>bestuser</user>
+                    <password>bestuser</password>
                     <locations>
                         <location>classpath:db/migration</location>
                     </locations>
