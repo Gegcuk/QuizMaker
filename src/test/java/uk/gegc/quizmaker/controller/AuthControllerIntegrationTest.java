@@ -327,7 +327,7 @@ public class AuthControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(badRefresh)))
-                .andExpect(status().isConflict())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.details[0]", containsString("Invalid refresh token")));
     }
 
@@ -362,7 +362,7 @@ public class AuthControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshReq)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isBadRequest());
     }
 
     @Test

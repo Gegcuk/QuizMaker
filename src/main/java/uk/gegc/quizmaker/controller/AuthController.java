@@ -24,10 +24,16 @@ import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.auth.ResetPasswordRequest;
 import uk.gegc.quizmaker.dto.auth.ResetPasswordResponse;
+import uk.gegc.quizmaker.dto.auth.VerifyEmailRequest;
+import uk.gegc.quizmaker.dto.auth.VerifyEmailResponse;
+import uk.gegc.quizmaker.dto.auth.ResendVerificationRequest;
+import uk.gegc.quizmaker.dto.auth.ResendVerificationResponse;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Tag(name = "Authentication", description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user")
@@ -38,6 +44,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final RateLimitService rateLimitService;
+    private final TrustedProxyUtil trustedProxyUtil;
 
     @Operation(
             summary = "Register a new user",
@@ -159,10 +166,8 @@ public class AuthController {
             @Valid @RequestBody ForgotPasswordRequest request,
             HttpServletRequest httpRequest
     ) {
-        // Get client IP (respecting X-Forwarded-For header)
-        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by email + IP
         rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + clientIp);
@@ -200,10 +205,8 @@ public class AuthController {
             @Valid @RequestBody ResetPasswordRequest request,
             HttpServletRequest httpRequest
     ) {
-        // Get client IP (respecting X-Forwarded-For header)
-        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by IP + token
         rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
@@ -212,5 +215,55 @@ public class AuthController {
         authService.resetPassword(token, request.newPassword());
         
         return ResponseEntity.ok(new ResetPasswordResponse("Password updated successfully"));
+    }
+
+    @Operation(
+            summary = "Verify email",
+            description = "Verifies user email using a verification token."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Email verified successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid or expired token")
+    })
+    @PostMapping("/verify-email")
+    public ResponseEntity<VerifyEmailResponse> verifyEmail(
+            @Valid @RequestBody VerifyEmailRequest request,
+            HttpServletRequest httpRequest    ) {
+        
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
+        
+        // Rate limiting check by IP to prevent brute force attempts
+        rateLimitService.checkRateLimit("verify-email", clientIp);
+        
+        LocalDateTime verifiedAt = authService.verifyEmail(request.token());
+        
+        return ResponseEntity.ok(new VerifyEmailResponse(true, "Email verified successfully", verifiedAt));
+    }
+
+    @Operation(
+            summary = "Resend verification email",
+            description = "Resends email verification link if email exists and is not verified."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "202", description = "If the email exists and is not verified, a verification link was sent"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+    })
+    @PostMapping("/resend-verification")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ResponseEntity<ResendVerificationResponse> resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request,
+            HttpServletRequest httpRequest    ) {
+        
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
+        
+        // Rate limiting check with IP + email
+        rateLimitService.checkRateLimit("resend-verification", request.email() + "|" + clientIp);
+        
+        // Generate verification token (if email exists and not verified)
+        authService.generateEmailVerificationToken(request.email());
+        
+        return ResponseEntity.accepted()
+                .body(new ResendVerificationResponse("If the email exists and is not verified, a verification link was sent."));
     }
 }
