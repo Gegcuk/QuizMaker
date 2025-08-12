@@ -46,7 +46,8 @@ public class PasswordResetToken {
 
     @PrePersist
     void prePersist() {
-        this.createdAt = LocalDateTime.now();
-        this.expiresAt = LocalDateTime.now().plusMinutes(60); // Default 60 minutes, will be overridden by service
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
     }
 }
