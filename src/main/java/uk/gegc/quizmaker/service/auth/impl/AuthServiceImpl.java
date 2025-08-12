@@ -6,6 +6,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -17,15 +18,26 @@ import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
+import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.service.EmailService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.util.Base64;
+import java.util.Optional;
 import java.util.Set;
+import jakarta.annotation.PostConstruct;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +49,21 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final AuthenticationManager authManager;
     private final JwtTokenProvider jwtTokenProvider;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final EmailService emailService;
+    
+    @Value("${app.auth.reset-token-pepper}")
+    private String resetTokenPepper;
+    
+    @Value("${app.auth.reset-token-ttl-minutes:60}")
+    private long resetTokenTtlMinutes;
+
+    @PostConstruct
+    void verifyResetPepper() {
+        if (resetTokenPepper == null || resetTokenPepper.isBlank()) {
+            throw new IllegalStateException("app.auth.reset-token-pepper is not configured");
+        }
+    }
 
     @Override
     public UserDto register(RegisterRequest request) {
@@ -117,5 +144,56 @@ public class AuthServiceImpl implements AuthService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User  " + username + " not found"));
         return userMapper.toDto(user);
+    }
+
+    @Override
+    public void generatePasswordResetToken(String email) {
+        // Check if user exists (but don't reveal if they do or don't)
+        Optional<User> userOpt = userRepository.findByEmail(email);
+        
+        if (userOpt.isPresent()) {
+            User user = userOpt.get();
+            
+            // Invalidate any existing tokens for this user
+            passwordResetTokenRepository.invalidateUserTokens(user.getId());
+            
+            // Generate a secure random token
+            String token = generateSecureToken();
+            String tokenHash = hashToken(token);
+            
+            // Create and save the reset token
+            PasswordResetToken resetToken = new PasswordResetToken();
+            resetToken.setTokenHash(tokenHash);
+            resetToken.setUserId(user.getId());
+            resetToken.setEmail(email);
+            
+            // Set expiresAt using configurable TTL
+            LocalDateTime now = LocalDateTime.now();
+            resetToken.setCreatedAt(now);
+            resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
+            
+            passwordResetTokenRepository.save(resetToken);
+            
+            // Send the reset email
+            emailService.sendPasswordResetEmail(email, token);
+        }
+        // If user doesn't exist, we don't do anything (security through obscurity)
+    }
+    
+    private String generateSecureToken() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+    
+    private String hashToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((resetTokenPepper + token).getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 algorithm not available", e);
+        }
     }
 }
