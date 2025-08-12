@@ -205,7 +205,6 @@ public class AuthRequestValidationTest {
     @Test
     void resetPasswordRequest_shouldAcceptValidNewPassword() {
         ResetPasswordRequest request = new ResetPasswordRequest(
-            "reset-token-123", 
             "NewValid@Pass123"
         );
         Set<ConstraintViolation<ResetPasswordRequest>> violations = validator.validate(request);
@@ -215,26 +214,13 @@ public class AuthRequestValidationTest {
     @Test
     void resetPasswordRequest_shouldRejectWeakNewPassword() {
         ResetPasswordRequest request = new ResetPasswordRequest(
-            "reset-token-123", 
             "weak"
         );
         Set<ConstraintViolation<ResetPasswordRequest>> violations = validator.validate(request);
-        assertThat(violations).hasSize(2); // @Size and @ValidPassword
+        assertThat(violations).hasSize(1); // Only @ValidPassword violation (no @Size since "weak" is 4 chars)
         assertThat(violations)
             .extracting(v -> v.getPropertyPath().toString())
             .containsOnly("newPassword");
-    }
-
-    @Test
-    void resetPasswordRequest_shouldRejectOversizedToken() {
-        String longToken = "a".repeat(600); // Over 512 chars
-        ResetPasswordRequest request = new ResetPasswordRequest(
-            longToken,
-            "NewValid@Pass123"
-        );
-        Set<ConstraintViolation<ResetPasswordRequest>> violations = validator.validate(request);
-        assertThat(violations).hasSize(1);
-        assertThat(violations.iterator().next().getPropertyPath().toString()).isEqualTo("token");
     }
 
     @Test

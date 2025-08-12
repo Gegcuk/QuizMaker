@@ -185,8 +185,15 @@ public class AuthController {
     })
     @PostMapping("/reset-password")
     public ResponseEntity<ResetPasswordResponse> resetPassword(
+            @Parameter(
+                    description = "Reset token from email link",
+                    in = ParameterIn.QUERY,
+                    required = true,
+                    schema = @Schema(type = "string", example = "l7UumEXn0GtNrrBQRg7kWGdOmP7WkTHUbqkENk2U1Oo")
+            )
+            @RequestParam String token,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Reset token and new password",
+                    description = "New password",
                     required = true,
                     content = @Content(schema = @Schema(implementation = ResetPasswordRequest.class))
             )
@@ -199,10 +206,10 @@ public class AuthController {
                 .orElse(httpRequest.getRemoteAddr());
         
         // Rate limiting check by IP + token
-        rateLimitService.checkRateLimit("reset-password", clientIp + "|" + request.token());
+        rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
         
         // Reset the password
-        authService.resetPassword(request.token(), request.newPassword());
+        authService.resetPassword(token, request.newPassword());
         
         return ResponseEntity.ok(new ResetPasswordResponse("Password updated successfully"));
     }

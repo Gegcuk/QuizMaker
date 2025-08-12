@@ -38,6 +38,7 @@ import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
 import jakarta.annotation.PostConstruct;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -147,6 +148,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public void generatePasswordResetToken(String email) {
         // Check if user exists (but don't reveal if they do or don't)
         Optional<User> userOpt = userRepository.findByEmail(email);
@@ -181,6 +183,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public void resetPassword(String token, String newPassword) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashToken(token);
