@@ -29,7 +29,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     /**
      * Find user by email with roles eagerly fetched to avoid N+1 queries
      */
-    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.email = :email")
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE LOWER(u.email) = LOWER(:email)")
     Optional<User> findByEmailWithRoles(@Param("email") String email);
 
     /**

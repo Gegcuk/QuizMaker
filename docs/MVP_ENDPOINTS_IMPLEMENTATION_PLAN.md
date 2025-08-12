@@ -1,4 +1,80 @@
-# MVP Endpoints — Detailed Implementation Plan
+# MVP Endpoints — Implementation Plan & Status
+
+## 🎯 **QUICK ACTION CHECKLIST** - What to Do Next
+
+### ✅ **COMPLETED** (No Action Needed)
+- **🔐 Auth & Account**: All endpoints fully implemented with security enhancements
+- **🛡️ Rate Limiting**: Complete infrastructure with trusted proxy support  
+- **🗄️ Database**: Proper constraints, indexes, and scheduled cleanup
+- **🔒 Security**: Email enumeration protection, atomic operations, input validation
+
+### 🔥 **HIGH PRIORITY** - Do These First
+- [ ] **👤 User Self-Serve Endpoints** (Week 1 Priority)
+  - [ ] `GET /api/v1/users/me` - Get user profile
+  - [ ] `PATCH /api/v1/users/me` - Update user profile  
+  - [ ] `POST /api/v1/users/me/avatar` - Upload avatar
+  - [ ] Add XSS protection for bio field
+  - [ ] Add file upload security (MIME validation, size limits)
+
+- [ ] **🔍 Search Enhancement** (Week 2 Priority)
+  - [ ] Extend `GET /api/v1/quizzes` with search parameters
+  - [ ] Add faceted filtering (tags, difficulty, category)
+  - [ ] Implement ETag support for caching
+  - [ ] Add rate limiting (120/min per IP)
+  - [ ] Optimize database queries with proper indexes
+
+### 🚀 **MEDIUM PRIORITY** - Do These Second
+- [ ] **📝 Attempts Enhancements** (Week 2)
+  - [ ] Add idempotency to attempt operations
+  - [ ] Implement `GET /api/v1/attempts/active` endpoint
+  - [ ] Add concurrency safety
+  - [ ] Prevent answering after completion
+  - [ ] Add event emission for analytics
+
+- [ ] **🔗 Share-Links Polish** (Week 2)
+  - [ ] Add rate limiting to share-link endpoints
+  - [ ] Enhance analytics tracking
+  - [ ] Implement anonymous attempt support
+  - [ ] Add cookie-based authorization
+
+### 💰 **HIGH PRIORITY** — Killer Feature: AI Generation + Payments
+- [ ] **🤖 AI Generation + Payments** (Move to Week 2)
+  - [ ] Implement token estimation endpoint
+  - [ ] Add token packs and pricing
+  - [ ] Integrate Stripe for payments
+  - [ ] Implement reserve/commit/release system
+  - [ ] Add balance and ledger endpoints
+  - [ ] Handle Stripe webhooks
+
+### 🛠️ **CROSS-CUTTING** - Do Throughout
+- [ ] Add correlation IDs for request tracking
+- [ ] Add OpenAPI documentation to all endpoints
+- [ ] Implement basic metrics collection
+- [ ] Create Postman collection for testing
+- [ ] Add performance testing
+- [ ] Add comprehensive integration tests
+
+---
+
+## 📅 **DELIVERY TIMELINE**
+
+### Week 1: Foundation ✅ **COMPLETE**
+1. ✅ **Auth additions** (forgot/reset/verify/resend) + emails
+2. **User self-serve trio** (GET/PATCH/avatar) ← **CURRENT FOCUS**
+3. ✅ **Rate limiting infrastructure** - Complete with trusted proxy support
+
+### Week 2: Core Features — Monetization Focus
+1. **AI tokenization** (estimate→reserve/commit/release + packs + webhook)
+2. **Search v1** (facets + ETag on quizzes list)
+3. **Attempts edges** (idempotency, active endpoint)
+4. **Share-links rate limits & analytics polish**
+
+### Week 3: Hardening & Launch
+1. **Integration testing**
+2. **Documentation & deployment**
+3. **Performance tuning & security review**
+
+---
 
 ## 📋 Overview
 
@@ -1238,22 +1314,22 @@ public class MetricsService {
 - [ ] Add audit events
 - [ ] Write integration tests
 
-### Phase 2: Search & Attempts (Week 2)
-- [ ] Enhance quiz search with faceted filtering
-- [ ] Add ETag support
-- [ ] Implement active attempts endpoint
-- [ ] Add idempotency to attempt operations
-- [ ] Enhance share-link rate limiting
-- [ ] Add analytics tracking
-- [ ] Write integration tests
-
-### Phase 3: Payments (Week 3)
+### Phase 2: Monetization (Week 2)
 - [ ] Implement token estimation
 - [ ] Implement token packs
 - [ ] Implement Stripe integration
 - [ ] Implement reserve/commit/release system
 - [ ] Implement balance and ledger
 - [ ] Add webhook handling
+- [ ] Write integration tests
+
+### Phase 3: Search & Attempts (Week 3)
+- [ ] Enhance quiz search with faceted filtering
+- [ ] Add ETag support
+- [ ] Implement active attempts endpoint
+- [ ] Add idempotency to attempt operations
+- [ ] Enhance share-link rate limiting
+- [ ] Add analytics tracking
 - [ ] Write integration tests
 - [ ] Deploy and monitor
 

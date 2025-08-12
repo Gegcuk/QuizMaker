@@ -25,7 +25,6 @@ import java.util.Date;
 @Slf4j
 public class JwtTokenProvider {
 
-    private final QuizUserDetailsService quizUserDetailsService;
     private final UserDetailsService userDetailsService;
 
     @Value("${jwt.secret}")
@@ -80,6 +79,7 @@ public class JwtTokenProvider {
 
         String username = claims.getSubject();
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+        
         return new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
     }
 
