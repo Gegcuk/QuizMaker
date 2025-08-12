@@ -36,7 +36,7 @@ class MeServiceImplTest {
     }
 
     @Test
-    @DisplayName("Throws 404 when user not found")
+    @DisplayName("Throws 401 when user not found (stale token)")
     void notFound_Throws404() {
         UserRepository repo = Mockito.mock(UserRepository.class);
         when(repo.findByUsernameWithRoles(anyString())).thenReturn(Optional.empty());
@@ -46,7 +46,7 @@ class MeServiceImplTest {
         Authentication auth = new UsernamePasswordAuthenticationToken("missing@example.com", "N/A", List.of());
         ResponseStatusException ex = assertThrows(ResponseStatusException.class,
                 () -> service.getCurrentUserProfile(auth));
-        assertEquals(404, ex.getStatusCode().value());
+        assertEquals(401, ex.getStatusCode().value());
     }
 
     @Test
@@ -56,6 +56,8 @@ class MeServiceImplTest {
         User u = new User();
         u.setUsername("alice");
         u.setEmail("alice@example.com");
+        u.setActive(true);
+        u.setDeleted(false);
         u.setRoles(Set.of(new Role()));
         when(repo.findByUsernameWithRoles(anyString())).thenReturn(Optional.of(u));
         MeServiceImpl service = new MeServiceImpl(repo);

@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,10 @@ public class UserController {
             content = @Content(schema = @Schema(implementation = MeResponse.class)))
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(Authentication authentication) {
-        return ResponseEntity.ok(meService.getCurrentUserProfile(authentication));
+        MeResponse body = meService.getCurrentUserProfile(authentication);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("Pragma", "no-cache")
+                .body(body);
     }
 }

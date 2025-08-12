@@ -18,6 +18,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfigurationSource;
 import uk.gegc.quizmaker.security.JwtAuthenticationFilter;
 import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 
 @Configuration
@@ -28,6 +29,7 @@ public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CorsConfigurationSource corsConfigurationSource;
+    private final TrustedProxyUtil trustedProxyUtil;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
@@ -58,7 +60,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/documents/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(
-                        new JwtAuthenticationFilter(jwtTokenProvider),
+                        new JwtAuthenticationFilter(jwtTokenProvider, trustedProxyUtil),
                         UsernamePasswordAuthenticationFilter.class
                 )
                 .cors(cors -> cors.configurationSource(corsConfigurationSource));

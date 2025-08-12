@@ -34,7 +34,7 @@ class UserControllerTest {
     @WithMockUser(username = "alice")
     void getMe_ReturnsProfile() throws Exception {
         MeResponse resp = new MeResponse(UUID.randomUUID(), "alice", "alice@example.com", "Alice",
-                null, null, Map.of(), LocalDateTime.now(), true, List.of("ROLE_USER"));
+                null, null, Map.of(), LocalDateTime.now(), true, List.of("USER"));
         when(meService.getCurrentUserProfile(any())).thenReturn(resp);
 
         mockMvc.perform(get("/api/v1/users/me").accept(MediaType.APPLICATION_JSON))

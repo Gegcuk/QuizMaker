@@ -18,7 +18,7 @@ class MeResponseValidationTest {
         UUID id = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
         MeResponse r = new MeResponse(id, "alice", "alice@example.com", "Alice", "bio", "https://avatar",
-                Map.of("theme", "dark"), now, true, List.of("ROLE_USER"));
+                Map.of("theme", "dark"), now, true, List.of("USER"));
 
         assertEquals(id, r.id());
         assertEquals("alice", r.username());
@@ -29,7 +29,7 @@ class MeResponseValidationTest {
         assertEquals("dark", r.preferences().get("theme"));
         assertEquals(now, r.joinedAt());
         assertTrue(r.verified());
-        assertEquals(List.of("ROLE_USER"), r.roles());
+        assertEquals(List.of("USER"), r.roles());
     }
 }
 
