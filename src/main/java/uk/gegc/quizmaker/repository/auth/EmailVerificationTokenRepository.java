@@ -28,4 +28,13 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     @Transactional
     @Query("UPDATE EmailVerificationToken e SET e.used = true WHERE e.userId = :userId AND e.used = false")
     void invalidateUserTokens(@Param("userId") UUID userId);
+
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE EmailVerificationToken e
+        SET e.used = true
+        WHERE e.id = :id AND e.used = false AND e.expiresAt > :now
+        """)
+    int markUsedIfValid(@Param("id") UUID id, @Param("now") LocalDateTime now);
 }

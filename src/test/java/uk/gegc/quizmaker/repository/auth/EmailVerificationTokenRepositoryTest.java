@@ -265,4 +265,79 @@ class EmailVerificationTokenRepositoryTest {
         assertNull(deletedToken);
         assertNotNull(remainingToken);
     }
+
+    @Test
+    @DisplayName("markUsedIfValid: should mark valid token as used")
+    void markUsedIfValid_ValidToken_ReturnsOne() {
+        // Given
+        LocalDateTime now = LocalDateTime.now();
+        String tokenHash = "valid-token-hash";
+        LocalDateTime expiresAt = now.plusHours(1);
+        
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setTokenHash(tokenHash);
+        token.setUserId(userId);
+        token.setEmail("test@example.com");
+        token.setUsed(false);
+        token.setExpiresAt(expiresAt);
+        
+        entityManager.persistAndFlush(token);
+
+        // When
+        int updated = emailVerificationTokenRepository.markUsedIfValid(token.getId(), now);
+        entityManager.clear(); // Clear the persistence context to force reload
+
+        // Then
+        assertEquals(1, updated);
+        EmailVerificationToken updatedToken = entityManager.find(EmailVerificationToken.class, token.getId());
+        assertTrue(updatedToken.isUsed());
+    }
+
+    @Test
+    @DisplayName("markUsedIfValid: should not mark already used token")
+    void markUsedIfValid_AlreadyUsedToken_ReturnsZero() {
+        // Given
+        LocalDateTime now = LocalDateTime.now();
+        String tokenHash = "used-token-hash";
+        LocalDateTime expiresAt = now.plusHours(1);
+        
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setTokenHash(tokenHash);
+        token.setUserId(userId);
+        token.setEmail("test@example.com");
+        token.setUsed(true);
+        token.setExpiresAt(expiresAt);
+        
+        entityManager.persistAndFlush(token);
+
+        // When
+        int updated = emailVerificationTokenRepository.markUsedIfValid(token.getId(), now);
+
+        // Then
+        assertEquals(0, updated);
+    }
+
+    @Test
+    @DisplayName("markUsedIfValid: should not mark expired token")
+    void markUsedIfValid_ExpiredToken_ReturnsZero() {
+        // Given
+        LocalDateTime now = LocalDateTime.now();
+        String tokenHash = "expired-token-hash";
+        LocalDateTime expiresAt = now.minusHours(1);
+        
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setTokenHash(tokenHash);
+        token.setUserId(userId);
+        token.setEmail("test@example.com");
+        token.setUsed(false);
+        token.setExpiresAt(expiresAt);
+        
+        entityManager.persistAndFlush(token);
+
+        // When
+        int updated = emailVerificationTokenRepository.markUsedIfValid(token.getId(), now);
+
+        // Then
+        assertEquals(0, updated);
+    }
 }

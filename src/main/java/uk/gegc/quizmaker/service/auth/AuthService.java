@@ -4,6 +4,8 @@ import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.dto.auth.*;
 import uk.gegc.quizmaker.dto.user.UserDto;
 
+import java.time.LocalDateTime;
+
 public interface AuthService {
     UserDto register(RegisterRequest request);
     JwtResponse login(LoginRequest request);
@@ -12,6 +14,6 @@ public interface AuthService {
     UserDto getCurrentUser(Authentication authentication);
     void generatePasswordResetToken(String email);
     void resetPassword(String token, String newPassword);
-    void verifyEmail(String token);
+    LocalDateTime verifyEmail(String token);
     void generateEmailVerificationToken(String email);
 }

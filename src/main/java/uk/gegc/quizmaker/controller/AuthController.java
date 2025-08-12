@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Tag(name = "Authentication", description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user")
@@ -228,11 +229,20 @@ public class AuthController {
     })
     @PostMapping("/verify-email")
     public ResponseEntity<VerifyEmailResponse> verifyEmail(
-            @Valid @RequestBody VerifyEmailRequest request) {
+            @Valid @RequestBody VerifyEmailRequest request,
+            HttpServletRequest httpRequest) {
         
-        authService.verifyEmail(request.token());
+        // Get client IP (respecting X-Forwarded-For header)
+        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
+                .map(x -> x.split(",")[0].trim())
+                .orElse(httpRequest.getRemoteAddr());
         
-        return ResponseEntity.ok(new VerifyEmailResponse(true, "Email verified successfully"));
+        // Rate limiting check by IP to prevent brute force attempts
+        rateLimitService.checkRateLimit("verify-email", clientIp);
+        
+        LocalDateTime verifiedAt = authService.verifyEmail(request.token());
+        
+        return ResponseEntity.ok(new VerifyEmailResponse(true, "Email verified successfully", verifiedAt));
     }
 
     @Operation(

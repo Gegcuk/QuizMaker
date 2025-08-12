@@ -25,7 +25,7 @@ public class EmailServiceImpl implements EmailService {
     @Value("${app.email.password-reset.subject:Password Reset Request}")
     private String passwordResetSubject;
 
-    @Value("${app.email.password-reset.base-url:http://localhost:3000}")
+    @Value("${app.frontend.base-url:http://localhost:3000}")
     private String baseUrl;
     
     @Value("${app.auth.reset-token-ttl-minutes:60}")
@@ -56,8 +56,8 @@ public class EmailServiceImpl implements EmailService {
             mailSender.send(message);
             log.info("Password reset email sent to: {}", maskEmail(email));
         } catch (Exception e) {
+            // Log only; do not throw to caller to prevent email enumeration
             log.error("Failed to send password reset email to: {}", maskEmail(email), e);
-            throw new RuntimeException("Failed to send password reset email", e);
         }
     }
 
@@ -73,8 +73,8 @@ public class EmailServiceImpl implements EmailService {
             mailSender.send(message);
             log.info("Email verification email sent to: {}", maskEmail(email));
         } catch (Exception e) {
+            // Log only; do not throw to caller to prevent email enumeration
             log.error("Failed to send email verification email to: {}", maskEmail(email), e);
-            throw new RuntimeException("Failed to send email verification email", e);
         }
     }
 

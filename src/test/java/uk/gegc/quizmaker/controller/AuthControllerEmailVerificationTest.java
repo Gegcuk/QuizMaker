@@ -19,6 +19,8 @@ import uk.gegc.quizmaker.service.auth.AuthService;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
+import java.time.LocalDateTime;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -51,7 +53,8 @@ class AuthControllerEmailVerificationTest {
     void verifyEmail_ValidToken_ShouldReturn200() throws Exception {
         // Given
         VerifyEmailRequest request = new VerifyEmailRequest("valid-token-here");
-        doNothing().when(authService).verifyEmail(anyString());
+        LocalDateTime now = LocalDateTime.now();
+        when(authService.verifyEmail(anyString())).thenReturn(now);
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -60,7 +63,8 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(true))
-                .andExpect(jsonPath("$.message").value("Email verified successfully"));
+                .andExpect(jsonPath("$.message").value("Email verified successfully"))
+                .andExpect(jsonPath("$.verifiedAt").exists());
 
         verify(authService).verifyEmail("valid-token-here");
     }

@@ -234,13 +234,14 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public void verifyEmail(String token) {
+    public LocalDateTime verifyEmail(String token) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashVerificationToken(token);
+        LocalDateTime now = LocalDateTime.now();
         
         // Find valid, unused, non-expired token
         Optional<EmailVerificationToken> tokenOpt = emailVerificationTokenRepository
-                .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, LocalDateTime.now());
+                .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, now);
         
         if (tokenOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token");
@@ -248,7 +249,7 @@ public class AuthServiceImpl implements AuthService {
         
         EmailVerificationToken verificationToken = tokenOpt.get();
         
-        // Find the user
+        // Find the user first to check if already verified
         Optional<User> userOpt = userRepository.findById(verificationToken.getUserId());
         if (userOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification token");
@@ -256,13 +257,27 @@ public class AuthServiceImpl implements AuthService {
         
         User user = userOpt.get();
         
+        // If user is already verified, return the existing verification timestamp (idempotent behavior)
+        if (user.isEmailVerified()) {
+            return user.getEmailVerifiedAt(); // User is already verified, return existing timestamp
+        }
+        
+        // Atomically mark the token as used to prevent race conditions
+        int updated = emailVerificationTokenRepository.markUsedIfValid(verificationToken.getId(), now);
+        if (updated == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token");
+        }
+        
         // Mark the user's email as verified
         user.setEmailVerified(true);
+        user.setEmailVerifiedAt(now);
+        user.setEmailVerifiedByTokenId(verificationToken.getId());
         userRepository.save(user);
         
-        // Mark the token as used
-        verificationToken.setUsed(true);
-        emailVerificationTokenRepository.save(verificationToken);
+        // Invalidate all other verification tokens for this user
+        emailVerificationTokenRepository.invalidateUserTokens(user.getId());
+        
+        return now;
     }
 
     @Override

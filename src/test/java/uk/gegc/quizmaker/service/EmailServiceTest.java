@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.service.impl.EmailServiceImpl;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 @ExtendWith(MockitoExtension.class)
 class EmailServiceTest {
@@ -45,7 +46,7 @@ class EmailServiceTest {
     }
 
     @Test
-    void sendPasswordResetEmail_WhenMailSenderThrowsException_ShouldThrowRuntimeException() {
+    void sendPasswordResetEmail_WhenMailSenderThrowsException_ShouldNotThrow() {
         // Given
         String email = "user@example.com";
         String resetToken = "test-token-123";
@@ -53,8 +54,8 @@ class EmailServiceTest {
         doThrow(new RuntimeException("SMTP error")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // When & Then
-        // Should throw RuntimeException
-        assertThrows(RuntimeException.class, () -> {
+        // Should not throw exception to prevent email enumeration
+        assertDoesNotThrow(() -> {
             emailService.sendPasswordResetEmail(email, resetToken);
         });
         
@@ -72,5 +73,35 @@ class EmailServiceTest {
 
         // Then
         verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void sendEmailVerificationEmail_Success() {
+        // Given
+        String email = "user@example.com";
+        String verificationToken = "test-verification-token-123";
+
+        // When
+        emailService.sendEmailVerificationEmail(email, verificationToken);
+
+        // Then
+        verify(mailSender, times(1)).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void sendEmailVerificationEmail_WhenMailSenderThrowsException_ShouldNotThrow() {
+        // Given
+        String email = "user@example.com";
+        String verificationToken = "test-verification-token-123";
+        
+        doThrow(new RuntimeException("SMTP error")).when(mailSender).send(any(SimpleMailMessage.class));
+
+        // When & Then
+        // Should not throw exception to prevent email enumeration
+        assertDoesNotThrow(() -> {
+            emailService.sendEmailVerificationEmail(email, verificationToken);
+        });
+        
+        verify(mailSender, times(1)).send(any(SimpleMailMessage.class));
     }
 }
