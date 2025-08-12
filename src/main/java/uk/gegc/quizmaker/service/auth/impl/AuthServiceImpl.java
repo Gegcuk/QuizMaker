@@ -33,9 +33,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
+import jakarta.annotation.PostConstruct;
 
 @Service
 @RequiredArgsConstructor
@@ -52,6 +54,16 @@ public class AuthServiceImpl implements AuthService {
     
     @Value("${app.auth.reset-token-pepper}")
     private String resetTokenPepper;
+    
+    @Value("${app.auth.reset-token-ttl-minutes:60}")
+    private long resetTokenTtlMinutes;
+
+    @PostConstruct
+    void verifyResetPepper() {
+        if (resetTokenPepper == null || resetTokenPepper.isBlank()) {
+            throw new IllegalStateException("app.auth.reset-token-pepper is not configured");
+        }
+    }
 
     @Override
     public UserDto register(RegisterRequest request) {
@@ -154,6 +166,11 @@ public class AuthServiceImpl implements AuthService {
             resetToken.setTokenHash(tokenHash);
             resetToken.setUserId(user.getId());
             resetToken.setEmail(email);
+            
+            // Set expiresAt using configurable TTL
+            LocalDateTime now = LocalDateTime.now();
+            resetToken.setCreatedAt(now);
+            resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
             
             passwordResetTokenRepository.save(resetToken);
             

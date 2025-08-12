@@ -7,6 +7,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.service.EmailService;
+import jakarta.annotation.PostConstruct;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +27,16 @@ public class EmailServiceImpl implements EmailService {
 
     @Value("${app.email.password-reset.base-url:http://localhost:3000}")
     private String baseUrl;
+    
+    @Value("${app.auth.reset-token-ttl-minutes:60}")
+    private long resetTokenTtlMinutes;
+
+    @PostConstruct
+    void verifyEmailConfiguration() {
+        if (fromEmail == null || fromEmail.isBlank()) {
+            throw new IllegalStateException("spring.mail.username is not configured");
+        }
+    }
 
     @Override
     public void sendPasswordResetEmail(String email, String resetToken) {
@@ -56,25 +67,43 @@ public class EmailServiceImpl implements EmailService {
         return email.charAt(0) + "***@" + email.substring(atIndex + 1);
     }
 
-    private String createPasswordResetEmailContent(String resetToken) {
+        private String createPasswordResetEmailContent(String resetToken) {
         String encodedToken = URLEncoder.encode(resetToken, StandardCharsets.UTF_8);
         String resetUrl = baseUrl + "/reset-password?token=" + encodedToken;
         
+        String timeDescription = formatTimeDescription(resetTokenTtlMinutes);
+
         return String.format("""
             Hello,
-            
+
             You have requested to reset your password for your QuizMaker account.
-            
+
             To reset your password, please click on the following link:
             %s
-            
-            This link will expire in 1 hour for security reasons.
-            
+
+            This link will expire in %s for security reasons.
+
             If you did not request this password reset, please ignore this email.
             Your password will remain unchanged.
-            
+
             Best regards,
             The QuizMaker Team
-            """, resetUrl);
+            """, resetUrl, timeDescription);
+    }
+    
+    private String formatTimeDescription(long minutes) {
+        if (minutes == 60) {
+            return "1 hour";
+        } else if (minutes < 60) {
+            return minutes + " minutes";
+        } else {
+            long hours = minutes / 60;
+            long remainingMinutes = minutes % 60;
+            if (remainingMinutes == 0) {
+                return hours + " hour" + (hours > 1 ? "s" : "");
+            } else {
+                return hours + " hour" + (hours > 1 ? "s" : "") + " and " + remainingMinutes + " minutes";
+            }
+        }
     }
 }

@@ -21,6 +21,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,7 +84,7 @@ public class AuthControllerForgotPasswordTest {
         // Given
         ForgotPasswordRequest request = new ForgotPasswordRequest("test@example.com");
         
-        doThrow(new uk.gegc.quizmaker.exception.RateLimitExceededException("Too many requests for forgot-password"))
+        doThrow(new uk.gegc.quizmaker.exception.RateLimitExceededException("Too many requests for forgot-password", 45))
                 .when(rateLimitService).checkRateLimit(eq("forgot-password"), eq("test@example.com|127.0.0.1"));
 
         // When & Then
@@ -92,7 +93,8 @@ public class AuthControllerForgotPasswordTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.status").value(429))
-                .andExpect(jsonPath("$.error").value("Too Many Requests"));
+                .andExpect(jsonPath("$.error").value("Too Many Requests"))
+                .andExpect(header().string("Retry-After", "45"));
     }
 
     @Test

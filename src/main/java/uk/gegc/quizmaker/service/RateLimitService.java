@@ -23,11 +23,12 @@ public class RateLimitService {
         requestCount.entrySet().removeIf(entry -> lastRequestTime.get(entry.getKey()) == null);
         
         // Check if we have a recent request
-        LocalDateTime lastRequest = lastRequestTime.get(rateLimitKey);
-        if (lastRequest != null && lastRequest.isAfter(oneMinuteAgo)) {
+        LocalDateTime firstInWindow = lastRequestTime.get(rateLimitKey);
+        if (firstInWindow != null && firstInWindow.isAfter(oneMinuteAgo)) {
             int count = requestCount.getOrDefault(rateLimitKey, 0);
             if (count >= 5) { // 5 requests per minute as per MVP plan
-                throw new RateLimitExceededException("Too many requests for " + operation);
+                long retryAfter = java.time.Duration.between(now, firstInWindow.plusMinutes(1)).getSeconds();
+                throw new RateLimitExceededException("Too many requests for " + operation, retryAfter);
             }
             requestCount.put(rateLimitKey, count + 1);
         } else {
