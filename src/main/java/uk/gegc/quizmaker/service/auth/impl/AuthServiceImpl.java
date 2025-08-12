@@ -179,6 +179,38 @@ public class AuthServiceImpl implements AuthService {
         }
         // If user doesn't exist, we don't do anything (security through obscurity)
     }
+
+    @Override
+    public void resetPassword(String token, String newPassword) {
+        // Hash the provided token to match against stored hash
+        String tokenHash = hashToken(token);
+        
+        // Find valid, unused, non-expired token
+        Optional<PasswordResetToken> tokenOpt = passwordResetTokenRepository
+                .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, LocalDateTime.now());
+        
+        if (tokenOpt.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
+        }
+        
+        PasswordResetToken resetToken = tokenOpt.get();
+        
+        // Find the user
+        Optional<User> userOpt = userRepository.findById(resetToken.getUserId());
+        if (userOpt.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid reset token");
+        }
+        
+        User user = userOpt.get();
+        
+        // Update the user's password
+        user.setHashedPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        
+        // Mark the token as used
+        resetToken.setUsed(true);
+        passwordResetTokenRepository.save(resetToken);
+    }
     
     private String generateSecureToken() {
         SecureRandom random = new SecureRandom();

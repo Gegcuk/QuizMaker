@@ -14,8 +14,9 @@ import java.util.UUID;
 @Repository
 public interface PasswordResetTokenRepository extends JpaRepository<PasswordResetToken, UUID> {
 
+    @Query("SELECT p FROM PasswordResetToken p WHERE p.tokenHash = :tokenHash AND p.used = false AND p.expiresAt > :now")
     Optional<PasswordResetToken> findByTokenHashAndUsedFalseAndExpiresAtAfter(
-            String tokenHash, LocalDateTime now);
+            @Param("tokenHash") String tokenHash, @Param("now") LocalDateTime now);
 
     @Modifying
     @Query("DELETE FROM PasswordResetToken p WHERE p.expiresAt < :now")

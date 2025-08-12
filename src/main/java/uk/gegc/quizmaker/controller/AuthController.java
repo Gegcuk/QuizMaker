@@ -22,6 +22,8 @@ import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
+import uk.gegc.quizmaker.dto.auth.ResetPasswordRequest;
+import uk.gegc.quizmaker.dto.auth.ResetPasswordResponse;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
@@ -170,5 +172,38 @@ public class AuthController {
         
         return ResponseEntity.accepted()
                 .body(new ForgotPasswordResponse("If the email exists, a reset link was sent."));
+    }
+
+    @Operation(
+            summary = "Reset password",
+            description = "Resets user password using a valid reset token."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password reset successful"),
+            @ApiResponse(responseCode = "400", description = "Invalid or expired token"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+    })
+    @PostMapping("/reset-password")
+    public ResponseEntity<ResetPasswordResponse> resetPassword(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Reset token and new password",
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = ResetPasswordRequest.class))
+            )
+            @Valid @RequestBody ResetPasswordRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        // Get client IP (respecting X-Forwarded-For header)
+        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
+                .map(x -> x.split(",")[0].trim())
+                .orElse(httpRequest.getRemoteAddr());
+        
+        // Rate limiting check by IP + token
+        rateLimitService.checkRateLimit("reset-password", clientIp + "|" + request.token());
+        
+        // Reset the password
+        authService.resetPassword(request.token(), request.newPassword());
+        
+        return ResponseEntity.ok(new ResetPasswordResponse("Password updated successfully"));
     }
 }

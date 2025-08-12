@@ -61,7 +61,7 @@ This document provides a comprehensive implementation plan for the MVP surface e
 
 ### ❌ Missing Endpoints (MVP Add)
 
-#### 1. `POST /api/v1/auth/forgot-password`
+#### 1. `POST /api/v1/auth/forgot-password` ✅ **IMPLEMENTED**
 
 **Request:**
 ```json
@@ -77,21 +77,54 @@ This document provides a comprehensive implementation plan for the MVP surface e
 }
 ```
 
-**Business Rules:**
-- Issue reset token (TTL 1h)
-- Rate-limit by email/IP (5/min)
-- No observable errors (avoid user enumeration)
-- Always return 202 regardless of email existence
+**Complete Flow:**
+1. **Rate Limiting**: Check 5 requests/minute per IP+email combination
+2. **Token Generation**: If email exists, generate secure token with configurable TTL (default: 60 minutes)
+3. **Token Hashing**: Hash token with pepper + SHA-256 (UTF-8 encoding)
+4. **Database Storage**: Store hashed token with user ID, email, expiration, and usage flag
+5. **Email Sending**: Send password reset email with URL-encoded token and dynamic TTL message
+6. **Response**: Always return 202 Accepted (no user enumeration)
+
+**Security Features:**
+- **Rate Limiting**: IP + email based with `Retry-After` header for 429s
+- **Token Security**: Pepper + SHA-256 hashing, configurable TTL
+- **Email Security**: Masked logging, URL encoding, dynamic content
+- **Configuration Guards**: `@PostConstruct` validation for required settings
+- **Token Cleanup**: Scheduled cleanup of expired tokens
+
+**Error Handling:**
+- **429 Too Many Requests**: With `Retry-After` header
+- **400 Bad Request**: Invalid email format
+- **500 Internal Server Error**: Email service failures (logged, not exposed)
+
+**DTOs:**
+```java
+public record ForgotPasswordRequest(@Email String email) {}
+public record ForgotPasswordResponse(String message) {}
+```
+
+**Configuration:**
+```properties
+app.auth.reset-token-ttl-minutes=60
+app.auth.reset-token-pepper=${RESET_TOKEN_PEPPER}
+app.email.password-reset.subject=Password Reset Request - QuizMaker
+app.email.password-reset.base-url=${FRONTEND_BASE_URL}
+```
 
 **Implementation:**
 ```java
 @PostMapping("/forgot-password")
 @ResponseStatus(HttpStatus.ACCEPTED)
 public ResponseEntity<ForgotPasswordResponse> forgotPassword(
-    @Valid @RequestBody ForgotPasswordRequest request) {
+    @Valid @RequestBody ForgotPasswordRequest request,
+    HttpServletRequest httpRequest) {
     
-    // Rate limiting check
-    rateLimitService.checkRateLimit("forgot-password", request.email());
+    String ip = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
+        .map(x -> x.split(",")[0].trim())
+        .orElse(httpRequest.getRemoteAddr());
+    
+    // Rate limiting check with IP + email
+    rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + ip);
     
     // Generate reset token (if email exists)
     authService.generatePasswordResetToken(request.email());
@@ -486,6 +519,182 @@ Emit events for analytics:
 
 ### Current State: ✅ Fully implemented
 
+### Complete Endpoint Flow Documentation
+
+#### 1. `POST /api/v1/quizzes/{quizId}/share-link` - Create Share Link
+
+**Request:**
+```json
+{
+  "scope": "SINGLE_USE",
+  "expiresAt": "2025-02-27T10:30:00Z"
+}
+```
+
+**Response (201):**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "dGhpc2lzYXJlYWxseXNlY3VyZXRva2VuZm9ydGVzdGluZw",
+  "scope": "SINGLE_USE",
+  "expiresAt": "2025-02-27T10:30:00Z",
+  "createdAt": "2025-01-27T10:30:00Z",
+  "url": "http://localhost:3000/quizzes/shared/dGhpc2lzYXJlYWxseXNlY3VyZXRva2VuZm9ydGVzdGluZw"
+}
+```
+
+**Flow:**
+1. **Authorization**: User must own quiz or have share permission
+2. **Token Generation**: Generate secure 43-character URL-safe token
+3. **Database Storage**: Store token with quiz ID, scope, expiration, and usage tracking
+4. **Response**: Return token with full share URL
+
+#### 2. `GET /api/v1/quizzes/shared/{token}` - Access Shared Quiz
+
+**Response (200):**
+```json
+{
+  "quiz": {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "title": "JavaScript Fundamentals",
+    "description": "Test your knowledge of JavaScript basics",
+    "questionCount": 12,
+    "estimatedTime": 10,
+    "difficulty": "EASY"
+  },
+  "shareLink": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "scope": "SINGLE_USE",
+    "expiresAt": "2025-02-27T10:30:00Z",
+    "used": false
+  }
+}
+```
+
+**Flow:**
+1. **Token Validation**: Verify token exists, not expired, not revoked
+2. **Usage Tracking**: Record access analytics (IP, User-Agent, timestamp)
+3. **Cookie Setting**: Set secure HTTP-only cookie for quiz access
+4. **Quiz Data**: Return quiz details without sensitive information
+
+**Cookie Details:**
+```
+Name: share_token
+Value: {token}
+Path: /quizzes/{quizId}
+HttpOnly: true
+Secure: true
+SameSite: Lax
+MaxAge: 3600
+```
+
+#### 3. `GET /api/v1/quizzes/shared/{token}/consume` - Consume Share Link
+
+**Response (200):**
+```json
+{
+  "message": "Share link consumed successfully",
+  "quizId": "660e8400-e29b-41d4-a716-446655440001"
+}
+```
+
+**Flow:**
+1. **Token Validation**: Verify token exists and not expired
+2. **Scope Check**: For SINGLE_USE, mark as used
+3. **Access Grant**: Set cookie for quiz access
+4. **Analytics**: Record consumption event
+
+#### 4. `DELETE /api/v1/quizzes/shared/{tokenId}` - Revoke Share Link
+
+**Response (204):**
+```http
+HTTP/1.1 204 No Content
+```
+
+**Flow:**
+1. **Authorization**: User must own the share link
+2. **Revocation**: Mark token as revoked in database
+3. **Cleanup**: Remove from active share links
+
+#### 5. `GET /api/v1/quizzes/share-links` - List Share Links
+
+**Response (200):**
+```json
+{
+  "content": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "token": "dGhpc2lzYXJlYWxseXNlY3VyZXRva2VuZm9ydGVzdGluZw",
+      "scope": "SINGLE_USE",
+      "expiresAt": "2025-02-27T10:30:00Z",
+      "createdAt": "2025-01-27T10:30:00Z",
+      "used": false,
+      "accessCount": 5
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### Security Features
+
+**Token Security:**
+- **Format**: 43-character URL-safe Base64 (A-Z, a-z, 0-9, _, -)
+- **Validation**: Regex `^[A-Za-z0-9_-]{43}$`
+- **Scope**: SINGLE_USE, MULTI_USE, TIME_LIMITED
+- **Expiration**: Configurable TTL with automatic cleanup
+
+**Access Control:**
+- **Cookie-based**: Secure HTTP-only cookies for quiz access
+- **Path Scoped**: Cookies scoped to specific quiz paths
+- **Anonymous Access**: No authentication required for shared quizzes
+- **Usage Tracking**: IP, User-Agent, timestamp analytics
+
+**Error Handling:**
+- **400 Bad Request**: Invalid token format
+- **404 Not Found**: Unknown or revoked token
+- **410 Gone**: Token already used (SINGLE_USE)
+- **429 Too Many Requests**: Rate limit exceeded
+
+### DTOs
+
+```java
+public record CreateShareLinkRequest(
+    ShareLinkScope scope,
+    @Future LocalDateTime expiresAt
+) {}
+
+public record CreateShareLinkResponse(
+    UUID id,
+    String token,
+    ShareLinkScope scope,
+    LocalDateTime expiresAt,
+    LocalDateTime createdAt,
+    String url
+) {}
+
+public record SharedQuizResponse(
+    QuizDto quiz,
+    ShareLinkDto shareLink
+) {}
+
+public record ConsumeShareLinkResponse(
+    String message,
+    UUID quizId
+) {}
+
+public record ShareLinkDto(
+    UUID id,
+    ShareLinkScope scope,
+    LocalDateTime expiresAt,
+    boolean used,
+    int accessCount
+) {}
+```
+
 ### Operational Enhancements Needed:
 
 #### 1. Rate Limiting
@@ -519,6 +728,97 @@ Emit events for analytics:
 - ✅ Integration tests cover cookie and revocation
 - ✅ Analytics tracking
 - ✅ Security validation
+
+### Post-Access Flow: What Happens After `GET /api/v1/quizzes/shared/{token}`
+
+After a user successfully accesses a shared quiz, the following flow occurs:
+
+#### **Current Implementation Status: ⚠️ PARTIAL**
+
+**What's Working:**
+1. ✅ **Token Validation**: Token is validated against database
+2. ✅ **Cookie Setting**: Secure HTTP-only cookie is set with path `/quizzes/{quizId}`
+3. ✅ **Quiz Data**: Quiz details are returned without sensitive information
+4. ✅ **Usage Analytics**: Access is recorded (IP, User-Agent, timestamp)
+
+**What's Missing:**
+1. ❌ **Anonymous Attempt Support**: Users cannot start attempts without authentication
+2. ❌ **Cookie-Based Authorization**: Attempt endpoints don't recognize share tokens
+3. ❌ **Anonymous User Flow**: No way for anonymous users to complete quizzes
+
+#### **Recommended Implementation:**
+
+**Option A: Anonymous Attempts (Recommended)**
+```java
+// Extend attempt endpoints to support anonymous users
+@PostMapping("/api/v1/attempts/quizzes/{quizId}")
+public ResponseEntity<StartAttemptResponse> startAttempt(
+    @PathVariable UUID quizId,
+    @CookieValue(name = "share_token", required = false) String shareToken,
+    HttpServletRequest request) {
+    
+    // Check if user is authenticated
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    
+    if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
+        // Authenticated user flow (existing)
+        return startAuthenticatedAttempt(quizId, auth);
+    } else if (shareToken != null) {
+        // Anonymous user with valid share token
+        return startAnonymousAttempt(quizId, shareToken, request);
+    } else {
+        throw new UnauthorizedException("Authentication or valid share token required");
+    }
+}
+```
+
+**Option B: Guest Registration Flow**
+```java
+// Require minimal registration for shared quiz attempts
+@PostMapping("/api/v1/attempts/quizzes/{quizId}/guest")
+public ResponseEntity<GuestAttemptResponse> startGuestAttempt(
+    @PathVariable UUID quizId,
+    @Valid @RequestBody GuestAttemptRequest request,
+    @CookieValue(name = "share_token", required = false) String shareToken) {
+    
+    // Validate share token
+    validateShareToken(quizId, shareToken);
+    
+    // Create temporary guest user
+    GuestUser guestUser = createGuestUser(request.email(), request.name());
+    
+    // Start attempt for guest user
+    Attempt attempt = attemptService.startAttempt(quizId, guestUser.getId());
+    
+    return ResponseEntity.ok(new GuestAttemptResponse(attempt.getId(), guestUser.getToken()));
+}
+```
+
+#### **User Journey After Access:**
+
+1. **Access Shared Quiz** → `GET /api/v1/quizzes/shared/{token}`
+   - Returns quiz details
+   - Sets secure cookie
+   - Records analytics
+
+2. **Start Attempt** → `POST /api/v1/attempts/quizzes/{quizId}`
+   - **Authenticated User**: Normal flow
+   - **Anonymous User**: Requires share token cookie or guest registration
+
+3. **Complete Attempt** → `POST /api/v1/attempts/{id}/complete`
+   - Same flow for both authenticated and anonymous users
+   - Results stored with user ID or anonymous identifier
+
+4. **View Results** → `GET /api/v1/attempts/{id}/stats`
+   - Available to both user types
+   - Anonymous results may have limited retention
+
+#### **Security Considerations:**
+
+- **Cookie Validation**: Verify share token on every attempt operation
+- **Rate Limiting**: Apply rate limits to anonymous attempts
+- **Data Retention**: Define retention policy for anonymous attempt data
+- **Privacy**: Ensure anonymous data doesn't leak personal information
 
 ---
 

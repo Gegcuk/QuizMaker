@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
+import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
@@ -304,6 +305,139 @@ class AuthServiceImplTest {
         verify(passwordResetTokenRepository).invalidateUserTokens(userId);
         verify(passwordResetTokenRepository).save(any());
         verify(emailService).sendPasswordResetEmail(eq(email), any());
+    }
+
+    @Test
+    @DisplayName("resetPassword: valid token and password should update user password and mark token as used")
+    void resetPassword_ValidToken_UpdatesPasswordAndMarksTokenUsed() {
+        // Given
+        String token = "valid-reset-token";
+        String newPassword = "NewP@ssw0rd123!";
+        String tokenHash = "test_pepper" + token; // This is how the hashToken method works
+        
+        PasswordResetToken resetToken = new PasswordResetToken();
+        resetToken.setTokenHash(tokenHash);
+        resetToken.setUserId(userId);
+        resetToken.setEmail("test@example.com");
+        resetToken.setUsed(false);
+        resetToken.setExpiresAt(LocalDateTime.now().plusHours(1));
+        
+        when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class)))
+                .thenReturn(Optional.of(resetToken));
+        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.encode(newPassword)).thenReturn("encoded-new-password");
+        when(passwordResetTokenRepository.save(any(PasswordResetToken.class))).thenReturn(resetToken);
+        when(userRepository.save(any(User.class))).thenReturn(testUser);
+
+        // When
+        authService.resetPassword(token, newPassword);
+
+        // Then
+        verify(passwordResetTokenRepository).findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class));
+        verify(userRepository).findById(userId);
+        verify(passwordEncoder).encode(newPassword);
+        verify(userRepository).save(testUser);
+        verify(passwordResetTokenRepository).save(resetToken);
+        
+        // Verify token is marked as used
+        assertTrue(resetToken.isUsed());
+        // Verify user password is updated
+        assertEquals("encoded-new-password", testUser.getHashedPassword());
+    }
+
+    @Test
+    @DisplayName("resetPassword: invalid token should throw ResponseStatusException")
+    void resetPassword_InvalidToken_ThrowsException() {
+        // Given
+        String token = "invalid-token";
+        String newPassword = "NewP@ssw0rd123!";
+        
+        when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class)))
+                .thenReturn(Optional.empty());
+
+        // When & Then
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resetPassword(token, newPassword));
+        
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Invalid or expired reset token", exception.getReason());
+        
+        verify(passwordResetTokenRepository).findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class));
+        verify(userRepository, never()).findById(any());
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
+    @DisplayName("resetPassword: expired token should throw ResponseStatusException")
+    void resetPassword_ExpiredToken_ThrowsException() {
+        // Given
+        String token = "expired-token";
+        String newPassword = "NewP@ssw0rd123!";
+        
+        when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class)))
+                .thenReturn(Optional.empty());
+
+        // When & Then
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resetPassword(token, newPassword));
+        
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Invalid or expired reset token", exception.getReason());
+    }
+
+    @Test
+    @DisplayName("resetPassword: used token should throw ResponseStatusException")
+    void resetPassword_UsedToken_ThrowsException() {
+        // Given
+        String token = "used-token";
+        String newPassword = "NewP@ssw0rd123!";
+        
+        when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class)))
+                .thenReturn(Optional.empty());
+
+        // When & Then
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resetPassword(token, newPassword));
+        
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Invalid or expired reset token", exception.getReason());
+    }
+
+    @Test
+    @DisplayName("resetPassword: user not found should throw ResponseStatusException")
+    void resetPassword_UserNotFound_ThrowsException() {
+        // Given
+        String token = "valid-token";
+        String newPassword = "NewP@ssw0rd123!";
+        
+        PasswordResetToken resetToken = new PasswordResetToken();
+        resetToken.setTokenHash("test_pepper" + token);
+        resetToken.setUserId(userId);
+        resetToken.setUsed(false);
+        resetToken.setExpiresAt(LocalDateTime.now().plusHours(1));
+        
+        when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class)))
+                .thenReturn(Optional.of(resetToken));
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        // When & Then
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.resetPassword(token, newPassword));
+        
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Invalid reset token", exception.getReason());
+        
+        verify(passwordResetTokenRepository).findByTokenHashAndUsedFalseAndExpiresAtAfter(
+                any(String.class), any(LocalDateTime.class));
+        verify(userRepository).findById(userId);
+        verify(passwordEncoder, never()).encode(any());
     }
 
     @Test
