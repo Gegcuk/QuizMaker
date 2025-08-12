@@ -15,11 +15,13 @@ import uk.gegc.quizmaker.dto.auth.ResetPasswordRequest;
 import uk.gegc.quizmaker.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -43,6 +45,9 @@ class AuthControllerResetPasswordTest {
     @MockitoBean
     private RateLimitService rateLimitService;
 
+    @MockitoBean
+    private TrustedProxyUtil trustedProxyUtil;
+
     @Test
     @DisplayName("reset password with valid token and password should succeed")
     @WithMockUser
@@ -50,6 +55,7 @@ class AuthControllerResetPasswordTest {
         // Given
         String token = "valid-reset-token";
         ResetPasswordRequest request = new ResetPasswordRequest("NewSecureP@ssw0rd123!");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -69,6 +75,7 @@ class AuthControllerResetPasswordTest {
     void resetPassword_MissingToken_ShouldReturn400() throws Exception {
         // Given
         ResetPasswordRequest request = new ResetPasswordRequest("NewSecureP@ssw0rd123!");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -85,6 +92,7 @@ class AuthControllerResetPasswordTest {
         // Given
         String token = "valid-reset-token";
         ResetPasswordRequest request = new ResetPasswordRequest("weak");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -102,6 +110,7 @@ class AuthControllerResetPasswordTest {
         // Given
         String token = "valid-reset-token";
         ResetPasswordRequest request = new ResetPasswordRequest("");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -119,6 +128,7 @@ class AuthControllerResetPasswordTest {
         // Given
         String token = "valid-reset-token";
         ResetPasswordRequest request = new ResetPasswordRequest("NewSecureP@ssw0rd123!");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         doThrow(new RateLimitExceededException("Rate limit exceeded", 60))
                 .when(rateLimitService).checkRateLimit(eq("reset-password"), any());

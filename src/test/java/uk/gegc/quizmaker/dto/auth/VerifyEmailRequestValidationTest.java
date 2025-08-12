@@ -70,4 +70,21 @@ class VerifyEmailRequestValidationTest {
                 .anyMatch(v -> v.getPropertyPath().toString().equals("token") && 
                         v.getMessage().contains("required")));
     }
+
+    @Test
+    @DisplayName("oversized token should fail validation")
+    void oversizedToken_ShouldFailValidation() {
+        // Given
+        String oversizedToken = "a".repeat(513); // Exceeds 512 character limit
+        VerifyEmailRequest request = new VerifyEmailRequest(oversizedToken);
+
+        // When
+        Set<ConstraintViolation<VerifyEmailRequest>> violations = validator.validate(request);
+
+        // Then
+        assertFalse(violations.isEmpty());
+        assertTrue(violations.stream()
+                .anyMatch(v -> v.getPropertyPath().toString().equals("token") && 
+                        v.getMessage().contains("512 characters")));
+    }
 }

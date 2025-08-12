@@ -36,6 +36,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
@@ -186,10 +187,10 @@ public class AuthServiceImpl implements AuthService {
             resetToken.setUserId(user.getId());
             resetToken.setEmail(email);
             
-            // Set expiresAt using configurable TTL
-            LocalDateTime now = LocalDateTime.now();
-            resetToken.setCreatedAt(now);
-            resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
+                    // Set expiresAt using configurable TTL (UTC)
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        resetToken.setCreatedAt(now);
+        resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
             
             passwordResetTokenRepository.save(resetToken);
             
@@ -237,7 +238,7 @@ public class AuthServiceImpl implements AuthService {
     public LocalDateTime verifyEmail(String token) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashVerificationToken(token);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         
         // Find valid, unused, non-expired token
         Optional<EmailVerificationToken> tokenOpt = emailVerificationTokenRepository
@@ -257,8 +258,19 @@ public class AuthServiceImpl implements AuthService {
         
         User user = userOpt.get();
         
-        // If user is already verified, return the existing verification timestamp (idempotent behavior)
+        // Verify that the token is for the current user's email (prevent email change attacks)
+        if (!user.getEmail().equals(verificationToken.getEmail())) {
+            // Token is for a different email - invalidate all tokens for this user and reject
+            emailVerificationTokenRepository.invalidateUserTokens(user.getId());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification token");
+        }
+        
+        // If user is already verified, mark token as used and return existing timestamp (idempotent behavior)
         if (user.isEmailVerified()) {
+            // Still mark the token as used to prevent reuse
+            emailVerificationTokenRepository.markUsedIfValid(verificationToken.getId(), now);
+            // Invalidate any other outstanding tokens for this user
+            emailVerificationTokenRepository.invalidateUserTokens(user.getId());
             return user.getEmailVerifiedAt(); // User is already verified, return existing timestamp
         }
         
@@ -304,8 +316,8 @@ public class AuthServiceImpl implements AuthService {
                 verificationToken.setUserId(user.getId());
                 verificationToken.setEmail(email);
                 
-                // Set expiresAt using configurable TTL
-                LocalDateTime now = LocalDateTime.now();
+                // Set expiresAt using configurable TTL (UTC)
+                LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
                 verificationToken.setCreatedAt(now);
                 verificationToken.setExpiresAt(now.plusMinutes(verificationTokenTtlMinutes));
                 

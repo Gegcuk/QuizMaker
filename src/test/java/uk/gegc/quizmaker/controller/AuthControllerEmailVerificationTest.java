@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.dto.auth.ResendVerificationRequest;
 import uk.gegc.quizmaker.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
@@ -47,6 +48,9 @@ class AuthControllerEmailVerificationTest {
     @MockitoBean
     private RateLimitService rateLimitService;
 
+    @MockitoBean
+    private TrustedProxyUtil trustedProxyUtil;
+
     @Test
     @DisplayName("POST /api/v1/auth/verify-email - valid token should return 200")
     @WithMockUser
@@ -55,6 +59,7 @@ class AuthControllerEmailVerificationTest {
         VerifyEmailRequest request = new VerifyEmailRequest("valid-token-here");
         LocalDateTime now = LocalDateTime.now();
         when(authService.verifyEmail(anyString())).thenReturn(now);
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -75,6 +80,24 @@ class AuthControllerEmailVerificationTest {
     void verifyEmail_BlankToken_ShouldReturn400() throws Exception {
         // Given
         VerifyEmailRequest request = new VerifyEmailRequest("");
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+
+        verify(authService, never()).verifyEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - oversized token should return 400")
+    @WithMockUser
+    void verifyEmail_OversizedToken_ShouldReturn400() throws Exception {
+        // Given
+        String oversizedToken = "a".repeat(513); // Exceeds 512 character limit
+        VerifyEmailRequest request = new VerifyEmailRequest(oversizedToken);
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -113,6 +136,7 @@ class AuthControllerEmailVerificationTest {
         ResendVerificationRequest request = new ResendVerificationRequest("test@example.com");
         doNothing().when(rateLimitService).checkRateLimit(anyString(), anyString());
         doNothing().when(authService).generateEmailVerificationToken(anyString());
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")
@@ -152,6 +176,7 @@ class AuthControllerEmailVerificationTest {
         ResendVerificationRequest request = new ResendVerificationRequest("test@example.com");
         doThrow(new RateLimitExceededException("Rate limit exceeded"))
                 .when(rateLimitService).checkRateLimit(anyString(), anyString());
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")

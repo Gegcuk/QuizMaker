@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.dto.auth.ResendVerificationResponse;
 import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -43,6 +44,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final RateLimitService rateLimitService;
+    private final TrustedProxyUtil trustedProxyUtil;
 
     @Operation(
             summary = "Register a new user",
@@ -164,10 +166,8 @@ public class AuthController {
             @Valid @RequestBody ForgotPasswordRequest request,
             HttpServletRequest httpRequest
     ) {
-        // Get client IP (respecting X-Forwarded-For header)
-        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by email + IP
         rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + clientIp);
@@ -205,10 +205,8 @@ public class AuthController {
             @Valid @RequestBody ResetPasswordRequest request,
             HttpServletRequest httpRequest
     ) {
-        // Get client IP (respecting X-Forwarded-For header)
-        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by IP + token
         rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
@@ -230,12 +228,10 @@ public class AuthController {
     @PostMapping("/verify-email")
     public ResponseEntity<VerifyEmailResponse> verifyEmail(
             @Valid @RequestBody VerifyEmailRequest request,
-            HttpServletRequest httpRequest) {
+            HttpServletRequest httpRequest    ) {
         
-        // Get client IP (respecting X-Forwarded-For header)
-        String clientIp = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        // Get client IP from trusted proxy
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by IP to prevent brute force attempts
         rateLimitService.checkRateLimit("verify-email", clientIp);
@@ -257,14 +253,12 @@ public class AuthController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<ResendVerificationResponse> resendVerification(
             @Valid @RequestBody ResendVerificationRequest request,
-            HttpServletRequest httpRequest) {
+            HttpServletRequest httpRequest    ) {
         
-        String ip = Optional.ofNullable(httpRequest.getHeader("X-Forwarded-For"))
-                .map(x -> x.split(",")[0].trim())
-                .orElse(httpRequest.getRemoteAddr());
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check with IP + email
-        rateLimitService.checkRateLimit("resend-verification", request.email() + "|" + ip);
+        rateLimitService.checkRateLimit("resend-verification", request.email() + "|" + clientIp);
         
         // Generate verification token (if email exists and not verified)
         authService.generateEmailVerificationToken(request.email());
