@@ -66,6 +66,18 @@ public class User implements Persistable<UUID> {
     @Column(name = "email_verified_by_token_id")
     private UUID emailVerifiedByTokenId;
 
+    @Column(name = "display_name", length = 50)
+    private String displayName;
+
+    @Column(name = "bio", columnDefinition = "TEXT")
+    private String bio;
+
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
+    @Column(name = "preferences", columnDefinition = "JSON")
+    private String preferences;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "user_roles",

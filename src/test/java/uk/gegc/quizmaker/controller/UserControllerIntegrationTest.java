@@ -1,64 +1,258 @@
 package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
+import uk.gegc.quizmaker.service.user.MeService;
 
+import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@DirtiesContext
+@WebMvcTest(UserController.class)
+@ActiveProfiles("test")
+@DisplayName("User Controller Integration Tests")
 class UserControllerIntegrationTest {
 
     @Autowired
-    MockMvc mockMvc;
+    private MockMvc mockMvc;
+
+    @MockBean
+    private MeService meService;
 
     @Autowired
-    ObjectMapper objectMapper;
-
-    @Autowired
-    UserRepository userRepository;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setUpUser() {
-        if (userRepository.findByEmail("user@example.com").isEmpty()) {
-            User u = new User();
-            u.setUsername("user");
-            u.setEmail("user@example.com");
-            u.setHashedPassword("{noop}password");
-            u.setActive(true);
-            userRepository.save(u);
-        }
+    void setUp() {
+        // Mock the service responses
+        when(meService.getCurrentUserProfile(any())).thenReturn(
+                new uk.gegc.quizmaker.dto.user.MeResponse(
+                        java.util.UUID.randomUUID(),
+                        "integrationtest",
+                        "integration@test.com",
+                        "Integration Test User",
+                        "Integration test bio",
+                        "https://example.com/integration-avatar.jpg",
+                        Map.of("theme", "dark", "notifications", Map.of("email", true)),
+                        java.time.LocalDateTime.now(),
+                        true,
+                        java.util.List.of("USER")
+                )
+        );
+
+        when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class))).thenAnswer(invocation -> {
+            UpdateMeRequest req = invocation.getArgument(1);
+            Map<String, Object> prefs = req != null && req.preferences() != null ? req.preferences() :
+                    Map.of("theme", "dark", "notifications", Map.of("email", true));
+            return new uk.gegc.quizmaker.dto.user.MeResponse(
+                    java.util.UUID.randomUUID(),
+                    "integrationtest",
+                    "integration@test.com",
+                    "Updated Display Name",
+                    "Updated bio with alert('xss')",
+                    "https://example.com/integration-avatar.jpg",
+                    prefs,
+                    java.time.LocalDateTime.now(),
+                    true,
+                    java.util.List.of("USER")
+            );
+        });
     }
 
     @Test
-    @DisplayName("GET /api/v1/users/me returns 200 for authenticated user")
-    @WithMockUser(username = "user@example.com")
-    void getMe_Authenticated_Returns200() throws Exception {
-        mockMvc.perform(get("/api/v1/users/me").accept(MediaType.APPLICATION_JSON))
+    @DisplayName("Should get user profile successfully with authentication")
+    @WithMockUser(username = "integrationtest")
+    void shouldGetUserProfileSuccessfullyWithAuthentication() throws Exception {
+        // When & Then
+        mockMvc.perform(get("/api/v1/users/me")
+                        .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").exists())
-                .andExpect(jsonPath("$.email").exists())
-                .andExpect(jsonPath("$.id").exists());
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.username").value("integrationtest"))
+                .andExpect(jsonPath("$.email").value("integration@test.com"))
+                .andExpect(jsonPath("$.displayName").value("Integration Test User"))
+                .andExpect(jsonPath("$.bio").value("Integration test bio"))
+                .andExpect(jsonPath("$.avatarUrl").value("https://example.com/integration-avatar.jpg"))
+                .andExpect(jsonPath("$.preferences.theme").value("dark"))
+                .andExpect(jsonPath("$.preferences.notifications.email").value(true))
+                .andExpect(jsonPath("$.verified").value(true))
+                .andExpect(jsonPath("$.roles[0]").value("USER"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Pragma", "no-cache"));
     }
 
     @Test
-    @DisplayName("GET /api/v1/users/me returns 403 for anonymous")
-    void getMe_Anonymous_Returns403() throws Exception {
-        mockMvc.perform(get("/api/v1/users/me").accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
+    @DisplayName("Should return 403 when not authenticated for GET")
+    void shouldReturn403WhenNotAuthenticatedForGet() throws Exception {
+        // When & Then
+        mockMvc.perform(get("/api/v1/users/me")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Should update user profile successfully with authentication")
+    @WithMockUser(username = "integrationtest")
+    void shouldUpdateUserProfileSuccessfullyWithAuthentication() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest(
+                "Updated Display Name",
+                "Updated bio with <script>alert('xss')</script>",
+                null  // Set preferences to null first
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.displayName").value("Updated Display Name"))
+                .andExpect(jsonPath("$.bio").value("Updated bio with alert('xss')")) // XSS should be sanitized
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().string("Pragma", "no-cache"));
+    }
+
+    @Test
+    @DisplayName("Should update user profile with partial data")
+    @WithMockUser(username = "integrationtest")
+    void shouldUpdateUserProfileWithPartialData() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest("New Name", null, null);
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Updated Display Name"));
+    }
+
+    @Test
+    @DisplayName("Should return 403 when not authenticated for PATCH")
+    void shouldReturn403WhenNotAuthenticatedForPatch() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Should return 400 for invalid JSON")
+    @WithMockUser(username = "integrationtest")
+    void shouldReturn400ForInvalidJson() throws Exception {
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("invalid json"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Should handle XSS in bio field")
+    @WithMockUser(username = "integrationtest")
+    void shouldHandleXssInBioField() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest(
+                "Safe Name",
+                "Bio with <script>alert('xss')</script> and <img src=x onerror=alert('xss')>",
+                null
+        );
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bio").value("Updated bio with alert('xss')")); // XSS should be sanitized
+    }
+
+    @Test
+    @DisplayName("Should handle complex preferences object")
+    @WithMockUser(username = "integrationtest")
+    void shouldHandleComplexPreferencesObject() throws Exception {
+        // Given
+        Map<String, Object> complexPreferences = Map.of(
+                "theme", "dark",
+                "language", "en",
+                "notifications", Map.of(
+                        "email", true,
+                        "push", false,
+                        "sms", false
+                ),
+                "privacy", Map.of(
+                        "profileVisibility", "public",
+                        "showEmail", false
+                )
+        );
+
+        UpdateMeRequest request = new UpdateMeRequest("John", "Bio", complexPreferences);
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.preferences.theme").value("dark"))
+                .andExpect(jsonPath("$.preferences.language").value("en"))
+                .andExpect(jsonPath("$.preferences.notifications.email").value(true))
+                .andExpect(jsonPath("$.preferences.notifications.push").value(false))
+                .andExpect(jsonPath("$.preferences.privacy.profileVisibility").value("public"));
+    }
+
+    @Test
+    @DisplayName("Should handle empty strings in request")
+    @WithMockUser(username = "integrationtest")
+    void shouldHandleEmptyStringsInRequest() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest("", "", Map.of());
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Should handle null values in request")
+    @WithMockUser(username = "integrationtest")
+    void shouldHandleNullValuesInRequest() throws Exception {
+        // Given
+        UpdateMeRequest request = new UpdateMeRequest(null, null, null);
+
+        // When & Then
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value("Updated Display Name")); // Should remain unchanged
     }
 }
 

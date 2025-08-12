@@ -9,11 +9,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.user.MeResponse;
+import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
 import uk.gegc.quizmaker.service.user.MeService;
+import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -32,6 +32,25 @@ public class UserController {
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(Authentication authentication) {
         MeResponse body = meService.getCurrentUserProfile(authentication);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("Pragma", "no-cache")
+                .body(body);
+    }
+
+    @Operation(
+            summary = "Update my profile",
+            description = "Updates the authenticated user's profile information"
+    )
+    @ApiResponse(responseCode = "200", description = "Profile updated successfully",
+            content = @Content(schema = @Schema(implementation = MeResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Invalid request data")
+    @ApiResponse(responseCode = "401", description = "Not authenticated")
+    @PatchMapping("/me")
+    public ResponseEntity<MeResponse> updateMe(
+            Authentication authentication,
+            @RequestBody @Valid UpdateMeRequest request) {
+        MeResponse body = meService.updateCurrentUserProfile(authentication, request);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header("Pragma", "no-cache")
