@@ -37,6 +37,8 @@ import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.util.ShareLinkCookieManager;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,6 +61,7 @@ public class ShareLinkController {
     private final RateLimitService rateLimitService;
     private final TrustedProxyUtil trustedProxyUtil;
     private final AttemptService attemptService;
+	private final UserRepository userRepository;
 
     @PostMapping("/{quizId}/share-link")
     @Operation(
@@ -82,8 +85,7 @@ public class ShareLinkController {
         
         log.info("Creating share link for quiz {} by user {}", quizId, authentication.getName());
         
-        UUID userId = safeParseUuid(authentication.getName())
-                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
+		UUID userId = resolveAuthenticatedUserId(authentication);
         // Rate limit: 10/min per user
         rateLimitService.checkRateLimit("share-link-create", userId.toString(), 10);
         CreateShareLinkResponse response = shareLinkService.createShareLink(quizId, userId, request);
@@ -116,8 +118,7 @@ public class ShareLinkController {
         
         log.info("Revoking share link {} by user {}", tokenId, authentication.getName());
         
-        UUID userId = safeParseUuid(authentication.getName())
-                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
+		UUID userId = resolveAuthenticatedUserId(authentication);
         shareLinkService.revokeShareLink(tokenId, userId);
         // Analytics: REVOKED event
         String ua = httpRequest.getHeader("User-Agent");
@@ -225,8 +226,7 @@ public class ShareLinkController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ShareLinkDto>> getUserShareLinks(Authentication authentication) {
         
-        UUID userId = safeParseUuid(authentication.getName())
-                .orElseThrow(() -> new UnauthorizedException("Invalid principal"));
+		UUID userId = resolveAuthenticatedUserId(authentication);
         
         log.info("Retrieving share links for user {}", userId);
         
@@ -438,6 +438,20 @@ public class ShareLinkController {
             return Optional.empty();
         }
     }
+
+	/**
+	 * Resolves the authenticated user's ID from the authentication principal (username or email).
+	 */
+	private UUID resolveAuthenticatedUserId(Authentication authentication) {
+		String principal = authentication.getName();
+		return safeParseUuid(principal)
+				.orElseGet(() -> {
+					User user = userRepository.findByUsername(principal)
+							.or(() -> userRepository.findByEmail(principal))
+							.orElseThrow(() -> new UnauthorizedException("Unknown principal"));
+					return user.getId();
+				});
+	}
 
     /**
      * Gets the client IP address from the request, handling proxy headers.

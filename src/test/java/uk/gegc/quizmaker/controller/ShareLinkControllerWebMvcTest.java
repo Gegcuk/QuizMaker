@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.ShareLinkService;
 import uk.gegc.quizmaker.util.ShareLinkCookieManager;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -66,8 +67,10 @@ class ShareLinkControllerWebMvcTest {
     @MockitoBean
     private AttemptService attemptService;
 
+    @MockitoBean
+    private UserRepository userRepository;
 
-    private UUID quizId;
+       private UUID quizId;
     private String token;
     private ShareLinkDto shareLink;
 
