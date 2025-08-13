@@ -16,6 +16,10 @@ public interface ShareLinkService {
     ShareLinkDto consumeOneTimeToken(String token, String userAgent, String ipAddress);
     void revokeActiveShareLinksForQuiz(UUID quizId);
     String hashToken(String token);
+    void recordShareLinkEventById(UUID shareLinkId, uk.gegc.quizmaker.model.quiz.ShareLinkEventType eventType,
+                                  String userAgent, String ipAddress, String referrer);
+    void recordShareLinkEventByToken(String token, uk.gegc.quizmaker.model.quiz.ShareLinkEventType eventType,
+                                     String userAgent, String ipAddress, String referrer);
 }
 
 

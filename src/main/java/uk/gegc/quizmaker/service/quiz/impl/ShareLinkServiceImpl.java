@@ -11,12 +11,15 @@ import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLink;
+import uk.gegc.quizmaker.model.quiz.ShareLinkAnalytics;
+import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
 import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
 import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
+import uk.gegc.quizmaker.repository.quiz.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
@@ -41,6 +44,7 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;
     private final ShareLinkUsageRepository usageRepository;
+    private final ShareLinkAnalyticsRepository analyticsRepository;
     private final AppPermissionEvaluator appPermissionEvaluator;
 
     @Value("${quizmaker.share-links.token-pepper:}")
@@ -208,6 +212,44 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
         String ip = ipAddress == null ? "" : ipAddress;
         usage.setIpHash(sha256Hex(tokenPepper + ":" + bucket + ":" + ip));
         usageRepository.save(usage);
+    }
+
+    @Override
+    @Transactional
+    public void recordShareLinkEventById(UUID shareLinkId, ShareLinkEventType eventType,
+                                         String userAgent, String ipAddress, String referrer) {
+        ShareLink link = shareLinkRepository.findById(shareLinkId)
+                .orElseThrow(() -> new ResourceNotFoundException("ShareLink " + shareLinkId + " not found"));
+        persistAnalytics(link, eventType, userAgent, ipAddress, referrer);
+    }
+
+    @Override
+    @Transactional
+    public void recordShareLinkEventByToken(String token, ShareLinkEventType eventType,
+                                            String userAgent, String ipAddress, String referrer) {
+        String tokenHash = sha256Hex(tokenPepper + token);
+        ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));
+        persistAnalytics(link, eventType, userAgent, ipAddress, referrer);
+    }
+
+    private void persistAnalytics(ShareLink link, ShareLinkEventType eventType,
+                                  String userAgent, String ipAddress, String referrer) {
+        String ua = userAgent == null ? null : (userAgent.length() > 256 ? userAgent.substring(0, 256) : userAgent);
+        String bucket = java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString();
+        String ip = ipAddress == null ? "" : ipAddress;
+        String ipHash = sha256Hex(tokenPepper + ":" + bucket + ":" + ip);
+        String ref = referrer == null ? null : (referrer.length() > 512 ? referrer.substring(0, 512) : referrer);
+
+        ShareLinkAnalytics analytics = ShareLinkAnalytics.builder()
+                .shareLink(link)
+                .eventType(eventType)
+                .ipHash(ipHash)
+                .userAgent(ua)
+                .dateBucket(bucket)
+                .referrer(ref)
+                .build();
+        analyticsRepository.save(analytics);
     }
 
     @Override

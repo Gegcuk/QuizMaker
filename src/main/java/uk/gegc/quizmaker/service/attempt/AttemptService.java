@@ -68,4 +68,11 @@ public interface AttemptService {
     List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end);
 
     void flagSuspiciousActivity(UUID attemptId, String reason);
+
+    /**
+     * Start an anonymous attempt for a quiz accessed via a valid share link.
+     * The attempt will be associated with a special anonymous user context and
+     * subject to additional rate limits and visibility constraints.
+     */
+    StartAttemptResponse startAnonymousAttempt(UUID quizId, AttemptMode mode);
 }

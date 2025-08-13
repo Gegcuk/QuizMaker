@@ -87,6 +87,46 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
+    public StartAttemptResponse startAnonymousAttempt(UUID quizId, AttemptMode mode) {
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        // Use a sentinel anonymous user (by username), or create one if missing
+        User user = userRepository.findByUsername("anonymous")
+                .orElseGet(() -> {
+                    User anon = new User();
+                    anon.setUsername("anonymous");
+                    anon.setEmail("anonymous@local");
+                    anon.setHashedPassword("");
+                    anon.setActive(true);
+                    anon.setDeleted(false);
+                    return userRepository.save(anon);
+                });
+
+        Attempt attempt = new Attempt();
+        attempt.setUser(user);
+        attempt.setQuiz(quiz);
+        attempt.setMode(mode);
+        attempt.setStatus(uk.gegc.quizmaker.model.attempt.AttemptStatus.IN_PROGRESS);
+
+        Attempt saved = attemptRepository.saveAndFlush(attempt);
+
+        int totalQuestions = quiz.getQuestions().size();
+        Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
+                ? quiz.getTimerDuration()
+                : null;
+
+        return new StartAttemptResponse(
+                saved.getId(),
+                quiz.getId(),
+                mode,
+                totalQuestions,
+                timeLimitMinutes,
+                saved.getStartedAt()
+        );
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Page<AttemptDto> getAttempts(String username,
                                         Pageable pageable,

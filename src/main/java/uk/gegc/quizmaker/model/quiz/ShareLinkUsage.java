@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.model.quiz;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -25,6 +27,7 @@ public class ShareLinkUsage {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "share_link_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private ShareLink shareLink;
 
     @Column(name = "user_agent", length = 512)
