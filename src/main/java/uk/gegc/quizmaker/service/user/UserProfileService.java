@@ -1,8 +1,8 @@
 package uk.gegc.quizmaker.service.user;
 
 import org.springframework.security.core.Authentication;
-import uk.gegc.quizmaker.dto.user.UserProfileResponse;
 import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
 
 public interface UserProfileService {
     UserProfileResponse getCurrentUserProfile(Authentication authentication);

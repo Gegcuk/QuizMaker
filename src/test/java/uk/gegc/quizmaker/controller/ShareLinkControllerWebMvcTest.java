@@ -15,20 +15,20 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
-import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
 import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
+import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
+import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.quiz.ShareLinkService;
 import uk.gegc.quizmaker.util.ShareLinkCookieManager;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
-import uk.gegc.quizmaker.repository.user.UserRepository;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -38,8 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ShareLinkController.class)

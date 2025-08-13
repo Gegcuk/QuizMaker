@@ -21,8 +21,8 @@ import uk.gegc.quizmaker.repository.document.DocumentChunkRepository;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
-import uk.gegc.quizmaker.service.document.chunker.UniversalChunker;
 import uk.gegc.quizmaker.service.document.chunker.DocumentChunkingService;
+import uk.gegc.quizmaker.service.document.chunker.UniversalChunker;
 import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 import uk.gegc.quizmaker.service.document.converter.DocumentConversionService;
 

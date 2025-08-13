@@ -463,7 +463,7 @@ class ShareLinkControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/shared/{token}/consume with one-time token -> returns 200 OK and consumes token")
+    @DisplayName("POST /api/v1/quizzes/shared/{token}/consume with one-time token -> returns 200 OK and consumes token")
     void consumeOneTimeToken_validToken_returns200() throws Exception {
         // First create a one-time share link
         CreateShareLinkRequest createRequest = new CreateShareLinkRequest(
@@ -484,7 +484,7 @@ class ShareLinkControllerIntegrationTest {
         UUID shareLinkId = UUID.fromString(createResponse.get("link").get("id").asText());
 
         // Then consume it
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token)
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token)
                         .header("User-Agent", "Mozilla/5.0 (Test Browser)")
                         .header("X-Forwarded-For", "192.168.1.100"))
                 .andExpect(status().isOk())
@@ -498,7 +498,7 @@ class ShareLinkControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/shared/{token}/consume with already consumed token -> returns 410 GONE")
+    @DisplayName("POST /api/v1/quizzes/shared/{token}/consume with already consumed token -> returns 410 GONE")
     void consumeOneTimeToken_alreadyConsumed_returns410() throws Exception {
         // First create a one-time share link
         CreateShareLinkRequest createRequest = new CreateShareLinkRequest(
@@ -518,16 +518,16 @@ class ShareLinkControllerIntegrationTest {
         String token = createResponse.get("token").asText();
 
         // Consume it first time
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token))
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token))
                 .andExpect(status().isOk());
 
         // Try to consume it again
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token))
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token))
                 .andExpect(status().isGone());
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/shared/{token}/consume with non-one-time token -> returns 200 OK")
+    @DisplayName("POST /api/v1/quizzes/shared/{token}/consume with non-one-time token -> returns 200 OK")
     void consumeOneTimeToken_nonOneTimeToken_returns200() throws Exception {
         // First create a non-one-time share link
         CreateShareLinkRequest createRequest = new CreateShareLinkRequest(
@@ -548,12 +548,12 @@ class ShareLinkControllerIntegrationTest {
         UUID shareLinkId = UUID.fromString(createResponse.get("link").get("id").asText());
 
         // Consume it multiple times
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token))
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(shareLinkId.toString()))
                 .andExpect(jsonPath("$.oneTime").value(false));
 
-        mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token))
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(shareLinkId.toString()));
 

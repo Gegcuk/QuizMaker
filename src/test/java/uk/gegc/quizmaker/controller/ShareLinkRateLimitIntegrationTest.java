@@ -154,7 +154,7 @@ class ShareLinkRateLimitIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("GET /quizzes/shared/{token}/consume is limited to 60/min per IP+token")
+    @DisplayName("POST /quizzes/shared/{token}/consume is limited to 60/min per IP+token")
 	void consumeSharedToken_rateLimitExceeded_returns429() throws Exception {
 		// create link (non one-time)
 		CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, Instant.now().plusSeconds(600), false);
@@ -167,13 +167,13 @@ class ShareLinkRateLimitIntegrationTest {
 		JsonNode json = objectMapper.readTree(created.getResponse().getContentAsString());
 		String token = json.get("token").asText();
 
-		for (int i = 0; i < 60; i++) {
-			mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token)
+        for (int i = 0; i < 60; i++) {
+            mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token)
 					.header("User-Agent", "JUnit")
 					.header("X-Forwarded-For", "198.51.100.7"))
 					.andExpect(status().isOk());
 		}
-		mockMvc.perform(get("/api/v1/quizzes/shared/{token}/consume", token)
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/consume", token)
 				.header("User-Agent", "JUnit")
 				.header("X-Forwarded-For", "198.51.100.7"))
 				.andExpect(status().isTooManyRequests())

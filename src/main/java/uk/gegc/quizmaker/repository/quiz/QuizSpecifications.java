@@ -1,11 +1,11 @@
 package uk.gegc.quizmaker.repository.quiz;
 
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 import uk.gegc.quizmaker.dto.quiz.QuizSearchCriteria;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 
-import jakarta.persistence.criteria.JoinType;
-import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;

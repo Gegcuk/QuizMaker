@@ -8,14 +8,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.dto.user.UserProfileResponse;
 import uk.gegc.quizmaker.dto.user.AvatarUploadResponse;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
 import uk.gegc.quizmaker.service.user.AvatarService;
 import uk.gegc.quizmaker.service.user.UserProfileService;
 
