@@ -59,6 +59,18 @@ class UserAvatarControllerTest {
     }
 
     @Test
+    @WithMockUser(username = "alice")
+    @DisplayName("Should return 400 when file empty")
+    void uploadAvatar_emptyFile() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", new byte[]{});
+        when(avatarService.uploadAndAssignAvatar(any(), any())).thenThrow(new IllegalArgumentException("Avatar file is required"));
+        mockMvc.perform(multipart("/api/v1/users/me/avatar").file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("Should return 401 when unauthenticated")
     void uploadAvatar_unauthenticated() throws Exception {
         byte[] image = new byte[]{(byte)0x89, 0x50, 0x4E, 0x47};
