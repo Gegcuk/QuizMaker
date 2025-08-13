@@ -14,6 +14,10 @@ public class RateLimitService {
     private final Map<String, Integer> requestCount = new ConcurrentHashMap<>();
     
     public void checkRateLimit(String operation, String key) {
+        checkRateLimit(operation, key, 5);
+    }
+
+    public void checkRateLimit(String operation, String key, int limitPerMinute) {
         String rateLimitKey = operation + ":" + key;
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime oneMinuteAgo = now.minusMinutes(1);
@@ -26,7 +30,7 @@ public class RateLimitService {
         LocalDateTime firstInWindow = lastRequestTime.get(rateLimitKey);
         if (firstInWindow != null && firstInWindow.isAfter(oneMinuteAgo)) {
             int count = requestCount.getOrDefault(rateLimitKey, 0);
-            if (count >= 5) { // 5 requests per minute as per MVP plan
+            if (count >= limitPerMinute) {
                 long retryAfter = java.time.Duration.between(now, firstInWindow.plusMinutes(1)).getSeconds();
                 throw new RateLimitExceededException("Too many requests for " + operation, retryAfter);
             }
