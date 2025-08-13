@@ -128,6 +128,14 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional(readOnly = true)
+    public UUID getAttemptQuizId(UUID attemptId) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        return attempt.getQuiz().getId();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<AttemptDto> getAttempts(String username,
                                         Pageable pageable,
                                         UUID quizId,

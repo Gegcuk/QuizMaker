@@ -75,4 +75,9 @@ public interface AttemptService {
      * subject to additional rate limits and visibility constraints.
      */
     StartAttemptResponse startAnonymousAttempt(UUID quizId, AttemptMode mode);
+
+    /**
+     * Returns the quizId associated with the given attempt.
+     */
+    UUID getAttemptQuizId(UUID attemptId);
 }

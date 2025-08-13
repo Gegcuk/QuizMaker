@@ -19,17 +19,19 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
+import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptRequest;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
 import uk.gegc.quizmaker.service.RateLimitService;
-import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.service.quiz.ShareLinkService;
+import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.util.ShareLinkCookieManager;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
@@ -231,6 +233,7 @@ public class ShareLinkController {
         return ResponseEntity.ok(shareLinks);
     }
 
+
     @PostMapping("/shared/{token}/attempts")
     @Operation(
         summary = "Start anonymous attempt using a share token",
@@ -270,6 +273,47 @@ public class ShareLinkController {
         shareLinkService.recordShareLinkEventByToken(token, ShareLinkEventType.ATTEMPT_START, userAgent, ipAddress, ref);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/shared/attempts/{attemptId}/answers")
+    @Operation(
+        summary = "Submit an answer for an anonymous attempt",
+        description = "Submits an answer for an in-progress anonymous attempt when a valid share token cookie is present."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Answer submitted",
+            content = @Content(schema = @Schema(implementation = AnswerSubmissionDto.class))),
+        @ApiResponse(responseCode = "400", description = "Validation error or invalid token"),
+        @ApiResponse(responseCode = "404", description = "Attempt or question not found"),
+        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation")
+    })
+    public ResponseEntity<AnswerSubmissionDto> submitAnonymousAnswer(
+            @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
+            @RequestBody @Valid AnswerSubmissionRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        // Retrieve share token from cookie
+        String token = cookieManager.getShareLinkToken(httpRequest)
+                .orElseThrow(() -> new IllegalArgumentException("Valid share token required"));
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
+
+        // Validate token and attempt-quiz correlation
+        ShareLinkDto shareLink = shareLinkService.validateToken(token);
+        UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId)) {
+            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+        }
+
+        // Rate limit per IP + token-hash
+        String ipAddress = getClientIpAddress(httpRequest);
+        String tokenHash = shareLinkService.hashToken(token);
+        rateLimitService.checkRateLimit("share-link-answer", ipAddress + "|" + tokenHash, 60);
+
+        // Submit answer as anonymous user (ownership enforced against 'anonymous' user set at attempt start)
+        AnswerSubmissionDto dto = attemptService.submitAnswer("anonymous", attemptId, request);
+        return ResponseEntity.ok(dto);
     }
 
 
