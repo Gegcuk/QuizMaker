@@ -221,6 +221,13 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
+        <!-- EXIF metadata reader for image orientation handling -->
+        <dependency>
+            <groupId>com.drewnoakes</groupId>
+            <artifactId>metadata-extractor</artifactId>
+            <version>2.19.0</version>
+        </dependency>
+
         <!-- Apache Commons for file operations -->
         <dependency>
             <groupId>commons-io</groupId>

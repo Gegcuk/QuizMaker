@@ -10,7 +10,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.user.AvatarUploadResponse;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.service.user.AvatarService;
 import uk.gegc.quizmaker.service.user.UserProfileService;
@@ -38,14 +37,14 @@ class UserAvatarControllerTest {
     void uploadAvatar_success() throws Exception {
         byte[] image = new byte[]{(byte)0x89, 0x50, 0x4E, 0x47}; // mock bytes
         MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", image);
-        when(avatarService.uploadAndAssignAvatar(any(), any())).thenReturn("http://localhost/avatars/abc.png");
+        when(avatarService.uploadAndAssignAvatar(any(), any())).thenReturn("http://test-host/avatars/abc.png");
 
         mockMvc.perform(multipart("/api/v1/users/me/avatar").file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
                         .contentType(MediaType.MULTIPART_FORM_DATA))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.avatarUrl").value("http://localhost/avatars/abc.png"))
+                .andExpect(jsonPath("$.avatarUrl").value("http://test-host/avatars/abc.png"))
                 .andExpect(jsonPath("$.message").value("Avatar updated successfully"));
     }
 
@@ -99,7 +98,7 @@ class UserAvatarControllerTest {
     void uploadAvatar_unsupportedMime() throws Exception {
         byte[] image = "bad".getBytes();
         MockMultipartFile file = new MockMultipartFile("file", "avatar.gif", "image/gif", image);
-        when(avatarService.uploadAndAssignAvatar(any(), any())).thenThrow(new UnsupportedFileTypeException("Unsupported image type. Allowed: PNG, JPEG, WEBP"));
+        when(avatarService.uploadAndAssignAvatar(any(), any())).thenThrow(new UnsupportedFileTypeException("Unsupported image type. Allowed: PNG, JPEG"));
 
         mockMvc.perform(multipart("/api/v1/users/me/avatar").file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
