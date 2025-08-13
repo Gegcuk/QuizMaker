@@ -17,8 +17,8 @@
   - [ ] Add file upload security (MIME validation, size limits)
 
 - [ ] **🔍 Search Enhancement** (Week 2 Priority)
-  - [ ] Extend `GET /api/v1/quizzes` with search parameters
-  - [ ] Add faceted filtering (tags, difficulty, category)
+  - [x] Extend `GET /api/v1/quizzes` with search parameters
+  - [x] Add faceted filtering (tags, difficulty, category)
   - [ ] Implement ETag support for caching
   - [ ] Add rate limiting (120/min per IP)
   - [ ] Optimize database queries with proper indexes

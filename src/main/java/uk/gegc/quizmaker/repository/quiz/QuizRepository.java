@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.repository.quiz;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface QuizRepository extends JpaRepository<Quiz, UUID> {
+public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificationExecutor<Quiz> {
 
     @Query("""
               SELECT q
