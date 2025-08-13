@@ -10,6 +10,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +31,7 @@ import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.repository.question.QuestionRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.repository.quiz.QuizSpecifications;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
@@ -98,8 +100,8 @@ public class QuizServiceImpl implements QuizService {
     @Transactional(readOnly = true)
     public Page<QuizDto> getQuizzes(Pageable pageable,
                                     QuizSearchCriteria criteria) {
-        return quizRepository.findAll(pageable)
-                .map(quizMapper::toDto);
+        Specification<Quiz> spec = QuizSpecifications.build(criteria);
+        return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
     }
 
     @Override

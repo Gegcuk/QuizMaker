@@ -12,13 +12,13 @@
 - [ ] **👤 User Self-Serve Endpoints** (Week 1 Priority)
   - [x] `GET /api/v1/users/me` - Get user profile
   - [x] `PATCH /api/v1/users/me` - Update user profile  
-  - [ ] `POST /api/v1/users/me/avatar` - Upload avatar
+  - [x] `POST /api/v1/users/me/avatar` - Upload avatar
   - [x] Add XSS protection for bio field
-  - [ ] Add file upload security (MIME validation, size limits)
+  - [x] Add file upload security (MIME validation, size limits)
 
 - [ ] **🔍 Search Enhancement** (Week 2 Priority)
-  - [ ] Extend `GET /api/v1/quizzes` with search parameters
-  - [ ] Add faceted filtering (tags, difficulty, category)
+  - [x] Extend `GET /api/v1/quizzes` with search parameters
+  - [x] Add faceted filtering (tags, difficulty, category)
   - [ ] Implement ETag support for caching
   - [ ] Add rate limiting (120/min per IP)
   - [ ] Optimize database queries with proper indexes
@@ -135,7 +135,7 @@ This document provides a comprehensive implementation plan for the MVP surface e
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 
-### ❌ Missing Endpoints (MVP Add)
+### ✅ Implemented
 
 #### 1. `POST /api/v1/auth/forgot-password` ✅ **IMPLEMENTED**
 
@@ -1303,16 +1303,16 @@ public class MetricsService {
 ## 📚 Implementation Checklist
 
 ### Phase 1: Auth & User (Week 1)
-- [ ] Implement forgot password endpoint
-- [ ] Implement reset password endpoint
-- [ ] Implement email verification endpoint
-- [ ] Implement resend verification endpoint
+- [x] Implement forgot password endpoint
+- [x] Implement reset password endpoint
+- [x] Implement email verification endpoint
+- [x] Implement resend verification endpoint
 - [ ] Create email templates
-- [ ] Implement rate limiting for auth endpoints
-- [ ] Implement user profile endpoints
-- [ ] Implement avatar upload
+- [x] Implement rate limiting for auth endpoints
+- [x] Implement user profile endpoints
+- [x] Implement avatar upload
 - [ ] Add audit events
-- [ ] Write integration tests
+- [x] Write integration tests
 
 ### Phase 2: Monetization (Week 2)
 - [ ] Implement token estimation
@@ -1324,19 +1324,19 @@ public class MetricsService {
 - [ ] Write integration tests
 
 ### Phase 3: Search & Attempts (Week 3)
-- [ ] Enhance quiz search with faceted filtering
+- [x] Enhance quiz search with faceted filtering
 - [ ] Add ETag support
 - [ ] Implement active attempts endpoint
 - [ ] Add idempotency to attempt operations
 - [ ] Enhance share-link rate limiting
 - [ ] Add analytics tracking
-- [ ] Write integration tests
+- [x] Write integration tests
 - [ ] Deploy and monitor
 
 ### Cross-cutting
 - [ ] Add correlation IDs
-- [ ] Implement rate limiting
-- [ ] Add OpenAPI documentation
+- [x] Implement rate limiting
+- [x] Add OpenAPI documentation
 - [ ] Add basic metrics
 - [ ] Create Postman collection
 - [ ] Performance testing

@@ -20,12 +20,14 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
@@ -43,6 +45,7 @@ import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
 import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -65,6 +68,8 @@ public class QuizController {
     private final QuizGenerationJobService jobService;
     private final QuizGenerationJobRepository jobRepository;
     private final ObjectMapper objectMapper;
+    private final RateLimitService rateLimitService;
+    private final TrustedProxyUtil trustedProxyUtil;
 
     @Operation(
             summary = "Create a new quiz",
@@ -98,10 +103,23 @@ public class QuizController {
 
             @ParameterObject
             @ModelAttribute
-            QuizSearchCriteria quizSearchCriteria
+            QuizSearchCriteria quizSearchCriteria,
+            HttpServletRequest request
     ) {
+        // Rate limit search endpoint: 120/min per IP
+        String clientIp = trustedProxyUtil.getClientIp(request);
+        rateLimitService.checkRateLimit("search-quizzes", clientIp, 120);
+
         Page<QuizDto> quizPage = quizService.getQuizzes(pageable, quizSearchCriteria);
-        return ResponseEntity.ok(quizPage);
+
+        // Simple weak ETag based on result set metadata
+        String eTag = ("W/\"" + quizPage.getTotalElements() + ":" + quizPage.getNumber() + ":" + quizPage.getSize() + ":" + quizPage.getSort() + "\"");
+
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(eTag).build();
+        }
+        return ResponseEntity.ok().eTag(eTag).body(quizPage);
     }
 
     @Operation(
@@ -399,9 +417,20 @@ public class QuizController {
             @ParameterObject
             @PageableDefault(page = 0, size = 20)
             @SortDefault(sort = "createdAt", direction = Sort.Direction.DESC)
-            Pageable pageable
+            Pageable pageable,
+            HttpServletRequest request
     ) {
-        return ResponseEntity.ok(quizService.getPublicQuizzes(pageable));
+        // Rate limit public search endpoint: 120/min per IP
+        String clientIp = trustedProxyUtil.getClientIp(request);
+        rateLimitService.checkRateLimit("search-quizzes-public", clientIp, 120);
+
+        Page<QuizDto> page = quizService.getPublicQuizzes(pageable);
+        String eTag = ("W/\"" + page.getTotalElements() + ":" + page.getNumber() + ":" + page.getSize() + ":" + page.getSort() + "\"");
+        String ifNoneMatch = request.getHeader("If-None-Match");
+        if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(eTag).build();
+        }
+        return ResponseEntity.ok().eTag(eTag).body(page);
     }
 
     @Operation(
