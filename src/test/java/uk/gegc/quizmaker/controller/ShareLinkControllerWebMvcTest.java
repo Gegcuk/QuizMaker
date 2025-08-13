@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -38,6 +39,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ShareLinkController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class ShareLinkControllerWebMvcTest {
 
     @Autowired
@@ -60,6 +62,7 @@ class ShareLinkControllerWebMvcTest {
 
     @MockitoBean
     private AttemptService attemptService;
+
 
     private UUID quizId;
     private String token;
@@ -187,6 +190,32 @@ class ShareLinkControllerWebMvcTest {
     }
 
     @Test
+    @DisplayName("Start anonymous attempt: unauthenticated allowed -> 201")
+    void startAnonymousAttempt_unauthenticated_success() throws Exception {
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        StartAttemptResponse start = new StartAttemptResponse(UUID.randomUUID(), quizId, AttemptMode.ALL_AT_ONCE, 2, null, Instant.now());
+        when(attemptService.startAnonymousAttempt(eq(quizId), any())).thenReturn(start);
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
+                        .with(csrf()))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Start anonymous attempt: invalid mode enum -> 400")
+    void startAnonymousAttempt_invalidMode_returns400() throws Exception {
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        String payload = "{\"mode\":\"INVALID\"}";
+        mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @WithMockUser
     @DisplayName("Start anonymous attempt: unexpected server error -> 500")
     void startAnonymousAttempt_unexpectedServerError_returns500() throws Exception {
@@ -224,6 +253,294 @@ class ShareLinkControllerWebMvcTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answerId").value(dto.answerId().toString()))
                 .andExpect(jsonPath("$.isCorrect").value(true));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: success 200")
+    void submitAnonymousAnswersBatch_success() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+
+        AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null);
+        AnswerSubmissionDto dto2 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), false, 0.0, Instant.now(), null);
+        when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
+                .thenReturn(java.util.List.of(dto1, dto2));
+
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        ObjectNode a2 = objectMapper.createObjectNode();
+        a2.put("questionId", UUID.randomUUID().toString());
+        a2.set("response", objectMapper.createObjectNode().put("answer", false));
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode().add(a1).add(a2));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].answerId").value(dto1.answerId().toString()))
+                .andExpect(jsonPath("$[1].answerId").value(dto2.answerId().toString()));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: missing cookie -> 400")
+    void submitAnonymousAnswersBatch_missingCookie_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode());
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: validation error -> 400")
+    void submitAnonymousAnswersBatch_validationError_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode()); // empty -> @NotEmpty
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: invalid token in cookie -> 400")
+    void submitAnonymousAnswersBatch_invalidToken_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        String bad = "short";
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(bad));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", bad))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: token not found -> 404")
+    void submitAnonymousAnswersBatch_tokenNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenThrow(new ResourceNotFoundException("not found"));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: attempt not found -> 404")
+    void submitAnonymousAnswersBatch_attemptNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenThrow(new ResourceNotFoundException("Attempt not found"));
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: rate limited -> 429")
+    void submitAnonymousAnswersBatch_rateLimited_returns429() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        doThrow(new RateLimitExceededException("Too many", 33))
+                .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "33"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: invalid questionId format -> 400")
+    void submitAnonymousAnswersBatch_invalidUuid_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", "not-a-uuid");
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: conflict -> 409")
+    void submitAnonymousAnswersBatch_conflict_returns409() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
+                .thenThrow(new IllegalStateException("Attempt not in progress"));
+
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: unexpected server error -> 500")
+    void submitAnonymousAnswersBatch_unexpectedError_returns500() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
+                .thenThrow(new RuntimeException("boom"));
+
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    @DisplayName("Submit anonymous answers batch: unauthenticated allowed -> 200")
+    void submitAnonymousAnswersBatch_unauthenticated_success() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
+                .thenReturn(java.util.List.of());
+
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Submit anonymous answers batch: quiz mismatch -> 404")
+    void submitAnonymousAnswersBatch_quizMismatch_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(UUID.randomUUID());
+
+        ObjectNode payload = objectMapper.createObjectNode();
+        ObjectNode a1 = objectMapper.createObjectNode();
+        a1.put("questionId", UUID.randomUUID().toString());
+        a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.set("answers", objectMapper.createArrayNode().add(a1));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers/batch", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isNotFound());
     }
 
     @Test

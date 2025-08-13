@@ -20,6 +20,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
+import uk.gegc.quizmaker.dto.attempt.BatchAnswerSubmissionRequest;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptRequest;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
@@ -314,6 +315,42 @@ public class ShareLinkController {
         // Submit answer as anonymous user (ownership enforced against 'anonymous' user set at attempt start)
         AnswerSubmissionDto dto = attemptService.submitAnswer("anonymous", attemptId, request);
         return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/shared/attempts/{attemptId}/answers/batch")
+    @Operation(
+        summary = "Submit multiple answers for an anonymous attempt",
+        description = "Submits a batch of answers for an in-progress anonymous attempt when a valid share token cookie is present."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Answers submitted"),
+        @ApiResponse(responseCode = "400", description = "Validation error or invalid token"),
+        @ApiResponse(responseCode = "404", description = "Attempt or question not found"),
+        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation")
+    })
+    public ResponseEntity<List<AnswerSubmissionDto>> submitAnonymousAnswersBatch(
+            @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
+            @RequestBody @Valid BatchAnswerSubmissionRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        String token = cookieManager.getShareLinkToken(httpRequest)
+                .orElseThrow(() -> new IllegalArgumentException("Valid share token required"));
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
+
+        ShareLinkDto shareLink = shareLinkService.validateToken(token);
+        UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId)) {
+            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+        }
+
+        String ipAddress = getClientIpAddress(httpRequest);
+        String tokenHash = shareLinkService.hashToken(token);
+        rateLimitService.checkRateLimit("share-link-answer", ipAddress + "|" + tokenHash, 60);
+
+        List<AnswerSubmissionDto> result = attemptService.submitBatch("anonymous", attemptId, request);
+        return ResponseEntity.ok(result);
     }
 
 
