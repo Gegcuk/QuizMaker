@@ -10,10 +10,10 @@
 
 ### 🔥 **HIGH PRIORITY** - Do These First
 - [ ] **👤 User Self-Serve Endpoints** (Week 1 Priority)
-  - [ ] `GET /api/v1/users/me` - Get user profile
-  - [ ] `PATCH /api/v1/users/me` - Update user profile  
+  - [x] `GET /api/v1/users/me` - Get user profile
+  - [x] `PATCH /api/v1/users/me` - Update user profile  
   - [ ] `POST /api/v1/users/me/avatar` - Upload avatar
-  - [ ] Add XSS protection for bio field
+  - [x] Add XSS protection for bio field
   - [ ] Add file upload security (MIME validation, size limits)
 
 - [ ] **🔍 Search Enhancement** (Week 2 Priority)
@@ -210,7 +210,7 @@ public ResponseEntity<ForgotPasswordResponse> forgotPassword(
 }
 ```
 
-#### 2. `POST /api/v1/auth/reset-password`
+#### 2. `POST /api/v1/auth/reset-password` ✅ **IMPLEMENTED**
 
 **Request:**
 ```json
@@ -245,7 +245,7 @@ public ResponseEntity<ResetPasswordResponse> resetPassword(
 }
 ```
 
-#### 3. `POST /api/v1/auth/verify-email`
+#### 3. `POST /api/v1/auth/verify-email` ✅ **IMPLEMENTED**
 
 **Request:**
 ```json
@@ -267,7 +267,7 @@ public ResponseEntity<ResetPasswordResponse> resetPassword(
 - Allow single-use only
 - Return 400 for expired/invalid tokens
 
-#### 4. `POST /api/v1/auth/resend-verification`
+#### 4. `POST /api/v1/auth/resend-verification` ✅ **IMPLEMENTED**
 
 **Request:**
 ```json
@@ -417,7 +417,7 @@ public record AvatarUploadResponse(
 ```
 
 ### Definition of Done (User)
-- ✅ XSS-sanitized bio
+- ✅ XSS-sanitized bio (implemented in `UserProfileServiceImpl`)
 - ✅ Image scanning (basic malware check)
 - ✅ Audit events: PROFILE_UPDATED, AVATAR_UPDATED
 - ✅ File upload security (MIME validation, size limits)

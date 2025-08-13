@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.user.UserProfileResponse;
 import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.service.user.UserProfileService;
+import uk.gegc.quizmaker.service.user.AvatarService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +36,9 @@ class UserControllerTest {
 
     @MockitoBean
     private UserProfileService userProfileService;
+
+    @MockitoBean
+    private AvatarService avatarService;
 
     private ObjectMapper objectMapper;
     private UserProfileResponse testUserProfileResponse;
