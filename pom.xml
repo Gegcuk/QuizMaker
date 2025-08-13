@@ -183,6 +183,13 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- HTML sanitizer for robust XSS cleaning -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+
         <!-- AOP for method-level security -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

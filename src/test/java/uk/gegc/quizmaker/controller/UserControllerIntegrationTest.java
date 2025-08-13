@@ -50,13 +50,16 @@ class UserControllerIntegrationTest {
                         Map.of("theme", "dark", "notifications", Map.of("email", true)),
                         java.time.LocalDateTime.now(),
                         true,
-                        java.util.List.of("USER")
+                        java.util.List.of("USER"),
+                        1L
                 )
         );
 
-        when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class))).thenAnswer(invocation -> {
-            UpdateMeRequest req = invocation.getArgument(1);
-            Map<String, Object> prefs = req != null && req.preferences() != null ? req.preferences() :
+        when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any())).thenAnswer(invocation -> {
+            com.fasterxml.jackson.databind.JsonNode req = invocation.getArgument(1);
+            Map<String, Object> prefs = req != null && req.has("preferences") && !req.get("preferences").isNull()
+                    ? new com.fasterxml.jackson.databind.ObjectMapper().convertValue(req.get("preferences"), Map.class)
+                    :
                     Map.of("theme", "dark", "notifications", Map.of("email", true));
             return new uk.gegc.quizmaker.dto.user.MeResponse(
                     java.util.UUID.randomUUID(),
@@ -68,7 +71,8 @@ class UserControllerIntegrationTest {
                     prefs,
                     java.time.LocalDateTime.now(),
                     true,
-                    java.util.List.of("USER")
+                    java.util.List.of("USER"),
+                    1L
             );
         });
     }

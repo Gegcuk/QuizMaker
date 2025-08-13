@@ -58,7 +58,8 @@ class UserControllerTest {
                 Map.of("theme", "dark"),
                 createdAt,
                 true,
-                List.of("USER")
+                List.of("USER"),
+                1L
         );
     }
 
@@ -108,10 +109,11 @@ class UserControllerTest {
                 Map.of("theme", "light", "notifications", Map.of("email", false)),
                 createdAt,
                 true,
-                List.of("USER")
+                List.of("USER"),
+                1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class)))
+        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -146,10 +148,11 @@ class UserControllerTest {
                 Map.of("theme", "dark"),
                 createdAt,
                 true,
-                List.of("USER")
+                List.of("USER"),
+                1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class)))
+        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -169,7 +172,7 @@ class UserControllerTest {
         // Given
         UpdateMeRequest request = new UpdateMeRequest("", "", Map.of());
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class)))
+        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(testMeResponse);
 
         // When & Then
@@ -211,10 +214,11 @@ class UserControllerTest {
                 complexPreferences,
                 createdAt,
                 true,
-                List.of("USER")
+                List.of("USER"),
+                1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class)))
+        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -263,7 +267,7 @@ class UserControllerTest {
         // Given
         UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(UpdateMeRequest.class)))
+        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenThrow(new RuntimeException("Service error"));
 
         // When & Then

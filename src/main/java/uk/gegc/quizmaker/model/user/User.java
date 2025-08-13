@@ -78,6 +78,10 @@ public class User implements Persistable<UUID> {
     @Column(name = "preferences", columnDefinition = "JSON")
     private String preferences;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "user_roles",
