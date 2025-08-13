@@ -17,15 +17,15 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
+import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.PermissionEvaluator;
-import uk.gegc.quizmaker.model.user.PermissionName;
 
 import java.time.Instant;
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;

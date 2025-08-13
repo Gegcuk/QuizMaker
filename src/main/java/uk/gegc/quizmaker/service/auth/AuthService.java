@@ -1,7 +1,10 @@
 package uk.gegc.quizmaker.service.auth;
 
 import org.springframework.security.core.Authentication;
-import uk.gegc.quizmaker.dto.auth.*;
+import uk.gegc.quizmaker.dto.auth.JwtResponse;
+import uk.gegc.quizmaker.dto.auth.LoginRequest;
+import uk.gegc.quizmaker.dto.auth.RefreshRequest;
+import uk.gegc.quizmaker.dto.auth.RegisterRequest;
 import uk.gegc.quizmaker.dto.user.UserDto;
 
 import java.time.LocalDateTime;

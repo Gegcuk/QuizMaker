@@ -1,11 +1,7 @@
 package uk.gegc.quizmaker.mapper;
 
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.dto.quiz.PendingReviewQuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizModerationAuditDto;
-import uk.gegc.quizmaker.dto.quiz.UpdateQuizRequest;
+import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;

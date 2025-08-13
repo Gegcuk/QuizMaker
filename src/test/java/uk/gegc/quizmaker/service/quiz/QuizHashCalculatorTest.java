@@ -4,9 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.dto.quiz.QuizDto;
 import uk.gegc.quizmaker.model.question.Difficulty;
+import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
-import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.time.Instant;

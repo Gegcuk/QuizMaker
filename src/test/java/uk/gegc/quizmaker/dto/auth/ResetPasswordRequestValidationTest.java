@@ -12,7 +12,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("ResetPasswordRequest Validation Tests")
 class ResetPasswordRequestValidationTest {

@@ -1,8 +1,8 @@
 package uk.gegc.quizmaker.service.quiz;
 
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
-import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
+import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 
 import java.util.UUID;
 

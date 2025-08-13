@@ -1,8 +1,8 @@
 package uk.gegc.quizmaker.service.user.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -19,11 +19,7 @@ import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.user.MeService;
 import uk.gegc.quizmaker.util.XssSanitizer;
 
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Objects;
+import java.util.*;
  
 
 @Service

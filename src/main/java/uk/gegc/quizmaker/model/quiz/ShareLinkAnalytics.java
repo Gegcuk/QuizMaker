@@ -1,11 +1,7 @@
 package uk.gegc.quizmaker.model.quiz;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
+import lombok.*;
 
 import java.time.Instant;
 import java.util.UUID;

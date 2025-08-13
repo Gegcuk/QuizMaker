@@ -10,32 +10,30 @@ import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLink;
 import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
-import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
+import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.PermissionEvaluator;
-import uk.gegc.quizmaker.model.user.PermissionName;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)

@@ -1,14 +1,16 @@
 package uk.gegc.quizmaker.service.auth.impl;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
@@ -18,13 +20,13 @@ import uk.gegc.quizmaker.dto.user.UserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
-import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.auth.EmailVerificationToken;
+import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.auth.EmailVerificationTokenRepository;
+import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.JwtTokenProvider;
@@ -40,8 +42,6 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
-import jakarta.annotation.PostConstruct;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

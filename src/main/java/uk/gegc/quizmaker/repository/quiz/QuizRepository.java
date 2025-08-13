@@ -10,9 +10,9 @@ import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.QuizStatus;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.List;
 
 @Repository
 public interface QuizRepository extends JpaRepository<Quiz, UUID> {

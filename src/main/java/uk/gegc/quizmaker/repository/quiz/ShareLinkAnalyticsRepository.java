@@ -7,7 +7,6 @@ import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.model.quiz.ShareLinkAnalytics;
 import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 

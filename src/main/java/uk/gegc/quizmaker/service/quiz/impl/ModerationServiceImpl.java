@@ -10,23 +10,17 @@ import uk.gegc.quizmaker.exception.ForbiddenException;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.mapper.QuizMapper;
-import uk.gegc.quizmaker.model.quiz.ModerationAction;
-import uk.gegc.quizmaker.model.quiz.ModerationStateMachine;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.QuizModerationAudit;
-import uk.gegc.quizmaker.model.quiz.QuizStatus;
-import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.model.quiz.*;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository;
+import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.PermissionEvaluator;
 
 import java.time.Instant;
-import java.time.Clock;
-import java.util.UUID;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
