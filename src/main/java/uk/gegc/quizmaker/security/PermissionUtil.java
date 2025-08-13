@@ -14,13 +14,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PermissionUtil {
 
-    private final PermissionEvaluator permissionEvaluator;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     /**
      * Ensure current user has the specified permission
      */
     public void requirePermission(PermissionName permission) {
-        if (!permissionEvaluator.hasPermission(permission)) {
+        if (!appPermissionEvaluator.hasPermission(permission)) {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
@@ -29,7 +29,7 @@ public class PermissionUtil {
      * Ensure current user has any of the specified permissions
      */
     public void requireAnyPermission(PermissionName... permissions) {
-        if (!permissionEvaluator.hasAnyPermission(permissions)) {
+        if (!appPermissionEvaluator.hasAnyPermission(permissions)) {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
@@ -38,7 +38,7 @@ public class PermissionUtil {
      * Ensure current user has all of the specified permissions
      */
     public void requireAllPermissions(PermissionName... permissions) {
-        if (!permissionEvaluator.hasAllPermissions(permissions)) {
+        if (!appPermissionEvaluator.hasAllPermissions(permissions)) {
             throw new ForbiddenException("Insufficient permissions to access this resource");
         }
     }
@@ -47,7 +47,7 @@ public class PermissionUtil {
      * Ensure current user has the specified role
      */
     public void requireRole(RoleName role) {
-        if (!permissionEvaluator.hasRole(role)) {
+        if (!appPermissionEvaluator.hasRole(role)) {
             throw new ForbiddenException("Insufficient role to access this resource");
         }
     }
@@ -56,7 +56,7 @@ public class PermissionUtil {
      * Ensure current user has any of the specified roles
      */
     public void requireAnyRole(RoleName... roles) {
-        if (!permissionEvaluator.hasAnyRole(roles)) {
+        if (!appPermissionEvaluator.hasAnyRole(roles)) {
             throw new ForbiddenException("Insufficient role to access this resource");
         }
     }
@@ -65,7 +65,7 @@ public class PermissionUtil {
      * Ensure current user owns the resource or has admin permission
      */
     public void requireResourceOwnershipOrPermission(UUID resourceOwnerId, PermissionName adminPermission) {
-        if (!permissionEvaluator.canAccessResource(resourceOwnerId, adminPermission)) {
+        if (!appPermissionEvaluator.canAccessResource(resourceOwnerId, adminPermission)) {
             throw new ForbiddenException("You can only access your own resources or need admin permissions");
         }
     }
@@ -74,7 +74,7 @@ public class PermissionUtil {
      * Ensure current user owns the resource
      */
     public void requireResourceOwnership(UUID resourceOwnerId) {
-        if (!permissionEvaluator.isResourceOwner(resourceOwnerId)) {
+        if (!appPermissionEvaluator.isResourceOwner(resourceOwnerId)) {
             throw new ForbiddenException("You can only access your own resources");
         }
     }
@@ -83,7 +83,7 @@ public class PermissionUtil {
      * Get current authenticated user
      */
     public User getCurrentUser() {
-        return permissionEvaluator.getCurrentUser();
+        return appPermissionEvaluator.getCurrentUser();
     }
 
     /**
@@ -101,14 +101,14 @@ public class PermissionUtil {
      * Check if current user is admin
      */
     public boolean isAdmin() {
-        return permissionEvaluator.isAdmin();
+        return appPermissionEvaluator.isAdmin();
     }
 
     /**
      * Check if current user is super admin
      */
     public boolean isSuperAdmin() {
-        return permissionEvaluator.isSuperAdmin();
+        return appPermissionEvaluator.isSuperAdmin();
     }
 
     /**

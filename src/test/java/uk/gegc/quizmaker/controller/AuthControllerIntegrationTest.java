@@ -18,7 +18,6 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
@@ -31,12 +30,10 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
-
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -170,7 +167,7 @@ public class AuthControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/register → returns 201 CREATED with UserDto")
+    @DisplayName("POST /api/v1/auth/register → returns 201 CREATED with AuthenticatedUserDto")
     void registerSucceeds() throws Exception {
         RegisterRequest request = new RegisterRequest(
                 "newUser",
@@ -314,7 +311,7 @@ public class AuthControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/auth/me → returns 200 OK with current UserDto")
+    @DisplayName("GET /api/v1/auth/me → returns 200 OK with current AuthenticatedUserDto")
     void meSucceeds() throws Exception {
         mockMvc.perform(get("/api/v1/auth/me"))
                 .andExpect(status().isOk());

@@ -17,7 +17,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
 import uk.gegc.quizmaker.security.JwtAuthenticationFilter;
-import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.security.JwtTokenService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 
@@ -27,7 +27,7 @@ import uk.gegc.quizmaker.util.TrustedProxyUtil;
 @EnableAspectJAutoProxy
 public class SecurityConfig {
 
-    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtTokenService jwtTokenService;
     private final CorsConfigurationSource corsConfigurationSource;
     private final TrustedProxyUtil trustedProxyUtil;
 
@@ -60,7 +60,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/documents/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(
-                        new JwtAuthenticationFilter(jwtTokenProvider, trustedProxyUtil),
+                        new JwtAuthenticationFilter(jwtTokenService, trustedProxyUtil),
                         UsernamePasswordAuthenticationFilter.class
                 )
                 .cors(cors -> cors.configurationSource(corsConfigurationSource));

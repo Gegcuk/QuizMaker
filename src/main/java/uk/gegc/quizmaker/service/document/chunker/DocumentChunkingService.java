@@ -20,7 +20,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class UniversalChunkingService {
+public class DocumentChunkingService {
 
     private final List<UniversalChunker> universalChunkers;
 

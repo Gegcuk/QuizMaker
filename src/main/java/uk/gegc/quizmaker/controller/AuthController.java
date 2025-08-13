@@ -16,25 +16,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.auth.ForgotPasswordRequest;
-import uk.gegc.quizmaker.dto.auth.ForgotPasswordResponse;
-import uk.gegc.quizmaker.dto.auth.JwtResponse;
-import uk.gegc.quizmaker.dto.auth.LoginRequest;
-import uk.gegc.quizmaker.dto.auth.RefreshRequest;
-import uk.gegc.quizmaker.dto.auth.RegisterRequest;
-import uk.gegc.quizmaker.dto.auth.ResetPasswordRequest;
-import uk.gegc.quizmaker.dto.auth.ResetPasswordResponse;
-import uk.gegc.quizmaker.dto.auth.VerifyEmailRequest;
-import uk.gegc.quizmaker.dto.auth.VerifyEmailResponse;
-import uk.gegc.quizmaker.dto.auth.ResendVerificationRequest;
-import uk.gegc.quizmaker.dto.auth.ResendVerificationResponse;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.auth.*;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 @Tag(name = "Authentication", description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user")
 @RestController
@@ -56,7 +44,7 @@ public class AuthController {
             @ApiResponse(responseCode = "409", description = "Username or email already in use")
     })
     @PostMapping("/register")
-    public ResponseEntity<UserDto> register(
+    public ResponseEntity<AuthenticatedUserDto> register(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Registration information",
                     required = true,
@@ -64,7 +52,7 @@ public class AuthController {
             )
             @Valid @RequestBody RegisterRequest request
     ) {
-        UserDto createdUser = authService.register(request);
+        AuthenticatedUserDto createdUser = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
@@ -141,7 +129,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Not authenticated")
     })
     @GetMapping("/me")
-    public ResponseEntity<UserDto> me(
+    public ResponseEntity<AuthenticatedUserDto> me(
             Authentication authentication
     ) {
         return ResponseEntity.ok(authService.getCurrentUser(authentication));

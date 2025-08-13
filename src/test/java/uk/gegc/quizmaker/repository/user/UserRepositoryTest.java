@@ -9,9 +9,8 @@ import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
 
-import java.util.Set;
-
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 

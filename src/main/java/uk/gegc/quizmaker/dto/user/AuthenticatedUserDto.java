@@ -7,8 +7,8 @@ import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.UUID;
 
-@Schema(name = "UserDto", description = "Details of a user")
-public record UserDto(
+@Schema(name = "AuthenticatedUserDto", description = "Details of a user")
+public record AuthenticatedUserDto(
         @Schema(description = "Unique user identifier", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
         UUID id,
 

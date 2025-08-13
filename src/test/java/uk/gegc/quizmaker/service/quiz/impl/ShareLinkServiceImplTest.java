@@ -10,32 +10,30 @@ import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLink;
 import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
-import uk.gegc.quizmaker.model.quiz.Quiz;
 import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
 import uk.gegc.quizmaker.model.user.PermissionName;
+import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
+import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -45,7 +43,7 @@ class ShareLinkServiceImplTest {
     @Mock private uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository usageRepository;
     @Mock private QuizRepository quizRepository;
     @Mock private UserRepository userRepository;
-    @Mock private PermissionEvaluator permissionEvaluator;
+    @Mock private AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks private ShareLinkServiceImpl service;
 
@@ -111,8 +109,8 @@ class ShareLinkServiceImplTest {
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(nonOwnerId)).thenReturn(Optional.of(nonOwner));
-        when(permissionEvaluator.hasPermission(eq(nonOwner), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
-        when(permissionEvaluator.hasPermission(eq(nonOwner), eq(PermissionName.QUIZ_MODERATE))).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(nonOwner), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(nonOwner), eq(PermissionName.QUIZ_MODERATE))).thenReturn(false);
 
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, null, false);
         assertThatThrownBy(() -> service.createShareLink(quizId, nonOwnerId, req))
@@ -137,7 +135,7 @@ class ShareLinkServiceImplTest {
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(adminId)).thenReturn(Optional.of(admin));
-        when(permissionEvaluator.hasPermission(eq(admin), eq(PermissionName.QUIZ_ADMIN))).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(eq(admin), eq(PermissionName.QUIZ_ADMIN))).thenReturn(true);
         when(shareLinkRepository.save(any(ShareLink.class))).thenAnswer(inv -> {
             ShareLink sl = inv.getArgument(0);
             sl.setId(UUID.randomUUID());
@@ -169,8 +167,8 @@ class ShareLinkServiceImplTest {
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(moderatorId)).thenReturn(Optional.of(moderator));
-        when(permissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
-        when(permissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
         when(shareLinkRepository.save(any(ShareLink.class))).thenAnswer(inv -> {
             ShareLink sl = inv.getArgument(0);
             sl.setId(UUID.randomUUID());
@@ -376,7 +374,7 @@ class ShareLinkServiceImplTest {
 
         when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
         when(userRepository.findById(adminId)).thenReturn(Optional.of(admin));
-        when(permissionEvaluator.hasPermission(eq(admin), eq(PermissionName.QUIZ_ADMIN))).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(eq(admin), eq(PermissionName.QUIZ_ADMIN))).thenReturn(true);
 
         service.revokeShareLink(linkId, adminId);
 
@@ -399,8 +397,8 @@ class ShareLinkServiceImplTest {
 
         when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
         when(userRepository.findById(moderatorId)).thenReturn(Optional.of(moderator));
-        when(permissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
-        when(permissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_ADMIN))).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(moderator), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
 
         service.revokeShareLink(linkId, moderatorId);
 
@@ -442,7 +440,7 @@ class ShareLinkServiceImplTest {
         
         when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
         when(userRepository.findById(nonCreatorId)).thenReturn(Optional.of(nonCreator));
-        when(permissionEvaluator.hasPermission(eq(nonCreator), any())).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(nonCreator), any())).thenReturn(false);
         
         assertThatThrownBy(() -> service.revokeShareLink(linkId, nonCreatorId))
                 .isInstanceOf(uk.gegc.quizmaker.exception.ForbiddenException.class);

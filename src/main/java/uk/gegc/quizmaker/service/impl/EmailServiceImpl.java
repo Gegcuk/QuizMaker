@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.impl;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -7,7 +8,6 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.service.EmailService;
-import jakarta.annotation.PostConstruct;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;

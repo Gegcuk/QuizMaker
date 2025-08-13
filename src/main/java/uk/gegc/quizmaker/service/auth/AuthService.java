@@ -1,17 +1,20 @@
 package uk.gegc.quizmaker.service.auth;
 
 import org.springframework.security.core.Authentication;
-import uk.gegc.quizmaker.dto.auth.*;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.auth.JwtResponse;
+import uk.gegc.quizmaker.dto.auth.LoginRequest;
+import uk.gegc.quizmaker.dto.auth.RefreshRequest;
+import uk.gegc.quizmaker.dto.auth.RegisterRequest;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 
 import java.time.LocalDateTime;
 
 public interface AuthService {
-    UserDto register(RegisterRequest request);
+    AuthenticatedUserDto register(RegisterRequest request);
     JwtResponse login(LoginRequest request);
     JwtResponse refresh(RefreshRequest request);
     void logout(String token);
-    UserDto getCurrentUser(Authentication authentication);
+    AuthenticatedUserDto getCurrentUser(Authentication authentication);
     void generatePasswordResetToken(String email);
     void resetPassword(String token, String newPassword);
     LocalDateTime verifyEmail(String token);

@@ -6,28 +6,28 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
-import org.springframework.lang.NonNull;
 
 import java.io.IOException;
 
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtTokenService jwtTokenService;
     private final TrustedProxyUtil trustedProxyUtil;
 
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, TrustedProxyUtil trustedProxyUtil) {
-        this.jwtTokenProvider = jwtTokenProvider;
+    public JwtAuthenticationFilter(JwtTokenService jwtTokenService, TrustedProxyUtil trustedProxyUtil) {
+        this.jwtTokenService = jwtTokenService;
         this.trustedProxyUtil = trustedProxyUtil;
     }
 
     // Backward-compatible constructor for any old usages/tests
-    public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
-        this(jwtTokenProvider, new TrustedProxyUtil());
+    public JwtAuthenticationFilter(JwtTokenService jwtTokenService) {
+        this(jwtTokenService, new TrustedProxyUtil());
     }
 
     @Override
@@ -36,8 +36,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            if (jwtTokenProvider.validateToken(token)) {
-                Authentication authentication = jwtTokenProvider.getAuthentication(token);
+            if (jwtTokenService.validateToken(token)) {
+                Authentication authentication = jwtTokenService.getAuthentication(token);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 log.debug("Successfully authenticated user: {}", authentication.getName());
             } else {

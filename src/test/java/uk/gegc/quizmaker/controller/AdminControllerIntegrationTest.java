@@ -17,7 +17,7 @@ import uk.gegc.quizmaker.dto.admin.RoleDto;
 import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
 import uk.gegc.quizmaker.model.user.*;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.service.admin.RoleService;
 
 import java.util.*;
@@ -48,7 +48,7 @@ class AdminControllerIntegrationTest {
     private UserRepository userRepository;
 
     @MockitoBean
-    private PermissionEvaluator permissionEvaluator;
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @MockitoBean
     private uk.gegc.quizmaker.security.PermissionUtil permissionUtil;
@@ -128,7 +128,7 @@ class AdminControllerIntegrationTest {
     void getAllRoles_withPermission_success() throws Exception {
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.ROLE_READ)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_READ)).thenReturn(true);
 
         List<RoleDto> roles = Arrays.asList(
                 RoleDto.builder().roleId(1L).roleName("ROLE_USER").build(),
@@ -156,7 +156,7 @@ class AdminControllerIntegrationTest {
     void createRole_withPermission_success() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(true);
 
         CreateRoleRequest request = CreateRoleRequest.builder()
                 .roleName("ROLE_TEST")
@@ -187,7 +187,7 @@ class AdminControllerIntegrationTest {
     void createRole_withoutPermission_forbidden() throws Exception {
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(false);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(false);
 
         CreateRoleRequest request = CreateRoleRequest.builder()
                 .roleName("ROLE_TEST")
@@ -206,7 +206,7 @@ class AdminControllerIntegrationTest {
     void updateRole_withPermission_success() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.ROLE_UPDATE)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_UPDATE)).thenReturn(true);
 
         Long roleId = 1L;
         UpdateRoleRequest request = UpdateRoleRequest.builder()
@@ -237,7 +237,7 @@ class AdminControllerIntegrationTest {
     void deleteRole_withPermission_success() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.ROLE_DELETE)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_DELETE)).thenReturn(true);
 
         Long roleId = 1L;
 
@@ -252,7 +252,7 @@ class AdminControllerIntegrationTest {
     void assignRoleToUser_asAdmin_success() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN)).thenReturn(true);
 
         UUID userId = UUID.randomUUID();
         Long roleId = 1L;
@@ -268,7 +268,7 @@ class AdminControllerIntegrationTest {
     void assignRoleToUser_notAdmin_forbidden() throws Exception {
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN)).thenReturn(false);
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN)).thenReturn(false);
 
         UUID userId = UUID.randomUUID();
         Long roleId = 1L;
@@ -284,8 +284,8 @@ class AdminControllerIntegrationTest {
     void initializeSystem_withSystemAdmin_success() throws Exception {
         // Given
         when(userRepository.findByUsername("superadmin")).thenReturn(Optional.of(superAdminUser));
-        when(permissionEvaluator.getCurrentUser()).thenReturn(superAdminUser);
-        when(permissionEvaluator.hasPermission(PermissionName.SYSTEM_ADMIN)).thenReturn(true);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(superAdminUser);
+        when(appPermissionEvaluator.hasPermission(PermissionName.SYSTEM_ADMIN)).thenReturn(true);
 
         // When & Then
         mockMvc.perform(post("/api/v1/admin/system/initialize"))
@@ -299,8 +299,8 @@ class AdminControllerIntegrationTest {
     void initializeSystem_withoutSystemAdmin_forbidden() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.getCurrentUser()).thenReturn(adminUser);
-        when(permissionEvaluator.hasPermission(PermissionName.SYSTEM_ADMIN)).thenReturn(false);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(adminUser);
+        when(appPermissionEvaluator.hasPermission(PermissionName.SYSTEM_ADMIN)).thenReturn(false);
 
         // Mock the PermissionUtil to throw ForbiddenException when requirePermission is called
         doThrow(new uk.gegc.quizmaker.exception.ForbiddenException("Insufficient permissions to access this resource"))
@@ -317,8 +317,8 @@ class AdminControllerIntegrationTest {
     void getSystemStatus_withPermission_success() throws Exception {
         // Given
         when(userRepository.findByUsername("superadmin")).thenReturn(Optional.of(superAdminUser));
-        when(permissionEvaluator.hasAnyPermission(PermissionName.SYSTEM_ADMIN, PermissionName.AUDIT_READ)).thenReturn(true);
-        when(permissionEvaluator.isSuperAdmin()).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.SYSTEM_ADMIN, PermissionName.AUDIT_READ)).thenReturn(true);
+        when(appPermissionEvaluator.isSuperAdmin()).thenReturn(true);
         when(permissionUtil.isSuperAdmin()).thenReturn(true);
 
         // When & Then
@@ -333,8 +333,8 @@ class AdminControllerIntegrationTest {
     void performDangerousOperation_asSuperAdmin_success() throws Exception {
         // Given
         when(userRepository.findByUsername("superadmin")).thenReturn(Optional.of(superAdminUser));
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_SUPER_ADMIN)).thenReturn(true);
-        when(permissionEvaluator.getCurrentUser()).thenReturn(superAdminUser);
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_SUPER_ADMIN)).thenReturn(true);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(superAdminUser);
         when(permissionUtil.getCurrentUser()).thenReturn(superAdminUser);
 
         // When & Then
@@ -349,7 +349,7 @@ class AdminControllerIntegrationTest {
     void performDangerousOperation_notSuperAdmin_forbidden() throws Exception {
         // Given
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_SUPER_ADMIN)).thenReturn(false);
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_SUPER_ADMIN)).thenReturn(false);
 
         // When & Then
         mockMvc.perform(post("/api/v1/admin/super/dangerous-operation"))

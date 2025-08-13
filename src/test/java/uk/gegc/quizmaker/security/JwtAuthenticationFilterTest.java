@@ -40,7 +40,7 @@ public class JwtAuthenticationFilterTest {
     FilterChain filterChain;
 
     @Mock
-    JwtTokenProvider jwtTokenProvider;
+    JwtTokenService jwtTokenService;
 
     JwtAuthenticationFilter authenticationFilter;
     private ListAppender<ILoggingEvent> logWatcher;
@@ -49,7 +49,7 @@ public class JwtAuthenticationFilterTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        authenticationFilter = new JwtAuthenticationFilter(jwtTokenProvider);
+        authenticationFilter = new JwtAuthenticationFilter(jwtTokenService);
         SecurityContextHolder.clearContext();
         
         // Set up log capture
@@ -84,13 +84,13 @@ public class JwtAuthenticationFilterTest {
         Authentication authentication = mock(Authentication.class);
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
-        when(jwtTokenProvider.getAuthentication(token)).thenReturn(authentication);
+        when(jwtTokenService.validateToken(token)).thenReturn(true);
+        when(jwtTokenService.getAuthentication(token)).thenReturn(authentication);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenProvider).validateToken(token);
-        verify(jwtTokenProvider).getAuthentication(token);
+        verify(jwtTokenService).validateToken(token);
+        verify(jwtTokenService).getAuthentication(token);
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication())
@@ -103,12 +103,12 @@ public class JwtAuthenticationFilterTest {
         String token = "invalid-token";
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(false);
+        when(jwtTokenService.validateToken(token)).thenReturn(false);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenProvider).validateToken(token);
-        verify(jwtTokenProvider, never()).getAuthentication(anyString());
+        verify(jwtTokenService).validateToken(token);
+        verify(jwtTokenService, never()).getAuthentication(anyString());
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
@@ -121,7 +121,7 @@ public class JwtAuthenticationFilterTest {
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenProvider, never()).validateToken(anyString());
+        verify(jwtTokenService, never()).validateToken(anyString());
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
@@ -134,8 +134,8 @@ public class JwtAuthenticationFilterTest {
         when(authentication.getName()).thenReturn("testuser");
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(true);
-        when(jwtTokenProvider.getAuthentication(token)).thenReturn(authentication);
+        when(jwtTokenService.validateToken(token)).thenReturn(true);
+        when(jwtTokenService.getAuthentication(token)).thenReturn(authentication);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
@@ -162,7 +162,7 @@ public class JwtAuthenticationFilterTest {
         when(httpServletRequest.getRemoteAddr()).thenReturn(clientIp);
         when(httpServletRequest.getRequestURI()).thenReturn(requestUri);
         when(httpServletRequest.getHeader("User-Agent")).thenReturn(userAgent);
-        when(jwtTokenProvider.validateToken(token)).thenReturn(false);
+        when(jwtTokenService.validateToken(token)).thenReturn(false);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 

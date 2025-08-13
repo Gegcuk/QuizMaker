@@ -1,33 +1,35 @@
 package uk.gegc.quizmaker.service.auth.impl;
 
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
-import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.auth.EmailVerificationToken;
+import uk.gegc.quizmaker.model.auth.PasswordResetToken;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.auth.EmailVerificationTokenRepository;
+import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.security.JwtTokenService;
 import uk.gegc.quizmaker.service.EmailService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 
@@ -40,8 +42,6 @@ import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
-import jakarta.annotation.PostConstruct;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -52,7 +52,7 @@ public class AuthServiceImpl implements AuthService {
     private final RoleRepository roleRepository;
     private final UserMapper userMapper;
     private final AuthenticationManager authManager;
-    private final JwtTokenProvider jwtTokenProvider;
+    private final JwtTokenService jwtTokenService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
@@ -80,7 +80,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public UserDto register(RegisterRequest request) {
+    public AuthenticatedUserDto register(RegisterRequest request) {
 
         if (userRepository.existsByUsername(request.username())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Username already in use");
@@ -116,10 +116,10 @@ public class AuthServiceImpl implements AuthService {
                     new UsernamePasswordAuthenticationToken(loginRequest.username(), loginRequest.password())
             );
 
-            String accessToken = jwtTokenProvider.generateAccessToken(authentication);
-            String refreshToken = jwtTokenProvider.generateRefreshToken(authentication);
-            long accessExpiresInMs = jwtTokenProvider.getAccessTokenValidityInMs();
-            long refreshExpiresInMs = jwtTokenProvider.getRefreshTokenValidityInMs();
+            String accessToken = jwtTokenService.generateAccessToken(authentication);
+            String refreshToken = jwtTokenService.generateRefreshToken(authentication);
+            long accessExpiresInMs = jwtTokenService.getAccessTokenValidityInMs();
+            long refreshExpiresInMs = jwtTokenService.getRefreshTokenValidityInMs();
 
             return new JwtResponse(accessToken, refreshToken, accessExpiresInMs, refreshExpiresInMs);
         } catch (AuthenticationException ex) {
@@ -134,21 +134,21 @@ public class AuthServiceImpl implements AuthService {
 
         String token = refreshRequest.refreshToken();
 
-        if (!jwtTokenProvider.validateToken(token)) {
+        if (!jwtTokenService.validateToken(token)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
         }
 
-        String type = jwtTokenProvider.getClaims(token).get("type", String.class);
+        String type = jwtTokenService.getClaims(token).get("type", String.class);
         if (!"refresh".equals(type)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is not a refresh token");
         }
 
-        Authentication authentication = jwtTokenProvider.getAuthentication(token);
+        Authentication authentication = jwtTokenService.getAuthentication(token);
 
-        return new JwtResponse(jwtTokenProvider.generateAccessToken(authentication),
+        return new JwtResponse(jwtTokenService.generateAccessToken(authentication),
                 token,
-                jwtTokenProvider.getAccessTokenValidityInMs(),
-                jwtTokenProvider.getRefreshTokenValidityInMs());
+                jwtTokenService.getAccessTokenValidityInMs(),
+                jwtTokenService.getRefreshTokenValidityInMs());
     }
 
     @Override
@@ -157,7 +157,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public UserDto getCurrentUser(Authentication authentication) {
+    public AuthenticatedUserDto getCurrentUser(Authentication authentication) {
         String username = authentication.getName();
         User user = userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))

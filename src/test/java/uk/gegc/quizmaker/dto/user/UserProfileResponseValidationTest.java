@@ -8,17 +8,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class MeResponseValidationTest {
+class UserProfileResponseValidationTest {
 
     @Test
-    @DisplayName("MeResponse should hold provided values")
+    @DisplayName("UserProfileResponse should hold provided values")
     void meResponse_HoldsValues() {
         UUID id = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
-        MeResponse r = new MeResponse(id, "alice", "alice@example.com", "Alice", "bio", "https://avatar",
-                Map.of("theme", "dark"), now, true, List.of("USER"));
+        UserProfileResponse r = new UserProfileResponse(id, "alice", "alice@example.com", "Alice", "bio", "https://avatar",
+                Map.of("theme", "dark"), now, true, List.of("USER"),                         1L);
 
         assertEquals(id, r.id());
         assertEquals("alice", r.username());

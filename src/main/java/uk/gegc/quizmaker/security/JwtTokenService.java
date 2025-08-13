@@ -23,7 +23,7 @@ import java.util.Date;
 @RequiredArgsConstructor
 @Getter
 @Slf4j
-public class JwtTokenProvider {
+public class JwtTokenService {
 
     private final UserDetailsService userDetailsService;
 

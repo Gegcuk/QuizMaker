@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.document.DocumentChunkRepository;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.document.impl.NewDocumentProcessingServiceImpl;
+import uk.gegc.quizmaker.service.document.impl.DocumentProcessingServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class NewDocumentProcessingServiceIntegrationTest {
 
     @Autowired
-    private NewDocumentProcessingServiceImpl documentProcessingService;
+    private DocumentProcessingServiceImpl documentProcessingService;
 
     @Autowired
     private UserRepository userRepository;

@@ -21,7 +21,7 @@ import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.mapper.UserMapper;
@@ -32,7 +32,7 @@ import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.auth.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.repository.user.RoleRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.JwtTokenProvider;
+import uk.gegc.quizmaker.security.JwtTokenService;
 import uk.gegc.quizmaker.service.EmailService;
 import uk.gegc.quizmaker.service.auth.impl.AuthServiceImpl;
 
@@ -61,7 +61,7 @@ class AuthServiceImplTest {
     @Mock
     private AuthenticationManager authManager;
     @Mock
-    private JwtTokenProvider jwtTokenProvider;
+    private JwtTokenService jwtTokenService;
 
     @Mock
     private PasswordResetTokenRepository passwordResetTokenRepository;
@@ -85,7 +85,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("register: saves new user and returns UserDto")
+    @DisplayName("register: saves new user and returns AuthenticatedUserDto")
     void register_happy() {
         var req = new RegisterRequest("john", "john@example.com", "secret123");
         when(userRepository.existsByUsername("john")).thenReturn(false);
@@ -113,7 +113,7 @@ class AuthServiceImplTest {
 
         when(userRepository.save(captor.capture())).thenReturn(saved);
 
-        UserDto expectedDto = new UserDto(
+        AuthenticatedUserDto expectedDto = new AuthenticatedUserDto(
                 saved.getId(),
                 "john",
                 "john@example.com",
@@ -125,7 +125,7 @@ class AuthServiceImplTest {
         );
         when(userMapper.toDto(saved)).thenReturn(expectedDto);
 
-        UserDto result = authService.register(req);
+        AuthenticatedUserDto result = authService.register(req);
 
         assertEquals(expectedDto, result);
         User passed = captor.getValue();
@@ -166,13 +166,13 @@ class AuthServiceImplTest {
         Authentication auth = mock(Authentication.class);
         when(authManager.authenticate(any()))
                 .thenReturn(auth);
-        when(jwtTokenProvider.generateAccessToken(auth))
+        when(jwtTokenService.generateAccessToken(auth))
                 .thenReturn("access.jwt");
-        when(jwtTokenProvider.generateRefreshToken(auth))
+        when(jwtTokenService.generateRefreshToken(auth))
                 .thenReturn("refresh.jwt");
-        when(jwtTokenProvider.getAccessTokenValidityInMs())
+        when(jwtTokenService.getAccessTokenValidityInMs())
                 .thenReturn(1000L);
-        when(jwtTokenProvider.getRefreshTokenValidityInMs())
+        when(jwtTokenService.getRefreshTokenValidityInMs())
                 .thenReturn(5000L);
 
         JwtResponse resp = authService.login(req);
@@ -201,16 +201,16 @@ class AuthServiceImplTest {
     @DisplayName("refresh: valid refresh token returns new access token")
     void refresh_happy() {
         var req = new RefreshRequest("valid.token");
-        when(jwtTokenProvider.validateToken("valid.token")).thenReturn(true);
+        when(jwtTokenService.validateToken("valid.token")).thenReturn(true);
         Claims claims = mock(Claims.class);
         when(claims.get("type", String.class)).thenReturn("refresh");
-        when(jwtTokenProvider.getClaims("valid.token")).thenReturn(claims);
+        when(jwtTokenService.getClaims("valid.token")).thenReturn(claims);
 
         Authentication auth = mock(Authentication.class);
-        when(jwtTokenProvider.getAuthentication("valid.token")).thenReturn(auth);
-        when(jwtTokenProvider.generateAccessToken(auth)).thenReturn("new.access");
-        when(jwtTokenProvider.getAccessTokenValidityInMs()).thenReturn(1234L);
-        when(jwtTokenProvider.getRefreshTokenValidityInMs()).thenReturn(5678L);
+        when(jwtTokenService.getAuthentication("valid.token")).thenReturn(auth);
+        when(jwtTokenService.generateAccessToken(auth)).thenReturn("new.access");
+        when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(1234L);
+        when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(5678L);
 
         JwtResponse out = authService.refresh(req);
 
@@ -223,7 +223,7 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("refresh: invalid token yields 401")
     void refresh_invalidToken() {
-        when(jwtTokenProvider.validateToken("bad")).thenReturn(false);
+        when(jwtTokenService.validateToken("bad")).thenReturn(false);
         var ex = assertThrows(ResponseStatusException.class,
                 () -> authService.refresh(new RefreshRequest("bad")));
         assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
@@ -232,10 +232,10 @@ class AuthServiceImplTest {
     @Test
     @DisplayName("refresh: wrong token type yields 400")
     void refresh_wrongType() {
-        when(jwtTokenProvider.validateToken("t")).thenReturn(true);
+        when(jwtTokenService.validateToken("t")).thenReturn(true);
         Claims claims = mock(Claims.class);
         when(claims.get("type", String.class)).thenReturn("access");
-        when(jwtTokenProvider.getClaims("t")).thenReturn(claims);
+        when(jwtTokenService.getClaims("t")).thenReturn(claims);
 
         var ex = assertThrows(ResponseStatusException.class,
                 () -> authService.refresh(new RefreshRequest("t")));
@@ -249,7 +249,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("getCurrentUser: returns UserDto when found")
+    @DisplayName("getCurrentUser: returns AuthenticatedUserDto when found")
     void getCurrentUser_happy() {
         Authentication auth = mock(Authentication.class);
         when(auth.getName()).thenReturn("john");
@@ -258,7 +258,7 @@ class AuthServiceImplTest {
         when(userRepository.findByUsername("john"))
                 .thenReturn(Optional.of(user));
 
-        UserDto dto = new UserDto(
+        AuthenticatedUserDto dto = new AuthenticatedUserDto(
                 UUID.randomUUID(),
                 "john",
                 "john@example.com",
@@ -270,7 +270,7 @@ class AuthServiceImplTest {
         );
         when(userMapper.toDto(user)).thenReturn(dto);
 
-        UserDto out = authService.getCurrentUser(auth);
+        AuthenticatedUserDto out = authService.getCurrentUser(auth);
         assertEquals(dto, out);
     }
 
