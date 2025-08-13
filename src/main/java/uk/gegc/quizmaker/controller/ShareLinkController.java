@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptRequest;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
 import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
+import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
 import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
@@ -352,6 +353,41 @@ public class ShareLinkController {
 
         List<AnswerSubmissionDto> result = attemptService.submitBatch("anonymous", attemptId, request);
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/shared/attempts/{attemptId}/stats")
+    @Operation(
+        summary = "Get anonymous attempt statistics",
+        description = "Returns statistics for an anonymous attempt when a valid share token cookie is present."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Attempt statistics",
+            content = @Content(schema = @Schema(implementation = AttemptStatsDto.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid token or request"),
+        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz")
+    })
+    public ResponseEntity<AttemptStatsDto> getAnonymousAttemptStats(
+            @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
+            HttpServletRequest httpRequest
+    ) {
+        String token = cookieManager.getShareLinkToken(httpRequest)
+                .orElseThrow(() -> new IllegalArgumentException("Valid share token required"));
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
+
+        ShareLinkDto shareLink = shareLinkService.validateToken(token);
+        UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId)) {
+            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+        }
+
+        String ipAddress = getClientIpAddress(httpRequest);
+        String tokenHash = shareLinkService.hashToken(token);
+        rateLimitService.checkRateLimit("share-link-stats", ipAddress + "|" + tokenHash, 60);
+
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        return ResponseEntity.ok(stats);
     }
 
     @PostMapping("/shared/attempts/{attemptId}/complete")

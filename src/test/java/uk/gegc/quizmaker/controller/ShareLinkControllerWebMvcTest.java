@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
+import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
@@ -37,6 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(ShareLinkController.class)
@@ -648,6 +650,120 @@ class ShareLinkControllerWebMvcTest {
                         .with(csrf())
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: success 200")
+    void getAnonymousAttemptStats_success() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        AttemptStatsDto stats = new AttemptStatsDto(attemptId, java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(12), 5, 4, 80.0, 100.0, java.util.List.of(), Instant.now().minusSeconds(60), Instant.now());
+        when(attemptService.getAttemptStats(attemptId)).thenReturn(stats);
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attemptId").value(attemptId.toString()));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: missing cookie -> 400")
+    void getAnonymousAttemptStats_missingCookie_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: token not found -> 404")
+    void getAnonymousAttemptStats_tokenNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenThrow(new ResourceNotFoundException("not found"));
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: attempt not found -> 404")
+    void getAnonymousAttemptStats_attemptNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenThrow(new ResourceNotFoundException("Attempt not found"));
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: quiz mismatch -> 404")
+    void getAnonymousAttemptStats_quizMismatch_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(UUID.randomUUID());
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: invalid token format -> 400")
+    void getAnonymousAttemptStats_invalidTokenFormat_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of("bad-token")); // not 43 chars
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", "bad-token")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: rate limited -> 429 with Retry-After")
+    void getAnonymousAttemptStats_rateLimited_returns429() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        doThrow(new RateLimitExceededException("Too many", 17))
+                .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "17"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Get anonymous attempt stats: unexpected error -> 500")
+    void getAnonymousAttemptStats_unexpectedError_returns500() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.getAttemptStats(attemptId)).thenThrow(new RuntimeException("boom"));
+
+        mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isInternalServerError());
     }
 
     @Test
