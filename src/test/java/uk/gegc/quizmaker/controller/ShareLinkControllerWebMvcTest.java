@@ -14,6 +14,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
+import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
 import uk.gegc.quizmaker.dto.attempt.StartAttemptResponse;
 import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
 import uk.gegc.quizmaker.exception.RateLimitExceededException;
@@ -517,6 +518,135 @@ class ShareLinkControllerWebMvcTest {
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: success 200")
+    void completeAnonymousAttempt_success() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+
+        AttemptResultDto res = new AttemptResultDto(attemptId, quizId, null, Instant.now().minusSeconds(60), Instant.now(), 5.0, 5, 5, java.util.List.of());
+        when(attemptService.completeAttempt(eq("anonymous"), eq(attemptId))).thenReturn(res);
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attemptId").value(attemptId.toString()))
+                .andExpect(jsonPath("$.quizId").value(quizId.toString()));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: missing cookie -> 400")
+    void completeAnonymousAttempt_missingCookie_returns400() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: token not found -> 404")
+    void completeAnonymousAttempt_tokenNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenThrow(new ResourceNotFoundException("not found"));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: attempt not found -> 404")
+    void completeAnonymousAttempt_attemptNotFound_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenThrow(new ResourceNotFoundException("Attempt not found"));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: quiz mismatch -> 404")
+    void completeAnonymousAttempt_quizMismatch_returns404() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(UUID.randomUUID());
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: rate limited -> 429")
+    void completeAnonymousAttempt_rateLimited_returns429() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        doThrow(new RateLimitExceededException("Too many", 31))
+                .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "31"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Complete anonymous attempt: conflict -> 409")
+    void completeAnonymousAttempt_conflict_returns409() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.completeAttempt(eq("anonymous"), eq(attemptId)))
+                .thenThrow(new IllegalStateException("Already completed"));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Complete anonymous attempt: unauthenticated allowed -> 200")
+    void completeAnonymousAttempt_unauthenticated_success() throws Exception {
+        UUID attemptId = UUID.randomUUID();
+        when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
+        when(shareLinkService.validateToken(token)).thenReturn(shareLink);
+        when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(shareLinkService.hashToken(token)).thenReturn("hash");
+        when(attemptService.completeAttempt(eq("anonymous"), eq(attemptId)))
+                .thenReturn(new AttemptResultDto(attemptId, quizId, null, Instant.now().minusSeconds(10), Instant.now(), 5.0, 5, 5, java.util.List.of()));
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
                 .andExpect(status().isOk());
     }
 
