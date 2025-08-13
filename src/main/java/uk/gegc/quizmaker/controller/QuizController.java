@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,15 +21,15 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.dto.attempt.AttemptDto;
+import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
@@ -40,6 +41,7 @@ import uk.gegc.quizmaker.model.quiz.GenerationStatus;
 import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
 import uk.gegc.quizmaker.model.quiz.Visibility;
 import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
@@ -314,6 +316,34 @@ public class QuizController {
     ) {
         List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
         return ResponseEntity.ok(leaderBoardEntryDtos);
+    }
+
+    @Operation(
+            summary = "Owner-only: List attempts for a quiz",
+            description = "Returns all attempts for the specified quiz. Only the quiz owner can access this endpoint.")
+    @GetMapping("/{quizId}/attempts")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<AttemptDto>> listAttemptsForQuizOwner(
+            @Parameter(description = "UUID of the quiz", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        List<AttemptDto> attempts = attemptService.getAttemptsForQuizOwner(authentication.getName(), quizId);
+        return ResponseEntity.ok(attempts);
+    }
+
+    @Operation(
+            summary = "Owner-only: Attempt stats for a quiz",
+            description = "Returns attempt statistics for a specific attempt belonging to the quiz. Only the quiz owner can access this endpoint.")
+    @GetMapping("/{quizId}/attempts/{attemptId}/stats")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<AttemptStatsDto> getAttemptStatsForQuizOwner(
+            @Parameter(description = "UUID of the quiz", required = true) @PathVariable UUID quizId,
+            @Parameter(description = "UUID of the attempt", required = true) @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        AttemptStatsDto stats = attemptService.getAttemptStatsForQuizOwner(authentication.getName(), quizId, attemptId);
+        return ResponseEntity.ok(stats);
     }
 
     @Operation(

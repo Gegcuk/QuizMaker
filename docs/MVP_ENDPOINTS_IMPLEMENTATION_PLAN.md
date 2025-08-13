@@ -19,9 +19,9 @@
 - [ ] **🔍 Search Enhancement** (Week 2 Priority)
   - [x] Extend `GET /api/v1/quizzes` with search parameters
   - [x] Add faceted filtering (tags, difficulty, category)
-  - [ ] Implement ETag support for caching
-  - [ ] Add rate limiting (120/min per IP)
-  - [ ] Optimize database queries with proper indexes
+  - [x] Implement ETag support for caching
+  - [x] Add rate limiting (120/min per IP)
+  - [x] Optimize database queries with proper indexes
 
 ### 🚀 **MEDIUM PRIORITY** - Do These Second
 - [ ] **📝 Attempts Enhancements** (Week 2)
@@ -32,10 +32,17 @@
   - [ ] Add event emission for analytics
 
 - [ ] **🔗 Share-Links Polish** (Week 2)
-  - [ ] Add rate limiting to share-link endpoints
-  - [ ] Enhance analytics tracking
+  - [x] Add rate limiting to share-link endpoints
+  - [x] Enhance analytics tracking
   - [ ] Implement anonymous attempt support
-  - [ ] Add cookie-based authorization
+    - [x] Start anonymous attempt via token: POST /api/v1/quizzes/shared/{token}/attempts
+    - [ ] Submit anonymous answer: POST /api/v1/quizzes/shared/attempts/{attemptId}/answers
+    - [ ] Batch submit (optional): POST /api/v1/quizzes/shared/attempts/{attemptId}/answers/batch
+    - [ ] Complete anonymous attempt: POST /api/v1/quizzes/shared/attempts/{attemptId}/complete
+    - [ ] Anonymous view results (token-gated): GET /api/v1/quizzes/shared/attempts/{attemptId}/stats
+    - [ ] Creator view anonymous attempts for own quiz:
+      - [ ] List: GET /api/v1/quizzes/{quizId}/attempts (owner-only)
+      - [ ] Stats: GET /api/v1/quizzes/{quizId}/attempts/{attemptId}/stats (owner-only)
 
 ### 💰 **HIGH PRIORITY** — Killer Feature: AI Generation + Payments
 - [ ] **🤖 AI Generation + Payments** (Move to Week 2)
@@ -1325,11 +1332,11 @@ public class MetricsService {
 
 ### Phase 3: Search & Attempts (Week 3)
 - [x] Enhance quiz search with faceted filtering
-- [ ] Add ETag support
-- [ ] Implement active attempts endpoint
-- [ ] Add idempotency to attempt operations
-- [ ] Enhance share-link rate limiting
-- [ ] Add analytics tracking
+ - [x] Add ETag support
+ - [ ] Implement active attempts endpoint
+ - [ ] Add idempotency to attempt operations
+ - [x] Enhance share-link rate limiting
+ - [x] Add analytics tracking
 - [x] Write integration tests
 - [ ] Deploy and monitor
 

@@ -68,4 +68,29 @@ public interface AttemptService {
     List<AttemptDto> getAttemptsByDateRange(LocalDate start, LocalDate end);
 
     void flagSuspiciousActivity(UUID attemptId, String reason);
+
+    /**
+     * Start an anonymous attempt for a quiz accessed via a valid share link.
+     * The attempt will be associated with a special anonymous user context and
+     * subject to additional rate limits and visibility constraints.
+     */
+    StartAttemptResponse startAnonymousAttempt(UUID quizId, UUID shareLinkId, AttemptMode mode);
+
+    /**
+     * Returns the quizId associated with the given attempt.
+     */
+    UUID getAttemptQuizId(UUID attemptId);
+
+    UUID getAttemptShareLinkId(UUID attemptId);
+
+    /**
+     * Owner-only: list all attempts for a given quiz.
+     */
+    List<AttemptDto> getAttemptsForQuizOwner(String username, UUID quizId);
+
+    /**
+     * Owner-only: get stats for an attempt that belongs to the given quiz.
+     * Returns 404 if the attempt does not belong to the quiz to avoid information leakage.
+     */
+    AttemptStatsDto getAttemptStatsForQuizOwner(String username, UUID quizId, UUID attemptId);
 }
