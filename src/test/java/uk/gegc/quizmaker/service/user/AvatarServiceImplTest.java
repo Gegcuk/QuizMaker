@@ -229,6 +229,62 @@ class AvatarServiceImplTest {
         String url = avatarService.uploadAndAssignAvatar("fp", file);
         assertTrue(url.startsWith("http://test-host/avatars/"));
     }
+
+    @Test
+    void pixelBombRejectedOver40MP() {
+        // 10000 x 10000 = 100,000,000 > 40,000,000
+        byte[] png = TestImageFactory.makePng(10_000, 10_000, java.awt.Color.BLACK, null);
+        MockMultipartFile file = new MockMultipartFile("file", "bomb.png", "image/png", png);
+        when(userRepository.findByUsername("bomb")).thenReturn(Optional.of(new User()));
+        assertThrows(IllegalArgumentException.class, () -> avatarService.uploadAndAssignAvatar("bomb", file));
+    }
+
+    @Test
+    void boundaryAllowedAt40MPAndScaled() throws Exception {
+        // 10000 x 4000 = 40,000,000 -> allowed, then scaled to <= 512
+        when(userRepository.findByUsername("edge")).thenReturn(Optional.of(new User()));
+        byte[] png = TestImageFactory.makePng(10_000, 4_000, java.awt.Color.PINK, null);
+        String url = avatarService.uploadAndAssignAvatar("edge", new MockMultipartFile("file", "edge.png", "image/png", png));
+        Path f = tempDir.resolve(url.substring(url.lastIndexOf('/') + 1));
+        java.awt.image.BufferedImage out = javax.imageio.ImageIO.read(f.toFile());
+        assertTrue(Math.max(out.getWidth(), out.getHeight()) <= 512);
+    }
+
+    @Test
+    void oldAvatarDeletedAfterCommit() throws Exception {
+        // first upload creates initial avatar
+        User user = new User();
+        when(userRepository.findByUsername("user")).thenReturn(Optional.of(user));
+        byte[] first = TestImageFactory.makePng(200, 150, java.awt.Color.CYAN, null);
+        String url1 = avatarService.uploadAndAssignAvatar("user", new MockMultipartFile("file", "a.png", "image/png", first));
+        Path f1 = tempDir.resolve(url1.substring(url1.lastIndexOf('/') + 1));
+        assertTrue(Files.exists(f1));
+
+        // second upload should mark the first one for deletion on commit
+        byte[] second = TestImageFactory.makePng(300, 300, java.awt.Color.MAGENTA, null);
+        String url2 = avatarService.uploadAndAssignAvatar("user", new MockMultipartFile("file", "b.png", "image/png", second));
+        Path f2 = tempDir.resolve(url2.substring(url2.lastIndexOf('/') + 1));
+        assertTrue(Files.exists(f2));
+
+        // simulate transaction commit callbacks
+        for (var sync : TransactionSynchronizationManager.getSynchronizations()) {
+            sync.afterCommit();
+        }
+
+        assertFalse(Files.exists(f1));
+        assertTrue(Files.exists(f2));
+    }
+
+    @Test
+    void noUpscaleWhen512x512() throws Exception {
+        when(userRepository.findByUsername("square")).thenReturn(Optional.of(new User()));
+        byte[] exact = TestImageFactory.makePng(512, 512, java.awt.Color.GRAY, null);
+        String url = avatarService.uploadAndAssignAvatar("square", new MockMultipartFile("file", "sq.png", "image/png", exact));
+        Path f = tempDir.resolve(url.substring(url.lastIndexOf('/') + 1));
+        java.awt.image.BufferedImage out = javax.imageio.ImageIO.read(f.toFile());
+        assertEquals(512, out.getWidth());
+        assertEquals(512, out.getHeight());
+    }
 }
 
 

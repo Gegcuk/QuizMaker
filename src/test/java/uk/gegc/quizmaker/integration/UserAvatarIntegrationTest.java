@@ -27,6 +27,15 @@ class UserAvatarIntegrationTest {
                         .contentType(MediaType.MULTIPART_FORM_DATA))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    @WithMockUser(username = "it-user")
+    void uploadAvatar_empty_returns400() throws Exception {
+        MockMultipartFile empty = new MockMultipartFile("file", "x.png", "image/png", new byte[]{});
+        mockMvc.perform(multipart("/api/v1/users/me/avatar").file(empty)
+                        .contentType(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(status().isBadRequest());
+    }
 }
 
 
