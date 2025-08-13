@@ -9,10 +9,14 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.dto.user.AvatarUploadResponse;
+import uk.gegc.quizmaker.service.user.AvatarService;
 import uk.gegc.quizmaker.service.user.UserProfileService;
 
 
@@ -23,6 +27,7 @@ import uk.gegc.quizmaker.service.user.UserProfileService;
 public class UserController {
 
     private final UserProfileService userProfileService;
+    private final AvatarService avatarService;
 
     @Operation(
             summary = "Get my profile",
@@ -73,5 +78,22 @@ public class UserController {
                 .header("Pragma", "no-cache")
                 .eTag('"' + String.valueOf(body.version() == null ? 0 : body.version()) + '"')
                 .body(body);
+    }
+
+    @Operation(
+            summary = "Upload my avatar",
+            description = "Uploads a new avatar image for the authenticated user. Accepts PNG, JPEG, WEBP. Image is resized to max 512x512.")
+    @ApiResponse(responseCode = "200", description = "Avatar updated successfully",
+            content = @Content(schema = @Schema(implementation = AvatarUploadResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Invalid file or unsupported MIME type")
+    @ApiResponse(responseCode = "401", description = "Not authenticated")
+    @PostMapping(path = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<AvatarUploadResponse> uploadAvatar(
+            Authentication authentication,
+            @RequestPart("file") MultipartFile file
+    ) {
+        String url = avatarService.uploadAndAssignAvatar(authentication.getName(), file);
+        return ResponseEntity.ok(new AvatarUploadResponse(url, "Avatar updated successfully"));
     }
 }
