@@ -44,34 +44,42 @@ class QuizServiceSearchTest {
 
     @BeforeEach
     void setup() {
-        userRepository.deleteAll();
-        categoryRepository.deleteAll();
-        tagRepository.deleteAll();
-
-        User user = new User();
-        user.setUsername("creator");
-        user.setEmail("creator@example.com");
-        user.setHashedPassword("pw");
-        user.setActive(true);
-        user.setDeleted(false);
-        userRepository.save(user);
+        // Avoid deleting core tables to prevent FK violations from other tests/context data.
+        // Ensure a predictable user exists (create if missing)
+        User user = userRepository.findByUsername("creator").orElseGet(() -> {
+            User u = new User();
+            u.setUsername("creator");
+            u.setEmail("creator@example.com");
+            u.setHashedPassword("pw");
+            u.setActive(true);
+            u.setDeleted(false);
+            return userRepository.save(u);
+        });
         username = user.getUsername();
 
-        cat = new Category();
-        cat.setName("General");
-        categoryRepository.save(cat);
+        // Ensure category exists (create if missing)
+        cat = categoryRepository.findByName("General").orElseGet(() -> {
+            Category c = new Category();
+            c.setName("General");
+            return categoryRepository.save(c);
+        });
 
-        tagJava = new Tag();
-        tagJava.setName("Java");
-        tagRepository.save(tagJava);
+        // Ensure tags exist (create if missing)
+        tagJava = tagRepository.findAll().stream().filter(t -> "Java".equals(t.getName())).findFirst().orElseGet(() -> {
+            Tag t = new Tag();
+            t.setName("Java");
+            return tagRepository.save(t);
+        });
+        tagMath = tagRepository.findAll().stream().filter(t -> "Math".equals(t.getName())).findFirst().orElseGet(() -> {
+            Tag t = new Tag();
+            t.setName("Math");
+            return tagRepository.save(t);
+        });
 
-        tagMath = new Tag();
-        tagMath.setName("Math");
-        tagRepository.save(tagMath);
-
-        quizService.createQuiz(username, new CreateQuizRequest("Java Basics", "Intro", Visibility.PRIVATE, Difficulty.EASY, false, false, 10, 5, cat.getId(), List.of(tagJava.getId())));
-        quizService.createQuiz(username, new CreateQuizRequest("Math 101", "Algebra", Visibility.PRIVATE, Difficulty.MEDIUM, false, false, 10, 5, cat.getId(), List.of(tagMath.getId())));
-        quizService.createQuiz(username, new CreateQuizRequest("Mixed", "Java and Math", Visibility.PRIVATE, Difficulty.MEDIUM, false, false, 10, 5, cat.getId(), List.of(tagJava.getId(), tagMath.getId())));
+        // Create sample quizzes; titles unique to avoid constraint issues
+        quizService.createQuiz(username, new CreateQuizRequest("Java Basics Service", "Intro", Visibility.PRIVATE, Difficulty.EASY, false, false, 10, 5, cat.getId(), List.of(tagJava.getId())));
+        quizService.createQuiz(username, new CreateQuizRequest("Math 101 Service", "Algebra", Visibility.PRIVATE, Difficulty.MEDIUM, false, false, 10, 5, cat.getId(), List.of(tagMath.getId())));
+        quizService.createQuiz(username, new CreateQuizRequest("Mixed Service", "Java and Math", Visibility.PRIVATE, Difficulty.MEDIUM, false, false, 10, 5, cat.getId(), List.of(tagJava.getId(), tagMath.getId())));
     }
 
     @Test
