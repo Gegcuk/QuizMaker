@@ -12,7 +12,7 @@ import uk.gegc.quizmaker.exception.ForbiddenException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.RoleName;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.security.annotation.RequireResourceOwnership;
 import uk.gegc.quizmaker.security.annotation.RequireRole;
@@ -29,7 +29,7 @@ import static org.mockito.Mockito.*;
 class PermissionAspectTest {
 
     @Mock
-    private PermissionEvaluator permissionEvaluator;
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @Mock
     private JoinPoint joinPoint;
@@ -48,12 +48,12 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.OR);
 
-        when(permissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkPermission(joinPoint, annotation));
-        verify(permissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
+        verify(appPermissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
 
     @Test
@@ -64,14 +64,14 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.OR);
 
-        when(permissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
+        when(appPermissionEvaluator.hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionAspect.checkPermission(joinPoint, annotation)
         );
-        verify(permissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
+        verify(appPermissionEvaluator).hasAnyPermission(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
 
     @Test
@@ -82,12 +82,12 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.AND);
 
-        when(permissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
+        when(appPermissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkPermission(joinPoint, annotation));
-        verify(permissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
+        verify(appPermissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
 
     @Test
@@ -98,14 +98,14 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new PermissionName[]{PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE});
         when(annotation.operator()).thenReturn(RequirePermission.LogicalOperator.AND);
 
-        when(permissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
+        when(appPermissionEvaluator.hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE))
                 .thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionAspect.checkPermission(joinPoint, annotation)
         );
-        verify(permissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
+        verify(appPermissionEvaluator).hasAllPermissions(PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE);
     }
 
     @Test
@@ -116,12 +116,12 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.OR);
 
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkRole(joinPoint, annotation));
-        verify(permissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
+        verify(appPermissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
     }
 
     @Test
@@ -132,14 +132,14 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.OR);
 
-        when(permissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
+        when(appPermissionEvaluator.hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionAspect.checkRole(joinPoint, annotation)
         );
-        verify(permissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
+        verify(appPermissionEvaluator).hasAnyRole(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
     }
 
     @Test
@@ -150,12 +150,12 @@ class PermissionAspectTest {
         when(annotation.value()).thenReturn(new RoleName[]{RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR});
         when(annotation.operator()).thenReturn(RequireRole.LogicalOperator.AND);
 
-        when(permissionEvaluator.hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
+        when(appPermissionEvaluator.hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR))
                 .thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkRole(joinPoint, annotation));
-        verify(permissionEvaluator).hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
+        verify(appPermissionEvaluator).hasAllRoles(RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR);
     }
 
     @Test
@@ -177,11 +177,11 @@ class PermissionAspectTest {
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
 
-        when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
+        when(appPermissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkResourceOwnership(joinPoint, annotation));
-        verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
+        verify(appPermissionEvaluator).isResourceOwner(resourceOwnerId);
     }
 
     @Test
@@ -203,13 +203,13 @@ class PermissionAspectTest {
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
 
-        when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
+        when(appPermissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionAspect.checkResourceOwnership(joinPoint, annotation)
         );
-        verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
+        verify(appPermissionEvaluator).isResourceOwner(resourceOwnerId);
     }
 
     @Test
@@ -232,11 +232,11 @@ class PermissionAspectTest {
         when(methodSignature.getMethod()).thenReturn(method);
         when(joinPoint.getArgs()).thenReturn(args);
 
-        when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
+        when(appPermissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionAspect.checkResourceOwnership(joinPoint, annotation));
-        verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
+        verify(appPermissionEvaluator).isResourceOwner(resourceOwnerId);
     }
 
     @Test

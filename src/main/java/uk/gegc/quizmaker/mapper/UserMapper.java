@@ -2,7 +2,7 @@ package uk.gegc.quizmaker.mapper;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.RoleName;
 import uk.gegc.quizmaker.model.user.User;
@@ -18,8 +18,8 @@ public class UserMapper {
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
 
-    public UserDto toDto(User user) {
-        return new UserDto(
+    public AuthenticatedUserDto toDto(User user) {
+        return new AuthenticatedUserDto(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),

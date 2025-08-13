@@ -21,7 +21,7 @@ import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,7 +47,7 @@ class ModerationServiceImplTest {
     @Mock
     private uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository auditRepository;
     @Mock
-    private PermissionEvaluator permissionEvaluator;
+    private AppPermissionEvaluator appPermissionEvaluator;
     @Mock
     private java.time.Clock clock;
 
@@ -74,7 +74,7 @@ class ModerationServiceImplTest {
         moderator.setEmail("r@example.com");
 
         // Allow permission guard to pass in submitForReview
-        when(permissionEvaluator.hasPermission(any(User.class), any(PermissionName.class))).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(any(User.class), any(PermissionName.class))).thenReturn(true);
         // Stable clock for Instant.now(clock)
         when(clock.instant()).thenReturn(Instant.parse("2025-01-01T00:00:00Z"));
     }

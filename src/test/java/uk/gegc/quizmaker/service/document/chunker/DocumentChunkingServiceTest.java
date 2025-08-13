@@ -20,16 +20,16 @@ import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
 @ExtendWith(MockitoExtension.class)
-class UniversalChunkingServiceTest {
+class DocumentChunkingServiceTest {
 
     @Mock
     private UniversalChunker mockChunker;
 
-    private UniversalChunkingService chunkingService;
+    private DocumentChunkingService chunkingService;
 
     @BeforeEach
     void setUp() {
-        chunkingService = new UniversalChunkingService(Arrays.asList(mockChunker));
+        chunkingService = new DocumentChunkingService(Arrays.asList(mockChunker));
     }
 
     @Test
@@ -131,7 +131,7 @@ class UniversalChunkingServiceTest {
         when(mockChunker.canHandle(ProcessDocumentRequest.ChunkingStrategy.AUTO)).thenReturn(true);
 
         // Act
-        List<UniversalChunkingService.ChunkerInfo> result = chunkingService.getChunkerInfo();
+        List<DocumentChunkingService.ChunkerInfo> result = chunkingService.getChunkerInfo();
 
         // Assert
         assertNotNull(result);

@@ -19,7 +19,7 @@ import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
 import uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -41,7 +41,7 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;
     private final ShareLinkUsageRepository usageRepository;
-    private final PermissionEvaluator permissionEvaluator;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     @Value("${quizmaker.share-links.token-pepper:}")
     private String tokenPepper;
@@ -69,8 +69,8 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
 
         // Authorization: owner or admin/moderator
         if (!(quiz.getCreator() != null && userId.equals(quiz.getCreator().getId())
-                || permissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN)
-                || permissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE))) {
+                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN)
+                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE))) {
             throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to share this quiz");
         }
 
@@ -163,8 +163,8 @@ public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.Shar
 
         // Owner or admin/moderator can revoke
         if (!(link.getCreatedBy() != null && link.getCreatedBy().getId().equals(userId)
-                || permissionEvaluator.hasPermission(actor, PermissionName.QUIZ_ADMIN)
-                || permissionEvaluator.hasPermission(actor, PermissionName.QUIZ_MODERATE))) {
+                || appPermissionEvaluator.hasPermission(actor, PermissionName.QUIZ_ADMIN)
+                || appPermissionEvaluator.hasPermission(actor, PermissionName.QUIZ_MODERATE))) {
             throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to revoke this share link");
         }
 

@@ -12,9 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.user.MeResponse;
-import uk.gegc.quizmaker.service.user.MeService;
- 
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.service.user.UserProfileService;
+
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -22,18 +22,18 @@ import uk.gegc.quizmaker.service.user.MeService;
 @SecurityRequirement(name = "Bearer Authentication")
 public class UserController {
 
-    private final MeService meService;
+    private final UserProfileService userProfileService;
 
     @Operation(
             summary = "Get my profile",
             description = "Returns the authenticated user's profile"
     )
     @ApiResponse(responseCode = "200", description = "Profile returned",
-            content = @Content(schema = @Schema(implementation = MeResponse.class)))
+            content = @Content(schema = @Schema(implementation = UserProfileResponse.class)))
     @GetMapping(path = "/me")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<MeResponse> getMe(Authentication authentication) {
-        MeResponse body = meService.getCurrentUserProfile(authentication);
+    public ResponseEntity<UserProfileResponse> getMe(Authentication authentication) {
+        UserProfileResponse body = userProfileService.getCurrentUserProfile(authentication);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header("Pragma", "no-cache")
@@ -46,12 +46,12 @@ public class UserController {
             description = "Updates the authenticated user's profile information"
     )
     @ApiResponse(responseCode = "200", description = "Profile updated successfully",
-            content = @Content(schema = @Schema(implementation = MeResponse.class)))
+            content = @Content(schema = @Schema(implementation = UserProfileResponse.class)))
     @ApiResponse(responseCode = "400", description = "Invalid request data")
     @ApiResponse(responseCode = "401", description = "Not authenticated")
     @PatchMapping(path = "/me", consumes = {"application/json", "application/merge-patch+json"})
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<MeResponse> updateMe(
+    public ResponseEntity<UserProfileResponse> updateMe(
             Authentication authentication,
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             @RequestBody JsonNode payload) {
@@ -67,7 +67,7 @@ public class UserController {
                 // treat invalid If-Match as missing; client will get fresh ETag in response
             }
         }
-        MeResponse body = meService.updateCurrentUserProfile(authentication, payload, version);
+        UserProfileResponse body = userProfileService.updateCurrentUserProfile(authentication, payload, version);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header("Pragma", "no-cache")

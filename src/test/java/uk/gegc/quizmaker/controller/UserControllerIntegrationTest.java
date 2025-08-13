@@ -6,13 +6,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
-import uk.gegc.quizmaker.service.user.MeService;
+import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.service.user.UserProfileService;
 
 import java.util.Map;
 
@@ -30,8 +31,8 @@ class UserControllerIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
-    private MeService meService;
+    @MockitoBean
+    private UserProfileService userProfileService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -39,8 +40,8 @@ class UserControllerIntegrationTest {
     @BeforeEach
     void setUp() {
         // Mock the service responses
-        when(meService.getCurrentUserProfile(any())).thenReturn(
-                new uk.gegc.quizmaker.dto.user.MeResponse(
+        when(userProfileService.getCurrentUserProfile(any())).thenReturn(
+                new UserProfileResponse(
                         java.util.UUID.randomUUID(),
                         "integrationtest",
                         "integration@test.com",
@@ -55,13 +56,13 @@ class UserControllerIntegrationTest {
                 )
         );
 
-        when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any())).thenAnswer(invocation -> {
+        when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any())).thenAnswer(invocation -> {
             com.fasterxml.jackson.databind.JsonNode req = invocation.getArgument(1);
             Map<String, Object> prefs = req != null && req.has("preferences") && !req.get("preferences").isNull()
                     ? new com.fasterxml.jackson.databind.ObjectMapper().convertValue(req.get("preferences"), Map.class)
                     :
                     Map.of("theme", "dark", "notifications", Map.of("email", true));
-            return new uk.gegc.quizmaker.dto.user.MeResponse(
+            return new UserProfileResponse(
                     java.util.UUID.randomUUID(),
                     "integrationtest",
                     "integration@test.com",
@@ -113,7 +114,7 @@ class UserControllerIntegrationTest {
     @WithMockUser(username = "integrationtest")
     void shouldUpdateUserProfileSuccessfullyWithAuthentication() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(
                 "Updated Display Name",
                 "Updated bio with <script>alert('xss')</script>",
                 null  // Set preferences to null first
@@ -137,7 +138,7 @@ class UserControllerIntegrationTest {
     @WithMockUser(username = "integrationtest")
     void shouldUpdateUserProfileWithPartialData() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", null, null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", null, null);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -152,7 +153,7 @@ class UserControllerIntegrationTest {
     @DisplayName("Should return 403 when not authenticated for PATCH")
     void shouldReturn403WhenNotAuthenticatedForPatch() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", "New Bio", null);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -179,7 +180,7 @@ class UserControllerIntegrationTest {
     @WithMockUser(username = "integrationtest")
     void shouldHandleXssInBioField() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(
                 "Safe Name",
                 "Bio with <script>alert('xss')</script> and <img src=x onerror=alert('xss')>",
                 null
@@ -213,7 +214,7 @@ class UserControllerIntegrationTest {
                 )
         );
 
-        UpdateMeRequest request = new UpdateMeRequest("John", "Bio", complexPreferences);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("John", "Bio", complexPreferences);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -233,7 +234,7 @@ class UserControllerIntegrationTest {
     @WithMockUser(username = "integrationtest")
     void shouldHandleEmptyStringsInRequest() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("", "", Map.of());
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("", "", Map.of());
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -248,7 +249,7 @@ class UserControllerIntegrationTest {
     @WithMockUser(username = "integrationtest")
     void shouldHandleNullValuesInRequest() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(null, null, null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(null, null, null);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")

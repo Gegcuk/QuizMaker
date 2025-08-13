@@ -9,8 +9,8 @@ import java.util.Map;
 import java.util.UUID;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@Schema(name = "MeResponse", description = "Profile details for the current user")
-public record MeResponse(
+@Schema(name = "UserProfileResponse", description = "Profile details for the current user")
+public record UserProfileResponse(
         @Schema(description = "User ID") UUID id,
         @Schema(description = "Username") String username,
         @Schema(description = "Email") String email,

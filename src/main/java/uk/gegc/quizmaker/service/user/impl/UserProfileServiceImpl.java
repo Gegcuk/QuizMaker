@@ -11,12 +11,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import uk.gegc.quizmaker.dto.user.MeResponse;
-import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.MeService;
+import uk.gegc.quizmaker.service.user.UserProfileService;
 import uk.gegc.quizmaker.util.XssSanitizer;
 
 import java.util.*;
@@ -25,14 +25,14 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class MeServiceImpl implements MeService {
+public class UserProfileServiceImpl implements UserProfileService {
 
     private final UserRepository userRepository;
     private final XssSanitizer xssSanitizer;
     private final ObjectMapper objectMapper;
 
     @Override
-    public MeResponse getCurrentUserProfile(Authentication authentication) {
+    public UserProfileResponse getCurrentUserProfile(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
         }
@@ -53,13 +53,13 @@ public class MeServiceImpl implements MeService {
 
     @Override
     @Transactional
-    public MeResponse updateCurrentUserProfile(Authentication authentication, UpdateMeRequest request) {
+    public UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request) {
         return updateCurrentUserProfile(authentication, request, null);
     }
 
     @Override
     @Transactional
-    public MeResponse updateCurrentUserProfile(Authentication authentication, UpdateMeRequest request, Long ifMatchVersion) {
+    public UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request, Long ifMatchVersion) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
         }
@@ -111,7 +111,7 @@ public class MeServiceImpl implements MeService {
 
     @Override
     @Transactional
-    public MeResponse updateCurrentUserProfile(Authentication authentication, com.fasterxml.jackson.databind.JsonNode mergePatch, Long ifMatchVersion) {
+    public UserProfileResponse updateCurrentUserProfile(Authentication authentication, com.fasterxml.jackson.databind.JsonNode mergePatch, Long ifMatchVersion) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
         }
@@ -183,7 +183,7 @@ public class MeServiceImpl implements MeService {
         }
     }
     
-    private MeResponse toMeResponse(User user) {
+    private UserProfileResponse toMeResponse(User user) {
         List<String> roles = user.getRoles() == null ? List.of() : user.getRoles().stream()
                 .map(Role::getRoleName)
                 .filter(Objects::nonNull)
@@ -207,7 +207,7 @@ public class MeServiceImpl implements MeService {
         String bio = user.getBio();
         String avatarUrl = user.getAvatarUrl();
 
-        return new MeResponse(
+        return new UserProfileResponse(
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),

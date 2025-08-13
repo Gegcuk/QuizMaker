@@ -6,7 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.service.document.chunker.impl.UniversalChapterBasedChunker;
+import uk.gegc.quizmaker.service.document.chunker.impl.ChapterChunker;
 import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 import uk.gegc.quizmaker.util.ChunkTitleGenerator;
 import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
-class UniversalChapterBasedChunkerTest {
+class ChapterChunkerTest {
 
     @Mock
     private SentenceBoundaryDetector sentenceBoundaryDetector;
@@ -26,11 +26,11 @@ class UniversalChapterBasedChunkerTest {
     @Mock
     private ChunkTitleGenerator titleGenerator;
 
-    private UniversalChapterBasedChunker chunker;
+    private ChapterChunker chunker;
 
     @BeforeEach
     void setUp() {
-        chunker = new UniversalChapterBasedChunker(sentenceBoundaryDetector, titleGenerator);
+        chunker = new ChapterChunker(sentenceBoundaryDetector, titleGenerator);
     }
 
     @Test

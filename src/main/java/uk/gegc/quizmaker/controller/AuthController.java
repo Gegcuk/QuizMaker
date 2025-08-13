@@ -17,7 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.auth.*;
-import uk.gegc.quizmaker.dto.user.UserDto;
+import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.auth.AuthService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
@@ -44,7 +44,7 @@ public class AuthController {
             @ApiResponse(responseCode = "409", description = "Username or email already in use")
     })
     @PostMapping("/register")
-    public ResponseEntity<UserDto> register(
+    public ResponseEntity<AuthenticatedUserDto> register(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Registration information",
                     required = true,
@@ -52,7 +52,7 @@ public class AuthController {
             )
             @Valid @RequestBody RegisterRequest request
     ) {
-        UserDto createdUser = authService.register(request);
+        AuthenticatedUserDto createdUser = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 
@@ -129,7 +129,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Not authenticated")
     })
     @GetMapping("/me")
-    public ResponseEntity<UserDto> me(
+    public ResponseEntity<AuthenticatedUserDto> me(
             Authentication authentication
     ) {
         return ResponseEntity.ok(authService.getCurrentUser(authentication));

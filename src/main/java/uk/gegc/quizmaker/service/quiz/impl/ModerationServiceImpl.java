@@ -16,7 +16,7 @@ import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository;
 import uk.gegc.quizmaker.repository.quiz.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,7 +31,7 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
     private final UserRepository userRepository;
     private final QuizMapper quizMapper;
     private final QuizModerationAuditRepository auditRepository;
-    private final PermissionEvaluator permissionEvaluator;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     @Override
     @Transactional
@@ -44,7 +44,7 @@ public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.Mod
 
         // Defensive authorization: creator or has moderation permission
         if (!(quiz.getCreator() != null && userId.equals(quiz.getCreator().getId())
-                || permissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE))) {
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE))) {
             throw new ForbiddenException("Not allowed to submit this quiz for review");
         }
 

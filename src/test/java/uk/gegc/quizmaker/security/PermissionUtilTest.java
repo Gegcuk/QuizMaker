@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 class PermissionUtilTest {
 
     @Mock
-    private PermissionEvaluator permissionEvaluator;
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks
     private PermissionUtil permissionUtil;
@@ -31,24 +31,24 @@ class PermissionUtilTest {
     @DisplayName("requirePermission: does not throw when user has permission")
     void requirePermission_hasPermission() {
         // Given
-        when(permissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(true);
+        when(appPermissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requirePermission(PermissionName.QUIZ_CREATE));
-        verify(permissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
+        verify(appPermissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
     }
 
     @Test
     @DisplayName("requirePermission: throws ForbiddenException when user lacks permission")
     void requirePermission_lacksPermission() {
         // Given
-        when(permissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(PermissionName.QUIZ_CREATE)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requirePermission(PermissionName.QUIZ_CREATE)
         );
-        verify(permissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
+        verify(appPermissionEvaluator).hasPermission(PermissionName.QUIZ_CREATE);
     }
 
     @Test
@@ -56,11 +56,11 @@ class PermissionUtilTest {
     void requireAnyPermission_hasOne() {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
-        when(permissionEvaluator.hasAnyPermission(permissions)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(permissions)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAnyPermission(permissions));
-        verify(permissionEvaluator).hasAnyPermission(permissions);
+        verify(appPermissionEvaluator).hasAnyPermission(permissions);
     }
 
     @Test
@@ -68,13 +68,13 @@ class PermissionUtilTest {
     void requireAnyPermission_lacksAll() {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
-        when(permissionEvaluator.hasAnyPermission(permissions)).thenReturn(false);
+        when(appPermissionEvaluator.hasAnyPermission(permissions)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireAnyPermission(permissions)
         );
-        verify(permissionEvaluator).hasAnyPermission(permissions);
+        verify(appPermissionEvaluator).hasAnyPermission(permissions);
     }
 
     @Test
@@ -82,11 +82,11 @@ class PermissionUtilTest {
     void requireAllPermissions_hasAll() {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
-        when(permissionEvaluator.hasAllPermissions(permissions)).thenReturn(true);
+        when(appPermissionEvaluator.hasAllPermissions(permissions)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAllPermissions(permissions));
-        verify(permissionEvaluator).hasAllPermissions(permissions);
+        verify(appPermissionEvaluator).hasAllPermissions(permissions);
     }
 
     @Test
@@ -94,37 +94,37 @@ class PermissionUtilTest {
     void requireAllPermissions_lacksOne() {
         // Given
         PermissionName[] permissions = {PermissionName.QUIZ_CREATE, PermissionName.QUIZ_UPDATE};
-        when(permissionEvaluator.hasAllPermissions(permissions)).thenReturn(false);
+        when(appPermissionEvaluator.hasAllPermissions(permissions)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireAllPermissions(permissions)
         );
-        verify(permissionEvaluator).hasAllPermissions(permissions);
+        verify(appPermissionEvaluator).hasAllPermissions(permissions);
     }
 
     @Test
     @DisplayName("requireRole: does not throw when user has role")
     void requireRole_hasRole() {
         // Given
-        when(permissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(true);
+        when(appPermissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireRole(RoleName.ROLE_ADMIN));
-        verify(permissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
+        verify(appPermissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
     }
 
     @Test
     @DisplayName("requireRole: throws ForbiddenException when user lacks role")
     void requireRole_lacksRole() {
         // Given
-        when(permissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(false);
+        when(appPermissionEvaluator.hasRole(RoleName.ROLE_ADMIN)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireRole(RoleName.ROLE_ADMIN)
         );
-        verify(permissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
+        verify(appPermissionEvaluator).hasRole(RoleName.ROLE_ADMIN);
     }
 
     @Test
@@ -132,11 +132,11 @@ class PermissionUtilTest {
     void requireAnyRole_hasOne() {
         // Given
         RoleName[] roles = {RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR};
-        when(permissionEvaluator.hasAnyRole(roles)).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyRole(roles)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAnyRole(roles));
-        verify(permissionEvaluator).hasAnyRole(roles);
+        verify(appPermissionEvaluator).hasAnyRole(roles);
     }
 
     @Test
@@ -144,13 +144,13 @@ class PermissionUtilTest {
     void requireAnyRole_lacksAll() {
         // Given
         RoleName[] roles = {RoleName.ROLE_ADMIN, RoleName.ROLE_MODERATOR};
-        when(permissionEvaluator.hasAnyRole(roles)).thenReturn(false);
+        when(appPermissionEvaluator.hasAnyRole(roles)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireAnyRole(roles)
         );
-        verify(permissionEvaluator).hasAnyRole(roles);
+        verify(appPermissionEvaluator).hasAnyRole(roles);
     }
 
     @Test
@@ -158,14 +158,14 @@ class PermissionUtilTest {
     void requireResourceOwnershipOrPermission_ownsResource() {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
-        when(permissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
+        when(appPermissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
                 .thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() ->
                 permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
         );
-        verify(permissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
+        verify(appPermissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
     }
 
     @Test
@@ -173,14 +173,14 @@ class PermissionUtilTest {
     void requireResourceOwnershipOrPermission_noAccess() {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
-        when(permissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
+        when(appPermissionEvaluator.canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN))
                 .thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireResourceOwnershipOrPermission(resourceOwnerId, PermissionName.QUIZ_ADMIN)
         );
-        verify(permissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
+        verify(appPermissionEvaluator).canAccessResource(resourceOwnerId, PermissionName.QUIZ_ADMIN);
     }
 
     @Test
@@ -188,11 +188,11 @@ class PermissionUtilTest {
     void requireResourceOwnership_ownsResource() {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
-        when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
+        when(appPermissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(true);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireResourceOwnership(resourceOwnerId));
-        verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
+        verify(appPermissionEvaluator).isResourceOwner(resourceOwnerId);
     }
 
     @Test
@@ -200,13 +200,13 @@ class PermissionUtilTest {
     void requireResourceOwnership_doesntOwnResource() {
         // Given
         UUID resourceOwnerId = UUID.randomUUID();
-        when(permissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
+        when(appPermissionEvaluator.isResourceOwner(resourceOwnerId)).thenReturn(false);
 
         // When & Then
         assertThrows(ForbiddenException.class, () ->
                 permissionUtil.requireResourceOwnership(resourceOwnerId)
         );
-        verify(permissionEvaluator).isResourceOwner(resourceOwnerId);
+        verify(appPermissionEvaluator).isResourceOwner(resourceOwnerId);
     }
 
     @Test
@@ -214,14 +214,14 @@ class PermissionUtilTest {
     void getCurrentUser_authenticated() {
         // Given
         User expectedUser = new User();
-        when(permissionEvaluator.getCurrentUser()).thenReturn(expectedUser);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(expectedUser);
 
         // When
         User result = permissionUtil.getCurrentUser();
 
         // Then
         assertEquals(expectedUser, result);
-        verify(permissionEvaluator).getCurrentUser();
+        verify(appPermissionEvaluator).getCurrentUser();
     }
 
     @Test
@@ -231,83 +231,83 @@ class PermissionUtilTest {
         UUID expectedId = UUID.randomUUID();
         User user = new User();
         user.setId(expectedId);
-        when(permissionEvaluator.getCurrentUser()).thenReturn(user);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(user);
 
         // When
         UUID result = permissionUtil.getCurrentUserId();
 
         // Then
         assertEquals(expectedId, result);
-        verify(permissionEvaluator).getCurrentUser();
+        verify(appPermissionEvaluator).getCurrentUser();
     }
 
     @Test
     @DisplayName("getCurrentUserId: throws UnauthorizedException when not authenticated")
     void getCurrentUserId_notAuthenticated() {
         // Given
-        when(permissionEvaluator.getCurrentUser()).thenReturn(null);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(null);
 
         // When & Then
         assertThrows(UnauthorizedException.class, () ->
                 permissionUtil.getCurrentUserId()
         );
-        verify(permissionEvaluator).getCurrentUser();
+        verify(appPermissionEvaluator).getCurrentUser();
     }
 
     @Test
     @DisplayName("isAdmin: returns true when user is admin")
     void isAdmin_true() {
         // Given
-        when(permissionEvaluator.isAdmin()).thenReturn(true);
+        when(appPermissionEvaluator.isAdmin()).thenReturn(true);
 
         // When
         boolean result = permissionUtil.isAdmin();
 
         // Then
         assertTrue(result);
-        verify(permissionEvaluator).isAdmin();
+        verify(appPermissionEvaluator).isAdmin();
     }
 
     @Test
     @DisplayName("isAdmin: returns false when user is not admin")
     void isAdmin_false() {
         // Given
-        when(permissionEvaluator.isAdmin()).thenReturn(false);
+        when(appPermissionEvaluator.isAdmin()).thenReturn(false);
 
         // When
         boolean result = permissionUtil.isAdmin();
 
         // Then
         assertFalse(result);
-        verify(permissionEvaluator).isAdmin();
+        verify(appPermissionEvaluator).isAdmin();
     }
 
     @Test
     @DisplayName("isSuperAdmin: returns true when user is super admin")
     void isSuperAdmin_true() {
         // Given
-        when(permissionEvaluator.isSuperAdmin()).thenReturn(true);
+        when(appPermissionEvaluator.isSuperAdmin()).thenReturn(true);
 
         // When
         boolean result = permissionUtil.isSuperAdmin();
 
         // Then
         assertTrue(result);
-        verify(permissionEvaluator).isSuperAdmin();
+        verify(appPermissionEvaluator).isSuperAdmin();
     }
 
     @Test
     @DisplayName("isSuperAdmin: returns false when user is not super admin")
     void isSuperAdmin_false() {
         // Given
-        when(permissionEvaluator.isSuperAdmin()).thenReturn(false);
+        when(appPermissionEvaluator.isSuperAdmin()).thenReturn(false);
 
         // When
         boolean result = permissionUtil.isSuperAdmin();
 
         // Then
         assertFalse(result);
-        verify(permissionEvaluator).isSuperAdmin();
+        verify(appPermissionEvaluator).isSuperAdmin();
     }
 
     @Test
@@ -315,23 +315,23 @@ class PermissionUtilTest {
     void requireAuthentication_authenticated() {
         // Given
         User user = new User();
-        when(permissionEvaluator.getCurrentUser()).thenReturn(user);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(user);
 
         // When & Then
         assertDoesNotThrow(() -> permissionUtil.requireAuthentication());
-        verify(permissionEvaluator).getCurrentUser();
+        verify(appPermissionEvaluator).getCurrentUser();
     }
 
     @Test
     @DisplayName("requireAuthentication: throws UnauthorizedException when not authenticated")
     void requireAuthentication_notAuthenticated() {
         // Given
-        when(permissionEvaluator.getCurrentUser()).thenReturn(null);
+        when(appPermissionEvaluator.getCurrentUser()).thenReturn(null);
 
         // When & Then
         assertThrows(UnauthorizedException.class, () ->
                 permissionUtil.requireAuthentication()
         );
-        verify(permissionEvaluator).getCurrentUser();
+        verify(appPermissionEvaluator).getCurrentUser();
     }
 } 

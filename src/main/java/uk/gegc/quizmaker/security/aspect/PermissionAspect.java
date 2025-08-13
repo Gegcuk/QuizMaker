@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.exception.ForbiddenException;
 import uk.gegc.quizmaker.exception.UnauthorizedException;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.RoleName;
-import uk.gegc.quizmaker.security.PermissionEvaluator;
+import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.security.annotation.RequireResourceOwnership;
 import uk.gegc.quizmaker.security.annotation.RequireRole;
@@ -26,7 +26,7 @@ import java.util.UUID;
 @Slf4j
 public class PermissionAspect {
 
-    private final PermissionEvaluator permissionEvaluator;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     @Before("@annotation(requirePermission)")
     public void checkPermission(JoinPoint joinPoint, RequirePermission requirePermission) {
@@ -36,9 +36,9 @@ public class PermissionAspect {
         boolean hasAccess = false;
 
         if (operator == RequirePermission.LogicalOperator.OR) {
-            hasAccess = permissionEvaluator.hasAnyPermission(requiredPermissions);
+            hasAccess = appPermissionEvaluator.hasAnyPermission(requiredPermissions);
         } else if (operator == RequirePermission.LogicalOperator.AND) {
-            hasAccess = permissionEvaluator.hasAllPermissions(requiredPermissions);
+            hasAccess = appPermissionEvaluator.hasAllPermissions(requiredPermissions);
         }
 
         if (!hasAccess) {
@@ -56,9 +56,9 @@ public class PermissionAspect {
         boolean hasAccess = false;
 
         if (operator == RequireRole.LogicalOperator.OR) {
-            hasAccess = permissionEvaluator.hasAnyRole(requiredRoles);
+            hasAccess = appPermissionEvaluator.hasAnyRole(requiredRoles);
         } else if (operator == RequireRole.LogicalOperator.AND) {
-            hasAccess = permissionEvaluator.hasAllRoles(requiredRoles);
+            hasAccess = appPermissionEvaluator.hasAllRoles(requiredRoles);
         }
 
         if (!hasAccess) {
@@ -110,7 +110,7 @@ public class PermissionAspect {
             throw new UnauthorizedException("Could not verify resource ownership");
         }
 
-        if (!permissionEvaluator.isResourceOwner(resourceOwnerId)) {
+        if (!appPermissionEvaluator.isResourceOwner(resourceOwnerId)) {
             log.warn("Access denied: User is not the owner of the resource. Resource type: {}, Resource owner: {}",
                     resourceType, resourceOwnerId);
             throw new ForbiddenException("You can only access your own " + resourceType);

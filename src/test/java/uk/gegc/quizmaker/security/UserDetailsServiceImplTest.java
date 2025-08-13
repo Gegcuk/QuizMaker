@@ -22,13 +22,13 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
-public class QuizUserDetailsServiceTest {
+public class UserDetailsServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
 
     @InjectMocks
-    private QuizUserDetailsService quizUserDetailsService;
+    private UserDetailsServiceImpl userDetailsServiceImpl;
 
     @Test
     @DisplayName("loadUserByUsername: happy when user exists by username")
@@ -45,7 +45,7 @@ public class QuizUserDetailsServiceTest {
 
         when(userRepository.findByUsernameWithRoles("johndoe")).thenReturn(Optional.of(user));
 
-        UserDetails userDetails = quizUserDetailsService.loadUserByUsername("johndoe");
+        UserDetails userDetails = userDetailsServiceImpl.loadUserByUsername("johndoe");
 
         assertEquals("johndoe", userDetails.getUsername());
         assertEquals("hashedPassword", userDetails.getPassword());
@@ -77,7 +77,7 @@ public class QuizUserDetailsServiceTest {
         when(userRepository.findByEmailWithRoles("jane@example.com"))
                 .thenReturn(Optional.of(user));
 
-        UserDetails ud = quizUserDetailsService.loadUserByUsername("jane@example.com");
+        UserDetails ud = userDetailsServiceImpl.loadUserByUsername("jane@example.com");
 
         assertEquals("janedoe", ud.getUsername());
         assertEquals("hashed2", ud.getPassword());
@@ -99,7 +99,7 @@ public class QuizUserDetailsServiceTest {
 
         assertThrows(
                 UsernameNotFoundException.class,
-                () -> quizUserDetailsService.loadUserByUsername("missing")
+                () -> userDetailsServiceImpl.loadUserByUsername("missing")
         );
         verify(userRepository).findByUsernameWithRoles("missing");
         verify(userRepository).findByEmailWithRoles("missing");

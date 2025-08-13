@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
 @ExtendWith(MockitoExtension.class)
-class UniversalChapterBasedChunkerTest {
+class ChapterChunkerTest {
 
     @Mock
     private SentenceBoundaryDetector sentenceBoundaryDetector;
@@ -29,11 +29,11 @@ class UniversalChapterBasedChunkerTest {
     @Mock
     private ChunkTitleGenerator titleGenerator;
 
-    private UniversalChapterBasedChunker chunker;
+    private ChapterChunker chunker;
 
     @BeforeEach
     void setUp() {
-        chunker = new UniversalChapterBasedChunker(sentenceBoundaryDetector, titleGenerator);
+        chunker = new ChapterChunker(sentenceBoundaryDetector, titleGenerator);
     }
 
     @Test

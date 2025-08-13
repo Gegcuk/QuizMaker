@@ -15,7 +15,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class UniversalChapterBasedChunker implements UniversalChunker {
+public class ChapterChunker implements UniversalChunker {
 
     private final SentenceBoundaryDetector sentenceBoundaryDetector;
     private final ChunkTitleGenerator titleGenerator;

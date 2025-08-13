@@ -22,7 +22,7 @@ import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.chunker.UniversalChunker;
-import uk.gegc.quizmaker.service.document.chunker.UniversalChunkingService;
+import uk.gegc.quizmaker.service.document.chunker.DocumentChunkingService;
 import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
 import uk.gegc.quizmaker.service.document.converter.DocumentConversionService;
 
@@ -38,14 +38,14 @@ import java.util.stream.Collectors;
 @Service("documentProcessingService")
 @RequiredArgsConstructor
 @Slf4j
-public class NewDocumentProcessingServiceImpl implements DocumentProcessingService {
+public class DocumentProcessingServiceImpl implements DocumentProcessingService {
 
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
     private final UserRepository userRepository;
     private final DocumentMapper documentMapper;
     private final DocumentConversionService documentConversionService;
-    private final UniversalChunkingService universalChunkingService;
+    private final DocumentChunkingService documentChunkingService;
 
     @Override
     public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
@@ -123,7 +123,7 @@ public class NewDocumentProcessingServiceImpl implements DocumentProcessingServi
             updateDocumentMetadata(document, convertedDocument);
 
             // Chunk the document using the new universal chunking system
-            List<UniversalChunker.Chunk> chunks = universalChunkingService.chunkDocument(convertedDocument, request);
+            List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
 
             // Store chunks if requested (transactional)
             if (request.getStoreChunks() != null && request.getStoreChunks()) {

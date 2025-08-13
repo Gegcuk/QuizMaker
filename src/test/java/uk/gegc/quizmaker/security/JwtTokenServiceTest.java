@@ -30,11 +30,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Execution(ExecutionMode.SAME_THREAD)
-public class JwtTokenProviderTest {
+public class JwtTokenServiceTest {
 
     private final long accessTokenValidityInMs = 15 * 60 * 1000;
     private final long refreshTokenValidityInMs = 7 * 24 * 60 * 60 * 1000;
-    private JwtTokenProvider jwtTokenProvider;
+    private JwtTokenService jwtTokenService;
     private SecretKey secretKey;
     private String base64Secret;
     private ListAppender<ILoggingEvent> logWatcher;
@@ -45,15 +45,15 @@ public class JwtTokenProviderTest {
         secretKey = Jwts.SIG.HS256.key().build();
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
 
-        jwtTokenProvider = new JwtTokenProvider( null);
-        ReflectionTestUtils.setField(jwtTokenProvider, "base64secret", base64Secret);
-        ReflectionTestUtils.setField(jwtTokenProvider, "accessTokenValidityInMs", accessTokenValidityInMs);
-        ReflectionTestUtils.setField(jwtTokenProvider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
+        jwtTokenService = new JwtTokenService( null);
+        ReflectionTestUtils.setField(jwtTokenService, "base64secret", base64Secret);
+        ReflectionTestUtils.setField(jwtTokenService, "accessTokenValidityInMs", accessTokenValidityInMs);
+        ReflectionTestUtils.setField(jwtTokenService, "refreshTokenValidityInMs", refreshTokenValidityInMs);
 
-        jwtTokenProvider.init();
+        jwtTokenService.init();
         
         // Set up log capture
-        jwtProviderLogger = (Logger) LoggerFactory.getLogger(JwtTokenProvider.class);
+        jwtProviderLogger = (Logger) LoggerFactory.getLogger(JwtTokenService.class);
         jwtProviderLogger.setLevel(Level.DEBUG); // Ensure we capture all log levels
         logWatcher = new ListAppender<>();
         logWatcher.start();
@@ -77,7 +77,7 @@ public class JwtTokenProviderTest {
                 "Alice", null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
 
-        String token = jwtTokenProvider.generateAccessToken(authentication);
+        String token = jwtTokenService.generateAccessToken(authentication);
         assertThat(token).isNotBlank();
 
         Claims claims = Jwts.parser()
@@ -101,9 +101,9 @@ public class JwtTokenProviderTest {
     void generateAccessToken_edge_twoCalls_differentIssuedAtAndExpiry() throws InterruptedException {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Bob", null, List.of());
 
-        String token1 = jwtTokenProvider.generateAccessToken(authentication);
+        String token1 = jwtTokenService.generateAccessToken(authentication);
         Thread.sleep(1000);
-        String token2 = jwtTokenProvider.generateAccessToken(authentication);
+        String token2 = jwtTokenService.generateAccessToken(authentication);
 
         assertThat(token1).isNotEqualTo(token2);
 
@@ -119,7 +119,7 @@ public class JwtTokenProviderTest {
     void generateRefreshToken_happyPath_containsRefreshTypeAndSubjectAndExpiry() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Carol", null, List.of());
 
-        String token = jwtTokenProvider.generateRefreshToken(authentication);
+        String token = jwtTokenService.generateRefreshToken(authentication);
         assertThat(token).isNotBlank();
 
         Claims claims = Jwts.parser()
@@ -141,9 +141,9 @@ public class JwtTokenProviderTest {
     @DisplayName("validateToken: valid access token returns true")
     void validateToken_happyPath_validTokenReturnsTrue() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("John", null, List.of());
-        String validToken = jwtTokenProvider.generateAccessToken(authentication);
+        String validToken = jwtTokenService.generateAccessToken(authentication);
 
-        boolean result = jwtTokenProvider.validateToken(validToken);
+        boolean result = jwtTokenService.validateToken(validToken);
         assertThat(result).isTrue();
     }
 
@@ -151,7 +151,7 @@ public class JwtTokenProviderTest {
     @DisplayName("validateToken: malformed token returns false")
     void validateToken_sad_malformedTokenReturnsFalse() {
         String badToken = "not.a.token";
-        assertThat(jwtTokenProvider.validateToken(badToken)).isFalse();
+        assertThat(jwtTokenService.validateToken(badToken)).isFalse();
     }
 
     @Test
@@ -166,7 +166,7 @@ public class JwtTokenProviderTest {
                 .signWith(secretKey)
                 .compact();
 
-        assertThat(jwtTokenProvider.validateToken(expired)).isFalse();
+        assertThat(jwtTokenService.validateToken(expired)).isFalse();
     }
 
     @Test
@@ -182,7 +182,7 @@ public class JwtTokenProviderTest {
                 .signWith(wrongKey)
                 .compact();
 
-        assertThat(jwtTokenProvider.validateToken(badSignature)).isFalse();
+        assertThat(jwtTokenService.validateToken(badSignature)).isFalse();
     }
 
     @Test
@@ -190,8 +190,8 @@ public class JwtTokenProviderTest {
     void getUsername_happyPath_returnsCorrectUsername() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Lenny", null, List.of());
 
-        String token = jwtTokenProvider.generateRefreshToken(authentication);
-        String username = jwtTokenProvider.getUsername(token);
+        String token = jwtTokenService.generateRefreshToken(authentication);
+        String username = jwtTokenService.getUsername(token);
         assertThat(username).isEqualTo("Lenny");
     }
 
@@ -199,7 +199,7 @@ public class JwtTokenProviderTest {
     @DisplayName("getUsername: invalid token throws JwtException")
     void getUsername_sad_invalidTokenThrows() {
         String badToken = "not.a.token";
-        assertThatThrownBy(() -> jwtTokenProvider.getUsername(badToken)).isInstanceOf(JwtException.class);
+        assertThatThrownBy(() -> jwtTokenService.getUsername(badToken)).isInstanceOf(JwtException.class);
     }
 
     @Test
@@ -207,7 +207,7 @@ public class JwtTokenProviderTest {
     void getAuthentication_happyPath_returnsAuthToken() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
 
-        JwtTokenProvider provider = new JwtTokenProvider(userDetailsService);
+        JwtTokenService provider = new JwtTokenService(userDetailsService);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -229,7 +229,7 @@ public class JwtTokenProviderTest {
     @DisplayName("getAuthentication: invalid token throws JwtException")
     void getAuthentication_sad_invalidTokenThrows() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of());
-        JwtTokenProvider provider = new JwtTokenProvider(userDetailsService);
+        JwtTokenService provider = new JwtTokenService(userDetailsService);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -237,7 +237,7 @@ public class JwtTokenProviderTest {
 
         String badToken = "not.a.token";
 
-        assertThatThrownBy(() -> jwtTokenProvider.getAuthentication(badToken)).isInstanceOf(JwtException.class);
+        assertThatThrownBy(() -> jwtTokenService.getAuthentication(badToken)).isInstanceOf(JwtException.class);
     }
 
     @Test
@@ -254,7 +254,7 @@ public class JwtTokenProviderTest {
                 .signWith(secretKey)
                 .compact();
 
-        boolean result = jwtTokenProvider.validateToken(expired);
+        boolean result = jwtTokenService.validateToken(expired);
         
         assertThat(result).isFalse();
         
@@ -274,7 +274,7 @@ public class JwtTokenProviderTest {
     void validateToken_malformedToken_logsWarnMessage() {
         String malformedToken = "not.a.valid.jwt.token";
         
-        boolean result = jwtTokenProvider.validateToken(malformedToken);
+        boolean result = jwtTokenService.validateToken(malformedToken);
         
         assertThat(result).isFalse();
         assertThat(logWatcher.list)
@@ -295,7 +295,7 @@ public class JwtTokenProviderTest {
                 .signWith(wrongKey)
                 .compact();
 
-        boolean result = jwtTokenProvider.validateToken(invalidSignatureToken);
+        boolean result = jwtTokenService.validateToken(invalidSignatureToken);
         
         assertThat(result).isFalse();
         assertThat(logWatcher.list)

@@ -1,14 +1,14 @@
 package uk.gegc.quizmaker.service.user;
 
 import org.springframework.security.core.Authentication;
-import uk.gegc.quizmaker.dto.user.MeResponse;
-import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
 
-public interface MeService {
-    MeResponse getCurrentUserProfile(Authentication authentication);
-    MeResponse updateCurrentUserProfile(Authentication authentication, UpdateMeRequest request);
-    MeResponse updateCurrentUserProfile(Authentication authentication, UpdateMeRequest request, Long ifMatchVersion);
-    MeResponse updateCurrentUserProfile(Authentication authentication, com.fasterxml.jackson.databind.JsonNode mergePatch, Long ifMatchVersion);
+public interface UserProfileService {
+    UserProfileResponse getCurrentUserProfile(Authentication authentication);
+    UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request);
+    UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request, Long ifMatchVersion);
+    UserProfileResponse updateCurrentUserProfile(Authentication authentication, com.fasterxml.jackson.databind.JsonNode mergePatch, Long ifMatchVersion);
 }
 
 

@@ -5,8 +5,8 @@ import jakarta.validation.constraints.Size;
 
 import java.util.Map;
 
-@Schema(name = "UpdateMeRequest", description = "Request to update user profile.\n\nPATCH semantics: omitted field => no change; present with null => clear the value; present with non-null => set sanitized value.")
-public record UpdateMeRequest(
+@Schema(name = "UpdateUserProfileRequest", description = "Request to update user profile.\n\nPATCH semantics: omitted field => no change; present with null => clear the value; present with non-null => set sanitized value.")
+public record UpdateUserProfileRequest(
         @Schema(description = "Display name (max 50 characters)")
         @Size(max = 50, message = "Display name must not exceed 50 characters")
         String displayName,

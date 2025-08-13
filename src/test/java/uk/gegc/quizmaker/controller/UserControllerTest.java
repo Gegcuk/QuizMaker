@@ -11,9 +11,9 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.user.MeResponse;
-import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
-import uk.gegc.quizmaker.service.user.MeService;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
+import uk.gegc.quizmaker.service.user.UserProfileService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,10 +34,10 @@ class UserControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private MeService meService;
+    private UserProfileService userProfileService;
 
     private ObjectMapper objectMapper;
-    private MeResponse testMeResponse;
+    private UserProfileResponse testUserProfileResponse;
     private UUID userId;
     private LocalDateTime createdAt;
 
@@ -48,7 +48,7 @@ class UserControllerTest {
         userId = UUID.randomUUID();
         createdAt = LocalDateTime.now();
 
-        testMeResponse = new MeResponse(
+        testUserProfileResponse = new UserProfileResponse(
                 userId,
                 "testuser",
                 "test@example.com",
@@ -68,7 +68,7 @@ class UserControllerTest {
     @DisplayName("Should get user profile successfully")
     void shouldGetUserProfileSuccessfully() throws Exception {
         // Given
-        lenient().when(meService.getCurrentUserProfile(any())).thenReturn(testMeResponse);
+        lenient().when(userProfileService.getCurrentUserProfile(any())).thenReturn(testUserProfileResponse);
 
         // When & Then
         mockMvc.perform(get("/api/v1/users/me")
@@ -93,13 +93,13 @@ class UserControllerTest {
     @DisplayName("Should update user profile successfully")
     void shouldUpdateUserProfileSuccessfully() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(
                 "New Display Name",
                 "New bio",
                 Map.of("theme", "light", "notifications", Map.of("email", false))
         );
 
-        MeResponse updatedResponse = new MeResponse(
+        UserProfileResponse updatedResponse = new UserProfileResponse(
                 userId,
                 "testuser",
                 "test@example.com",
@@ -113,7 +113,7 @@ class UserControllerTest {
                 1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
+        lenient().when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -136,9 +136,9 @@ class UserControllerTest {
     @DisplayName("Should update user profile with partial data")
     void shouldUpdateUserProfileWithPartialData() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", null, null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", null, null);
 
-        MeResponse updatedResponse = new MeResponse(
+        UserProfileResponse updatedResponse = new UserProfileResponse(
                 userId,
                 "testuser",
                 "test@example.com",
@@ -152,7 +152,7 @@ class UserControllerTest {
                 1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
+        lenient().when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -170,10 +170,10 @@ class UserControllerTest {
     @DisplayName("Should update user profile with empty strings")
     void shouldUpdateUserProfileWithEmptyStrings() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("", "", Map.of());
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("", "", Map.of());
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
-                .thenReturn(testMeResponse);
+        lenient().when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
+                .thenReturn(testUserProfileResponse);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -202,9 +202,9 @@ class UserControllerTest {
                 )
         );
 
-        UpdateMeRequest request = new UpdateMeRequest("John", "Bio", complexPreferences);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("John", "Bio", complexPreferences);
 
-        MeResponse updatedResponse = new MeResponse(
+        UserProfileResponse updatedResponse = new UserProfileResponse(
                 userId,
                 "testuser",
                 "test@example.com",
@@ -218,7 +218,7 @@ class UserControllerTest {
                 1L
         );
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
+        lenient().when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenReturn(updatedResponse);
 
         // When & Then
@@ -251,7 +251,7 @@ class UserControllerTest {
     @DisplayName("Should return 400 for missing content type in PATCH request")
     void shouldReturn400ForMissingContentTypeInPatchRequest() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", "New Bio", null);
 
         // When & Then
         mockMvc.perform(patch("/api/v1/users/me")
@@ -265,9 +265,9 @@ class UserControllerTest {
     @DisplayName("Should handle service exceptions properly")
     void shouldHandleServiceExceptionsProperly() throws Exception {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", "New Bio", null);
 
-        lenient().when(meService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
+        lenient().when(userProfileService.updateCurrentUserProfile(any(), any(com.fasterxml.jackson.databind.JsonNode.class), any()))
                 .thenThrow(new RuntimeException("Service error"));
 
         // When & Then

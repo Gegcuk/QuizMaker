@@ -167,7 +167,7 @@ public class AuthControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/register → returns 201 CREATED with UserDto")
+    @DisplayName("POST /api/v1/auth/register → returns 201 CREATED with AuthenticatedUserDto")
     void registerSucceeds() throws Exception {
         RegisterRequest request = new RegisterRequest(
                 "newUser",
@@ -311,7 +311,7 @@ public class AuthControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/auth/me → returns 200 OK with current UserDto")
+    @DisplayName("GET /api/v1/auth/me → returns 200 OK with current AuthenticatedUserDto")
     void meSucceeds() throws Exception {
         mockMvc.perform(get("/api/v1/auth/me"))
                 .andExpect(status().isOk());

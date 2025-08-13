@@ -13,12 +13,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
-import uk.gegc.quizmaker.dto.user.MeResponse;
-import uk.gegc.quizmaker.dto.user.UpdateMeRequest;
+import uk.gegc.quizmaker.dto.user.UserProfileResponse;
+import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.model.user.Role;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.impl.MeServiceImpl;
+import uk.gegc.quizmaker.service.user.impl.UserProfileServiceImpl;
 import uk.gegc.quizmaker.util.XssSanitizer;
 
 import java.time.LocalDateTime;
@@ -29,8 +29,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("MeService Implementation Tests")
-class MeServiceImplTest {
+@DisplayName("UserProfileService Implementation Tests")
+class UserProfileServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
@@ -45,7 +45,7 @@ class MeServiceImplTest {
     private Authentication authentication;
 
     @InjectMocks
-    private MeServiceImpl meService;
+    private UserProfileServiceImpl meService;
 
     private User testUser;
     private UUID userId;
@@ -88,7 +88,7 @@ class MeServiceImplTest {
         lenient().when(xssSanitizer.sanitize(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When
-        MeResponse result = meService.getCurrentUserProfile(authentication);
+        UserProfileResponse result = meService.getCurrentUserProfile(authentication);
 
         // Then
         assertNotNull(result);
@@ -118,7 +118,7 @@ class MeServiceImplTest {
         when(objectMapper.readValue("{\"theme\":\"dark\"}", Map.class)).thenReturn(Map.of("theme", "dark"));
 
         // When
-        MeResponse result = meService.getCurrentUserProfile(authentication);
+        UserProfileResponse result = meService.getCurrentUserProfile(authentication);
 
         // Then
         assertNotNull(result);
@@ -213,7 +213,7 @@ class MeServiceImplTest {
         when(userRepository.findByUsernameWithRoles("testuser")).thenReturn(Optional.of(testUser));
 
         // When
-        MeResponse result = meService.getCurrentUserProfile(authentication);
+        UserProfileResponse result = meService.getCurrentUserProfile(authentication);
 
         // Then
         assertNotNull(result);
@@ -231,7 +231,7 @@ class MeServiceImplTest {
         when(objectMapper.readValue("invalid json", Map.class)).thenThrow(new JsonProcessingException("Invalid JSON") {});
 
         // When
-        MeResponse result = meService.getCurrentUserProfile(authentication);
+        UserProfileResponse result = meService.getCurrentUserProfile(authentication);
 
         // Then
         assertNotNull(result);
@@ -242,7 +242,7 @@ class MeServiceImplTest {
     @DisplayName("Should update current user profile successfully")
     void shouldUpdateCurrentUserProfileSuccessfully() throws JsonProcessingException {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(
                 "New Display Name",
                 "New bio with <script>alert('xss')</script>",
                 Map.of("theme", "light", "notifications", Map.of("email", false))
@@ -262,7 +262,7 @@ class MeServiceImplTest {
                 .thenReturn(Map.of("theme", "light", "notifications", Map.of("email", false)));
 
         // When
-        MeResponse result = meService.updateCurrentUserProfile(authentication, request);
+        UserProfileResponse result = meService.updateCurrentUserProfile(authentication, request);
 
         // Then
         assertNotNull(result);
@@ -276,7 +276,7 @@ class MeServiceImplTest {
     @DisplayName("Should update profile with partial data")
     void shouldUpdateProfileWithPartialData() throws JsonProcessingException {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", null, null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", null, null);
 
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
@@ -286,7 +286,7 @@ class MeServiceImplTest {
         when(objectMapper.readValue("{\"theme\":\"dark\"}", Map.class)).thenReturn(Map.of("theme", "dark"));
 
         // When
-        MeResponse result = meService.updateCurrentUserProfile(authentication, request);
+        UserProfileResponse result = meService.updateCurrentUserProfile(authentication, request);
 
         // Then
         assertNotNull(result);
@@ -300,7 +300,7 @@ class MeServiceImplTest {
     @DisplayName("Should throw bad request when preferences serialization fails")
     void shouldThrowBadRequestWhenPreferencesSerializationFails() throws JsonProcessingException {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest(null, null, Map.of("invalid", "data"));
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest(null, null, Map.of("invalid", "data"));
 
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
@@ -319,7 +319,7 @@ class MeServiceImplTest {
     @DisplayName("Should throw unauthorized when updating with null authentication")
     void shouldThrowUnauthorizedWhenUpdatingWithNullAuthentication() {
         // Given
-        UpdateMeRequest request = new UpdateMeRequest("New Name", "New Bio", null);
+        UpdateUserProfileRequest request = new UpdateUserProfileRequest("New Name", "New Bio", null);
 
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
@@ -339,7 +339,7 @@ class MeServiceImplTest {
         when(objectMapper.readValue("{\"theme\":\"dark\"}", Map.class)).thenReturn(Map.of("theme", "dark"));
 
         // When
-        MeResponse result = meService.getCurrentUserProfile(authentication);
+        UserProfileResponse result = meService.getCurrentUserProfile(authentication);
 
         // Then
         assertNotNull(result);
