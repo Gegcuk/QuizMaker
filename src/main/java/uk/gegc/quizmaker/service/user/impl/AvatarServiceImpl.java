@@ -32,7 +32,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -111,6 +110,16 @@ public class AvatarServiceImpl implements AvatarService {
                 throw new DocumentStorageException("Failed to store avatar: " + e.getMessage(), e);
             }
 
+            // Ensure rollback cleanup if anything fails after file persisted
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        safeDelete(output);
+                    }
+                }
+            });
+
             // Update user avatar URL
             User user = userRepository.findByUsername(username)
                     .or(() -> userRepository.findByEmail(username))
@@ -129,12 +138,6 @@ public class AvatarServiceImpl implements AvatarService {
                 @Override
                 public void afterCommit() {
                     deleteOldAvatar(oldUrl, baseDir);
-                }
-                @Override
-                public void afterCompletion(int status) {
-                    if (status == STATUS_ROLLED_BACK) {
-                        safeDelete(output);
-                    }
                 }
             });
 

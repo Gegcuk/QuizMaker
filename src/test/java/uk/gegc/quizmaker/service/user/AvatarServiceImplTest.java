@@ -276,6 +276,38 @@ class AvatarServiceImplTest {
     }
 
     @Test
+    void rollbackDeletesNewFile_whenUserNotFound() throws Exception {
+        byte[] png = TestImageFactory.makePng(100, 80, java.awt.Color.ORANGE, null);
+        // repository returns empty so service throws after file persisted
+        when(userRepository.findByUsername("missing")).thenReturn(Optional.empty());
+
+        // capture the filename by intercepting URL after failure not possible; instead inspect dir pre/post rollback
+        int before = (int) java.nio.file.Files.list(tempDir).count();
+        try {
+            avatarService.uploadAndAssignAvatar("missing", new MockMultipartFile("file", "x.png", "image/png", png));
+            fail("Expected ResourceNotFoundException");
+        } catch (uk.gegc.quizmaker.exception.ResourceNotFoundException ex) {
+            // trigger rollback cleanup
+            for (var sync : TransactionSynchronizationManager.getSynchronizations()) {
+                sync.afterCompletion(org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK);
+            }
+            int after = (int) java.nio.file.Files.list(tempDir).count();
+            assertEquals(before, after, "New file should be deleted on rollback");
+        }
+    }
+
+    @Test
+    void noTmpFilesLeftAfterSuccess() throws Exception {
+        when(userRepository.findByUsername("tmp")).thenReturn(Optional.of(new User()));
+        byte[] png = TestImageFactory.makePng(120, 90, java.awt.Color.BLUE, null);
+        avatarService.uploadAndAssignAvatar("tmp", new MockMultipartFile("file", "x.png", "image/png", png));
+        // ensure no .tmp files present
+        boolean anyTmp = java.nio.file.Files.walk(tempDir)
+                .anyMatch(p -> p.getFileName().toString().endsWith(".tmp"));
+        assertFalse(anyTmp);
+    }
+
+    @Test
     void noUpscaleWhen512x512() throws Exception {
         when(userRepository.findByUsername("square")).thenReturn(Optional.of(new User()));
         byte[] exact = TestImageFactory.makePng(512, 512, java.awt.Color.GRAY, null);
