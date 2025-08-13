@@ -100,7 +100,7 @@ class ShareLinkControllerWebMvcTest {
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         StartAttemptResponse start = new StartAttemptResponse(UUID.randomUUID(), quizId, AttemptMode.ALL_AT_ONCE, 1, null, Instant.now());
-        when(attemptService.startAnonymousAttempt(eq(quizId), any())).thenReturn(start);
+        when(attemptService.startAnonymousAttempt(eq(quizId), any(UUID.class), any(AttemptMode.class))).thenReturn(start);
 
         mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                         .with(csrf()))
@@ -109,7 +109,7 @@ class ShareLinkControllerWebMvcTest {
                 .andExpect(jsonPath("$.quizId").value(quizId.toString()));
 
         verify(shareLinkService).validateToken(token);
-        verify(attemptService).startAnonymousAttempt(eq(quizId), any());
+        verify(attemptService).startAnonymousAttempt(eq(quizId), any(UUID.class), any(AttemptMode.class));
     }
 
     @Test
@@ -165,14 +165,14 @@ class ShareLinkControllerWebMvcTest {
     void startAnonymousAttempt_defaultMode() throws Exception {
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         StartAttemptResponse start = new StartAttemptResponse(UUID.randomUUID(), quizId, AttemptMode.ALL_AT_ONCE, 5, null, Instant.now());
-        when(attemptService.startAnonymousAttempt(eq(quizId), any())).thenReturn(start);
+        when(attemptService.startAnonymousAttempt(eq(quizId), any(UUID.class), any(AttemptMode.class))).thenReturn(start);
 
         mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                         .with(csrf()))
                 .andExpect(status().isCreated());
 
         ArgumentCaptor<AttemptMode> modeCaptor = ArgumentCaptor.forClass(AttemptMode.class);
-        verify(attemptService).startAnonymousAttempt(eq(quizId), modeCaptor.capture());
+        verify(attemptService).startAnonymousAttempt(eq(quizId), any(UUID.class), modeCaptor.capture());
         assertThat(modeCaptor.getValue()).isEqualTo(AttemptMode.ALL_AT_ONCE);
     }
 
@@ -182,7 +182,7 @@ class ShareLinkControllerWebMvcTest {
     void startAnonymousAttempt_explicitMode() throws Exception {
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         StartAttemptResponse start = new StartAttemptResponse(UUID.randomUUID(), quizId, AttemptMode.ONE_BY_ONE, 3, 30, Instant.now());
-        when(attemptService.startAnonymousAttempt(eq(quizId), any())).thenReturn(start);
+        when(attemptService.startAnonymousAttempt(eq(quizId), any(UUID.class), any(AttemptMode.class))).thenReturn(start);
 
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("mode", "ONE_BY_ONE");
@@ -201,7 +201,7 @@ class ShareLinkControllerWebMvcTest {
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         StartAttemptResponse start = new StartAttemptResponse(UUID.randomUUID(), quizId, AttemptMode.ALL_AT_ONCE, 2, null, Instant.now());
-        when(attemptService.startAnonymousAttempt(eq(quizId), any())).thenReturn(start);
+        when(attemptService.startAnonymousAttempt(eq(quizId), any(UUID.class), any(AttemptMode.class))).thenReturn(start);
 
         mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                         .with(csrf()))
@@ -242,6 +242,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
         AnswerSubmissionDto dto = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null);
@@ -269,6 +270,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
         AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null);
@@ -318,6 +320,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
         ObjectNode payload = objectMapper.createObjectNode();
@@ -406,6 +409,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         doThrow(new RateLimitExceededException("Too many", 33))
                 .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
@@ -433,6 +437,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
         ObjectNode a1 = objectMapper.createObjectNode();
@@ -457,6 +462,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
                 .thenThrow(new IllegalStateException("Attempt not in progress"));
@@ -483,6 +489,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
                 .thenThrow(new RuntimeException("boom"));
@@ -508,6 +515,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
                 .thenReturn(java.util.List.of());
@@ -534,6 +542,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
         AttemptResultDto res = new AttemptResultDto(attemptId, quizId, null, Instant.now().minusSeconds(60), Instant.now(), 5.0, 5, 5, java.util.List.of());
@@ -663,6 +672,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         AttemptStatsDto stats = new AttemptStatsDto(attemptId, java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(12), 5, 4, 80.0, 100.0, java.util.List.of(), Instant.now().minusSeconds(60), Instant.now());
         when(attemptService.getAttemptStats(attemptId)).thenReturn(stats);
@@ -743,6 +753,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         doThrow(new RateLimitExceededException("Too many", 17))
                 .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
@@ -761,6 +772,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.getAttemptStats(attemptId)).thenThrow(new RuntimeException("boom"));
 
@@ -899,6 +911,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         doThrow(new RateLimitExceededException("Too many", 17))
                 .when(rateLimitService).checkRateLimit(anyString(), anyString(), anyInt());
@@ -968,6 +981,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.submitAnswer(eq("anonymous"), eq(attemptId), any()))
                 .thenThrow(new RuntimeException("boom"));
@@ -992,6 +1006,7 @@ class ShareLinkControllerWebMvcTest {
         when(cookieManager.getShareLinkToken(any())).thenReturn(Optional.of(token));
         when(shareLinkService.validateToken(token)).thenReturn(shareLink);
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
+        when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         when(attemptService.submitAnswer(eq("anonymous"), eq(attemptId), any()))
                 .thenThrow(new IllegalStateException("Attempt not in progress"));

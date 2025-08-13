@@ -264,7 +264,7 @@ public class ShareLinkController {
         ShareLinkDto shareLink = shareLinkService.validateToken(token);
         AttemptMode mode = (request != null && request.mode() != null) ? request.mode() : AttemptMode.ALL_AT_ONCE;
 
-        StartAttemptResponse response = attemptService.startAnonymousAttempt(shareLink.quizId(), mode);
+        StartAttemptResponse response = attemptService.startAnonymousAttempt(shareLink.quizId(), shareLink.id(), mode);
 
         // Analytics: ATTEMPT_START event
         shareLinkService.recordShareLinkEventByToken(token, ShareLinkEventType.ATTEMPT_START, userAgent, ipAddress, ref);
@@ -299,7 +299,8 @@ public class ShareLinkController {
         // Validate token and attempt-quiz correlation
         ShareLinkDto shareLink = shareLinkService.validateToken(token);
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
-        if (!shareLink.quizId().equals(attemptQuizId)) {
+        UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
             throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
@@ -337,7 +338,8 @@ public class ShareLinkController {
 
         ShareLinkDto shareLink = shareLinkService.validateToken(token);
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
-        if (!shareLink.quizId().equals(attemptQuizId)) {
+        UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
             throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
@@ -372,7 +374,8 @@ public class ShareLinkController {
 
         ShareLinkDto shareLink = shareLinkService.validateToken(token);
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
-        if (!shareLink.quizId().equals(attemptQuizId)) {
+        UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
             throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 

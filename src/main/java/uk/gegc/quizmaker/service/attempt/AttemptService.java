@@ -74,12 +74,14 @@ public interface AttemptService {
      * The attempt will be associated with a special anonymous user context and
      * subject to additional rate limits and visibility constraints.
      */
-    StartAttemptResponse startAnonymousAttempt(UUID quizId, AttemptMode mode);
+    StartAttemptResponse startAnonymousAttempt(UUID quizId, UUID shareLinkId, AttemptMode mode);
 
     /**
      * Returns the quizId associated with the given attempt.
      */
     UUID getAttemptQuizId(UUID attemptId);
+
+    UUID getAttemptShareLinkId(UUID attemptId);
 
     /**
      * Owner-only: list all attempts for a given quiz.

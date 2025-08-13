@@ -6,6 +6,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.ShareLink;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.Instant;
@@ -31,6 +32,10 @@ public class Attempt {
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "quiz_id", nullable = false)
     private Quiz quiz;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "share_link_id")
+    private ShareLink shareLink;
 
     @CreationTimestamp
     @Column(name = "started_at", nullable = false, updatable = false)

@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.model.attempt.AttemptStatus;
 import uk.gegc.quizmaker.model.question.Answer;
 import uk.gegc.quizmaker.model.question.Question;
 import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.model.quiz.ShareLink;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
 import uk.gegc.quizmaker.repository.question.AnswerRepository;
@@ -53,6 +54,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
     private final SafeQuestionMapper safeQuestionMapper;
+    private final uk.gegc.quizmaker.repository.quiz.ShareLinkRepository shareLinkRepository;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -87,9 +89,12 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
-    public StartAttemptResponse startAnonymousAttempt(UUID quizId, AttemptMode mode) {
+    public StartAttemptResponse startAnonymousAttempt(UUID quizId, UUID shareLinkId, AttemptMode mode) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        ShareLink shareLink = shareLinkRepository.findById(shareLinkId)
+                .orElseThrow(() -> new ResourceNotFoundException("ShareLink " + shareLinkId + " not found"));
 
         // Use a sentinel anonymous user (by username), or create one if missing
         User user = userRepository.findByUsername("anonymous")
@@ -106,6 +111,7 @@ public class AttemptServiceImpl implements AttemptService {
         Attempt attempt = new Attempt();
         attempt.setUser(user);
         attempt.setQuiz(quiz);
+        attempt.setShareLink(shareLink);
         attempt.setMode(mode);
         attempt.setStatus(uk.gegc.quizmaker.model.attempt.AttemptStatus.IN_PROGRESS);
 
@@ -132,6 +138,17 @@ public class AttemptServiceImpl implements AttemptService {
         Attempt attempt = attemptRepository.findById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
         return attempt.getQuiz().getId();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UUID getAttemptShareLinkId(UUID attemptId) {
+        Attempt attempt = attemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        if (attempt.getShareLink() == null) {
+            throw new ResourceNotFoundException("Attempt is not bound to a share link");
+        }
+        return attempt.getShareLink().getId();
     }
 
     @Override
