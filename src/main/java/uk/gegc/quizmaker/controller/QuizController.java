@@ -33,6 +33,8 @@ import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
+import uk.gegc.quizmaker.dto.attempt.AttemptDto;
+import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.question.Difficulty;
 import uk.gegc.quizmaker.model.question.QuestionType;
@@ -314,6 +316,34 @@ public class QuizController {
     ) {
         List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
         return ResponseEntity.ok(leaderBoardEntryDtos);
+    }
+
+    @Operation(
+            summary = "Owner-only: List attempts for a quiz",
+            description = "Returns all attempts for the specified quiz. Only the quiz owner can access this endpoint.")
+    @GetMapping("/{quizId}/attempts")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<AttemptDto>> listAttemptsForQuizOwner(
+            @Parameter(description = "UUID of the quiz", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        List<AttemptDto> attempts = attemptService.getAttemptsForQuizOwner(authentication.getName(), quizId);
+        return ResponseEntity.ok(attempts);
+    }
+
+    @Operation(
+            summary = "Owner-only: Attempt stats for a quiz",
+            description = "Returns attempt statistics for a specific attempt belonging to the quiz. Only the quiz owner can access this endpoint.")
+    @GetMapping("/{quizId}/attempts/{attemptId}/stats")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<AttemptStatsDto> getAttemptStatsForQuizOwner(
+            @Parameter(description = "UUID of the quiz", required = true) @PathVariable UUID quizId,
+            @Parameter(description = "UUID of the attempt", required = true) @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        AttemptStatsDto stats = attemptService.getAttemptStatsForQuizOwner(authentication.getName(), quizId, attemptId);
+        return ResponseEntity.ok(stats);
     }
 
     @Operation(

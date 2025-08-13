@@ -80,4 +80,15 @@ public interface AttemptService {
      * Returns the quizId associated with the given attempt.
      */
     UUID getAttemptQuizId(UUID attemptId);
+
+    /**
+     * Owner-only: list all attempts for a given quiz.
+     */
+    List<AttemptDto> getAttemptsForQuizOwner(String username, UUID quizId);
+
+    /**
+     * Owner-only: get stats for an attempt that belongs to the given quiz.
+     * Returns 404 if the attempt does not belong to the quiz to avoid information leakage.
+     */
+    AttemptStatsDto getAttemptStatsForQuizOwner(String username, UUID quizId, UUID attemptId);
 }

@@ -501,6 +501,52 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<AttemptDto> getAttemptsForQuizOwner(String username, UUID quizId) {
+        // Verify quiz exists and is owned by the current user
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(user.getId())) {
+            throw new AccessDeniedException("You do not own quiz " + quizId);
+        }
+
+        return attemptRepository.findByQuiz_Id(quizId).stream()
+                .map(attemptMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttemptStatsDto getAttemptStatsForQuizOwner(String username, UUID quizId, UUID attemptId) {
+        // Verify quiz exists and is owned by the current user
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(user.getId())) {
+            throw new AccessDeniedException("You do not own quiz " + quizId);
+        }
+
+        // Ensure attempt belongs to quiz. If not, return 404 for safety.
+        Attempt attempt = attemptRepository.findByIdWithAnswersAndQuestion(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+
+        if (!attempt.getQuiz().getId().equals(quizId)) {
+            throw new ResourceNotFoundException("Attempt does not belong to quiz " + quizId);
+        }
+
+        return getAttemptStats(attemptId);
+    }
+
+    @Override
     @Transactional
     public AttemptDto pauseAttempt(String username, UUID attemptId) {
         Attempt attempt = attemptRepository.findById(attemptId)
