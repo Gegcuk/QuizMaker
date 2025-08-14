@@ -14,14 +14,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import uk.gegc.quizmaker.config.DocumentProcessingConfig;
-import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
-import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -432,7 +434,7 @@ class DocumentControllerIntegrationTest {
         dto.setOriginalFilename("test.pdf");
         dto.setContentType("application/pdf");
         dto.setFileSize(1000L);
-        dto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        dto.setStatus(Document.DocumentStatus.PROCESSED);
         dto.setUploadedAt(LocalDateTime.now());
         dto.setProcessedAt(LocalDateTime.now());
         dto.setTitle("Test Document");
@@ -455,7 +457,7 @@ class DocumentControllerIntegrationTest {
         dto.setCreatedAt(LocalDateTime.now());
         dto.setChapterTitle("Chapter " + (index + 1));
         dto.setChapterNumber(index + 1);
-        dto.setChunkType(uk.gegc.quizmaker.model.document.DocumentChunk.ChunkType.CHAPTER);
+        dto.setChunkType(DocumentChunk.ChunkType.CHAPTER);
         return dto;
     }
 

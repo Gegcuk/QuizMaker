@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.document.converter;
+package uk.gegc.quizmaker.features.document.application;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

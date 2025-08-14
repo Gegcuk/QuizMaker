@@ -3,8 +3,9 @@ package uk.gegc.quizmaker.service.document.converter.impl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
-import uk.gegc.quizmaker.service.document.converter.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.infra.converter.PdfDocumentConverter;
 
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;

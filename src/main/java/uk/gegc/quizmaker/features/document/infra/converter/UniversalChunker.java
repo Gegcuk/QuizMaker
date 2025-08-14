@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.service.document.chunker;
+package uk.gegc.quizmaker.features.document.infra.converter;
 
 import lombok.Data;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 
 import java.util.List;
 

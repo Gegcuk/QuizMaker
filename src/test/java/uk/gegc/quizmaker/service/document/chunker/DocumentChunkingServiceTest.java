@@ -7,9 +7,11 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.infra.converter.UniversalChunker;
 
 import java.util.Arrays;
 import java.util.List;

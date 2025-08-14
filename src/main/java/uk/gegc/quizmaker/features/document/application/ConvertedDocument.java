@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.document.converter;
+package uk.gegc.quizmaker.features.document.application;
 
 import lombok.Data;
 

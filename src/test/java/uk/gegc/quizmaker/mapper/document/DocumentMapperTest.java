@@ -5,10 +5,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.model.document.Document;
-import uk.gegc.quizmaker.model.document.DocumentChunk;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.infra.mapping.DocumentMapper;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.LocalDateTime;

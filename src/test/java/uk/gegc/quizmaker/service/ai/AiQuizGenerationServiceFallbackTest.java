@@ -11,7 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
 import uk.gegc.quizmaker.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.exception.AiServiceException;
-import uk.gegc.quizmaker.model.document.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;

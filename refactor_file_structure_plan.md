@@ -34,15 +34,6 @@ src/main/java/uk/gegc/quizmaker/
         mapping/
         text/
         util/
-    notification/
-      api/
-      application/
-      domain/
-        model/
-        repository/
-      infra/
-        mapping/
-        scheduling/
     category/
       api/
         dto/
@@ -55,14 +46,6 @@ src/main/java/uk/gegc/quizmaker/
     tag/
       api/
         dto/
-      application/
-      domain/
-        model/
-        repository/
-      infra/
-        mapping/
-    social/
-      api/
       application/
       domain/
         model/
@@ -253,23 +236,6 @@ src/main/java/uk/gegc/quizmaker/
           SentenceBoundaryDetector.java
         util/
           ChunkTitleGenerator.java
-
-    notification/
-      api/
-        NotificationController.java
-      application/
-        NotificationService.java
-        NotificationServiceImpl.java
-      domain/
-        model/
-          Notification.java
-        repository/
-          NotificationRepository.java
-      infra/
-        mapping/
-          NotificationMapper.java
-        scheduling/
-          NotificationScheduler.java
 
     category/
       api/

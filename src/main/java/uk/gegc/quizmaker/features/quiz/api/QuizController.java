@@ -30,7 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.attempt.AttemptDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptStatsDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
@@ -44,7 +44,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobReposi
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
-import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;

@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.mapper.document;
+package uk.gegc.quizmaker.features.document.infra.mapping;
 
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.model.document.Document;
-import uk.gegc.quizmaker.model.document.DocumentChunk;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 
 import java.util.stream.Collectors;
 

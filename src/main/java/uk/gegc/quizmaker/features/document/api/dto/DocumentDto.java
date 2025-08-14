@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.document;
+package uk.gegc.quizmaker.features.document.api.dto;
 
 import lombok.Data;
-import uk.gegc.quizmaker.model.document.Document;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
 
 import java.time.LocalDateTime;
 import java.util.List;

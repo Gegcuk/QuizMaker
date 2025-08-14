@@ -1,11 +1,11 @@
-package uk.gegc.quizmaker.service.document.converter.impl;
+package uk.gegc.quizmaker.features.document.infra.converter;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
 import org.apache.tika.metadata.Metadata;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
-import uk.gegc.quizmaker.service.document.converter.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.application.DocumentConverter;
 
 import java.io.InputStream;
 import java.util.Arrays;

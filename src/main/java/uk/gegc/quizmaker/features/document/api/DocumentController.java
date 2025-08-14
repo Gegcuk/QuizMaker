@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.document.api;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,16 +10,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.config.DocumentProcessingConfig;
-import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
-import uk.gegc.quizmaker.dto.document.DocumentConfigDto;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentConfigDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
-import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 
 import java.util.List;

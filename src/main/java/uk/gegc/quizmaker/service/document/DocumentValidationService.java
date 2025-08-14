@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.service.document;
 
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 
 public interface DocumentValidationService {
 

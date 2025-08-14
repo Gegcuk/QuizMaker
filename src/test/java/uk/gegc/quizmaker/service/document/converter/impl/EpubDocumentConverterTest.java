@@ -6,9 +6,10 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
-import uk.gegc.quizmaker.service.document.converter.DocumentConverter;
-import uk.gegc.quizmaker.service.document.converter.DocumentConverterFactory;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
+import uk.gegc.quizmaker.features.document.infra.converter.EpubDocumentConverter;
 
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;

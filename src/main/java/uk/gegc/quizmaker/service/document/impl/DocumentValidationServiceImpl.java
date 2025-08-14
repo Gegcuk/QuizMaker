@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.service.document.impl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 

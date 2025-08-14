@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.service.document;
+package uk.gegc.quizmaker.features.document.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 
 import java.util.List;
 import java.util.UUID;
