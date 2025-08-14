@@ -8,7 +8,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.ai.ChatResponseDto;
+import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
+import uk.gegc.quizmaker.features.ai.api.AiChatController;
 import uk.gegc.quizmaker.service.AiChatService;
 
 import static org.mockito.ArgumentMatchers.anyString;

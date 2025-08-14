@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.config;
+package uk.gegc.quizmaker.shared.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;

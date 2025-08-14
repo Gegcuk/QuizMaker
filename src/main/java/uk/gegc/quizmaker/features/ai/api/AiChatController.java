@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.ai.api;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -8,8 +8,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import uk.gegc.quizmaker.dto.ai.ChatRequestDto;
-import uk.gegc.quizmaker.dto.ai.ChatResponseDto;
+import uk.gegc.quizmaker.features.ai.api.dto.ChatRequestDto;
+import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
 import uk.gegc.quizmaker.service.AiChatService;
 
 /**

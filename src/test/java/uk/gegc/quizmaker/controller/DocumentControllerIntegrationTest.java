@@ -18,12 +18,13 @@ import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
-import uk.gegc.quizmaker.exception.DocumentNotFoundException;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
+import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -417,7 +418,7 @@ class DocumentControllerIntegrationTest {
 
         when(documentProcessingService.uploadAndProcessDocument(
                 anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
-                .thenThrow(new uk.gegc.quizmaker.exception.DocumentStorageException("File storage failed"));
+                .thenThrow(new DocumentStorageException("File storage failed"));
 
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")

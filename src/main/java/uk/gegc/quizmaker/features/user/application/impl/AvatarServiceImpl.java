@@ -11,11 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.features.user.application.AvatarService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -123,7 +124,7 @@ public class AvatarServiceImpl implements AvatarService {
             // Update user avatar URL
             User user = userRepository.findByUsername(username)
                     .or(() -> userRepository.findByEmail(username))
-                    .orElseThrow(() -> new uk.gegc.quizmaker.exception.ResourceNotFoundException("User " + username + " not found"));
+                    .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
             String oldUrl = user.getAvatarUrl();
             String publicUrl = buildPublicUrl(filename);

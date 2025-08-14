@@ -10,7 +10,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
-import uk.gegc.quizmaker.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.io.IOException;
 

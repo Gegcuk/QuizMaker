@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.impl;
+package uk.gegc.quizmaker.shared.email.impl;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.service.EmailService;
+import uk.gegc.quizmaker.shared.email.EmailService;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;

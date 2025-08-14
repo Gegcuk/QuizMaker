@@ -9,11 +9,12 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.exception.AIResponseParseException;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParserImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
-import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionParserFactory;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 
 import java.util.List;
@@ -38,7 +39,7 @@ class QuestionResponseParserTest {
     private QuestionParserFactory questionParserFactory;
 
     @InjectMocks
-    private uk.gegc.quizmaker.service.ai.parser.impl.QuestionResponseParserImpl questionResponseParser;
+    private QuestionResponseParserImpl questionResponseParser;
 
     private static final String VALID_MCQ_RESPONSE = """
             {

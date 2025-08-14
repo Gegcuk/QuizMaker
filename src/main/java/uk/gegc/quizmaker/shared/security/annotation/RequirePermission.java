@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security.annotation;
+package uk.gegc.quizmaker.shared.security.annotation;
 
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 

@@ -12,7 +12,7 @@ import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.service.ai.parser.ComplianceQuestionParser;
+import uk.gegc.quizmaker.features.ai.infra.parser.ComplianceQuestionParser;
 
 import java.util.List;
 

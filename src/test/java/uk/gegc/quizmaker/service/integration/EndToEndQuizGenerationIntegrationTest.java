@@ -18,7 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -31,7 +31,7 @@ import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 

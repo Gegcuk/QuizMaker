@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security.aspect;
+package uk.gegc.quizmaker.shared.security.aspect;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,10 +11,10 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
-import uk.gegc.quizmaker.security.annotation.RequirePermission;
-import uk.gegc.quizmaker.security.annotation.RequireResourceOwnership;
-import uk.gegc.quizmaker.security.annotation.RequireRole;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
+import uk.gegc.quizmaker.shared.security.annotation.RequireResourceOwnership;
+import uk.gegc.quizmaker.shared.security.annotation.RequireRole;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;

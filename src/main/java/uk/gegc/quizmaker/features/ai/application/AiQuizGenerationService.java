@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.ai;
+package uk.gegc.quizmaker.features.ai.application;
 
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;

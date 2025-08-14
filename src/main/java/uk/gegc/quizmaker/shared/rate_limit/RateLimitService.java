@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service;
+package uk.gegc.quizmaker.shared.rate_limit;
 
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;

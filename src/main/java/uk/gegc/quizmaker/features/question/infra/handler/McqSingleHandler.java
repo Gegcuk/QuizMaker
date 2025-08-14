@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;

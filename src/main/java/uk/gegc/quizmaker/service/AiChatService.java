@@ -1,6 +1,6 @@
 package uk.gegc.quizmaker.service;
 
-import uk.gegc.quizmaker.dto.ai.ChatResponseDto;
+import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
 
 public interface AiChatService {
 

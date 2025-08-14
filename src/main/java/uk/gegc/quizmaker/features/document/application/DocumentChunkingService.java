@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.features.document.infra.converter.UniversalChunker;
 
 import java.util.List;

@@ -1,9 +1,9 @@
-package uk.gegc.quizmaker.service.ai.parser;
+package uk.gegc.quizmaker.features.ai.infra.parser;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.exception.AIResponseParseException;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;

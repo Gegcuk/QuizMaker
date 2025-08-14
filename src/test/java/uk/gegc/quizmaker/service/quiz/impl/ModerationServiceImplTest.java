@@ -13,8 +13,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import uk.gegc.quizmaker.features.quiz.api.dto.PendingReviewQuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.quiz.application.impl.ModerationServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizModerationAudit;
@@ -25,7 +25,7 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.time.Instant;
 import java.util.List;
@@ -163,7 +163,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot unpublish unless PUBLISHED");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -175,7 +175,7 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -190,7 +190,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).save(any());
     }
 
@@ -229,7 +229,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot reject");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -240,7 +240,7 @@ class ModerationServiceImplTest {
         UUID quizId = this.quizId;
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r")).isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -255,7 +255,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }
 
@@ -296,7 +296,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "reason"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot approve");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -307,7 +307,7 @@ class ModerationServiceImplTest {
         UUID quizId = this.quizId;
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r")).isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -322,7 +322,7 @@ class ModerationServiceImplTest {
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }
 

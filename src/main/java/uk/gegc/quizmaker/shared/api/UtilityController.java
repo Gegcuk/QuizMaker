@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.shared.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;

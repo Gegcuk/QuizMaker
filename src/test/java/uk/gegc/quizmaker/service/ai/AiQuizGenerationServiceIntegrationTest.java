@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
@@ -18,6 +19,8 @@ import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -162,7 +165,7 @@ class AiQuizGenerationServiceIntegrationTest {
         UUID nonExistentDocumentId = UUID.randomUUID();
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername()));
+        assertThrows(DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername()));
     }
 
     @Test
@@ -185,6 +188,6 @@ class AiQuizGenerationServiceIntegrationTest {
         QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.ValidationException.class, () -> jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser"));
+        assertThrows(ValidationException.class, () -> jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser"));
     }
 } 

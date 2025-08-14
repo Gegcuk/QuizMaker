@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller.advice;
+package uk.gegc.quizmaker.shared.api.advice;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
@@ -17,7 +17,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
-import uk.gegc.quizmaker.exception.*;
+import uk.gegc.quizmaker.shared.exception.*;
 
 import java.time.LocalDateTime;
 import java.util.List;

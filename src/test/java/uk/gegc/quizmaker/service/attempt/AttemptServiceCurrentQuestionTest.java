@@ -10,7 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.attempt.api.dto.CurrentQuestionDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;

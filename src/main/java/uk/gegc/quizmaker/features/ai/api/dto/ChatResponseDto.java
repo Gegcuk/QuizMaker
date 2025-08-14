@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.ai;
+package uk.gegc.quizmaker.features.ai.api.dto;
 
 import java.time.LocalDateTime;
 

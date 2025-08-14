@@ -17,7 +17,7 @@ import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
 import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
 import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;

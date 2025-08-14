@@ -15,10 +15,10 @@ import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentConfigDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
-import uk.gegc.quizmaker.exception.DocumentNotFoundException;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.UserNotAuthorizedException;
+import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 

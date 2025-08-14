@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.config;
+package uk.gegc.quizmaker.shared.config;
 
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;

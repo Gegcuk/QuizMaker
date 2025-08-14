@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service;
+package uk.gegc.quizmaker.shared.email;
 
 public interface EmailService {
     void sendPasswordResetEmail(String email, String resetToken);

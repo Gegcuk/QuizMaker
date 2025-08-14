@@ -3,7 +3,8 @@ package uk.gegc.quizmaker.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 
 import static org.junit.jupiter.api.Assertions.*;
 

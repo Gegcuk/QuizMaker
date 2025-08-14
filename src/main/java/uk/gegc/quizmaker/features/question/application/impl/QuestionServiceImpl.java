@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
 import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMapper;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;

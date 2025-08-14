@@ -12,6 +12,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.util.Optional;
 import java.util.Set;

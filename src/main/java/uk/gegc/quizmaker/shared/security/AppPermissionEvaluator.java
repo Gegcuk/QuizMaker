@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security;
+package uk.gegc.quizmaker.shared.security;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

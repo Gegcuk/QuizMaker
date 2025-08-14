@@ -17,8 +17,8 @@ import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.exception.UnauthorizedException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
 import uk.gegc.quizmaker.features.auth.domain.model.EmailVerificationToken;
 import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
@@ -30,7 +30,7 @@ import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepos
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
-import uk.gegc.quizmaker.service.EmailService;
+import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 
 import java.nio.charset.StandardCharsets;

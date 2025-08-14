@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.config;
+package uk.gegc.quizmaker.shared.config;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;

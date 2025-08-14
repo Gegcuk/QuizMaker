@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.ai;
+package uk.gegc.quizmaker.features.ai.application;
 
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;

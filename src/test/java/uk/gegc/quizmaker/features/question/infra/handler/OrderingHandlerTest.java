@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.exception.ValidationException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;

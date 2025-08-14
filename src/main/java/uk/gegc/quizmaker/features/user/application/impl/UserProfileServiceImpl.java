@@ -17,7 +17,7 @@ import uk.gegc.quizmaker.features.user.application.UserProfileService;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.util.XssSanitizer;
+import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.util.*;
  

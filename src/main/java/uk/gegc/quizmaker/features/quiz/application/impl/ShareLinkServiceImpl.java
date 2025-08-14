@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -18,7 +18,10 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepos
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ShareLinkAlreadyUsedException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -71,7 +74,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
         if (!(quiz.getCreator() != null && userId.equals(quiz.getCreator().getId())
                 || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN)
                 || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE))) {
-            throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to share this quiz");
+            throw new ForbiddenException("Not allowed to share this quiz");
         }
 
         // Generate server-side token (URL-safe base64) and store peppered hash
@@ -87,7 +90,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
         Instant now = Instant.now();
         Instant exp = request.expiresAt() != null ? request.expiresAt() : now.plus(Duration.ofHours(defaultExpiryHours));
         if (exp.isBefore(now)) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Expiry must be in the future");
+            throw new ValidationException("Expiry must be in the future");
         }
         Instant cap = now.plus(Duration.ofHours(maxExpiryHours));
         if (exp.isAfter(cap)) {
@@ -120,7 +123,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
 
         // Expiry check
         if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
+            throw new ValidationException("Token expired");
         }
 
         return new ShareLinkDto(
@@ -165,7 +168,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
         if (!(link.getCreatedBy() != null && link.getCreatedBy().getId().equals(userId)
                 || appPermissionEvaluator.hasPermission(actor, PermissionName.QUIZ_ADMIN)
                 || appPermissionEvaluator.hasPermission(actor, PermissionName.QUIZ_MODERATE))) {
-            throw new uk.gegc.quizmaker.exception.ForbiddenException("Not allowed to revoke this share link");
+            throw new ForbiddenException("Not allowed to revoke this share link");
         }
 
         if (link.getRevokedAt() != null) {
@@ -272,12 +275,12 @@ public class ShareLinkServiceImpl implements ShareLinkService {
 
         // Check if already revoked
         if (link.getRevokedAt() != null) {
-            throw new uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException("Token already used");
+            throw new ShareLinkAlreadyUsedException("Token already used");
         }
 
         // Expiry check
         if (link.getExpiresAt() != null && link.getExpiresAt().isBefore(java.time.Instant.now())) {
-            throw new uk.gegc.quizmaker.exception.ValidationException("Token expired");
+            throw new ValidationException("Token expired");
         }
 
         // Record usage before consuming (for one-time tokens)
@@ -289,7 +292,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
         Instant now2 = Instant.now();
         int updated = shareLinkRepository.consumeOneTime(tokenHash, now2);
         if (updated == 0) {
-            throw new uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException("Token already used");
+            throw new ShareLinkAlreadyUsedException("Token already used");
         }
         // reflect state in returned DTO
         link.setRevokedAt(now2);

@@ -1,6 +1,6 @@
-package uk.gegc.quizmaker.service.ai.parser;
+package uk.gegc.quizmaker.features.ai.infra.parser;
 
-import uk.gegc.quizmaker.exception.AIResponseParseException;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 

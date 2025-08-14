@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuestionStatsDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;

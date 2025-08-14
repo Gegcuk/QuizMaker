@@ -9,7 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;

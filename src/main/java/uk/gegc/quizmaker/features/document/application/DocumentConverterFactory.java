@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.document.application;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 
 import java.util.List;
 

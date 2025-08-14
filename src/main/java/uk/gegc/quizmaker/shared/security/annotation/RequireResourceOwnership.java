@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security.annotation;
+package uk.gegc.quizmaker.shared.security.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

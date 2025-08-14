@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.util;
+package uk.gegc.quizmaker.shared.util;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;

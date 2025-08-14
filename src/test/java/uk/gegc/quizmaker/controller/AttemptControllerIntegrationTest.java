@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;

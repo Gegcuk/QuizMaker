@@ -24,16 +24,17 @@ import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
-import uk.gegc.quizmaker.exception.UnauthorizedException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.service.RateLimitService;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.infra.web.ShareLinkCookieManager;
-import uk.gegc.quizmaker.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.util.List;
 import java.util.Optional;
@@ -302,7 +303,7 @@ public class ShareLinkController {
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
         UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
         if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
-            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+            throw new ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
         // Rate limit per IP + token-hash
@@ -341,7 +342,7 @@ public class ShareLinkController {
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
         UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
         if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
-            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+            throw new ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
         String ipAddress = getClientIpAddress(httpRequest);
@@ -377,7 +378,7 @@ public class ShareLinkController {
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
         UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
         if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
-            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+            throw new ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
         String ipAddress = getClientIpAddress(httpRequest);
@@ -413,7 +414,7 @@ public class ShareLinkController {
         ShareLinkDto shareLink = shareLinkService.validateToken(token);
         UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
         if (!shareLink.quizId().equals(attemptQuizId)) {
-            throw new uk.gegc.quizmaker.exception.ResourceNotFoundException("Attempt does not belong to shared quiz");
+            throw new ResourceNotFoundException("Attempt does not belong to shared quiz");
         }
 
         String ipAddress = getClientIpAddress(httpRequest);

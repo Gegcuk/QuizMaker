@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.util;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import static org.junit.jupiter.api.Assertions.*;
 

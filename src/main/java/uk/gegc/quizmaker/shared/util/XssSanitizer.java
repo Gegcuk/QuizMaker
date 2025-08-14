@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.util;
+package uk.gegc.quizmaker.shared.util;
 
 import org.jsoup.Jsoup;
 import org.jsoup.safety.Safelist;

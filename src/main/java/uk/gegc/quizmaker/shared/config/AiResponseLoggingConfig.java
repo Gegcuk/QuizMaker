@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.config;
+package uk.gegc.quizmaker.shared.config;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
