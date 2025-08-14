@@ -5,7 +5,7 @@ import uk.gegc.quizmaker.dto.auth.JwtResponse;
 import uk.gegc.quizmaker.dto.auth.LoginRequest;
 import uk.gegc.quizmaker.dto.auth.RefreshRequest;
 import uk.gegc.quizmaker.dto.auth.RegisterRequest;
-import uk.gegc.quizmaker.dto.user.AuthenticatedUserDto;
+import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 
 import java.time.LocalDateTime;
 

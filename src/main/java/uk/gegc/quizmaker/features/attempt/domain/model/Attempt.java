@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.attempt;
+package uk.gegc.quizmaker.features.attempt.domain.model;
 
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -7,7 +7,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.util.ArrayList;

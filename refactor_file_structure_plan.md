@@ -176,34 +176,7 @@ Place features under `features`, and cross-cutting under `shared`. The tree belo
 ```text
 src/main/java/uk/gegc/quizmaker/
   features/
-    attempt/
-      api/
-        AttemptController.java
-        dto/
-          AnswerSubmissionDto.java
-          AttemptStatsDto.java
-          BatchAnswerSubmissionRequest.java
-          CurrentQuestionDto.java
-          QuestionTimingStatsDto.java
-          StartAttemptRequest.java
-          StartAttemptResponse.java
-          QuestionForAttemptDto.java
-      application/
-        AttemptService.java
-        AttemptServiceImpl.java
-      domain/
-        model/
-          Attempt.java
-          AttemptMode.java
-          AttemptStatus.java
-        repository/
-          AttemptRepository.java
-          QuestionStatsProjection.java
-      infra/
-        mapping/
-          AttemptMapper.java
-
-    user/
+     user/
       api/
         UserController.java
         ProfileController.java

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.user;
+package uk.gegc.quizmaker.features.user.application;
 
 import org.springframework.web.multipart.MultipartFile;
 

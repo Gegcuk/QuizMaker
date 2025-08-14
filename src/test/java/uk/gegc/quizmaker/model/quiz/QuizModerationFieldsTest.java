@@ -6,7 +6,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.util.Set;

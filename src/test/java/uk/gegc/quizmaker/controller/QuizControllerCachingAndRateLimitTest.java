@@ -18,9 +18,9 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;

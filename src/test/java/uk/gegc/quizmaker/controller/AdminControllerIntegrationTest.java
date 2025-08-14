@@ -15,8 +15,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
 import uk.gegc.quizmaker.dto.admin.RoleDto;
 import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
-import uk.gegc.quizmaker.model.user.*;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.model.*;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.service.admin.RoleService;
 

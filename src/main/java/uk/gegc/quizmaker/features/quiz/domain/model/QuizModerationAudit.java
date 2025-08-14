@@ -6,7 +6,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.util.UUID;

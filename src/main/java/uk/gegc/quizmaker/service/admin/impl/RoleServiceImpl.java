@@ -8,11 +8,11 @@ import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
 import uk.gegc.quizmaker.dto.admin.RoleDto;
 import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.mapper.RoleMapper;
-import uk.gegc.quizmaker.model.user.*;
-import uk.gegc.quizmaker.repository.user.PermissionRepository;
-import uk.gegc.quizmaker.repository.user.RoleRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.model.*;
+import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.service.admin.PermissionService;
 import uk.gegc.quizmaker.service.admin.RoleService;
 

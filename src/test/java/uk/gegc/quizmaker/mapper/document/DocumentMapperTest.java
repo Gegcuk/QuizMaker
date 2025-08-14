@@ -9,7 +9,7 @@ import uk.gegc.quizmaker.dto.document.DocumentChunkDto;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;

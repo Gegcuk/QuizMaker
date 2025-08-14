@@ -15,7 +15,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import uk.gegc.quizmaker.dto.attempt.StartAttemptRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptRequest;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -25,12 +26,12 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -140,7 +141,7 @@ class AnonymousAttemptIntegrationTest {
         JsonNode json = objectMapper.readTree(created.getResponse().getContentAsString());
         String token = json.get("token").asText();
 
-        StartAttemptRequest startReq = new StartAttemptRequest(uk.gegc.quizmaker.model.attempt.AttemptMode.ALL_AT_ONCE);
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
         MvcResult started = mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(startReq)))

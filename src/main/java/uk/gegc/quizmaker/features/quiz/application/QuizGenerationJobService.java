@@ -4,7 +4,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.LocalDateTime;
 import java.util.List;

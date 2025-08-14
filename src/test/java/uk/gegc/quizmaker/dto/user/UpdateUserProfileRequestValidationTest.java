@@ -7,6 +7,7 @@ import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
 
 import java.util.HashMap;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.attempt;
+package uk.gegc.quizmaker.features.attempt.domain.repository;
 
 import java.util.UUID;
 

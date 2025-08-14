@@ -14,7 +14,7 @@ import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.util.HashSet;

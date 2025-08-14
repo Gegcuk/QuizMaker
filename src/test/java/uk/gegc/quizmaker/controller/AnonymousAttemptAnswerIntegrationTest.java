@@ -15,7 +15,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import uk.gegc.quizmaker.dto.attempt.StartAttemptRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptRequest;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -25,11 +26,11 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -146,7 +147,7 @@ class AnonymousAttemptAnswerIntegrationTest {
                 .andExpect(cookie().exists("share_token"));
 
         // Start attempt
-        StartAttemptRequest startReq = new StartAttemptRequest(uk.gegc.quizmaker.model.attempt.AttemptMode.ALL_AT_ONCE);
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
         MvcResult started = mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(startReq)))
@@ -183,7 +184,7 @@ class AnonymousAttemptAnswerIntegrationTest {
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}", token)
                         .header("User-Agent", "JUnit"))
                 .andExpect(status().isOk());
-        StartAttemptRequest startReq = new StartAttemptRequest(uk.gegc.quizmaker.model.attempt.AttemptMode.ALL_AT_ONCE);
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
         UUID attemptId = UUID.fromString(objectMapper.readTree(
                 mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
                                 .contentType(MediaType.APPLICATION_JSON)
@@ -247,7 +248,7 @@ class AnonymousAttemptAnswerIntegrationTest {
                         .andReturn().getResponse().getContentAsString()).get("token").asText();
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}", tokenOriginal))
                 .andExpect(status().isOk());
-        StartAttemptRequest startReq = new StartAttemptRequest(uk.gegc.quizmaker.model.attempt.AttemptMode.ALL_AT_ONCE);
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
         UUID attemptId = UUID.fromString(objectMapper.readTree(
                 mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", tokenOriginal)
                                 .contentType(MediaType.APPLICATION_JSON)

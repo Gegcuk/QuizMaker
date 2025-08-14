@@ -18,14 +18,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
+import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.model.category.Category;
-import uk.gegc.quizmaker.model.user.*;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.repository.user.PermissionRepository;
-import uk.gegc.quizmaker.repository.user.RoleRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 
 import java.time.Instant;

@@ -3,8 +3,8 @@ package uk.gegc.quizmaker.service.admin;
 import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
 import uk.gegc.quizmaker.dto.admin.RoleDto;
 import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
-import uk.gegc.quizmaker.model.user.Role;
-import uk.gegc.quizmaker.model.user.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
 import java.util.List;
 import java.util.Set;

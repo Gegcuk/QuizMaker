@@ -1,13 +1,13 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.attempt.infra.mapping;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptDetailsDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
-import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 
 import java.util.Comparator;

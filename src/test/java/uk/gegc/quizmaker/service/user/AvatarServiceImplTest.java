@@ -7,9 +7,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.impl.AvatarServiceImpl;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.user.application.impl.AvatarServiceImpl;
 import uk.gegc.quizmaker.util.TestImageFactory;
 
 import java.io.IOException;

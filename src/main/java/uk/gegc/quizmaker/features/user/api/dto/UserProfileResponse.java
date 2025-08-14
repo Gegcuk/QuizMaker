@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.user;
+package uk.gegc.quizmaker.features.user.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;

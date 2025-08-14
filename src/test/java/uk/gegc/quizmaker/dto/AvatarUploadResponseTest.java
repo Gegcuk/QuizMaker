@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.dto;
 
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.dto.user.AvatarUploadResponse;
+import uk.gegc.quizmaker.features.user.api.dto.AvatarUploadResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 

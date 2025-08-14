@@ -9,7 +9,7 @@ import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
-import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;

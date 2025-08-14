@@ -18,12 +18,12 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 

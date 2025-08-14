@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.attempt.impl;
+package uk.gegc.quizmaker.features.attempt.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -7,29 +7,30 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.attempt.*;
-import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuestionStatsDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
-import uk.gegc.quizmaker.mapper.AttemptMapper;
+import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
-import uk.gegc.quizmaker.model.attempt.Attempt;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.scoring.ScoringService;
 
@@ -114,7 +115,7 @@ public class AttemptServiceImpl implements AttemptService {
         attempt.setQuiz(quiz);
         attempt.setShareLink(shareLink);
         attempt.setMode(mode);
-        attempt.setStatus(uk.gegc.quizmaker.model.attempt.AttemptStatus.IN_PROGRESS);
+        attempt.setStatus(AttemptStatus.IN_PROGRESS);
 
         Attempt saved = attemptRepository.saveAndFlush(attempt);
 

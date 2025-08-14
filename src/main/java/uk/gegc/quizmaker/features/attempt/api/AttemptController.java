@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.attempt.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -22,9 +22,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.attempt.*;
-import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 
 import java.util.List;
 import java.util.UUID;

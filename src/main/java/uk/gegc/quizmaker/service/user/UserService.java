@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.service.user;
 
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 @Service
 public interface UserService {

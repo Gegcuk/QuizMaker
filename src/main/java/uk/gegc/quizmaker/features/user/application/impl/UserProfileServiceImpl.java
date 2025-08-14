@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.user.impl;
+package uk.gegc.quizmaker.features.user.application.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,12 +11,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
-import uk.gegc.quizmaker.dto.user.UserProfileResponse;
-import uk.gegc.quizmaker.model.user.Role;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.UserProfileService;
+import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
+import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
+import uk.gegc.quizmaker.features.user.application.UserProfileService;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.util.XssSanitizer;
 
 import java.util.*;

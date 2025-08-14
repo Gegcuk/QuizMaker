@@ -13,7 +13,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkAnalytics;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkAnalyticsServiceImpl;

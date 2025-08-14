@@ -7,8 +7,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.dto.document.DocumentDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;

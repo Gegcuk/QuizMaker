@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.dto.attempt;
+package uk.gegc.quizmaker.features.attempt.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 
 @Schema(name = "StartAttemptRequest", description = "Request to start a quiz attempt with a specific mode", example = "{\"mode\":\"ONE_BY_ONE\"}")
 public record StartAttemptRequest(

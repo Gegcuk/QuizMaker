@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.user;
+package uk.gegc.quizmaker.features.user.api.dto;
 
 public class UpdateProfileRequest {
 }

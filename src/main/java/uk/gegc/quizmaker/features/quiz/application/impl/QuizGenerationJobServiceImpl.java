@@ -10,7 +10,7 @@ import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 

@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.question.domain.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 
 import java.time.Instant;
 import java.util.UUID;

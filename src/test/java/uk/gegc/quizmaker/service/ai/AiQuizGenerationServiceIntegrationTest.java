@@ -13,10 +13,10 @@ import uk.gegc.quizmaker.model.document.Document;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.document.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 
 import java.time.LocalDateTime;

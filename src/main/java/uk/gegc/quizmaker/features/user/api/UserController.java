@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.user.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,10 +14,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.dto.user.AvatarUploadResponse;
-import uk.gegc.quizmaker.dto.user.UserProfileResponse;
-import uk.gegc.quizmaker.service.user.AvatarService;
-import uk.gegc.quizmaker.service.user.UserProfileService;
+import uk.gegc.quizmaker.features.user.api.dto.AvatarUploadResponse;
+import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
+import uk.gegc.quizmaker.features.user.application.AvatarService;
+import uk.gegc.quizmaker.features.user.application.UserProfileService;
 
 
 @RestController

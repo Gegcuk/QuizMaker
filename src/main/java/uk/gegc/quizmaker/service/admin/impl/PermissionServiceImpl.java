@@ -5,11 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.user.Permission;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.Role;
-import uk.gegc.quizmaker.repository.user.PermissionRepository;
-import uk.gegc.quizmaker.repository.user.RoleRepository;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.service.admin.PermissionService;
 
 import java.util.List;

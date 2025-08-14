@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.user;
+package uk.gegc.quizmaker.features.user.domain.repository;
 
 public interface UserRoleRepository {
 }

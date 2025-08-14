@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.dto.user;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
 
 import java.time.LocalDateTime;
 import java.util.List;

@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.features.question.infra.mapping;
 
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 
 

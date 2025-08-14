@@ -1,6 +1,6 @@
 package uk.gegc.quizmaker.security.annotation;
 
-import uk.gegc.quizmaker.model.user.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

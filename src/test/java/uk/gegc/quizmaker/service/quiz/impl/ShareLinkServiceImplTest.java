@@ -16,11 +16,11 @@ import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkUsage;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;

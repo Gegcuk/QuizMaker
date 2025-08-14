@@ -1,12 +1,13 @@
-package uk.gegc.quizmaker.service.attempt;
+package uk.gegc.quizmaker.features.attempt.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.dto.attempt.*;
-import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.api.dto.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 
 import java.time.LocalDate;
 import java.util.List;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.question;
+package uk.gegc.quizmaker.features.attempt.api.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;

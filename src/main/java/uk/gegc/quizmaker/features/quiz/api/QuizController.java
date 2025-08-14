@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.attempt.AttemptDto;
-import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.AttemptStatsDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
@@ -41,8 +41,9 @@ import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.service.RateLimitService;
-import uk.gegc.quizmaker.service.attempt.AttemptService;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
@@ -470,7 +471,7 @@ public class QuizController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> submitForReview(@PathVariable UUID quizId, Authentication authentication) {
         // Reuse the existing service contract; controller determines actor from auth
-        uk.gegc.quizmaker.model.user.User dummy = new uk.gegc.quizmaker.model.user.User();
+        User dummy = new User();
         // Find current user ID via service; we only have username here, so delegate through service layer in future
         // For now, call ModerationService via QuizService if exposed; otherwise this endpoint is a placeholder
         return ResponseEntity.noContent().build();

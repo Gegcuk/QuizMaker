@@ -1,8 +1,7 @@
-package uk.gegc.quizmaker.dto.attempt;
+package uk.gegc.quizmaker.features.attempt.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.dto.question.QuestionForAttemptDto;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
 @Schema(name = "CurrentQuestionDto", description = "Current question for an existing attempt with progress information")
 public record CurrentQuestionDto(

@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.service.scoring;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 
 @Service

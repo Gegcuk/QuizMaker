@@ -12,11 +12,11 @@ import uk.gegc.quizmaker.exception.ValidationException;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizModerationAuditRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.time.Instant;

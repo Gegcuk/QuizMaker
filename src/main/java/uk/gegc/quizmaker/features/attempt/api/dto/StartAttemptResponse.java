@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.attempt;
+package uk.gegc.quizmaker.features.attempt.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 
 import java.time.Instant;
 import java.util.UUID;

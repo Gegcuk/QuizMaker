@@ -11,13 +11,13 @@ import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;

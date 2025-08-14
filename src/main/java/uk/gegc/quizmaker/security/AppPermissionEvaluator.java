@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.model.user.*;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.model.*;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.util.Set;
 import java.util.UUID;

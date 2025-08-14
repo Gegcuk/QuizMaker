@@ -13,21 +13,22 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.*;
@@ -66,7 +67,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
     private Quiz testQuiz;
     private Question question1;
     private Question question2;
-    private uk.gegc.quizmaker.model.attempt.Attempt testAttempt;
+    private Attempt testAttempt;
 
     @BeforeEach
     void setUp() {
@@ -160,7 +161,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testQuiz = quizRepository.save(testQuiz);
 
         // Create test attempt
-        testAttempt = new uk.gegc.quizmaker.model.attempt.Attempt();
+        testAttempt = new Attempt();
         testAttempt.setUser(testUser);
         testAttempt.setQuiz(testQuiz);
         testAttempt.setMode(AttemptMode.ONE_BY_ONE);

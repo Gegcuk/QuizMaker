@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.user.impl;
+package uk.gegc.quizmaker.features.user.application.impl;
 
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.Metadata;
@@ -13,9 +13,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.exception.DocumentStorageException;
 import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.AvatarService;
+import uk.gegc.quizmaker.features.user.application.AvatarService;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;

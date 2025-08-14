@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.attempt;
+package uk.gegc.quizmaker.features.attempt.domain.model;
 
 public enum AttemptMode {
     ONE_BY_ONE,

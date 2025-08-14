@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.dto.attempt;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 
 import java.time.Instant;
 import java.util.List;

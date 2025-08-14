@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.user;
+package uk.gegc.quizmaker.features.user.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.user.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
 import java.time.LocalDateTime;
 import java.util.Set;

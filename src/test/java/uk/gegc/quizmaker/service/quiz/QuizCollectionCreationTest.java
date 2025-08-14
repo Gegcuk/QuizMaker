@@ -15,7 +15,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;

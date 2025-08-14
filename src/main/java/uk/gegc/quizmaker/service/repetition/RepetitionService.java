@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.service.repetition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.model.attempt.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.model.repetition.SpacedRepetitionEntry;
 import uk.gegc.quizmaker.repository.repetition.SpacedRepetitionEntryRepository;

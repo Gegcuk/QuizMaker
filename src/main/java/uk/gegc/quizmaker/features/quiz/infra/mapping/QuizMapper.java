@@ -7,7 +7,7 @@ import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.util.Set;
 import java.util.stream.Collectors;
