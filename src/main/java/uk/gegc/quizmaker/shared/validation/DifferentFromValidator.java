@@ -63,6 +63,7 @@ public class DifferentFromValidator implements ConstraintValidator<DifferentFrom
         if (bean.getClass().isRecord()) {
             try {
                 var method = bean.getClass().getMethod(propertyName);
+                method.setAccessible(true);
                 return method.invoke(bean);
             } catch (NoSuchMethodException e) {
                 throw new NoSuchFieldException(propertyName);
@@ -73,7 +74,9 @@ public class DifferentFromValidator implements ConstraintValidator<DifferentFrom
         var beanInfo = Introspector.getBeanInfo(bean.getClass());
         for (var pd : beanInfo.getPropertyDescriptors()) {
             if (pd.getName().equals(propertyName) && pd.getReadMethod() != null) {
-                return pd.getReadMethod().invoke(bean);
+                var readMethod = pd.getReadMethod();
+                readMethod.setAccessible(true);
+                return readMethod.invoke(bean);
             }
         }
         
