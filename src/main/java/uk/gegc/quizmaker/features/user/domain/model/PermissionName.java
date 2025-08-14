@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.user;
+package uk.gegc.quizmaker.features.user.domain.model;
 
 public enum PermissionName {
     // Quiz Permissions

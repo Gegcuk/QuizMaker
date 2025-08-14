@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.mapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.admin.RoleDto;
-import uk.gegc.quizmaker.model.user.Role;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
 
 import java.util.List;
 import java.util.stream.Collectors;

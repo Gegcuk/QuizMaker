@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.user;
+package uk.gegc.quizmaker.features.user.domain.model;
 
 public enum RoleName {
     ROLE_USER,           // Basic user - can take quizzes, view public content
