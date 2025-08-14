@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.quiz.impl;
+package uk.gegc.quizmaker.features.quiz.application.impl;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -9,13 +9,14 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.quiz.*;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
+import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkAnalyticsRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
@@ -33,7 +34,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class ShareLinkServiceImpl implements uk.gegc.quizmaker.service.quiz.ShareLinkService {
+public class ShareLinkServiceImpl implements ShareLinkService {
 
     private final ShareLinkRepository shareLinkRepository;
     private final QuizRepository quizRepository;

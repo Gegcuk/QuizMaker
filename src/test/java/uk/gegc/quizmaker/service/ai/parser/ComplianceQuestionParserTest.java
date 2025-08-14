@@ -7,9 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.List;
 

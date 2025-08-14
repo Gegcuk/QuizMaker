@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.quiz.impl;
+package uk.gegc.quizmaker.features.quiz.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.slf4j.MDC;
@@ -9,12 +9,13 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;
 import uk.gegc.quizmaker.exception.ForbiddenException;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
-import uk.gegc.quizmaker.mapper.QuizMapper;
-import uk.gegc.quizmaker.model.quiz.*;
+import uk.gegc.quizmaker.features.quiz.application.ModerationService;
+import uk.gegc.quizmaker.features.quiz.domain.model.*;
+import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizModerationAuditRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
@@ -25,7 +26,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class ModerationServiceImpl implements uk.gegc.quizmaker.service.quiz.ModerationService {
+public class ModerationServiceImpl implements ModerationService {
 
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;

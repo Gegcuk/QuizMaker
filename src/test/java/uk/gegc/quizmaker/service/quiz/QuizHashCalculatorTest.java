@@ -2,11 +2,12 @@ package uk.gegc.quizmaker.service.quiz;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import uk.gegc.quizmaker.dto.quiz.QuizDto;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.QuizStatus;
-import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
+import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.time.Instant;

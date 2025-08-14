@@ -10,10 +10,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
-import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 
 import java.util.List;
 
@@ -80,7 +81,7 @@ class QuestionResponseParserTest {
             """;
 
     @Mock
-    private uk.gegc.quizmaker.service.question.handler.QuestionHandler mockQuestionHandler;
+    private QuestionHandler mockQuestionHandler;
 
     @BeforeEach
     void setUp() throws Exception {

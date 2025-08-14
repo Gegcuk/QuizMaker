@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.question;
+package uk.gegc.quizmaker.features.question.application;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.ArrayList;
 import java.util.Collections;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.model;
 
 /**
  * Status of quiz generation jobs

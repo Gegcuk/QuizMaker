@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.quiz.impl;
+package uk.gegc.quizmaker.features.quiz.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,11 +7,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsSummaryDto;
-import uk.gegc.quizmaker.model.quiz.ShareLinkAnalytics;
-import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkAnalyticsRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
-import uk.gegc.quizmaker.service.quiz.ShareLinkAnalyticsService;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkAnalytics;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkAnalyticsService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

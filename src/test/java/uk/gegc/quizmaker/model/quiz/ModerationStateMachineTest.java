@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.model.quiz;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.quiz.domain.model.ModerationStateMachine;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

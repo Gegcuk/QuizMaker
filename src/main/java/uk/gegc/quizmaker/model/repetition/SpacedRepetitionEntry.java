@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.model.repetition;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.Instant;

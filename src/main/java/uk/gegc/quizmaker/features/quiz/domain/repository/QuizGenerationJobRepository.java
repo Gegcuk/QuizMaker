@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -6,8 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
 import java.time.LocalDateTime;
 import java.util.List;

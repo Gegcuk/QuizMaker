@@ -1,9 +1,9 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.LocalDateTime;

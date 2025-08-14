@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -107,14 +108,14 @@ public class OrderingQuestionParser {
         if (questionNode.has("difficulty")) {
             try {
                 String difficultyStr = questionNode.get("difficulty").asText();
-                question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.valueOf(difficultyStr));
+                question.setDifficulty(Difficulty.valueOf(difficultyStr));
             } catch (IllegalArgumentException e) {
                 log.warn("Invalid difficulty value '{}', using MEDIUM as default", questionNode.get("difficulty").asText());
-                question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.MEDIUM);
+                question.setDifficulty(Difficulty.MEDIUM);
             }
         } else {
             log.warn("No difficulty field found in question, using MEDIUM as default");
-            question.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.MEDIUM);
+            question.setDifficulty(Difficulty.MEDIUM);
         }
 
         if (questionNode.has("hint")) {

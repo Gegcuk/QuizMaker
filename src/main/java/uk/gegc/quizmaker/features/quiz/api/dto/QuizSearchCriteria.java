@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.question.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 
 import java.util.List;
 

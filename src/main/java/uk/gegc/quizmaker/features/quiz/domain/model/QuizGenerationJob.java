@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.model;
 
 import jakarta.persistence.*;
 import lombok.Data;

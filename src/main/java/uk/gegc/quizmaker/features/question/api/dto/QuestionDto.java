@@ -1,11 +1,11 @@
-package uk.gegc.quizmaker.dto.question;
+package uk.gegc.quizmaker.features.question.api.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.time.Instant;
 import java.util.List;

@@ -1,12 +1,12 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.quiz.api;
 
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.quiz.PendingReviewQuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizModerationAuditDto;
-import uk.gegc.quizmaker.service.quiz.ModerationService;
+import uk.gegc.quizmaker.features.quiz.api.dto.PendingReviewQuizDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;
+import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 
 import java.util.List;
 import java.util.UUID;

@@ -1,9 +1,9 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.quiz.ModerationAction;
+import uk.gegc.quizmaker.features.quiz.domain.model.ModerationAction;
 
 import java.time.Instant;
 import java.util.UUID;

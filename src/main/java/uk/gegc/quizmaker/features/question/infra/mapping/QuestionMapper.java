@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.question.infra.mapping;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;

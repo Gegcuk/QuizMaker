@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
-import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 
 import java.util.ArrayList;
 import java.util.List;

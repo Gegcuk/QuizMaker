@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.util;
+package uk.gegc.quizmaker.features.quiz.infra.web;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;

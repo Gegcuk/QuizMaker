@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.question.handler;
+package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,7 +8,6 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.exception.ValidationException;
-import uk.gegc.quizmaker.features.question.infra.handler.HotspotHandler;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;

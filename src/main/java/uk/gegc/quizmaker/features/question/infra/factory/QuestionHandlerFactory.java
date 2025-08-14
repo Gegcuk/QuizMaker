@@ -1,9 +1,9 @@
-package uk.gegc.quizmaker.service.question.factory;
+package uk.gegc.quizmaker.features.question.infra.factory;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 
 import java.util.EnumMap;
 import java.util.List;

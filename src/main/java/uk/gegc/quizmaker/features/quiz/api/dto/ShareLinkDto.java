@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
 
 import java.time.Instant;
 import java.util.UUID;

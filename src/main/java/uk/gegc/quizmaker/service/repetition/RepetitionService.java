@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.model.attempt.Attempt;
-import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.model.repetition.SpacedRepetitionEntry;
 import uk.gegc.quizmaker.repository.repetition.SpacedRepetitionEntryRepository;
 

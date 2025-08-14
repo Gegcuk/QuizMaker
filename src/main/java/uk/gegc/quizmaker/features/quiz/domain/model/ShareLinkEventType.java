@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.model;
 
 /**
  * Enumeration of share link event types for analytics tracking.

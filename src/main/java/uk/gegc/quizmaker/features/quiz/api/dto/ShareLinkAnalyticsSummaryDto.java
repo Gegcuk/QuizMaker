@@ -1,6 +1,6 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
-import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 
 import java.util.Map;
 import java.util.UUID;

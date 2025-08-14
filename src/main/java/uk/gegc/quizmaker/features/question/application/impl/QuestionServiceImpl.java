@@ -1,24 +1,24 @@
-package uk.gegc.quizmaker.service.question.impl;
+package uk.gegc.quizmaker.features.question.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
-import uk.gegc.quizmaker.dto.question.QuestionDto;
-import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
+import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.mapper.QuestionMapper;
-import uk.gegc.quizmaker.model.question.Question;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMapper;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.repository.question.QuestionRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
-import uk.gegc.quizmaker.service.question.QuestionService;
-import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.question.application.QuestionService;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 
 import java.util.Collections;
 import java.util.List;

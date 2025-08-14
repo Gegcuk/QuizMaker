@@ -12,11 +12,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.exception.ValidationException;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.service.quiz.impl.QuizGenerationJobServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.application.impl.QuizGenerationJobServiceImpl;
 
 import java.time.LocalDateTime;
 import java.util.List;

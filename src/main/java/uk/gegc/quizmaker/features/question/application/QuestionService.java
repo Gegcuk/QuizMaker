@@ -1,11 +1,11 @@
-package uk.gegc.quizmaker.service.question;
+package uk.gegc.quizmaker.features.question.application;
 
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
-import uk.gegc.quizmaker.dto.question.QuestionDto;
-import uk.gegc.quizmaker.dto.question.UpdateQuestionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
+import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
 
 import java.util.UUID;
 

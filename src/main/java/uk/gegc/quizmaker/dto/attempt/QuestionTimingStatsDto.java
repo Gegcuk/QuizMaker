@@ -1,8 +1,8 @@
 package uk.gegc.quizmaker.dto.attempt;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.time.Duration;
 import java.time.Instant;

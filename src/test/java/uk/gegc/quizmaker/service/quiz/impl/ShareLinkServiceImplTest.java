@@ -6,18 +6,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
-import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
-import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
+import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.ShareLink;
-import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
-import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
+import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkUsage;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.model.user.PermissionName;
 import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
 
@@ -40,7 +42,7 @@ import static org.mockito.Mockito.*;
 class ShareLinkServiceImplTest {
 
     @Mock private ShareLinkRepository shareLinkRepository;
-    @Mock private uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository usageRepository;
+    @Mock private ShareLinkUsageRepository usageRepository;
     @Mock private QuizRepository quizRepository;
     @Mock private UserRepository userRepository;
     @Mock private AppPermissionEvaluator appPermissionEvaluator;
@@ -512,7 +514,7 @@ class ShareLinkServiceImplTest {
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
 
         service.recordShareLinkUsage("HASH", "UA", "127.0.0.1");
-        verify(usageRepository).save(any(uk.gegc.quizmaker.model.quiz.ShareLinkUsage.class));
+        verify(usageRepository).save(any(ShareLinkUsage.class));
     }
 
     @Test

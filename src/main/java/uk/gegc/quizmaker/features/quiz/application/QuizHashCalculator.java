@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
-import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.model.tag.Tag;
 
 import java.nio.charset.StandardCharsets;

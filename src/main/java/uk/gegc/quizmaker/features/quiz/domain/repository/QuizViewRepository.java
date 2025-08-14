@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 public interface QuizViewRepository {
 }

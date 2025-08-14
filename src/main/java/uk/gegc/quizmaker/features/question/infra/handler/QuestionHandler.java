@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.question.handler;
+package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;

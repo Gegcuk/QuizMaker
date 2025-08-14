@@ -17,7 +17,7 @@ import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
 import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
 import uk.gegc.quizmaker.model.category.Category;
 import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 
 import java.util.UUID;
 

@@ -16,7 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
 import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
 import uk.gegc.quizmaker.model.tag.Tag;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.repository.tag.TagRepository;
 
 import java.util.UUID;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.question.infra.mapping;
 
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionDto;

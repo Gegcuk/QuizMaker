@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.repository.quiz;
+package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
-import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkUsage;
 
 import java.util.UUID;
 

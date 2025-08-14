@@ -10,10 +10,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.attempt.AttemptStatus;
-import uk.gegc.quizmaker.model.quiz.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
-import uk.gegc.quizmaker.repository.question.AnswerRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.service.attempt.impl.AttemptServiceImpl;
 
 import java.time.Instant;

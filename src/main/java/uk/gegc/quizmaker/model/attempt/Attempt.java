@@ -4,9 +4,9 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
-import uk.gegc.quizmaker.model.question.Answer;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.ShareLink;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.model.user.User;
 
 import java.time.Instant;

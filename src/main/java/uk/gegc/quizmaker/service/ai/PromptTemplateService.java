@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.service.ai;
 
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 /**
  * Service for building AI prompts for quiz generation

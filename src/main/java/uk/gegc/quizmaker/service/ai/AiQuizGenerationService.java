@@ -1,10 +1,11 @@
 package uk.gegc.quizmaker.service.ai;
 
-import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.model.document.DocumentChunk;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,7 @@ public interface AiQuizGenerationService {
      * @param job     The generation job entity
      * @param request The quiz generation request containing document ID and parameters
      */
-    void generateQuizFromDocumentAsync(uk.gegc.quizmaker.model.quiz.QuizGenerationJob job, GenerateQuizFromDocumentRequest request);
+    void generateQuizFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest request);
 
     /**
      * Generate questions from a single document chunk asynchronously

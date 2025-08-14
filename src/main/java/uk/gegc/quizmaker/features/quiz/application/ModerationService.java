@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import uk.gegc.quizmaker.features.quiz.api.dto.PendingReviewQuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;

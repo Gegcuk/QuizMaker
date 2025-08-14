@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 
 import java.util.Set;
 

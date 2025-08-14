@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 
 import java.util.UUID;
 

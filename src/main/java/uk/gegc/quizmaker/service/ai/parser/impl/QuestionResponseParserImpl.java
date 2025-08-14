@@ -6,12 +6,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
 import uk.gegc.quizmaker.service.ai.parser.QuestionResponseParser;
-import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +74,7 @@ public class QuestionResponseParserImpl implements QuestionResponseParser {
             var handler = questionHandlerFactory.getHandler(question.getType());
 
             // Create a content request for validation
-            var contentRequest = new uk.gegc.quizmaker.dto.question.EntityQuestionContentRequest(
+            var contentRequest = new EntityQuestionContentRequest(
                     question.getType(),
                     objectMapper.readTree(question.getContent())
             );

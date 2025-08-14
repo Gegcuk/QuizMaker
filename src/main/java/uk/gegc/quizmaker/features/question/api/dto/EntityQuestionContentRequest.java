@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.question;
+package uk.gegc.quizmaker.features.question.api.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 public record EntityQuestionContentRequest(
         QuestionType type,

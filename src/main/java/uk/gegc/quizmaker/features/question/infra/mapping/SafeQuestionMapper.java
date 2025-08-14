@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.question.infra.mapping;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

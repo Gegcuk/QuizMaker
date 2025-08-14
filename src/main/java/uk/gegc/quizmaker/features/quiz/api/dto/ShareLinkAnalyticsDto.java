@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 
 import java.time.Instant;
 import java.util.UUID;

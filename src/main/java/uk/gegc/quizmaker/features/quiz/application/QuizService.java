@@ -1,12 +1,12 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.quiz.QuizStatus;
-import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 
 import java.util.List;
 import java.util.Map;

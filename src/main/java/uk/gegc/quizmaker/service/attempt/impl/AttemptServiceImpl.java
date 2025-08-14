@@ -12,24 +12,25 @@ import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuestionStatsDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.mapper.AnswerMapper;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.mapper.AttemptMapper;
-import uk.gegc.quizmaker.mapper.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.model.attempt.Attempt;
 import uk.gegc.quizmaker.model.attempt.AttemptMode;
 import uk.gegc.quizmaker.model.attempt.AttemptStatus;
-import uk.gegc.quizmaker.model.question.Answer;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.ShareLink;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.model.user.User;
 import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
-import uk.gegc.quizmaker.repository.question.AnswerRepository;
-import uk.gegc.quizmaker.repository.question.QuestionRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.repository.user.UserRepository;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
-import uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.service.scoring.ScoringService;
 
 import java.time.Duration;
@@ -54,7 +55,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
     private final SafeQuestionMapper safeQuestionMapper;
-    private final uk.gegc.quizmaker.repository.quiz.ShareLinkRepository shareLinkRepository;
+    private final ShareLinkRepository shareLinkRepository;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {

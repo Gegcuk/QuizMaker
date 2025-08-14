@@ -1,10 +1,11 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.quiz.infra.mapping;
 
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizModerationAudit;
 import uk.gegc.quizmaker.model.category.Category;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.model.tag.Tag;
 import uk.gegc.quizmaker.model.user.User;
 
@@ -94,7 +95,7 @@ public class QuizMapper {
         );
     }
 
-    public QuizModerationAuditDto toAuditDto(uk.gegc.quizmaker.model.quiz.QuizModerationAudit audit) {
+    public QuizModerationAuditDto toAuditDto(QuizModerationAudit audit) {
         return new QuizModerationAuditDto(
                 audit.getId(),
                 audit.getQuiz() != null ? audit.getQuiz().getId() : null,

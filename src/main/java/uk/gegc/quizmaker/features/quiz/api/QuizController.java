@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.quiz.api;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,22 +31,22 @@ import uk.gegc.quizmaker.controller.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.dto.attempt.AttemptDto;
 import uk.gegc.quizmaker.dto.attempt.AttemptStatsDto;
 import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.dto.quiz.*;
 import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
 import uk.gegc.quizmaker.dto.result.QuizResultSummaryDto;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
-import uk.gegc.quizmaker.model.quiz.Visibility;
-import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.api.dto.*;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.service.RateLimitService;
 import uk.gegc.quizmaker.service.attempt.AttemptService;
 import uk.gegc.quizmaker.service.document.DocumentProcessingService;
 import uk.gegc.quizmaker.service.document.DocumentValidationService;
-import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
-import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;

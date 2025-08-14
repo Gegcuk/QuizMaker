@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsSummaryDto;
-import uk.gegc.quizmaker.model.quiz.ShareLinkEventType;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 
 import java.time.LocalDate;
 import java.util.List;

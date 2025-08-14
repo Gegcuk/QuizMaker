@@ -9,8 +9,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.exception.AIResponseParseException;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.service.ai.parser.QuestionParserFactory;
 
 import java.util.List;
@@ -30,10 +32,10 @@ class QuestionResponseParserMatchingTest {
     private QuestionParserFactory questionParserFactory;
 
     @Mock
-    private uk.gegc.quizmaker.service.question.factory.QuestionHandlerFactory handlerFactory;
+    private QuestionHandlerFactory handlerFactory;
 
     @Mock
-    private uk.gegc.quizmaker.service.question.handler.QuestionHandler handler;
+    private QuestionHandler handler;
 
     @InjectMocks
     private uk.gegc.quizmaker.service.ai.parser.impl.QuestionResponseParserImpl parser;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.repository.question;
+package uk.gegc.quizmaker.features.question.domain.repository;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

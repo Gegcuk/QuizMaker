@@ -1,8 +1,9 @@
-package uk.gegc.quizmaker.service.quiz;
+package uk.gegc.quizmaker.features.quiz.application;
 
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 
 import java.util.UUID;
 
@@ -16,9 +17,9 @@ public interface ShareLinkService {
     ShareLinkDto consumeOneTimeToken(String token, String userAgent, String ipAddress);
     void revokeActiveShareLinksForQuiz(UUID quizId);
     String hashToken(String token);
-    void recordShareLinkEventById(UUID shareLinkId, uk.gegc.quizmaker.model.quiz.ShareLinkEventType eventType,
+    void recordShareLinkEventById(UUID shareLinkId, ShareLinkEventType eventType,
                                   String userAgent, String ipAddress, String referrer);
-    void recordShareLinkEventByToken(String token, uk.gegc.quizmaker.model.quiz.ShareLinkEventType eventType,
+    void recordShareLinkEventByToken(String token, ShareLinkEventType eventType,
                                      String userAgent, String ipAddress, String referrer);
 }
 

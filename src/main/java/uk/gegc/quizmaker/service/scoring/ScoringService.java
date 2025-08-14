@@ -4,7 +4,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.model.attempt.Attempt;
-import uk.gegc.quizmaker.model.question.Answer;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
 
 @Service
 @RequiredArgsConstructor

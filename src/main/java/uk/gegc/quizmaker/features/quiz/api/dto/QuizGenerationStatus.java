@@ -1,7 +1,8 @@
-package uk.gegc.quizmaker.dto.quiz;
+package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
 import java.time.LocalDateTime;
 
@@ -53,7 +54,7 @@ public record QuizGenerationStatus(
     /**
      * Create a status DTO from a QuizGenerationJob entity
      */
-    public static QuizGenerationStatus fromEntity(uk.gegc.quizmaker.model.quiz.QuizGenerationJob job) {
+    public static QuizGenerationStatus fromEntity(QuizGenerationJob job) {
         return new QuizGenerationStatus(
                 job.getId().toString(),
                 job.getStatus(),
