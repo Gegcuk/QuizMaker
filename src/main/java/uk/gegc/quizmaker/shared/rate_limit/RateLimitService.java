@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.service;
 
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 
 import java.time.LocalDateTime;
 import java.util.Map;

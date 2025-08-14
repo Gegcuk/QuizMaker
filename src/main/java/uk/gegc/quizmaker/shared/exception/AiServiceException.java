@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.exception;
+package uk.gegc.quizmaker.shared.exception;
 
 /**
  * Exception thrown when AI service encounters an error

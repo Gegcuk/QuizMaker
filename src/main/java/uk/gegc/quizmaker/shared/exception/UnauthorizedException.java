@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.exception;
+package uk.gegc.quizmaker.shared.exception;
 
 public class UnauthorizedException extends RuntimeException {
     public UnauthorizedException(String message) {

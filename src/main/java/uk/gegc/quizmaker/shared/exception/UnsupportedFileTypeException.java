@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.exception;
+package uk.gegc.quizmaker.shared.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;

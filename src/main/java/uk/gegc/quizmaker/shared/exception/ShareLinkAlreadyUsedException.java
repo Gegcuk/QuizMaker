@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.exception;
+package uk.gegc.quizmaker.shared.exception;
 
 /**
  * Exception thrown when attempting to use a one-time share link that has already been consumed.
