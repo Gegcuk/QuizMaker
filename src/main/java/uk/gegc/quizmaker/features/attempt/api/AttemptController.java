@@ -1,0 +1,350 @@
+package uk.gegc.quizmaker.features.attempt.api;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+
+import java.util.List;
+import java.util.UUID;
+
+@Tag(name = "Attempts", description = "Endpoints for managing quiz attempts")
+@RestController
+@RequestMapping("/api/v1/attempts")
+@RequiredArgsConstructor
+@Validated
+public class AttemptController {
+
+    private final AttemptService attemptService;
+
+    @Operation(
+            summary = "Start an attempt for a quiz",
+            description = "Creates a new attempt for the given quiz and returns its ID."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Attempt started",
+                    content = @Content(schema = @Schema(implementation = StartAttemptResponse.class),
+                            examples = @ExampleObject(name = "success", value = """
+                                    {
+                                      "attemptId":"3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                      "firstQuestion":null
+                                    }
+                                    """))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found")
+    })
+    @PostMapping("/quizzes/{quizId}")
+    public ResponseEntity<StartAttemptResponse> startAttempt(
+            @Parameter(description = "Quiz UUID to start an attempt for", required = true)
+            @PathVariable UUID quizId,
+
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Optional request body specifying the attempt mode",
+                    required = false,
+                    content = @Content(
+                            schema = @Schema(implementation = StartAttemptRequest.class)
+                    )
+            )
+            @RequestBody(required = false) @Valid StartAttemptRequest request,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptMode mode = (request != null && request.mode() != null)
+                ? request.mode()
+                : AttemptMode.ALL_AT_ONCE;
+        StartAttemptResponse dto = attemptService.startAttempt(username, quizId, mode);
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    @Operation(
+            summary = "List attempts",
+            description = "Retrieves a paginated list of attempts for the authenticated user, optionally filtered by quizId or userId."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of attempts returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptDto.class)
+                    )
+            )
+    })
+    @GetMapping
+    public ResponseEntity<Page<AttemptDto>> listAttempts(
+            @Parameter(in = ParameterIn.QUERY, description = "Page number (0-based)", example = "0")
+            @Min(0) @RequestParam(name = "page", defaultValue = "0") int page,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Page size", example = "20")
+            @Min(1) @RequestParam(name = "size", defaultValue = "20") int size,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by quiz UUID")
+            @RequestParam(name = "quizId", required = false) UUID quizId,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by user UUID")
+            @RequestParam(name = "userId", required = false) UUID userId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        Page<AttemptDto> result = attemptService.getAttempts(
+                username,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt")),
+                quizId,
+                userId
+        );
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Get attempt details", description = "Retrieve detailed information for a specific attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt details returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptDetailsDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found")
+    })
+    @GetMapping("/{attemptId}")
+    public ResponseEntity<AttemptDetailsDto> getAttempt(
+            @Parameter(description = "UUID of the attempt to retrieve", required = true)
+            @PathVariable UUID attemptId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptDetailsDto attempt = attemptService.getAttemptDetail(username, attemptId);
+        return ResponseEntity.ok(attempt);
+    }
+
+    @Operation(
+            summary = "Get current question for an attempt",
+            description = "Retrieve the current question for an in-progress attempt. This is useful when resuming an attempt after closing the browser."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Current question returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = CurrentQuestionDto.class),
+                            examples = @ExampleObject(name = "success", value = """
+                                    {
+                                      "question": {
+                                        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                                        "type": "MULTIPLE_CHOICE",
+                                        "content": "What is the capital of France?",
+                                        "options": ["London", "Berlin", "Paris", "Madrid"]
+                                      },
+                                      "questionNumber": 3,
+                                      "totalQuestions": 10,
+                                      "attemptStatus": "IN_PROGRESS"
+                                    }
+                                    """))
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered")
+    })
+    @GetMapping("/{attemptId}/current-question")
+    public ResponseEntity<CurrentQuestionDto> getCurrentQuestion(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        CurrentQuestionDto currentQuestion = attemptService.getCurrentQuestion(username, attemptId);
+        return ResponseEntity.ok(currentQuestion);
+    }
+
+    @Operation(summary = "Submit a single answer", description = "Submit an answer to a specific question within an attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Answer submission result",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AnswerSubmissionDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "Validation error"),
+            @ApiResponse(responseCode = "404", description = "Attempt or question not found")
+    })
+    @PostMapping("/{attemptId}/answers")
+    public ResponseEntity<AnswerSubmissionDto> submitAnswer(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Answer submission payload",
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = AnswerSubmissionRequest.class))
+            )
+            @RequestBody @Valid AnswerSubmissionRequest request,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AnswerSubmissionDto answer = attemptService.submitAnswer(username, attemptId, request);
+        return ResponseEntity.ok(answer);
+    }
+
+    @Operation(summary = "Submit batch of answers", description = "Submit multiple answers at once (only for ALL_AT_ONCE mode).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Batch answers submitted",
+                    content = @Content(
+                            mediaType = "application/json",
+                            array = @ArraySchema(schema = @Schema(implementation = AnswerSubmissionDto.class))
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "Validation error"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Invalid attempt mode or duplicate answers")
+    })
+    @PostMapping("/{attemptId}/answers/batch")
+    public ResponseEntity<List<AnswerSubmissionDto>> submitBatch(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Batch answer submission payload",
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = BatchAnswerSubmissionRequest.class))
+            )
+            @RequestBody @Valid BatchAnswerSubmissionRequest request,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        List<AnswerSubmissionDto> answers =
+                attemptService.submitBatch(username, attemptId, request);
+        return ResponseEntity.ok(answers);
+    }
+
+    @Operation(summary = "Complete an attempt", description = "Marks the attempt as completed and returns the results.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt completed successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptResultDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt in invalid state")
+    })
+    @PostMapping("/{attemptId}/complete")
+    public ResponseEntity<AttemptResultDto> completeAttempt(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptResultDto result = attemptService.completeAttempt(username, attemptId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Get attempt statistics", description = "Retrieve detailed statistics for a specific attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt statistics returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptStatsDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "404", description = "Attempt not found")
+    })
+    @GetMapping("/{attemptId}/stats")
+    public ResponseEntity<AttemptStatsDto> getAttemptStats(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        return ResponseEntity.ok(stats);
+    }
+
+    @Operation(summary = "Pause an attempt", description = "Pause an in-progress attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt paused successfully"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be paused")
+    })
+    @PostMapping("/{attemptId}/pause")
+    public ResponseEntity<AttemptDto> pauseAttempt(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptDto result = attemptService.pauseAttempt(username, attemptId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Resume an attempt", description = "Resume a paused attempt.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt resumed successfully"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be resumed")
+    })
+    @PostMapping("/{attemptId}/resume")
+    public ResponseEntity<AttemptDto> resumeAttempt(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptDto result = attemptService.resumeAttempt(username, attemptId);
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(summary = "Delete an attempt", description = "Delete an attempt and all its associated answers. Users can only delete their own attempts.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Attempt deleted successfully"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found")
+    })
+    @DeleteMapping("/{attemptId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAttempt(
+            @Parameter(description = "UUID of the attempt to delete", required = true)
+            @PathVariable UUID attemptId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        attemptService.deleteAttempt(username, attemptId);
+    }
+
+    @Operation(summary = "Get shuffled questions", description = "Get questions for a quiz in randomized order (safe, without answers).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Shuffled questions returned")
+    })
+    @GetMapping("/quizzes/{quizId}/questions/shuffled")
+    public ResponseEntity<List<QuestionForAttemptDto>> getShuffledQuestions(
+            @Parameter(description = "UUID of the quiz", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, username);
+        return ResponseEntity.ok(questions);
+    }
+
+}

@@ -13,11 +13,11 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
-import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
-import uk.gegc.quizmaker.model.category.Category;
-import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 
 import java.util.UUID;
 

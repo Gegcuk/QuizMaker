@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
 
 import java.util.List;
 

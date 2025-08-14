@@ -12,9 +12,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.auth.ForgotPasswordRequest;
-import uk.gegc.quizmaker.service.RateLimitService;
-import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.features.auth.api.dto.ForgotPasswordRequest;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -81,7 +82,7 @@ public class AuthControllerForgotPasswordTest {
         // Given
         ForgotPasswordRequest request = new ForgotPasswordRequest("test@example.com");
         
-        doThrow(new uk.gegc.quizmaker.exception.RateLimitExceededException("Too many requests for forgot-password", 45))
+        doThrow(new RateLimitExceededException("Too many requests for forgot-password", 45))
                 .when(rateLimitService).checkRateLimit(eq("forgot-password"), eq("test@example.com|127.0.0.1"));
 
         // When & Then

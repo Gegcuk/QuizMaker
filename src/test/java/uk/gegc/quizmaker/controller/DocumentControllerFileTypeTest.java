@@ -12,10 +12,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import uk.gegc.quizmaker.config.DocumentProcessingConfig;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.service.document.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
 
 import java.util.UUID;
 
@@ -54,7 +55,7 @@ class DocumentControllerFileTypeTest {
         testDocumentDto = new DocumentDto();
         testDocumentDto.setId(UUID.randomUUID());
         testDocumentDto.setOriginalFilename("test.pdf");
-        testDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        testDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         testDocumentDto.setTotalChunks(5);
 
         // Setup default config values
@@ -109,7 +110,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto txtDocumentDto = new DocumentDto();
         txtDocumentDto.setId(UUID.randomUUID());
         txtDocumentDto.setOriginalFilename("test.txt");
-        txtDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        txtDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         txtDocumentDto.setTotalChunks(3);
 
         when(documentProcessingService.uploadAndProcessDocument(
@@ -142,7 +143,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto bookDocumentDto = new DocumentDto();
         bookDocumentDto.setId(UUID.randomUUID());
         bookDocumentDto.setOriginalFilename("book.pdf");
-        bookDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        bookDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         bookDocumentDto.setTotalChunks(10);
         bookDocumentDto.setTitle("Sample Book");
         bookDocumentDto.setAuthor("Test Author");
@@ -178,7 +179,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto articleDocumentDto = new DocumentDto();
         articleDocumentDto.setId(UUID.randomUUID());
         articleDocumentDto.setOriginalFilename("article.txt");
-        articleDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        articleDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         articleDocumentDto.setTotalChunks(6);
 
         when(documentProcessingService.uploadAndProcessDocument(
@@ -210,7 +211,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto largeDocumentDto = new DocumentDto();
         largeDocumentDto.setId(UUID.randomUUID());
         largeDocumentDto.setOriginalFilename("large_document.pdf");
-        largeDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        largeDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         largeDocumentDto.setTotalChunks(25);
         largeDocumentDto.setFileSize(5L * 1024 * 1024); // 5MB
 
@@ -244,7 +245,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto specialDocumentDto = new DocumentDto();
         specialDocumentDto.setId(UUID.randomUUID());
         specialDocumentDto.setOriginalFilename("special-chars-文档.pdf");
-        specialDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        specialDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         specialDocumentDto.setTotalChunks(4);
 
         when(documentProcessingService.uploadAndProcessDocument(
@@ -276,7 +277,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto unicodeDocumentDto = new DocumentDto();
         unicodeDocumentDto.setId(UUID.randomUUID());
         unicodeDocumentDto.setOriginalFilename("unicode-测试.txt");
-        unicodeDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        unicodeDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         unicodeDocumentDto.setTotalChunks(2);
 
         when(documentProcessingService.uploadAndProcessDocument(
@@ -308,7 +309,7 @@ class DocumentControllerFileTypeTest {
         DocumentDto mixedDocumentDto = new DocumentDto();
         mixedDocumentDto.setId(UUID.randomUUID());
         mixedDocumentDto.setOriginalFilename("mixed-content.pdf");
-        mixedDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        mixedDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         mixedDocumentDto.setTotalChunks(8);
 
         when(documentProcessingService.uploadAndProcessDocument(

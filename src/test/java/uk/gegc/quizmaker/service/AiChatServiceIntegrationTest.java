@@ -6,8 +6,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.config.TestAiConfig;
-import uk.gegc.quizmaker.dto.ai.ChatResponseDto;
-import uk.gegc.quizmaker.exception.AiServiceException;
+import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
+import uk.gegc.quizmaker.features.ai.application.AiChatService;
+import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import static org.junit.jupiter.api.Assertions.*;
 

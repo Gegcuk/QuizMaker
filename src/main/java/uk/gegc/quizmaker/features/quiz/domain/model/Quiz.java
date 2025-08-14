@@ -1,0 +1,164 @@
+package uk.gegc.quizmaker.features.quiz.domain.model;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.annotations.UpdateTimestamp;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
+@Entity
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "quizzes", uniqueConstraints = @UniqueConstraint(columnNames = {"creator_id", "title"}))
+@SQLDelete(sql = "UPDATE quizzes SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP, version = version + 1 WHERE quiz_id = ? AND version = ?")
+@SQLRestriction("is_deleted = false")
+public class Quiz {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "quiz_id")
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "creator_id", nullable = false, updatable = false)
+    private User creator;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "category_id", nullable = false)
+    private Category category;
+
+    @Column(name = "title", nullable = false, length = 100)
+    private String title;
+
+    @Column(name = "description", length = 1000)
+    private String description;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "visibility", nullable = false, length = 20)
+    private Visibility visibility;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "difficulty", nullable = false, length = 20)
+    private Difficulty difficulty;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private QuizStatus status;
+
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reviewed_by")
+    private User reviewedBy;
+
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
+
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
+    @Column(name = "presentation_hash", length = 64)
+    private String presentationHash;
+
+    @Column(name = "submitted_for_review_at")
+    private Instant submittedForReviewAt;
+
+    @Column(name = "locked_for_review")
+    private Boolean lockedForReview;
+
+    @Column(name = "publish_on_approve")
+    private Boolean publishOnApprove;
+
+    @Version
+    @Column(name = "version")
+    private Integer version;
+
+    @Column(name = "estimated_time_min", nullable = false)
+    private Integer estimatedTime;
+
+    @Column(name = "is_repetition_enabled", nullable = false)
+    private Boolean isRepetitionEnabled;
+
+    @NotNull
+    @Column(name = "is_timer_enabled", nullable = false)
+    private Boolean isTimerEnabled;
+
+    @Column(name = "timer_duration_min")
+    private Integer timerDuration;
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false, nullable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "boolean default false")
+    private Boolean isDeleted;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @ManyToMany(
+            fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+    )
+    @JoinTable(
+            name = "quiz_tags",
+            joinColumns = @JoinColumn(name = "quiz_id", nullable = false),
+            inverseJoinColumns = @JoinColumn(name = "tag_id", nullable = false)
+    )
+    private Set<Tag> tags = new HashSet<>();
+
+    @ManyToMany(
+            fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE}
+    )
+    @JoinTable(
+            name = "quiz_questions",
+            joinColumns = @JoinColumn(name = "quiz_id"),
+            inverseJoinColumns = @JoinColumn(name = "question_id"))
+    private Set<Question> questions = new HashSet<>();
+
+    @PrePersist
+    public void prePersist() {
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+        if (status == null) {
+            status = QuizStatus.DRAFT;
+        }
+        if (lockedForReview == null) {
+            lockedForReview = false;
+        }
+        if (publishOnApprove == null) {
+            publishOnApprove = false;
+        }
+    }
+
+    @PreRemove
+    private void onSoftDelete() {
+        this.isDeleted = true;
+        this.deletedAt = Instant.now();
+    }
+
+}

@@ -8,8 +8,9 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 
 import java.util.List;
 

@@ -6,11 +6,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.exception.ForbiddenException;
-import uk.gegc.quizmaker.exception.UnauthorizedException;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.RoleName;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.UUID;
 

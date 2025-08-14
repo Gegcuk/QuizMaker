@@ -9,9 +9,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.quiz.Visibility;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 
 import java.util.List;
 import java.util.Set;

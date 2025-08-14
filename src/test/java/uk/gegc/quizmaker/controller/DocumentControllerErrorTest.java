@@ -10,15 +10,17 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.config.DocumentProcessingConfig;
-import uk.gegc.quizmaker.dto.document.DocumentDto;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.exception.DocumentNotFoundException;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
-import uk.gegc.quizmaker.service.document.DocumentProcessingService;
-import uk.gegc.quizmaker.service.document.DocumentValidationService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
+import uk.gegc.quizmaker.features.document.api.DocumentController;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 
 import java.util.UUID;
 
@@ -50,7 +52,7 @@ class DocumentControllerErrorTest {
         testDocumentDto = new DocumentDto();
         testDocumentDto.setId(UUID.randomUUID());
         testDocumentDto.setOriginalFilename("test.pdf");
-        testDocumentDto.setStatus(uk.gegc.quizmaker.model.document.Document.DocumentStatus.PROCESSED);
+        testDocumentDto.setStatus(Document.DocumentStatus.PROCESSED);
         testDocumentDto.setTotalChunks(5);
 
         // Reset mocks to ensure clean state

@@ -7,7 +7,11 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
+import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
 
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;

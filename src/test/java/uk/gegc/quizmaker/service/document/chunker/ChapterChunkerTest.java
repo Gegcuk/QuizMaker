@@ -5,11 +5,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.document.ProcessDocumentRequest;
-import uk.gegc.quizmaker.service.document.chunker.impl.ChapterChunker;
-import uk.gegc.quizmaker.service.document.converter.ConvertedDocument;
-import uk.gegc.quizmaker.util.ChunkTitleGenerator;
-import uk.gegc.quizmaker.util.SentenceBoundaryDetector;
+import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.infra.converter.ChapterChunker;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
+import uk.gegc.quizmaker.features.document.infra.converter.UniversalChunker;
+import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
+import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,0 +1,43 @@
+package uk.gegc.quizmaker.features.question.domain.model;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Getter
+@Setter
+@Table(name = "answers")
+public class Answer {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "attempt_id", nullable = false)
+    private Attempt attempt;
+
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "question_id", nullable = false)
+    private Question question;
+
+    @Column(name = "response", columnDefinition = "json", nullable = false)
+    private String response;
+
+    @Column(name = "is_correct")
+    private Boolean isCorrect;
+
+    @Column(name = "score")
+    private Double score;
+
+    @Column(name = "answered_at", nullable = false)
+    private Instant answeredAt;
+
+
+}

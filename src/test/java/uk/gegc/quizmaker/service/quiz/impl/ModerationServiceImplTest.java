@@ -11,17 +11,21 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import uk.gegc.quizmaker.dto.quiz.PendingReviewQuizDto;
-import uk.gegc.quizmaker.dto.quiz.QuizModerationAuditDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.exception.ValidationException;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.QuizStatus;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.quiz.api.dto.PendingReviewQuizDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.features.quiz.application.impl.ModerationServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizModerationAudit;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizModerationAuditRepository;
+import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.time.Instant;
 import java.util.List;
@@ -43,9 +47,9 @@ class ModerationServiceImplTest {
     @Mock
     private UserRepository userRepository;
     @Mock
-    private uk.gegc.quizmaker.mapper.QuizMapper quizMapper;
+    private QuizMapper quizMapper;
     @Mock
-    private uk.gegc.quizmaker.repository.quiz.QuizModerationAuditRepository auditRepository;
+    private QuizModerationAuditRepository auditRepository;
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
     @Mock
@@ -107,9 +111,9 @@ class ModerationServiceImplTest {
     @DisplayName("getQuizAuditTrail: returns mapped audit DTOs in desc order")
     void getQuizAuditTrail_returnsList() {
         UUID qid = UUID.randomUUID();
-        uk.gegc.quizmaker.model.quiz.QuizModerationAudit a1 = new uk.gegc.quizmaker.model.quiz.QuizModerationAudit();
+        QuizModerationAudit a1 = new QuizModerationAudit();
         a1.setId(UUID.randomUUID());
-        uk.gegc.quizmaker.model.quiz.QuizModerationAudit a2 = new uk.gegc.quizmaker.model.quiz.QuizModerationAudit();
+        QuizModerationAudit a2 = new QuizModerationAudit();
         a2.setId(UUID.randomUUID());
 
         when(auditRepository.findAllByQuiz_IdOrderByCreatedAtDesc(qid)).thenReturn(List.of(a1, a2));
@@ -134,13 +138,13 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PUBLISHED);
+        quiz.setStatus(QuizStatus.PUBLISHED);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         moderationService.unpublishQuiz(quizId, modId, "policy change");
 
-        assertThat(quiz.getStatus()).isEqualTo(uk.gegc.quizmaker.model.quiz.QuizStatus.DRAFT);
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
         assertThat(quiz.getReviewedAt()).isNotNull();
         assertThat(quiz.getReviewedBy()).isEqualTo(moderator);
         assertThat(quiz.getRejectionReason()).isNull();
@@ -154,12 +158,12 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.DRAFT);
+        quiz.setStatus(QuizStatus.DRAFT);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot unpublish unless PUBLISHED");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -171,7 +175,7 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -181,12 +185,12 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PUBLISHED);
+        quiz.setStatus(QuizStatus.PUBLISHED);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).save(any());
     }
 
@@ -199,14 +203,14 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PENDING_REVIEW);
+        quiz.setStatus(QuizStatus.PENDING_REVIEW);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         moderationService.rejectQuiz(quizId, modId, "Not sufficient quality");
 
-        assertThat(quiz.getStatus()).isEqualTo(uk.gegc.quizmaker.model.quiz.QuizStatus.REJECTED);
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.REJECTED);
         assertThat(quiz.getReviewedAt()).isNotNull();
         assertThat(quiz.getReviewedBy()).isEqualTo(moderator);
         assertThat(quiz.getRejectionReason()).isEqualTo("Not sufficient quality");
@@ -220,12 +224,12 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.DRAFT);
+        quiz.setStatus(QuizStatus.DRAFT);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot reject");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -236,7 +240,7 @@ class ModerationServiceImplTest {
         UUID quizId = this.quizId;
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r")).isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -246,12 +250,12 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PENDING_REVIEW);
+        quiz.setStatus(QuizStatus.PENDING_REVIEW);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }
 
@@ -264,7 +268,7 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PENDING_REVIEW);
+        quiz.setStatus(QuizStatus.PENDING_REVIEW);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
@@ -272,7 +276,7 @@ class ModerationServiceImplTest {
 
         moderationService.approveQuiz(quizId, modId, "Looks good");
 
-        assertThat(quiz.getStatus()).isEqualTo(uk.gegc.quizmaker.model.quiz.QuizStatus.PUBLISHED);
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
         assertThat(quiz.getReviewedAt()).isNotNull();
         assertThat(quiz.getReviewedBy()).isEqualTo(moderator);
         assertThat(quiz.getRejectionReason()).isNull();
@@ -286,13 +290,13 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.DRAFT);
+        quiz.setStatus(QuizStatus.DRAFT);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
 
         assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "reason"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot approve");
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -303,7 +307,7 @@ class ModerationServiceImplTest {
         UUID quizId = this.quizId;
         UUID modId = moderator.getId();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r")).isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -313,12 +317,12 @@ class ModerationServiceImplTest {
         UUID modId = moderator.getId();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        quiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PENDING_REVIEW);
+        quiz.setStatus(QuizStatus.PENDING_REVIEW);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findById(modId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ResourceNotFoundException.class);
+                .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }
 

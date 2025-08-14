@@ -6,16 +6,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
-import uk.gegc.quizmaker.model.document.Document;
-import uk.gegc.quizmaker.model.document.DocumentChunk;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.document.DocumentRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -95,14 +100,14 @@ class AiQuizGenerationServiceIntegrationTest {
 
         testRequest = new GenerateQuizFromDocumentRequest(
                 testDocumentId,
-                uk.gegc.quizmaker.dto.quiz.QuizScope.ENTIRE_DOCUMENT,
+                QuizScope.ENTIRE_DOCUMENT,
                 null, // chunkIndices
                 null, // chapterTitle
                 null, // chapterNumber
                 "Integration Test Quiz",
                 "Test description for integration testing",
                 questionsPerType,
-                uk.gegc.quizmaker.model.question.Difficulty.MEDIUM,
+                Difficulty.MEDIUM,
                 2, // estimatedTimePerQuestion
                 null, // categoryId
                 List.of() // tagIds
@@ -160,7 +165,7 @@ class AiQuizGenerationServiceIntegrationTest {
         UUID nonExistentDocumentId = UUID.randomUUID();
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername()));
+        assertThrows(DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(nonExistentDocumentId, testUser.getUsername()));
     }
 
     @Test
@@ -183,6 +188,6 @@ class AiQuizGenerationServiceIntegrationTest {
         QuizGenerationJob job = jobService.createJob(testUser, testDocumentId, "test-request-data", 1, 300);
 
         // When & Then
-        assertThrows(uk.gegc.quizmaker.exception.ValidationException.class, () -> jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser"));
+        assertThrows(ValidationException.class, () -> jobService.getJobByIdAndUsername(job.getId(), "unauthorizeduser"));
     }
 } 

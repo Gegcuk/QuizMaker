@@ -6,20 +6,25 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.quiz.CreateShareLinkRequest;
-import uk.gegc.quizmaker.dto.quiz.CreateShareLinkResponse;
-import uk.gegc.quizmaker.dto.quiz.ShareLinkDto;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.ShareLink;
-import uk.gegc.quizmaker.model.quiz.ShareLinkScope;
-import uk.gegc.quizmaker.model.quiz.ShareLinkUsage;
-import uk.gegc.quizmaker.model.user.PermissionName;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.quiz.ShareLinkRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
+import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkUsage;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ShareLinkAlreadyUsedException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -40,7 +45,7 @@ import static org.mockito.Mockito.*;
 class ShareLinkServiceImplTest {
 
     @Mock private ShareLinkRepository shareLinkRepository;
-    @Mock private uk.gegc.quizmaker.repository.quiz.ShareLinkUsageRepository usageRepository;
+    @Mock private ShareLinkUsageRepository usageRepository;
     @Mock private QuizRepository quizRepository;
     @Mock private UserRepository userRepository;
     @Mock private AppPermissionEvaluator appPermissionEvaluator;
@@ -114,7 +119,7 @@ class ShareLinkServiceImplTest {
 
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, null, false);
         assertThatThrownBy(() -> service.createShareLink(quizId, nonOwnerId, req))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ForbiddenException.class)
+                .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Not allowed to share this quiz");
         verify(shareLinkRepository, never()).save(any());
     }
@@ -202,7 +207,7 @@ class ShareLinkServiceImplTest {
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, pastTime, false);
         
         assertThatThrownBy(() -> service.createShareLink(quizId, userId, req))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Expiry must be in the future");
         verify(shareLinkRepository, never()).save(any());
     }
@@ -258,7 +263,7 @@ class ShareLinkServiceImplTest {
 
         // Second call should throw ShareLinkAlreadyUsedException
         assertThatThrownBy(() -> service.consumeOneTimeToken("RAW"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException.class)
+                .isInstanceOf(ShareLinkAlreadyUsedException.class)
                 .hasMessageContaining("Token already used");
 
         verify(shareLinkRepository, times(1)).consumeOneTime(anyString(), any(Instant.class));
@@ -443,7 +448,7 @@ class ShareLinkServiceImplTest {
         when(appPermissionEvaluator.hasPermission(eq(nonCreator), any())).thenReturn(false);
         
         assertThatThrownBy(() -> service.revokeShareLink(linkId, nonCreatorId))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ForbiddenException.class);
+                .isInstanceOf(ForbiddenException.class);
         verify(shareLinkRepository, never()).save(any());
     }
 
@@ -512,7 +517,7 @@ class ShareLinkServiceImplTest {
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
 
         service.recordShareLinkUsage("HASH", "UA", "127.0.0.1");
-        verify(usageRepository).save(any(uk.gegc.quizmaker.model.quiz.ShareLinkUsage.class));
+        verify(usageRepository).save(any(ShareLinkUsage.class));
     }
 
     @Test
@@ -571,7 +576,7 @@ class ShareLinkServiceImplTest {
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         
         assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ShareLinkAlreadyUsedException.class)
+                .isInstanceOf(ShareLinkAlreadyUsedException.class)
                 .hasMessageContaining("Token already used");
         verify(shareLinkRepository, never()).consumeOneTime(anyString(), any(Instant.class));
     }
@@ -587,7 +592,7 @@ class ShareLinkServiceImplTest {
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         
         assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Token expired");
         verify(shareLinkRepository, never()).consumeOneTime(anyString(), any(Instant.class));
     }
@@ -691,7 +696,7 @@ class ShareLinkServiceImplTest {
         link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
         assertThatThrownBy(() -> service.validateToken("t"))
-                .isInstanceOf(uk.gegc.quizmaker.exception.ValidationException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("expired");
     }
 

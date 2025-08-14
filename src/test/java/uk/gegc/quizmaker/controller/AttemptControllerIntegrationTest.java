@@ -21,22 +21,22 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
-import uk.gegc.quizmaker.dto.question.CreateQuestionRequest;
-import uk.gegc.quizmaker.dto.quiz.CreateQuizRequest;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.attempt.Attempt;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
-import uk.gegc.quizmaker.model.category.Category;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.Visibility;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
-import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.List;
@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static uk.gegc.quizmaker.model.question.QuestionType.TRUE_FALSE;
+import static uk.gegc.quizmaker.features.question.domain.model.QuestionType.TRUE_FALSE;
 
 
 @SpringBootTest

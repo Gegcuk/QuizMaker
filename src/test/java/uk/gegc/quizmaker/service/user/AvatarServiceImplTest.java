@@ -5,11 +5,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import uk.gegc.quizmaker.exception.DocumentStorageException;
-import uk.gegc.quizmaker.exception.UnsupportedFileTypeException;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.user.impl.AvatarServiceImpl;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.user.application.impl.AvatarServiceImpl;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.util.TestImageFactory;
 
 import java.io.IOException;
@@ -288,7 +289,7 @@ class AvatarServiceImplTest {
         try {
             avatarService.uploadAndAssignAvatar("missing", new MockMultipartFile("file", "x.png", "image/png", png));
             fail("Expected ResourceNotFoundException");
-        } catch (uk.gegc.quizmaker.exception.ResourceNotFoundException ex) {
+        } catch (ResourceNotFoundException ex) {
             // trigger rollback cleanup
             for (var sync : TransactionSynchronizationManager.getSynchronizations()) {
                 sync.afterCompletion(org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK);

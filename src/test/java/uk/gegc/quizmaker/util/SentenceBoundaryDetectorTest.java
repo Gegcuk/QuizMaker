@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.util;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
 
 import static org.junit.jupiter.api.Assertions.*;
 

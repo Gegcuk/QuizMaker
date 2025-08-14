@@ -13,17 +13,24 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
-import uk.gegc.quizmaker.model.attempt.AttemptMode;
-import uk.gegc.quizmaker.model.attempt.AttemptStatus;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.Question;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.attempt.AttemptRepository;
-import uk.gegc.quizmaker.repository.question.QuestionRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
 import java.util.*;
@@ -62,7 +69,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
     private Quiz testQuiz;
     private Question question1;
     private Question question2;
-    private uk.gegc.quizmaker.model.attempt.Attempt testAttempt;
+    private Attempt testAttempt;
 
     @BeforeEach
     void setUp() {
@@ -89,10 +96,10 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testUser = userRepository.save(testUser);
 
         // Create test category (required for quiz)
-        uk.gegc.quizmaker.model.category.Category testCategory = new uk.gegc.quizmaker.model.category.Category();
+        Category testCategory = new Category();
         testCategory.setName(uniqueCategoryName);
         testCategory.setDescription("A test category");
-        testCategory = context.getBean(uk.gegc.quizmaker.repository.category.CategoryRepository.class).save(testCategory);
+        testCategory = context.getBean(CategoryRepository.class).save(testCategory);
 
         // Create test quiz
         testQuiz = new Quiz();
@@ -100,9 +107,9 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testQuiz.setDescription("A test quiz");
         testQuiz.setCreator(testUser);
         testQuiz.setCategory(testCategory);
-        testQuiz.setVisibility(uk.gegc.quizmaker.model.quiz.Visibility.PUBLIC);
-        testQuiz.setStatus(uk.gegc.quizmaker.model.quiz.QuizStatus.PUBLISHED);
-        testQuiz.setDifficulty(uk.gegc.quizmaker.model.question.Difficulty.EASY);
+        testQuiz.setVisibility(Visibility.PUBLIC);
+        testQuiz.setStatus(QuizStatus.PUBLISHED);
+        testQuiz.setDifficulty(Difficulty.EASY);
         testQuiz.setEstimatedTime(10);
         testQuiz.setIsRepetitionEnabled(false);
         testQuiz.setIsTimerEnabled(false);
@@ -156,7 +163,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testQuiz = quizRepository.save(testQuiz);
 
         // Create test attempt
-        testAttempt = new uk.gegc.quizmaker.model.attempt.Attempt();
+        testAttempt = new Attempt();
         testAttempt.setUser(testUser);
         testAttempt.setQuiz(testQuiz);
         testAttempt.setMode(AttemptMode.ONE_BY_ONE);
@@ -191,7 +198,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                 .collect(java.util.stream.Collectors.toList());
         Question first = sortedQuestions.get(0);
         
-        uk.gegc.quizmaker.model.question.Answer answer = new uk.gegc.quizmaker.model.question.Answer();
+        Answer answer = new Answer();
         answer.setQuestion(first);
         answer.setAnsweredAt(Instant.now());
         answer.setAttempt(testAttempt);
@@ -200,7 +207,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         answer.setScore(1.0);
         
         // Save the answer separately to ensure it's persisted
-        uk.gegc.quizmaker.repository.question.AnswerRepository answerRepo = context.getBean(uk.gegc.quizmaker.repository.question.AnswerRepository.class);
+        AnswerRepository answerRepo = context.getBean(AnswerRepository.class);
         answerRepo.save(answer);
 
         // Act & Assert
@@ -257,7 +264,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                 .sorted(Comparator.comparing(Question::getId))
                 .collect(java.util.stream.Collectors.toList());
         
-        uk.gegc.quizmaker.model.question.Answer answer1 = new uk.gegc.quizmaker.model.question.Answer();
+        Answer answer1 = new Answer();
         answer1.setQuestion(sortedQuestions.get(0));
         answer1.setAnsweredAt(Instant.now());
         answer1.setAttempt(testAttempt);
@@ -265,7 +272,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         answer1.setIsCorrect(true);
         answer1.setScore(1.0);
 
-        uk.gegc.quizmaker.model.question.Answer answer2 = new uk.gegc.quizmaker.model.question.Answer();
+        Answer answer2 = new Answer();
         answer2.setQuestion(sortedQuestions.get(1));
         answer2.setAnsweredAt(Instant.now());
         answer2.setAttempt(testAttempt);

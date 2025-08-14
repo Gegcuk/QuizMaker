@@ -9,8 +9,9 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
-import uk.gegc.quizmaker.model.auth.PasswordResetToken;
-import uk.gegc.quizmaker.model.user.User;
+import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
+import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.LocalDateTime;
 import java.util.Optional;

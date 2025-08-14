@@ -5,8 +5,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.service.question.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

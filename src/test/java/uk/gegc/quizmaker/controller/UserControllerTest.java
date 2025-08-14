@@ -11,10 +11,11 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.user.UpdateUserProfileRequest;
-import uk.gegc.quizmaker.dto.user.UserProfileResponse;
-import uk.gegc.quizmaker.service.user.AvatarService;
-import uk.gegc.quizmaker.service.user.UserProfileService;
+import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
+import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
+import uk.gegc.quizmaker.features.user.api.UserController;
+import uk.gegc.quizmaker.features.user.application.AvatarService;
+import uk.gegc.quizmaker.features.user.application.UserProfileService;
 
 import java.time.LocalDateTime;
 import java.util.List;

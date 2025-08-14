@@ -12,13 +12,15 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
-import uk.gegc.quizmaker.dto.admin.RoleDto;
-import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
-import uk.gegc.quizmaker.model.user.*;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.security.AppPermissionEvaluator;
-import uk.gegc.quizmaker.service.admin.RoleService;
+import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
+import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.user.domain.model.*;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.*;
 
@@ -51,7 +53,7 @@ class AdminControllerIntegrationTest {
     private AppPermissionEvaluator appPermissionEvaluator;
 
     @MockitoBean
-    private uk.gegc.quizmaker.security.PermissionUtil permissionUtil;
+    private PermissionUtil permissionUtil;
 
     private User testUser;
     private User adminUser;
@@ -303,7 +305,7 @@ class AdminControllerIntegrationTest {
         when(appPermissionEvaluator.hasPermission(PermissionName.SYSTEM_ADMIN)).thenReturn(false);
 
         // Mock the PermissionUtil to throw ForbiddenException when requirePermission is called
-        doThrow(new uk.gegc.quizmaker.exception.ForbiddenException("Insufficient permissions to access this resource"))
+        doThrow(new ForbiddenException("Insufficient permissions to access this resource"))
                 .when(permissionUtil).requirePermission(PermissionName.SYSTEM_ADMIN);
 
         // When & Then

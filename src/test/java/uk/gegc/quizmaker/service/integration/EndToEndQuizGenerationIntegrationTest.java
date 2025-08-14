@@ -15,24 +15,25 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.support.TransactionTemplate;
-import uk.gegc.quizmaker.dto.quiz.GenerateQuizFromDocumentRequest;
-import uk.gegc.quizmaker.dto.quiz.QuizScope;
-import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.model.document.Document;
-import uk.gegc.quizmaker.model.document.DocumentChunk;
-import uk.gegc.quizmaker.model.question.Difficulty;
-import uk.gegc.quizmaker.model.question.QuestionType;
-import uk.gegc.quizmaker.model.quiz.GenerationStatus;
-import uk.gegc.quizmaker.model.quiz.Quiz;
-import uk.gegc.quizmaker.model.quiz.QuizGenerationJob;
-import uk.gegc.quizmaker.model.user.User;
-import uk.gegc.quizmaker.repository.document.DocumentRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.repository.quiz.QuizRepository;
-import uk.gegc.quizmaker.repository.user.UserRepository;
-import uk.gegc.quizmaker.service.ai.AiQuizGenerationService;
-import uk.gegc.quizmaker.service.quiz.QuizGenerationJobService;
-import uk.gegc.quizmaker.service.quiz.QuizService;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -254,7 +255,7 @@ class EndToEndQuizGenerationIntegrationTest {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
             
-            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+            for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }
@@ -343,7 +344,7 @@ class EndToEndQuizGenerationIntegrationTest {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
             
-            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+            for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }
@@ -486,7 +487,7 @@ class EndToEndQuizGenerationIntegrationTest {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
             
-            for (uk.gegc.quizmaker.model.question.Question question : quiz.getQuestions()) {
+            for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }

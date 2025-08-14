@@ -1,0 +1,60 @@
+package uk.gegc.quizmaker.features.category.application.impl;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.category.application.CategoryService;
+
+import java.util.UUID;
+
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class CategoryServiceImpl implements CategoryService {
+    private final CategoryRepository categoryRepository;
+    private final CategoryMapper categoryMapper;
+
+    @Override
+    public Page<CategoryDto> getCategories(Pageable pageable) {
+        return categoryRepository.findAll(pageable).map(categoryMapper::toDto);
+    }
+
+    @Override
+    public UUID createCategory(String username, CreateCategoryRequest request) {
+        var category = categoryMapper.toEntity(request);
+        return categoryRepository.save(category).getId();
+
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CategoryDto getCategoryById(UUID categoryId) {
+        var category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Category " + categoryId + " not found"));
+        return categoryMapper.toDto(category);
+    }
+
+    @Override
+    public CategoryDto updateCategoryById(String username, UUID categoryId, UpdateCategoryRequest request) {
+        var existingCategory = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("Category " + categoryId + " not found"));
+        categoryMapper.updateCategory(existingCategory, request);
+        return categoryMapper.toDto(categoryRepository.save(existingCategory));
+    }
+
+    @Override
+    public void deleteCategoryById(String username, UUID categoryId) {
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new ResourceNotFoundException("Category " + categoryId + " not found");
+        }
+        categoryRepository.deleteById(categoryId);
+    }
+}
