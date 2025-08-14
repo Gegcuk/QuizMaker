@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.admin;
+package uk.gegc.quizmaker.features.admin.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;

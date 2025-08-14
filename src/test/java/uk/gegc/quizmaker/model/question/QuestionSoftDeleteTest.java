@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.tag.TagRepository;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 
 import java.util.ArrayList;
 import java.util.List;

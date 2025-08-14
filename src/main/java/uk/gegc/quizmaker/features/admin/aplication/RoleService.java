@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.service.admin;
+package uk.gegc.quizmaker.features.admin.aplication;
 
-import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
-import uk.gegc.quizmaker.dto.admin.RoleDto;
-import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
+import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 

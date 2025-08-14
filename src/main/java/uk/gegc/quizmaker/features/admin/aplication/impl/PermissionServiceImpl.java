@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.admin.impl;
+package uk.gegc.quizmaker.features.admin.aplication.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,7 +10,7 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
-import uk.gegc.quizmaker.service.admin.PermissionService;
+import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 
 import java.util.List;
 import java.util.Set;

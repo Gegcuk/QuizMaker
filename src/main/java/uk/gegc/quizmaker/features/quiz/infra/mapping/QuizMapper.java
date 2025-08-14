@@ -3,10 +3,10 @@ package uk.gegc.quizmaker.features.quiz.infra.mapping;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizModerationAudit;
-import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.util.Set;

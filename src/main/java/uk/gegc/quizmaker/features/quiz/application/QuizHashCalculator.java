@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.quiz.application;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

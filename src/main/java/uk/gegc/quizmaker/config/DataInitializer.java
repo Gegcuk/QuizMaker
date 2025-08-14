@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.service.admin.RoleService;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 
 @Component
 @RequiredArgsConstructor

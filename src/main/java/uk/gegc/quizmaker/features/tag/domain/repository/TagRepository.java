@@ -1,8 +1,8 @@
-package uk.gegc.quizmaker.repository.tag;
+package uk.gegc.quizmaker.features.tag.domain.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 import java.util.UUID;
 

@@ -12,13 +12,13 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
-import uk.gegc.quizmaker.dto.admin.RoleDto;
-import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
+import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.security.AppPermissionEvaluator;
-import uk.gegc.quizmaker.service.admin.RoleService;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 
 import java.util.*;
 

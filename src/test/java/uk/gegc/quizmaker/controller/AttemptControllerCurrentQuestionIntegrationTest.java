@@ -14,6 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -94,10 +96,10 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testUser = userRepository.save(testUser);
 
         // Create test category (required for quiz)
-        uk.gegc.quizmaker.model.category.Category testCategory = new uk.gegc.quizmaker.model.category.Category();
+        Category testCategory = new Category();
         testCategory.setName(uniqueCategoryName);
         testCategory.setDescription("A test category");
-        testCategory = context.getBean(uk.gegc.quizmaker.repository.category.CategoryRepository.class).save(testCategory);
+        testCategory = context.getBean(CategoryRepository.class).save(testCategory);
 
         // Create test quiz
         testQuiz = new Quiz();

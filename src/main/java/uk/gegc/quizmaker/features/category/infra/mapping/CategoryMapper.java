@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.category.infra.mapping;
 
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.category.CategoryDto;
-import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
-import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
-import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
 
 @Component
 public class CategoryMapper {

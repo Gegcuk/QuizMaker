@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.admin;
+package uk.gegc.quizmaker.features.admin.aplication;
 
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 

@@ -4,10 +4,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.dto.category.CategoryDto;
-import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
-import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
-import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
 
 import java.util.UUID;
 

@@ -13,11 +13,11 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
-import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.api.dto.CreateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.UpdateTagRequest;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.repository.tag.TagRepository;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 
 import java.util.UUID;
 

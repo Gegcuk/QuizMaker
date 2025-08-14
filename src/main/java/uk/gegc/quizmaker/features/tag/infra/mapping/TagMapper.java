@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.mapper;
+package uk.gegc.quizmaker.features.tag.infra.mapping;
 
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
-import uk.gegc.quizmaker.dto.tag.TagDto;
-import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.api.dto.CreateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.TagDto;
+import uk.gegc.quizmaker.features.tag.api.dto.UpdateTagRequest;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 @Component
 public class TagMapper {

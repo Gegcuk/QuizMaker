@@ -273,35 +273,6 @@ src/main/java/uk/gegc/quizmaker/
         mapping/
           TagMapper.java
 
-    social/
-      api/
-        BookmarkController.java
-        CommentController.java
-        FollowerController.java
-        RatingController.java
-      application/
-        BookmarkService.java
-        CommentService.java
-        FollowerService.java
-        RatingService.java
-      domain/
-        model/
-          Bookmark.java
-          Comment.java
-          Follower.java
-          QuizRating.java
-        repository/
-          BookmarkRepository.java
-          CommentRepository.java
-          FollowerRepository.java
-          QuizRatingRepository.java
-      infra/
-        mapping/
-          BookmarkMapper.java
-          CommentMapper.java
-          FollowerMapper.java
-          RatingMapper.java
-
     admin/
       api/
         AdminController.java

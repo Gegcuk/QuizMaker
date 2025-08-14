@@ -12,13 +12,13 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
-import uk.gegc.quizmaker.model.category.Category;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.repository.tag.TagRepository;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.util.List;

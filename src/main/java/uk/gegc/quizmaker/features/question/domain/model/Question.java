@@ -10,7 +10,7 @@ import lombok.Setter;
 import org.hibernate.annotations.*;
 import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 import java.time.Instant;
 import java.util.ArrayList;

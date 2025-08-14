@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.admin;
+package uk.gegc.quizmaker.features.admin.api.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

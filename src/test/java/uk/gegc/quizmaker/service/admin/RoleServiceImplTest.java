@@ -6,10 +6,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.dto.admin.CreateRoleRequest;
-import uk.gegc.quizmaker.dto.admin.RoleDto;
-import uk.gegc.quizmaker.dto.admin.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
+import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
+import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
@@ -18,7 +19,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.service.admin.impl.RoleServiceImpl;
+import uk.gegc.quizmaker.features.admin.aplication.impl.RoleServiceImpl;
 
 import java.util.*;
 

@@ -2,7 +2,7 @@ package uk.gegc.quizmaker.features.user.infra.mapping;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.dto.admin.RoleDto;
+import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 
 import java.util.List;

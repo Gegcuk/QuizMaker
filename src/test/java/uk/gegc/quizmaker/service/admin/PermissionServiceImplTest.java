@@ -12,7 +12,7 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
-import uk.gegc.quizmaker.service.admin.impl.PermissionServiceImpl;
+import uk.gegc.quizmaker.features.admin.aplication.impl.PermissionServiceImpl;
 
 import java.util.*;
 

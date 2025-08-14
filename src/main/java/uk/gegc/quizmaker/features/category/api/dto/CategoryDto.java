@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.category;
+package uk.gegc.quizmaker.features.category.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

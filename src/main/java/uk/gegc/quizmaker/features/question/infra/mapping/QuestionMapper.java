@@ -8,7 +8,7 @@ import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
 import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.model.tag.Tag;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 import java.util.List;
 import java.util.stream.Collectors;

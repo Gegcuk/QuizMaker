@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.tag;
+package uk.gegc.quizmaker.features.tag.domain.model;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

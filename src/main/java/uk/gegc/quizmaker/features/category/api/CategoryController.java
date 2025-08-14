@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.category.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -21,10 +21,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.category.CategoryDto;
-import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
-import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
-import uk.gegc.quizmaker.service.category.CategoryService;
+import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
+import uk.gegc.quizmaker.features.category.application.CategoryService;
 
 import java.util.Map;
 import java.util.UUID;

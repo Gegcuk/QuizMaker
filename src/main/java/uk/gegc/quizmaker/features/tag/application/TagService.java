@@ -1,10 +1,10 @@
-package uk.gegc.quizmaker.service.tag;
+package uk.gegc.quizmaker.features.tag.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
-import uk.gegc.quizmaker.dto.tag.TagDto;
-import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.CreateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.TagDto;
+import uk.gegc.quizmaker.features.tag.api.dto.UpdateTagRequest;
 
 import java.util.UUID;
 

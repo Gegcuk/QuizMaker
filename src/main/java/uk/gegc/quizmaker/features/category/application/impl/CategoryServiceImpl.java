@@ -1,17 +1,17 @@
-package uk.gegc.quizmaker.service.category.impl;
+package uk.gegc.quizmaker.features.category.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.dto.category.CategoryDto;
-import uk.gegc.quizmaker.dto.category.CreateCategoryRequest;
-import uk.gegc.quizmaker.dto.category.UpdateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.CategoryDto;
+import uk.gegc.quizmaker.features.category.api.dto.CreateCategoryRequest;
+import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.mapper.CategoryMapper;
-import uk.gegc.quizmaker.repository.category.CategoryRepository;
-import uk.gegc.quizmaker.service.category.CategoryService;
+import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.category.application.CategoryService;
 
 import java.util.UUID;
 

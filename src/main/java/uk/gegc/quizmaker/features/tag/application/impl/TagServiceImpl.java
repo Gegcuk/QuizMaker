@@ -1,17 +1,17 @@
-package uk.gegc.quizmaker.service.tag.impl;
+package uk.gegc.quizmaker.features.tag.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.dto.tag.CreateTagRequest;
-import uk.gegc.quizmaker.dto.tag.TagDto;
-import uk.gegc.quizmaker.dto.tag.UpdateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.CreateTagRequest;
+import uk.gegc.quizmaker.features.tag.api.dto.TagDto;
+import uk.gegc.quizmaker.features.tag.api.dto.UpdateTagRequest;
 import uk.gegc.quizmaker.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.mapper.TagMapper;
-import uk.gegc.quizmaker.repository.tag.TagRepository;
-import uk.gegc.quizmaker.service.tag.TagService;
+import uk.gegc.quizmaker.features.tag.infra.mapping.TagMapper;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.tag.application.TagService;
 
 import java.util.UUID;
 
