@@ -1,9 +1,9 @@
 package uk.gegc.quizmaker.features.auth.application;
 
 import org.springframework.security.core.Authentication;
-import uk.gegc.quizmaker.dto.auth.JwtResponse;
+import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
-import uk.gegc.quizmaker.dto.auth.RefreshRequest;
+import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service;
+package uk.gegc.quizmaker.features.ai.application;
 
 import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
 

@@ -479,6 +479,33 @@ src/test/java/uk/gegc/quizmaker/
 
 ---
 
+## Remaining leftovers to move (current state)
+
+Based on the current filesystem, the following classes still live in the old structure. Move them to the indicated destinations:
+
+- `src/main/java/uk/gegc/quizmaker/util/AiResponseAnalyzer.java` → `src/main/java/uk/gegc/quizmaker/features/ai/infra/analysis/AiResponseAnalyzer.java`
+
+---
+
+## Additional target folders to create (new feature detected)
+
+Add a dedicated repetition feature for spaced repetition logic used by results/analytics and attempts.
+
+```text
+src/main/java/uk/gegc/quizmaker/features/repetition/
+  api/
+    dto/
+  application/
+    RepetitionService.java
+  domain/
+    model/
+      SpacedRepetitionEntry.java
+    repository/
+      SpacedRepetitionEntryRepository.java
+  infra/
+    mapping/
+```
+
 ## Naming conventions
 
 - **DTOs**: `XxxRequest`, `XxxResponse`. For lists: `XxxListResponse` or `Page<XxxResponse>`.

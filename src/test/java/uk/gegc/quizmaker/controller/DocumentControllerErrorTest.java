@@ -20,7 +20,7 @@ import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.features.document.api.DocumentController;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
-import uk.gegc.quizmaker.service.document.DocumentValidationService;
+import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 
 import java.util.UUID;
 

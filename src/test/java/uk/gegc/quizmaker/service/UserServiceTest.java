@@ -9,7 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.service.user.impl.UserServiceImpl;
+import uk.gegc.quizmaker.features.user.application.impl.UserServiceImpl;
 
 import java.util.UUID;
 

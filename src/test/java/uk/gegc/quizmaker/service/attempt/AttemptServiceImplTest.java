@@ -9,7 +9,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
-import uk.gegc.quizmaker.dto.result.LeaderboardEntryDto;
+import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
@@ -25,7 +25,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.service.scoring.ScoringService;
+import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 
 import java.util.List;
 import java.util.Optional;

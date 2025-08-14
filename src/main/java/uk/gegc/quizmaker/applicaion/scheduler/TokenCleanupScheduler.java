@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.scheduler;
+package uk.gegc.quizmaker.applicaion.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

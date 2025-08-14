@@ -3,8 +3,8 @@ package uk.gegc.quizmaker.features.auth.api.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import uk.gegc.quizmaker.validation.DifferentFrom;
-import uk.gegc.quizmaker.validation.ValidPassword;
+import uk.gegc.quizmaker.shared.validation.DifferentFrom;
+import uk.gegc.quizmaker.shared.validation.ValidPassword;
 
 @Schema(name = "ChangePasswordRequest", description = "Payload for changing user password")
 @DifferentFrom(field = "newPassword", notEqualTo = "currentPassword")

@@ -4,8 +4,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import uk.gegc.quizmaker.validation.NoLeadingTrailingSpaces;
-import uk.gegc.quizmaker.validation.ValidPassword;
+import uk.gegc.quizmaker.shared.validation.NoLeadingTrailingSpaces;
+import uk.gegc.quizmaker.shared.validation.ValidPassword;
 
 @Schema(name = "RegisterRequest", description = "Payload for user registration")
 public record RegisterRequest(

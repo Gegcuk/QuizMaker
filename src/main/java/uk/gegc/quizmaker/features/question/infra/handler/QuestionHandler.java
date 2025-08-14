@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.shared.exception.ValidationException;

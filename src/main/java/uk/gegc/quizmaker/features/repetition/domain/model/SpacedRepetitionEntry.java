@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.repetition;
+package uk.gegc.quizmaker.features.repetition.domain.model;
 
 import jakarta.persistence.*;
 import lombok.Getter;

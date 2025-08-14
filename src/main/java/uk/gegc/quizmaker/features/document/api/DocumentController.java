@@ -20,7 +20,7 @@ import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
-import uk.gegc.quizmaker.service.document.DocumentValidationService;
+import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 
 import java.util.List;
 import java.util.UUID;

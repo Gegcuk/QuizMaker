@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import uk.gegc.quizmaker.features.ai.api.dto.ChatRequestDto;
 import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
-import uk.gegc.quizmaker.service.AiChatService;
+import uk.gegc.quizmaker.features.ai.application.AiChatService;
 
 /**
  * Controller for AI chat functionality

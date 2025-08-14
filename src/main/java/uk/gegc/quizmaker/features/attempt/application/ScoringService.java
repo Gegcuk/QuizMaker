@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.scoring;
+package uk.gegc.quizmaker.features.attempt.application;
 
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;

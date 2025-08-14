@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.document;
+package uk.gegc.quizmaker.features.document.application;
 
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;

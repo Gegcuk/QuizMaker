@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.result;
+package uk.gegc.quizmaker.features.result.api.dto;
 
 import java.time.Instant;
 import java.util.UUID;

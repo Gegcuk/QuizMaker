@@ -9,7 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import uk.gegc.quizmaker.util.AiResponseAnalyzer;
+import uk.gegc.quizmaker.features.ai.infra.analysis.AiResponseAnalyzer;
 
 import java.util.HashMap;
 import java.util.Map;

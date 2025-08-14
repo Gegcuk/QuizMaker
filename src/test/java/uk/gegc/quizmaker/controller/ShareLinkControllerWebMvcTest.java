@@ -14,7 +14,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
-import uk.gegc.quizmaker.dto.attempt.AttemptResultDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.AttemptResultDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptStatsDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;

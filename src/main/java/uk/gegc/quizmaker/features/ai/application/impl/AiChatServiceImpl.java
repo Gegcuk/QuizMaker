@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.service.impl;
+package uk.gegc.quizmaker.features.ai.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
-import uk.gegc.quizmaker.service.AiChatService;
+import uk.gegc.quizmaker.features.ai.application.AiChatService;
 
 import java.time.Duration;
 import java.time.Instant;

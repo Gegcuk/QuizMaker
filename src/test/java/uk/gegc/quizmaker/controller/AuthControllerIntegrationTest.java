@@ -20,7 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
-import uk.gegc.quizmaker.dto.auth.RefreshRequest;
+import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;

@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.validation;
+package uk.gegc.quizmaker.shared.validation;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.Payload;

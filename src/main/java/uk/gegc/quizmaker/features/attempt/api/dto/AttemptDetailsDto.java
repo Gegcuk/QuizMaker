@@ -1,7 +1,6 @@
-package uk.gegc.quizmaker.dto.attempt;
+package uk.gegc.quizmaker.features.attempt.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 

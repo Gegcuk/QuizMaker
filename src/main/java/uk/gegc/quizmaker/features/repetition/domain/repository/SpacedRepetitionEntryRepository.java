@@ -1,7 +1,7 @@
-package uk.gegc.quizmaker.repository.repetition;
+package uk.gegc.quizmaker.features.repetition.domain.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import uk.gegc.quizmaker.model.repetition.SpacedRepetitionEntry;
+import uk.gegc.quizmaker.features.repetition.domain.model.SpacedRepetitionEntry;
 
 import java.util.UUID;
 

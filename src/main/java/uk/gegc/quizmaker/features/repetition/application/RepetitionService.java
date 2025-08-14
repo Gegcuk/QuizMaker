@@ -1,12 +1,12 @@
-package uk.gegc.quizmaker.service.repetition;
+package uk.gegc.quizmaker.features.repetition.application;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
-import uk.gegc.quizmaker.model.repetition.SpacedRepetitionEntry;
-import uk.gegc.quizmaker.repository.repetition.SpacedRepetitionEntryRepository;
+import uk.gegc.quizmaker.features.repetition.domain.model.SpacedRepetitionEntry;
+import uk.gegc.quizmaker.features.repetition.domain.repository.SpacedRepetitionEntryRepository;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;

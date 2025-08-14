@@ -16,7 +16,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.dto.auth.*;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;

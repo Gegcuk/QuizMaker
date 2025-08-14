@@ -21,7 +21,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import uk.gegc.quizmaker.dto.attempt.AnswerSubmissionRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
