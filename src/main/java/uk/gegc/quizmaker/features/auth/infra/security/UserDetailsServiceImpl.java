@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security;
+package uk.gegc.quizmaker.features.auth.infra.security;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;

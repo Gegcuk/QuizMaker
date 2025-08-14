@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.model.auth;
+package uk.gegc.quizmaker.features.auth.domain.model;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

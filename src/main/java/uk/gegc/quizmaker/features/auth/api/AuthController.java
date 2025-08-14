@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.controller;
+package uk.gegc.quizmaker.features.auth.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,9 +17,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.dto.auth.*;
+import uk.gegc.quizmaker.features.auth.api.dto.*;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.service.RateLimitService;
-import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;

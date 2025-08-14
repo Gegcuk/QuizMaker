@@ -20,6 +20,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.util.ReflectionTestUtils;
+import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 
 import javax.crypto.SecretKey;
 import java.util.Base64;

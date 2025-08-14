@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.auth;
+package uk.gegc.quizmaker.features.auth.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

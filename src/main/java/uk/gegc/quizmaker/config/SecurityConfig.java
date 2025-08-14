@@ -16,8 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
-import uk.gegc.quizmaker.security.JwtAuthenticationFilter;
-import uk.gegc.quizmaker.security.JwtTokenService;
+import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
+import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.util.TrustedProxyUtil;
 
 

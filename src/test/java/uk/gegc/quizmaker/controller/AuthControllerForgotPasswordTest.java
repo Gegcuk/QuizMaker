@@ -12,9 +12,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.dto.auth.ForgotPasswordRequest;
+import uk.gegc.quizmaker.features.auth.api.dto.ForgotPasswordRequest;
 import uk.gegc.quizmaker.service.RateLimitService;
-import uk.gegc.quizmaker.service.auth.AuthService;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;

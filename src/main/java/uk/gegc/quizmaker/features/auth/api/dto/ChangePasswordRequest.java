@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.dto.auth;
+package uk.gegc.quizmaker.features.auth.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;

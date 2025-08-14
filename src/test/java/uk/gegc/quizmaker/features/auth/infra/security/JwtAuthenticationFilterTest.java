@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.security;
+package uk.gegc.quizmaker.features.auth.infra.security;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;

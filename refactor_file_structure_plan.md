@@ -11,35 +11,6 @@ Create this directory structure first; it mirrors the Recommended target structu
 ```text
 src/main/java/uk/gegc/quizmaker/
   features/
-    question/
-      api/
-        dto/
-      application/
-      domain/
-        model/
-        repository/
-      infra/
-        handler/
-        factory/
-        mapping/
-    attempt/
-      api/
-        dto/
-      application/
-      domain/
-        model/
-        repository/
-      infra/
-        mapping/
-    user/
-      api/
-        dto/
-      application/
-      domain/
-        model/
-        repository/
-      infra/
-        mapping/
     auth/
       api/
         dto/
