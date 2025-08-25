@@ -279,6 +279,7 @@
                     <!-- Allow the JUnit Platform to manage threads -->
                     <useUnlimitedThreads>true</useUnlimitedThreads>
                     <!-- Exclude OpenAI API tests from CI to avoid costs -->
+                    <!-- Exclude email tests to prevent sending real emails during normal test runs -->
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
                         <exclude>**/AiChatControllerIntegrationTest.java</exclude>
@@ -289,6 +290,8 @@
                         <exclude>**/HotspotQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/EmailServiceTest.java</exclude>
+                        <exclude>**/EmailConfigTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
