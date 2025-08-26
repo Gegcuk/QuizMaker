@@ -32,7 +32,7 @@ public class RateLimitService {
             int count = requestCount.getOrDefault(rateLimitKey, 0);
             if (count >= limitPerMinute) {
                 long retryAfter = java.time.Duration.between(now, firstInWindow.plusMinutes(1)).getSeconds();
-                throw new RateLimitExceededException("Too many requests for " + operation, retryAfter);
+                throw new RateLimitExceededException("Too many requests for " + operation, (int) retryAfter);
             }
             requestCount.put(rateLimitKey, count + 1);
         } else {

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentOutlineDto;
 import uk.gegc.quizmaker.features.document.api.dto.OutlineNodeDto;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
@@ -45,6 +46,9 @@ class DocumentStructureServiceTest {
     @Mock
     private DocumentStructureProperties documentStructureProperties;
 
+    @MockitoBean
+    private DocumentStructureJobService documentStructureJobService;
+
     private DocumentStructureService documentStructureService;
 
     @BeforeEach
@@ -56,7 +60,8 @@ class DocumentStructureServiceTest {
                 outlineAlignmentService,
                 documentNodeRepository,
                 hierarchicalStructureService,
-                documentStructureProperties
+                documentStructureProperties,
+                documentStructureJobService
         );
     }
 

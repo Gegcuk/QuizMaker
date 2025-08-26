@@ -6,12 +6,10 @@ import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentOutlineDto;
 import uk.gegc.quizmaker.features.document.api.dto.OutlineNodeDto;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
-import uk.gegc.quizmaker.features.document.domain.repository.DocumentNodeRepository;
 import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
 
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.Locale;
 
 /**
  * Service for aligning document outline anchors to hard character offsets.
@@ -235,19 +233,7 @@ public class OutlineAlignmentService {
         return s != null && s.trim().split("\\s+").length >= min;
     }
 
-    /**
-     * Get level for node type.
-     */
-    private int levelForType(String type) {
-        return switch (type.toUpperCase()) {
-            case "PART" -> 1;
-            case "CHAPTER" -> 2;
-            case "SECTION" -> 3;
-            case "SUBSECTION" -> 4;
-            case "PARAGRAPH" -> 5;
-            default -> 0; // DOCUMENT/OTHER
-        };
-    }
+
 
     /**
      * Find the offset of an anchor in the text using fuzzy search with quality.
