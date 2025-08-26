@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -324,8 +325,12 @@ class DocumentControllerIntegrationTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Unsupported file type")));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Unsupported file type")))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -377,9 +382,13 @@ class DocumentControllerIntegrationTest {
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("Document Processing Error"))
-                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Failed to upload document")));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:document-processing"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Failed to upload document")))
+                .andExpect(jsonPath("$.code").value("DOCUMENT_PROCESSING_ERROR"));
     }
 
     @Test
@@ -400,9 +409,13 @@ class DocumentControllerIntegrationTest {
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("Document Processing Error"))
-                .andExpect(jsonPath("$.details[0]").value("Custom processing error"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:document-processing"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Custom processing error"))
+                .andExpect(jsonPath("$.code").value("DOCUMENT_PROCESSING_ERROR"));
     }
 
     @Test

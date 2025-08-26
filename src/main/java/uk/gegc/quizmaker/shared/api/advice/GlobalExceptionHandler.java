@@ -27,14 +27,14 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler({ResourceNotFoundException.class, DocumentNotFoundException.class})
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ErrorResponse handleNotFound(RuntimeException exception) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.NOT_FOUND.value(),
-                "Not Found",
-                List.of(exception.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleNotFound(RuntimeException exception, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
+        pd.setTitle("Resource Not Found");
+        pd.setType(java.net.URI.create("urn:problem-type:resource-not-found"));
+        pd.setProperty("code", "RESOURCE_NOT_FOUND");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
     }
 
     @ExceptionHandler({
@@ -44,14 +44,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ApiError.class,
             QuizGenerationException.class
     })
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleBadRequest(RuntimeException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                List.of(ex.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleBadRequest(RuntimeException ex, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        pd.setTitle("Bad Request");
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)
@@ -67,14 +67,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleIllegalArgument(IllegalArgumentException exception) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad request",
-                List.of(exception.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException exception, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        pd.setTitle("Bad Request");
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.badRequest().body(pd);
     }
 
     @ExceptionHandler(IllegalStateException.class)
@@ -89,16 +89,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest req) {
-        var body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.TOO_MANY_REQUESTS.value(),
-                "Too Many Requests",
-                List.of(ex.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        pd.setTitle("Rate Limit Exceeded");
+        pd.setType(java.net.URI.create("urn:problem-type:rate-limit"));
+        pd.setProperty("code", "RATE_LIMIT_EXCEEDED");
+        pd.setProperty("retryAfter", ex.getRetryAfterSeconds());
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
-                .body(body);
+                .body(pd);
     }
 
 
@@ -137,7 +138,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             ErrorResponse errorResponse = new ErrorResponse(
                     LocalDateTime.now(),
                     HttpStatus.NOT_FOUND.value(),
-                    "Not Found",
+                    "Resource Not Found",
                     List.of(ex.getMessage())
             );
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
@@ -153,14 +154,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(DocumentProcessingException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleDocumentProcessing(DocumentProcessingException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Document Processing Error",
-                List.of(ex.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleDocumentProcessing(DocumentProcessingException ex, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        pd.setTitle("Document Processing Error");
+        pd.setType(java.net.URI.create("urn:problem-type:document-processing"));
+        pd.setProperty("code", "DOCUMENT_PROCESSING_ERROR");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(pd);
     }
 
     @ExceptionHandler(DocumentStorageException.class)
@@ -175,16 +176,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException ex, HttpServletRequest req) {
         HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
-        return ResponseEntity.status(status).body(
-                new ErrorResponse(
-                        LocalDateTime.now(),
-                        status.value(),
-                        status.getReasonPhrase(),
-                        List.of(ex.getReason() != null ? ex.getReason() : ex.getMessage())
-                )
-        );
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(status, ex.getReason() != null ? ex.getReason() : ex.getMessage());
+        pd.setTitle(status.getReasonPhrase());
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.status(status).body(pd);
     }
 
     @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
@@ -207,14 +207,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(UnauthorizedException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public ErrorResponse handleUnauthorized(UnauthorizedException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNAUTHORIZED.value(),
-                "Unauthorized",
-                List.of(ex.getMessage())
-        );
+    public ResponseEntity<ProblemDetail> handleUnauthorized(UnauthorizedException ex, HttpServletRequest req) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+        pd.setTitle("Unauthorized");
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        pd.setInstance(java.net.URI.create(req.getRequestURI()));
+        
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(pd);
     }
 
     @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, DocumentAccessDeniedException.class, UserNotAuthorizedException.class})
@@ -277,13 +277,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             @NonNull WebRequest request
     ) {
         String msg = ex.getMostSpecificCause().getMessage();
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Malformed JSON",
-                List.of(msg)
-        );
-        return new org.springframework.http.ResponseEntity<>(body, headers, HttpStatus.BAD_REQUEST);
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, msg);
+        pd.setTitle("Bad Request");
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        
+        return new org.springframework.http.ResponseEntity<>(pd, headers, HttpStatus.BAD_REQUEST);
     }
 
     @Override
@@ -299,13 +298,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .map(err -> err.getField() + ": " + err.getDefaultMessage())
                 .toList();
 
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Validation Failed",
-                fieldErrors
-        );
-        return new ResponseEntity<>(body, headers, status);
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed");
+        pd.setTitle("Validation Error");
+        pd.setType(java.net.URI.create("urn:problem-type:validation-error"));
+        pd.setProperty("code", "VALIDATION_ERROR");
+        pd.setProperty("fieldErrors", fieldErrors);
+        
+        return new ResponseEntity<>(pd, headers, status);
     }
 
     @ExceptionHandler(Exception.class)

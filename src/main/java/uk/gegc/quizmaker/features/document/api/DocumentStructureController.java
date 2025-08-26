@@ -5,12 +5,16 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import java.net.URI;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentNodeDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentStructureJobDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentTreeDto;
@@ -58,7 +62,7 @@ public class DocumentStructureController {
 
         String username = authentication.getName();
         
-        // Check rate limit (1 extraction per 5 minutes per user)
+        // Check rate limit (1 extraction per minute per user)
         rateLimitService.checkRateLimit("structure_extraction", username, 1);
         
         // Validate document exists and user has access
@@ -75,12 +79,22 @@ public class DocumentStructureController {
         // Start async extraction
         documentStructureService.extractAndAlignStructureAsync(job.getId());
         
+        // Build the job status URI for LRO pattern
+        URI jobUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/v1/jobs/{id}")
+                .buildAndExpand(job.getId())
+                .toUri();
+
         DocumentStructureJobDto jobDto = jobMapper.toDto(job);
         
         log.info("Started structure extraction job {} for document {} with strategy {} for user {}", 
                 job.getId(), documentId, strategy, username);
         
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(jobDto);
+        return ResponseEntity.accepted()
+                .location(jobUri)
+                .header("Operation-Location", jobUri.toString())
+                .header(HttpHeaders.RETRY_AFTER, "5") // 5 seconds polling interval
+                .body(jobDto);
     }
 
     @Transactional(readOnly = true)
@@ -136,7 +150,7 @@ public class DocumentStructureController {
     }
 
     @GetMapping("/{documentId}/structure/nodes/{nodeId}")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') and @documentSecurityService.canAccessDocument(#documentId, authentication.name)")
     @Operation(summary = "Get specific document node", description = "Retrieves a specific document node by ID")
     public ResponseEntity<DocumentNodeDto> getDocumentNode(
             @Parameter(description = "Document ID") @PathVariable UUID documentId,
@@ -160,7 +174,7 @@ public class DocumentStructureController {
     }
 
     @GetMapping("/{documentId}/structure/nodes/{nodeId}/children")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') and @documentSecurityService.canAccessDocument(#documentId, authentication.name)")
     @Operation(summary = "Get node children", description = "Retrieves all children of a specific document node")
     public ResponseEntity<List<DocumentNodeDto>> getNodeChildren(
             @Parameter(description = "Document ID") @PathVariable UUID documentId,
@@ -187,7 +201,7 @@ public class DocumentStructureController {
     }
 
     @GetMapping("/{documentId}/structure/overlapping")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') and @documentSecurityService.canAccessDocument(#documentId, authentication.name)")
     @Operation(summary = "Find overlapping nodes", description = "Finds all nodes that overlap with the specified offset range")
     public ResponseEntity<List<DocumentNodeDto>> findOverlappingNodes(
             @Parameter(description = "Document ID") @PathVariable UUID documentId,
@@ -211,7 +225,7 @@ public class DocumentStructureController {
     }
 
     @GetMapping("/{documentId}/structure/type/{type}")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') and @documentSecurityService.canAccessDocument(#documentId, authentication.name)")
     @Operation(summary = "Get nodes by type", description = "Retrieves all nodes of a specific type for a document")
     public ResponseEntity<List<DocumentNodeDto>> getNodesByType(
             @Parameter(description = "Document ID") @PathVariable UUID documentId,

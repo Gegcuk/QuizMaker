@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentOutlineDto;
+import uk.gegc.quizmaker.features.document.api.dto.OutlineNodeDto;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentStructureJob;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentNodeRepository;
@@ -253,7 +254,6 @@ public class DocumentStructureService {
      * @param jobId the job ID to track progress
      */
     @Async("aiTaskExecutor")
-    @Transactional
     public void extractAndAlignStructureAsync(UUID jobId) {
         log.info("Starting async document structure extraction for job {}", jobId);
         
@@ -264,14 +264,32 @@ public class DocumentStructureService {
             // Update job status to processing
             jobService.updateJobProgress(jobId, 5.0, "Loading canonical text");
             
+            // Check for cancellation
+            if (isCancelled(jobId)) {
+                log.info("Job {} was cancelled during canonical text loading", jobId);
+                return;
+            }
+            
             // Step 1: Load or build canonical text
             CanonicalTextService.CanonicalizedText canonicalText = canonicalTextService.loadOrBuild(job.getDocumentId());
             jobService.updateJobProgress(jobId, 20.0, "Generating pre-segmentation windows");
+            
+            // Check for cancellation
+            if (isCancelled(jobId)) {
+                log.info("Job {} was cancelled during pre-segmentation", jobId);
+                return;
+            }
             
             // Step 2: Generate pre-segmentation windows
             List<PreSegmentationService.PreSegmentationWindow> windows = 
                     preSegmentationService.generateWindows(canonicalText);
             jobService.updateJobProgress(jobId, 40.0, "Extracting document outline");
+            
+            // Check for cancellation
+            if (isCancelled(jobId)) {
+                log.info("Job {} was cancelled during outline extraction", jobId);
+                return;
+            }
             
             // Step 3: Extract outline using hierarchical strategy for long docs
             DocumentOutlineDto outline;
@@ -284,21 +302,34 @@ public class DocumentStructureService {
             }
             jobService.updateJobProgress(jobId, 70.0, "Aligning anchors to offsets");
             
+            // Check for cancellation
+            if (isCancelled(jobId)) {
+                log.info("Job {} was cancelled during anchor alignment", jobId);
+                return;
+            }
+            
             // Step 4: Align anchors to hard offsets
             List<DocumentNode> alignedNodes = outlineAlignmentService.alignOutlineToOffsets(
                     outline, canonicalText, windows, job.getDocumentId(), canonicalText.getSourceVersionHash());
             jobService.updateJobProgress(jobId, 90.0, "Saving nodes to database");
             
+            // Check for cancellation
+            if (isCancelled(jobId)) {
+                log.info("Job {} was cancelled during node saving", jobId);
+                return;
+            }
+            
             // Step 5: Save nodes to database
             int nodesCount = saveNodes(job.getDocumentId(), alignedNodes, canonicalText.getSourceVersionHash(), job.getStrategy());
             
-            // Calculate metrics
-            int outlineNodesExtracted = outline.nodes().size();
-            double alignmentSuccessRate = alignedNodes.isEmpty() ? 0.0 : (double) nodesCount / outlineNodesExtracted;
+            // Calculate metrics with proper denominator
+            int totalOutlineNodes = countTotalOutlineNodes(outline);
+            double alignmentSuccessRate = totalOutlineNodes == 0 ? 0.0 : 
+                Math.min(1.0, (double) nodesCount / totalOutlineNodes);
             
             // Set extraction metrics
             jobService.setExtractionMetrics(jobId, canonicalText.getText().length(), windows.size(), 
-                                          outlineNodesExtracted, alignmentSuccessRate);
+                                          totalOutlineNodes, alignmentSuccessRate);
             
             // Mark job as completed
             jobService.markJobCompleted(jobId, nodesCount, canonicalText.getSourceVersionHash());
@@ -318,6 +349,38 @@ public class DocumentStructureService {
             
             jobService.markJobFailed(jobId, "Structure extraction failed: " + e.getMessage(), errorCode);
         }
+    }
+
+    /**
+     * Check if a job has been cancelled
+     */
+    private boolean isCancelled(UUID jobId) {
+        return jobService.getJobById(jobId)
+                .map(DocumentStructureJob::getStatus)
+                .map(s -> s == DocumentStructureJob.StructureExtractionStatus.CANCELLED)
+                .orElse(false);
+    }
+
+    /**
+     * Count total outline nodes recursively
+     */
+    private int countTotalOutlineNodes(DocumentOutlineDto outline) {
+        return outline.nodes().stream()
+                .mapToInt(this::countOutlineNodesRecursively)
+                .sum();
+    }
+
+    /**
+     * Count outline nodes recursively (1 + children)
+     */
+    private int countOutlineNodesRecursively(OutlineNodeDto node) {
+        int count = 1; // Count this node
+        if (node.children() != null) {
+            count += node.children().stream()
+                    .mapToInt(this::countOutlineNodesRecursively)
+                    .sum();
+        }
+        return count;
     }
 
     /**

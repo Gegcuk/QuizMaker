@@ -26,6 +26,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 
 @SpringBootTest
@@ -127,7 +128,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -139,7 +145,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -152,7 +163,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -165,7 +181,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("description:"))));
     }
 
     @Test
@@ -180,7 +201,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -195,7 +221,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -211,7 +242,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("name:"))));
     }
 
     @Test
@@ -227,7 +263,12 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type", is("urn:problem-type:validation-error")))
+                .andExpect(jsonPath("$.title", is("Validation Error")))
+                .andExpect(jsonPath("$.status", is(400)))
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("description:"))));
     }
 
     @Test

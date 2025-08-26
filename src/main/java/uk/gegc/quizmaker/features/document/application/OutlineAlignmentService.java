@@ -30,7 +30,7 @@ public class OutlineAlignmentService {
 
     // Configuration constants
     private static final int MAX_ANCHOR_SEARCH_RADIUS = 200; // characters to search around predicted boundary
-    private static final int MIN_ANCHOR_WORDS = 3; // minimum anchor words to consider
+    private static final int MIN_ANCHOR_WORDS = 2; // minimum anchor words to consider
     private static final double FUZZY_MATCH_THRESHOLD = 0.8; // similarity threshold for fuzzy matching
     private static final int MAX_EXPANSION_ATTEMPTS = 3; // maximum window expansion attempts
 

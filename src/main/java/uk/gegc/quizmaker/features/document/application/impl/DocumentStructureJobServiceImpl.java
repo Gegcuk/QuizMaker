@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -79,7 +80,7 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
             throw new IllegalArgumentException("Username cannot be null or empty");
         }
 
-        return jobRepository.findByIdAndUsername(jobId, username)
+        return jobRepository.findByIdAndUser_Username(jobId, username)
                 .orElseThrow(() -> new ResourceNotFoundException("Structure extraction job not found: " + jobId));
     }
 
@@ -187,7 +188,7 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (username == null || username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username cannot be null or empty");
         }
-        return jobRepository.findByUsername(username, pageable);
+        return jobRepository.findByUser_UsernameOrderByStartedAtDesc(username, pageable);
     }
 
     @Override
@@ -196,13 +197,15 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (status == null) {
             throw new IllegalArgumentException("Status cannot be null");
         }
-        return jobRepository.findByStatus(status);
+        return jobRepository.findByStatusOrderByStartedAtAsc(status);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<DocumentStructureJob> getActiveJobs() {
-        return jobRepository.findActiveJobs();
+        return jobRepository.findByStatusInOrderByStartedAtAsc(
+            List.of(DocumentStructureJob.StructureExtractionStatus.PENDING, 
+                   DocumentStructureJob.StructureExtractionStatus.PROCESSING));
     }
 
     @Override
@@ -211,7 +214,7 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (documentId == null) {
             throw new IllegalArgumentException("Document ID cannot be null");
         }
-        return jobRepository.findByDocumentId(documentId);
+        return jobRepository.findByDocumentIdOrderByStartedAtDesc(documentId);
     }
 
     @Override
@@ -223,7 +226,7 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (start.isAfter(end)) {
             throw new IllegalArgumentException("Start time must be before end time");
         }
-        return jobRepository.findByTimeRange(start, end);
+        return jobRepository.findByStartedAtBetweenOrderByStartedAtDesc(start, end);
     }
 
     @Override
@@ -233,11 +236,12 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
             throw new IllegalArgumentException("Username cannot be null or empty");
         }
         
-        long totalJobs = jobRepository.countTotalJobsByUsername(username);
-        long completedJobs = jobRepository.countCompletedJobsByUsername(username);
-        long failedJobs = jobRepository.countFailedJobsByUsername(username);
-        long cancelledJobs = jobRepository.countCancelledJobsByUsername(username);
-        long activeJobs = jobRepository.countActiveJobsByUsername(username);
+        long totalJobs = jobRepository.countByUser_Username(username);
+        long completedJobs = jobRepository.countByUser_UsernameAndStatus(username, DocumentStructureJob.StructureExtractionStatus.COMPLETED);
+        long failedJobs = jobRepository.countByUser_UsernameAndStatus(username, DocumentStructureJob.StructureExtractionStatus.FAILED);
+        long cancelledJobs = jobRepository.countByUser_UsernameAndStatus(username, DocumentStructureJob.StructureExtractionStatus.CANCELLED);
+        long activeJobs = jobRepository.countByUser_UsernameAndStatus(username, DocumentStructureJob.StructureExtractionStatus.PENDING) +
+                         jobRepository.countByUser_UsernameAndStatus(username, DocumentStructureJob.StructureExtractionStatus.PROCESSING);
         
         Double avgTime = jobRepository.getAverageExtractionTimeByUsername(username);
         double averageExtractionTimeSeconds = avgTime != null ? avgTime : 0.0;
@@ -261,7 +265,11 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         }
         
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysToKeep);
-        int deleted = jobRepository.deleteOldCompletedJobs(cutoffDate);
+        Collection<DocumentStructureJob.StructureExtractionStatus> terminalStatuses = 
+            List.of(DocumentStructureJob.StructureExtractionStatus.COMPLETED, 
+                   DocumentStructureJob.StructureExtractionStatus.FAILED, 
+                   DocumentStructureJob.StructureExtractionStatus.CANCELLED);
+        int deleted = jobRepository.deleteOldCompletedJobs(cutoffDate, terminalStatuses);
         
         log.info("Cleaned up {} old structure extraction jobs older than {} days", deleted, daysToKeep);
         
@@ -276,7 +284,10 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         }
         
         LocalDateTime cutoffTime = LocalDateTime.now().minusHours(maxDurationHours);
-        return jobRepository.findStuckJobs(cutoffTime);
+        Collection<DocumentStructureJob.StructureExtractionStatus> activeStatuses = 
+            List.of(DocumentStructureJob.StructureExtractionStatus.PENDING, 
+                   DocumentStructureJob.StructureExtractionStatus.PROCESSING);
+        return jobRepository.findStuckJobs(cutoffTime, activeStatuses);
     }
 
     @Override
@@ -307,7 +318,9 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (documentId == null) {
             throw new IllegalArgumentException("Document ID cannot be null");
         }
-        return jobRepository.hasActiveJobForDocument(documentId);
+        return jobRepository.existsByDocumentIdAndStatusIn(documentId, 
+            List.of(DocumentStructureJob.StructureExtractionStatus.PENDING, 
+                   DocumentStructureJob.StructureExtractionStatus.PROCESSING));
     }
 
     @Override
@@ -316,7 +329,8 @@ public class DocumentStructureJobServiceImpl implements DocumentStructureJobServ
         if (documentId == null) {
             throw new IllegalArgumentException("Document ID cannot be null");
         }
-        return jobRepository.findMostRecentCompletedJobForDocument(documentId);
+        return jobRepository.findFirstByDocumentIdAndStatusOrderByCompletedAtDesc(documentId, 
+            DocumentStructureJob.StructureExtractionStatus.COMPLETED);
     }
 
     @Override

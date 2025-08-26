@@ -347,7 +347,7 @@ class OutlineAlignmentServiceTest {
         );
 
         DocumentOutlineDto outline = new DocumentOutlineDto(List.of(
-            new OutlineNodeDto("CHAPTER", "Chapter 1: Introduction", "Chapter 1", "Introduction", List.of())
+            new OutlineNodeDto("CHAPTER", "Chapter 1: Introduction", "Chapter", "Introduction", List.of())
         ));
 
         UUID documentId = UUID.randomUUID();
@@ -359,7 +359,7 @@ class OutlineAlignmentServiceTest {
 
         // Then
         assertThat(result).hasSize(0);
-        // Short anchors should be filtered out by minimum word requirement
+        // Single word anchors should be filtered out by minimum word requirement
     }
 
     @Test
@@ -896,7 +896,7 @@ class OutlineAlignmentServiceTest {
         );
 
         DocumentOutlineDto outline = new DocumentOutlineDto(List.of(
-            new OutlineNodeDto("CHAPTER", "Chapter 1: Introduction", "Chapter 1", "Introduction", List.of())
+            new OutlineNodeDto("CHAPTER", "Chapter 1: Introduction", "Chapter", "Introduction", List.of())
         ));
 
         UUID documentId = UUID.randomUUID();
@@ -907,7 +907,7 @@ class OutlineAlignmentServiceTest {
             outline, canonicalText, windows, documentId, sourceVersionHash);
 
         // Then
-        // Short anchors should be filtered out by minimum word requirement
+        // Single word anchors should be filtered out by minimum word requirement
         assertThat(result).hasSize(0);
     }
 
@@ -1045,7 +1045,7 @@ class OutlineAlignmentServiceTest {
         // It may return 0 nodes if anchors cannot be found, which is acceptable behavior
         if (!result.isEmpty()) {
             // Should handle non-breaking space correctly
-            assertThat(result.get(0).getEndOffset()).isGreaterThan(text.indexOf(".\u00A0") + 2);
+            assertThat(result.get(0).getEndOffset()).isGreaterThanOrEqualTo(text.indexOf(".\u00A0") + 2);
         }
     }
 

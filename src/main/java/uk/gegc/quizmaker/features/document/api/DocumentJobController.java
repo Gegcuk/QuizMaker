@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -46,7 +47,18 @@ public class DocumentJobController {
         DocumentStructureJob job = jobService.getJobByIdAndUsername(jobId, username);
         
         DocumentStructureJobDto jobDto = jobMapper.toDto(job);
-        return ResponseEntity.ok(jobDto);
+        
+        // Add cache control headers for LRO pattern
+        ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store");
+        
+        // Add Retry-After header for pending and processing jobs
+        if (job.getStatus() == DocumentStructureJob.StructureExtractionStatus.PENDING || 
+            job.getStatus() == DocumentStructureJob.StructureExtractionStatus.PROCESSING) {
+            responseBuilder.header(HttpHeaders.RETRY_AFTER, "5"); // 5 seconds
+        }
+        
+        return responseBuilder.body(jobDto);
     }
 
     @PostMapping("/{jobId}/cancel")
@@ -90,7 +102,7 @@ public class DocumentJobController {
     }
 
     @GetMapping("/documents/{documentId}")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') and @documentSecurityService.canAccessDocument(#documentId, authentication.name)")
     @Operation(summary = "Get jobs for document", description = "Retrieves all structure extraction jobs for a specific document")
     public ResponseEntity<List<DocumentStructureJobDto>> getJobsForDocument(
             @Parameter(description = "Document ID") @PathVariable UUID documentId) {

@@ -27,6 +27,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -94,7 +95,12 @@ class DocumentControllerErrorTest {
                         .file(emptyFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File is empty"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("File is empty"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -117,7 +123,12 @@ class DocumentControllerErrorTest {
                         .file(largeFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File size exceeds maximum limit"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("File size exceeds maximum limit"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         // Verify that validation service was called
         verify(documentValidationService).validateFileUpload(any(), any(), any());
@@ -142,7 +153,12 @@ class DocumentControllerErrorTest {
                         .file(unsupportedFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Unsupported file type: .exe"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Unsupported file type: .exe"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -171,8 +187,13 @@ class DocumentControllerErrorTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to process document"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:document-processing"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Failed to process document"))
+                .andExpect(jsonPath("$.code").value("DOCUMENT_PROCESSING_ERROR"));
 
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
@@ -205,6 +226,8 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
+                .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.error").value("Document Storage Error"))
                 .andExpect(jsonPath("$.details[0]").value("Failed to store document file"));
 
         // Verify that processing service was called
@@ -231,7 +254,12 @@ class DocumentControllerErrorTest {
                         .param("maxChunkSize", "0")
                         .with(SecurityMockMvcRequestPostProcessors.csrf())) // Invalid chunk size
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid chunk size: must be between 100 and 10000"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Invalid chunk size: must be between 100 and 10000"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -254,7 +282,12 @@ class DocumentControllerErrorTest {
                         .param("chunkingStrategy", "INVALID_STRATEGY")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid chunking strategy: INVALID_STRATEGY"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Invalid chunking strategy: INVALID_STRATEGY"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -268,7 +301,12 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}", documentId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
@@ -282,6 +320,8 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}", documentId))
                 .andExpect(status().isForbidden())
+                .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.error").value("Access Denied"))
                 .andExpect(jsonPath("$.details[0]").value("Access denied"));
     }
 
@@ -296,7 +336,12 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}/chunks", documentId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
@@ -311,6 +356,8 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}/chunks/{chunkIndex}", documentId, chunkIndex))
                 .andExpect(status().isNotFound())
+                .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.error").value("Resource Not Found"))
                 .andExpect(jsonPath("$.details[0]").value("Chunk not found"));
     }
 
@@ -326,7 +373,12 @@ class DocumentControllerErrorTest {
         mockMvc.perform(delete("/api/documents/{id}", documentId)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
@@ -341,6 +393,8 @@ class DocumentControllerErrorTest {
         mockMvc.perform(delete("/api/documents/{id}", documentId)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isForbidden())
+                .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.error").value("Access Denied"))
                 .andExpect(jsonPath("$.details[0]").value("Access denied"));
     }
 
@@ -358,7 +412,12 @@ class DocumentControllerErrorTest {
                         .content("{\"maxChunkSize\": 3000, \"chunkingStrategy\": \"CHAPTER_BASED\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
 
     @Test
@@ -374,8 +433,13 @@ class DocumentControllerErrorTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"maxChunkSize\": 3000, \"chunkingStrategy\": \"CHAPTER_BASED\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to reprocess document"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:document-processing"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Failed to reprocess document"))
+                .andExpect(jsonPath("$.code").value("DOCUMENT_PROCESSING_ERROR"));
     }
 
     @Test
@@ -393,7 +457,12 @@ class DocumentControllerErrorTest {
                         .content("{\"maxChunkSize\": -1, \"chunkingStrategy\": \"INVALID\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").exists());
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -415,7 +484,12 @@ class DocumentControllerErrorTest {
                         .file(nullFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("No file provided"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("No file provided"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -437,7 +511,12 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid content type: invalid/content-type"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Invalid content type: invalid/content-type"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -459,7 +538,12 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File content is null"));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Bad Request"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("File content is null"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
@@ -556,8 +640,13 @@ class DocumentControllerErrorTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Unexpected error"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:document-processing"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Failed to upload document: Unexpected error"))
+                .andExpect(jsonPath("$.code").value("DOCUMENT_PROCESSING_ERROR"));
 
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));

@@ -29,6 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -175,7 +176,12 @@ class QuizControllerSearchIntegrationTest {
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("difficulty", "IMPOSSIBLE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", anyOf(is("Bad Request"), is("Validation Failed"))));
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:validation-error"))
+                .andExpect(jsonPath("$.title").value("Validation Error"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(containsString("Failed to convert value"))));
     }
 }
 

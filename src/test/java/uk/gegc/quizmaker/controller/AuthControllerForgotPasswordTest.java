@@ -90,8 +90,13 @@ public class AuthControllerForgotPasswordTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("urn:problem-type:rate-limit"))
+                .andExpect(jsonPath("$.title").value("Rate Limit Exceeded"))
                 .andExpect(jsonPath("$.status").value(429))
-                .andExpect(jsonPath("$.error").value("Too Many Requests"))
+                .andExpect(jsonPath("$.detail").value("Too many requests for forgot-password"))
+                .andExpect(jsonPath("$.code").value("RATE_LIMIT_EXCEEDED"))
+                .andExpect(jsonPath("$.retryAfter").value(45))
                 .andExpect(header().string("Retry-After", "45"));
     }
 

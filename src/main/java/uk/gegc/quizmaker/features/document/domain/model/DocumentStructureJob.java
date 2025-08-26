@@ -3,6 +3,8 @@ package uk.gegc.quizmaker.features.document.domain.model;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.LocalDateTime;
@@ -24,9 +26,12 @@ public class DocumentStructureJob {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
-    @Column(name = "document_id", nullable = false)
+    @JdbcTypeCode(SqlTypes.BINARY)
+    @Column(name = "document_id", columnDefinition = "BINARY(16)", nullable = false)
     private UUID documentId;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -98,7 +103,7 @@ public class DocumentStructureJob {
 
     @PreUpdate
     protected void onUpdate() {
-        if (status == StructureExtractionStatus.COMPLETED || status == StructureExtractionStatus.FAILED) {
+        if (status == StructureExtractionStatus.COMPLETED || status == StructureExtractionStatus.FAILED || status == StructureExtractionStatus.CANCELLED) {
             if (completedAt == null) {
                 completedAt = LocalDateTime.now();
             }
