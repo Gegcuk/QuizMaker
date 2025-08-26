@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.document.domain.repository;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -9,348 +10,275 @@ import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.jpa.show-sql=true"
+        "spring.flyway.enabled=false",
+        "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 class DocumentNodeRepositoryTest {
 
     @Autowired
-    private DocumentNodeRepository documentNodeRepository;
+    private DocumentNodeRepository nodeRepository;
 
     @Autowired
     private TestEntityManager entityManager;
 
-    @Test
-    void testSaveAndRetrieveDocumentNode() {
-        // Create and persist User
-        User user = new User();
+    private User user;
+    private Document document1;
+    private Document document2;
+    private DocumentNode rootNode1;
+    private DocumentNode rootNode2;
+    private DocumentNode childNode1;
+    private DocumentNode childNode2;
+    private DocumentNode overlappingNode1;
+    private DocumentNode overlappingNode2;
+
+    @BeforeEach
+    void setUp() {
+        // Create test user
+        user = new User();
         user.setUsername("testuser");
         user.setEmail("test@example.com");
-        user.setHashedPassword("{noop}password");
-        user.setVersion(1L);
-        entityManager.persist(user);
-        entityManager.flush();
+        user.setHashedPassword("password");
+        entityManager.persistAndFlush(user);
 
-        // Create and persist Document
-        Document document = new Document();
-        document.setTitle("Test Document");
-        document.setOriginalFilename("test.pdf");
-        document.setContentType("application/pdf");
-        document.setFilePath("/path/to/file");
-        document.setFileSize(1024L);
-        document.setUploadedAt(LocalDateTime.now());
-        document.setProcessedAt(LocalDateTime.now());
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setUploadedBy(user);
-        entityManager.persist(document);
-        entityManager.flush();
+        // Create test documents
+        document1 = new Document();
+        document1.setOriginalFilename("test1.pdf");
+        document1.setContentType("application/pdf");
+        document1.setFileSize(1024L);
+        document1.setFilePath("/uploads/test1.pdf");
+        document1.setStatus(Document.DocumentStatus.PROCESSED);
+        document1.setUploadedBy(user);
+        document1.setUploadedAt(LocalDateTime.now());
+        entityManager.persistAndFlush(document1);
 
-        // Create DocumentNode
+        document2 = new Document();
+        document2.setOriginalFilename("test2.pdf");
+        document2.setContentType("application/pdf");
+        document2.setFileSize(2048L);
+        document2.setFilePath("/uploads/test2.pdf");
+        document2.setStatus(Document.DocumentStatus.PROCESSED);
+        document2.setUploadedBy(user);
+        document2.setUploadedAt(LocalDateTime.now());
+        entityManager.persistAndFlush(document2);
+
+        // Create test nodes
+        rootNode1 = createNode(document1, null, "Chapter 1", 0, 0, 100, DocumentNode.NodeType.CHAPTER, 1);
+        rootNode2 = createNode(document1, null, "Chapter 2", 1, 150, 300, DocumentNode.NodeType.CHAPTER, 2);
+        childNode1 = createNode(document1, rootNode1, "Section 1.1", 0, 10, 50, DocumentNode.NodeType.SECTION, 2);
+        childNode2 = createNode(document1, rootNode1, "Section 1.2", 1, 60, 90, DocumentNode.NodeType.SECTION, 2);
+        
+        // Create overlapping nodes for testing (these should be the only ones overlapping with range [220, 250)
+        overlappingNode1 = createNode(document1, null, "Overlapping 1", 3, 200, 250, DocumentNode.NodeType.PARAGRAPH, 1);
+        overlappingNode2 = createNode(document1, null, "Overlapping 2", 4, 220, 280, DocumentNode.NodeType.PARAGRAPH, 1);
+
+        entityManager.flush();
+    }
+
+    private DocumentNode createNode(Document document, DocumentNode parent, String title, int ordinal, 
+                                  int startOffset, int endOffset, DocumentNode.NodeType type, int level) {
         DocumentNode node = new DocumentNode();
         node.setDocument(document);
-        node.setLevel(0);
-        node.setType(DocumentNode.NodeType.DOCUMENT);
-        node.setTitle("Test Node");
-        node.setStartOffset(0);
-        node.setEndOffset(100);
-        node.setOrdinal(1);
+        node.setParent(parent);
+        node.setTitle(title);
+        node.setOrdinal(ordinal);
+        node.setStartOffset(startOffset);
+        node.setEndOffset(endOffset);
+        node.setType(type);
+        node.setLevel(level);
         node.setStrategy(DocumentNode.Strategy.AI);
-        node.setSourceVersionHash("test-hash-123");
-        node.setCreatedAt(Instant.now());
-
-        // Save and flush to ensure @CreationTimestamp is applied
-        DocumentNode savedNode = documentNodeRepository.save(node);
-        entityManager.flush();
-        entityManager.clear();
-
-        // Retrieve and verify
-        DocumentNode retrievedNode = documentNodeRepository.findById(savedNode.getId()).orElse(null);
-        assertNotNull(retrievedNode);
-        assertEquals("Test Node", retrievedNode.getTitle());
-        assertEquals(0, retrievedNode.getLevel());
-        assertEquals(DocumentNode.NodeType.DOCUMENT, retrievedNode.getType());
-        assertNotNull(retrievedNode.getCreatedAt());
+        node.setSourceVersionHash("test-hash");
+        return entityManager.persistAndFlush(node);
     }
 
     @Test
-    void testFindBySourceVersionHash() {
-        // Create and persist User
-        User user = new User();
-        user.setUsername("testuser2");
-        user.setEmail("test2@example.com");
-        user.setHashedPassword("{noop}password");
-        user.setVersion(1L);
-        entityManager.persist(user);
-        entityManager.flush();
+    void findByDocumentIdOrderByStartOffset_returnsGlobalOrdering() {
+        // When
+        List<DocumentNode> nodes = nodeRepository.findByDocumentIdOrderByStartOffset(document1.getId());
 
-        // Create and persist Document
-        Document document = new Document();
-        document.setTitle("Test Document 2");
-        document.setOriginalFilename("test2.pdf");
-        document.setContentType("application/pdf");
-        document.setFilePath("/path/to/file2");
-        document.setFileSize(2048L);
-        document.setUploadedAt(LocalDateTime.now());
-        document.setProcessedAt(LocalDateTime.now());
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setUploadedBy(user);
-        entityManager.persist(document);
-        entityManager.flush();
-
-        // Create DocumentNode with specific hash
-        DocumentNode node = new DocumentNode();
-        node.setDocument(document);
-        node.setLevel(1);
-        node.setType(DocumentNode.NodeType.CHAPTER);
-        node.setTitle("Test Chapter");
-        node.setStartOffset(0);
-        node.setEndOffset(200);
-        node.setOrdinal(1);
-        node.setStrategy(DocumentNode.Strategy.AI);
-        node.setSourceVersionHash("unique-hash-456");
-        node.setCreatedAt(Instant.now());
-
-        documentNodeRepository.save(node);
-
-        // Test findBySourceVersionHash
-        List<DocumentNode> foundNodes = documentNodeRepository.findBySourceVersionHash("unique-hash-456");
-        assertNotNull(foundNodes);
-        assertEquals(1, foundNodes.size());
-        DocumentNode foundNode = foundNodes.get(0);
-        assertEquals("unique-hash-456", foundNode.getSourceVersionHash());
-        assertEquals("Test Chapter", foundNode.getTitle());
+        // Then
+        assertThat(nodes).hasSize(6);
+        assertThat(nodes).extracting("startOffset")
+                .containsExactly(0, 10, 60, 150, 200, 220);
+        assertThat(nodes).extracting("title")
+                .containsExactly("Chapter 1", "Section 1.1", "Section 1.2", "Chapter 2", "Overlapping 1", "Overlapping 2");
     }
 
     @Test
-    void testFindNextOrdinalForParent() {
-        // Create and persist User
-        User user = new User();
-        user.setUsername("testuser3");
-        user.setEmail("test3@example.com");
-        user.setHashedPassword("{noop}password");
-        user.setVersion(1L);
-        entityManager.persist(user);
-        entityManager.flush();
-
-        // Create and persist Document
-        Document document = new Document();
-        document.setTitle("Test Document 3");
-        document.setOriginalFilename("test3.pdf");
-        document.setContentType("application/pdf");
-        document.setFilePath("/path/to/file3");
-        document.setFileSize(3072L);
-        document.setUploadedAt(LocalDateTime.now());
-        document.setProcessedAt(LocalDateTime.now());
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setUploadedBy(user);
-        entityManager.persist(document);
-        entityManager.flush();
-
-        // Create parent node
-        DocumentNode parentNode = new DocumentNode();
-        parentNode.setDocument(document);
-        parentNode.setLevel(0);
-        parentNode.setType(DocumentNode.NodeType.DOCUMENT);
-        parentNode.setTitle("Parent Node");
-        parentNode.setStartOffset(0);
-        parentNode.setEndOffset(500);
-        parentNode.setOrdinal(1);
-        parentNode.setStrategy(DocumentNode.Strategy.AI);
-        parentNode.setSourceVersionHash("parent-hash");
-        parentNode.setCreatedAt(Instant.now());
-        DocumentNode savedParent = documentNodeRepository.save(parentNode);
-
-        // Create child nodes with different ordinals
-        DocumentNode child1 = new DocumentNode();
-        child1.setDocument(document);
-        child1.setParent(savedParent);
-        child1.setLevel(1);
-        child1.setType(DocumentNode.NodeType.CHAPTER);
-        child1.setTitle("Child 1");
-        child1.setStartOffset(0);
-        child1.setEndOffset(100);
-        child1.setOrdinal(1);
-        child1.setStrategy(DocumentNode.Strategy.AI);
-        child1.setSourceVersionHash("child1-hash");
-        child1.setCreatedAt(Instant.now());
-        documentNodeRepository.save(child1);
-
-        DocumentNode child2 = new DocumentNode();
-        child2.setDocument(document);
-        child2.setParent(savedParent);
-        child2.setLevel(1);
-        child2.setType(DocumentNode.NodeType.CHAPTER);
-        child2.setTitle("Child 2");
-        child2.setStartOffset(100);
-        child2.setEndOffset(200);
-        child2.setOrdinal(2);
-        child2.setStrategy(DocumentNode.Strategy.AI);
-        child2.setSourceVersionHash("child2-hash");
-        child2.setCreatedAt(Instant.now());
-        documentNodeRepository.save(child2);
-
-        // Test findNextOrdinalForParent
-        Integer nextOrdinal = documentNodeRepository.findNextOrdinalForParent(document.getId(), savedParent.getId());
-        assertEquals(3, nextOrdinal); // Should be max(1,2) + 1 = 3
-    }
-
-    @Test
-    void testFindOverlapping() {
-        // Given
-        Document document = new Document();
-        document.setOriginalFilename("test.pdf");
-        document.setContentType("application/pdf");
-        document.setFileSize(1024L);
-        document.setFilePath("/uploads/test.pdf");
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setTitle("Test Document");
-        document.setUploadedAt(LocalDateTime.now());
-        document.setProcessedAt(LocalDateTime.now());
-
-        User user = new User();
-        user.setUsername("testuser");
-        user.setEmail("test@example.com");
-        user.setHashedPassword("{noop}password");
-        user.setActive(true);
-        user.setDeleted(false);
-        user.setEmailVerified(false);
-        user.setVersion(1L);
-        entityManager.persist(user);
-        entityManager.flush();
-        User savedUser = user;
-        document.setUploadedBy(savedUser);
-
-        Document savedDocument = entityManager.merge(document);
-
-        // Create nodes with overlapping ranges
-        DocumentNode node1 = new DocumentNode();
-        node1.setDocument(savedDocument);
-        node1.setLevel(1);
-        node1.setType(DocumentNode.NodeType.CHAPTER);
-        node1.setTitle("Chapter 1");
-        node1.setStartOffset(0);
-        node1.setEndOffset(100);
-        node1.setOrdinal(1);
-        node1.setStrategy(DocumentNode.Strategy.AI);
-        node1.setSourceVersionHash("hash1");
-        documentNodeRepository.save(node1);
-
-        DocumentNode node2 = new DocumentNode();
-        node2.setDocument(savedDocument);
-        node2.setLevel(2);
-        node2.setType(DocumentNode.NodeType.SECTION);
-        node2.setTitle("Section 1");
-        node2.setStartOffset(50);
-        node2.setEndOffset(150);
-        node2.setOrdinal(1);
-        node2.setStrategy(DocumentNode.Strategy.AI);
-        node2.setSourceVersionHash("hash2");
-        documentNodeRepository.save(node2);
-
-        DocumentNode node3 = new DocumentNode();
-        node3.setDocument(savedDocument);
-        node3.setLevel(2);
-        node3.setType(DocumentNode.NodeType.SECTION);
-        node3.setTitle("Section 2");
-        node3.setStartOffset(200);
-        node3.setEndOffset(300);
-        node3.setOrdinal(2);
-        node3.setStrategy(DocumentNode.Strategy.AI);
-        node3.setSourceVersionHash("hash3");
-        documentNodeRepository.save(node3);
-
-        // When - search for nodes overlapping with range 25-125
-        List<DocumentNode> overlappingNodes = documentNodeRepository.findOverlapping(savedDocument.getId(), 25, 125);
-
-        // Then - should find node1 (0-100) and node2 (50-150) as they overlap with 25-125
-        assertEquals(2, overlappingNodes.size());
-        assertTrue(overlappingNodes.stream().anyMatch(n -> n.getTitle().equals("Chapter 1")));
-        assertTrue(overlappingNodes.stream().anyMatch(n -> n.getTitle().equals("Section 1")));
-        assertFalse(overlappingNodes.stream().anyMatch(n -> n.getTitle().equals("Section 2")));
-    }
-
-    @Test
-    void testFindByDocumentIdOrderByStartOffset() {
-        // Given
-        Document document = new Document();
-        document.setOriginalFilename("test.pdf");
-        document.setContentType("application/pdf");
-        document.setFileSize(1024L);
-        document.setFilePath("/uploads/test.pdf");
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setTitle("Test Document");
-        document.setUploadedAt(LocalDateTime.now());
-        document.setProcessedAt(LocalDateTime.now());
-
-        User user = new User();
-        user.setUsername("testuser");
-        user.setEmail("test@example.com");
-        user.setHashedPassword("{noop}password");
-        user.setActive(true);
-        user.setDeleted(false);
-        user.setEmailVerified(false);
-        user.setVersion(1L);
-        entityManager.persist(user);
-        entityManager.flush();
-        User savedUser = user;
-        document.setUploadedBy(savedUser);
-
-        Document savedDocument = entityManager.merge(document);
-
-        // Create nodes with different start offsets
-        DocumentNode node1 = new DocumentNode();
-        node1.setDocument(savedDocument);
-        node1.setLevel(1);
-        node1.setType(DocumentNode.NodeType.CHAPTER);
-        node1.setTitle("Chapter 1");
-        node1.setStartOffset(100);
-        node1.setEndOffset(200);
-        node1.setOrdinal(1);
-        node1.setStrategy(DocumentNode.Strategy.AI);
-        node1.setSourceVersionHash("hash1");
-        documentNodeRepository.save(node1);
-
-        DocumentNode node2 = new DocumentNode();
-        node2.setDocument(savedDocument);
-        node2.setLevel(1);
-        node2.setType(DocumentNode.NodeType.CHAPTER);
-        node2.setTitle("Chapter 2");
-        node2.setStartOffset(0);
-        node2.setEndOffset(100);
-        node2.setOrdinal(2);
-        node2.setStrategy(DocumentNode.Strategy.AI);
-        node2.setSourceVersionHash("hash2");
-        documentNodeRepository.save(node2);
-
-        DocumentNode node3 = new DocumentNode();
-        node3.setDocument(savedDocument);
-        node3.setLevel(1);
-        node3.setType(DocumentNode.NodeType.CHAPTER);
-        node3.setTitle("Chapter 3");
-        node3.setStartOffset(50);
-        node3.setEndOffset(150);
-        node3.setOrdinal(3);
-        node3.setStrategy(DocumentNode.Strategy.AI);
-        node3.setSourceVersionHash("hash3");
-        documentNodeRepository.save(node3);
+    void findOverlapping_returnsNodesIntersectingStartEnd() {
+        // Given - search for nodes overlapping with range [220, 250)
+        int startOffset = 220;
+        int endOffset = 250;
 
         // When
-        List<DocumentNode> nodes = documentNodeRepository.findByDocumentIdOrderByStartOffset(savedDocument.getId());
+        List<DocumentNode> overlappingNodes = nodeRepository.findOverlapping(document1.getId(), startOffset, endOffset);
 
-        // Then - should be ordered by startOffset: 0, 50, 100
-        assertEquals(3, nodes.size());
-        assertEquals("Chapter 2", nodes.get(0).getTitle()); // startOffset: 0
-        assertEquals("Chapter 3", nodes.get(1).getTitle()); // startOffset: 50
-        assertEquals("Chapter 1", nodes.get(2).getTitle()); // startOffset: 100
+        // Then
+        assertThat(overlappingNodes).hasSize(3); // Chapter 2 (150-300), Overlapping 1 (200-250), Overlapping 2 (220-280)
+        assertThat(overlappingNodes).extracting("title")
+                .containsExactlyInAnyOrder("Chapter 2", "Overlapping 1", "Overlapping 2");
+        
+        // Verify the overlap logic: startOffset < endOffset AND endOffset > startOffset
+        assertThat(overlappingNodes).allMatch(node -> 
+                node.getStartOffset() < endOffset && node.getEndOffset() > startOffset);
+    }
+
+    @Test
+    void findOverlapping_withNoOverlap_returnsEmptyList() {
+        // Given - search for nodes overlapping with range [400, 500) (no nodes in this range)
+        int startOffset = 400;
+        int endOffset = 500;
+
+        // When
+        List<DocumentNode> overlappingNodes = nodeRepository.findOverlapping(document1.getId(), startOffset, endOffset);
+
+        // Then
+        assertThat(overlappingNodes).isEmpty();
+    }
+
+    @Test
+    void findByDocument_IdAndParent_IdOrderByOrdinalAsc_returnsSiblingOrder() {
+        // When
+        List<DocumentNode> siblings = nodeRepository.findByDocument_IdAndParent_IdOrderByOrdinalAsc(
+                document1.getId(), rootNode1.getId());
+
+        // Then
+        assertThat(siblings).hasSize(2);
+        assertThat(siblings).extracting("ordinal")
+                .containsExactly(0, 1); // childNode1 has ordinal 0, childNode2 has ordinal 1
+        assertThat(siblings).extracting("title")
+                .containsExactly("Section 1.1", "Section 1.2");
+    }
+
+    @Test
+    void findByDocument_IdAndParentIsNullOrderByOrdinalAsc_returnsRootNodesInOrder() {
+        // When
+        List<DocumentNode> rootNodes = nodeRepository.findByDocument_IdAndParentIsNullOrderByOrdinalAsc(document1.getId());
+
+        // Then
+        assertThat(rootNodes).hasSize(4); // rootNode1, rootNode2, overlappingNode1, overlappingNode2
+        assertThat(rootNodes).extracting("ordinal")
+                .containsExactly(0, 1, 3, 4); // Ordered by ordinal ascending
+        assertThat(rootNodes).allMatch(node -> node.getParent() == null);
+    }
+
+    @Test
+    void deleteByDocument_Id_removesAllNodesForDoc() {
+        // Given
+        assertThat(nodeRepository.countByDocument_Id(document1.getId())).isEqualTo(6);
+        assertThat(nodeRepository.countByDocument_Id(document2.getId())).isEqualTo(0);
+
+        // When
+        nodeRepository.deleteByDocument_Id(document1.getId());
+
+        // Then
+        assertThat(nodeRepository.countByDocument_Id(document1.getId())).isEqualTo(0);
+        assertThat(nodeRepository.existsByDocument_Id(document1.getId())).isFalse();
+    }
+
+    @Test
+    void findBySourceVersionHash_returnsNodesWithMatchingHash() {
+        // When
+        List<DocumentNode> nodesWithHash = nodeRepository.findBySourceVersionHash("test-hash");
+
+        // Then
+        assertThat(nodesWithHash).hasSize(6);
+        assertThat(nodesWithHash).allMatch(node -> "test-hash".equals(node.getSourceVersionHash()));
+    }
+
+    @Test
+    void existsByDocument_Id_returnsTrueWhenNodesExist() {
+        // When
+        boolean exists = nodeRepository.existsByDocument_Id(document1.getId());
+
+        // Then
+        assertThat(exists).isTrue();
+    }
+
+    @Test
+    void existsByDocument_Id_returnsFalseWhenNoNodesExist() {
+        // When
+        boolean exists = nodeRepository.existsByDocument_Id(document2.getId());
+
+        // Then
+        assertThat(exists).isFalse();
+    }
+
+    @Test
+    void countByDocument_Id_returnsCorrectCount() {
+        // When
+        long count = nodeRepository.countByDocument_Id(document1.getId());
+
+        // Then
+        assertThat(count).isEqualTo(6);
+    }
+
+    @Test
+    void findByDocumentIdAndTypeOrderByStartOffset_returnsNodesOfSpecificType() {
+        // When
+        List<DocumentNode> chapterNodes = nodeRepository.findByDocumentIdAndTypeOrderByStartOffset(
+                document1.getId(), DocumentNode.NodeType.CHAPTER);
+
+        // Then
+        assertThat(chapterNodes).hasSize(2);
+        assertThat(chapterNodes).allMatch(node -> node.getType() == DocumentNode.NodeType.CHAPTER);
+        assertThat(chapterNodes).extracting("startOffset")
+                .containsExactly(0, 150); // Ordered by startOffset
+    }
+
+    @Test
+    void findNextOrdinalForParent_returnsCorrectNextOrdinal() {
+        // When
+        Integer nextOrdinal = nodeRepository.findNextOrdinalForParent(document1.getId(), rootNode1.getId());
+
+        // Then
+        assertThat(nextOrdinal).isEqualTo(2); // childNode1 has ordinal 0, childNode2 has ordinal 1, so next is 2
+    }
+
+    @Test
+    void nextRootOrdinal_returnsCorrectNextOrdinal() {
+        // When
+        Integer nextOrdinal = nodeRepository.nextRootOrdinal(document1.getId());
+
+        // Then
+        assertThat(nextOrdinal).isEqualTo(5); // root nodes have ordinals 0, 1, 3, 4, so next is 5
+    }
+
+    @Test
+    void findOverlapping_withExactBoundary_returnsOverlappingNodes() {
+        // Given - search for nodes overlapping with exact boundary of overlappingNode1
+        int startOffset = 200;
+        int endOffset = 250;
+
+        // When
+        List<DocumentNode> overlappingNodes = nodeRepository.findOverlapping(document1.getId(), startOffset, endOffset);
+
+        // Then
+        assertThat(overlappingNodes).hasSize(3); // Chapter 2 (150-300), Overlapping 1 (200-250), Overlapping 2 (220-280)
+        assertThat(overlappingNodes).extracting("title")
+                .containsExactlyInAnyOrder("Chapter 2", "Overlapping 1", "Overlapping 2");
+    }
+
+    @Test
+    void findOverlapping_withContainedRange_returnsContainingNodes() {
+        // Given - search for nodes that contain the range [225, 235)
+        int startOffset = 225;
+        int endOffset = 235;
+
+        // When
+        List<DocumentNode> overlappingNodes = nodeRepository.findOverlapping(document1.getId(), startOffset, endOffset);
+
+        // Then
+        assertThat(overlappingNodes).hasSize(3); // Chapter 2 (150-300), Overlapping 1 (200-250), Overlapping 2 (220-280)
+        assertThat(overlappingNodes).extracting("title")
+                .containsExactlyInAnyOrder("Chapter 2", "Overlapping 1", "Overlapping 2");
     }
 }
