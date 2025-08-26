@@ -7,7 +7,6 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentOutlineDto;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentNodeRepository;
-import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 
 import java.util.List;
@@ -33,6 +32,8 @@ public class DocumentStructureService {
     private final OutlineExtractorService outlineExtractorService;
     private final OutlineAlignmentService outlineAlignmentService;
     private final DocumentNodeRepository documentNodeRepository;
+    private final HierarchicalStructureService hierarchicalStructureService;
+    private final DocumentStructureProperties documentStructureProperties;
 
     /**
      * Save aligned document nodes to the database.
@@ -115,8 +116,14 @@ public class DocumentStructureService {
             List<PreSegmentationService.PreSegmentationWindow> windows = 
                     preSegmentationService.generateWindows(canonicalText);
             
-            // Step 3: Extract outline using LLM
-            DocumentOutlineDto outline = outlineExtractorService.extractOutline(canonicalText.getText());
+            // Step 3: Extract outline using hierarchical strategy for long docs
+            DocumentOutlineDto outline;
+            if (canonicalText.getText().length() >= documentStructureProperties.getLongDocThresholdChars()) {
+                log.info("Using hierarchical passes for long document ({} chars)", canonicalText.getText().length());
+                outline = hierarchicalStructureService.buildHierarchicalOutline(canonicalText);
+            } else {
+                outline = outlineExtractorService.extractOutline(canonicalText.getText());
+            }
             
             // Step 4: Align anchors to hard offsets
             List<DocumentNode> alignedNodes = outlineAlignmentService.alignOutlineToOffsets(

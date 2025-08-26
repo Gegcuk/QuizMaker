@@ -39,16 +39,24 @@ class DocumentStructureServiceTest {
     @Mock
     private DocumentNodeRepository documentNodeRepository;
 
+    @Mock
+    private HierarchicalStructureService hierarchicalStructureService;
+
+    @Mock
+    private DocumentStructureProperties documentStructureProperties;
+
     private DocumentStructureService documentStructureService;
 
     @BeforeEach
     void setUp() {
         documentStructureService = new DocumentStructureService(
-            canonicalTextService,
-            preSegmentationService,
-            outlineExtractorService,
-            outlineAlignmentService,
-            documentNodeRepository
+                canonicalTextService,
+                preSegmentationService,
+                outlineExtractorService,
+                outlineAlignmentService,
+                documentNodeRepository,
+                hierarchicalStructureService,
+                documentStructureProperties
         );
     }
 
@@ -77,6 +85,7 @@ class DocumentStructureServiceTest {
 
         // Mock service calls
         when(canonicalTextService.loadOrBuild(documentId)).thenReturn(canonicalText);
+        when(documentStructureProperties.getLongDocThresholdChars()).thenReturn(100000); // High threshold for non-hierarchical
         when(preSegmentationService.generateWindows(canonicalText)).thenReturn(windows);
         when(outlineExtractorService.extractOutline(canonicalText.getText())).thenReturn(outline);
         when(outlineAlignmentService.alignOutlineToOffsets(eq(outline), eq(canonicalText), eq(windows), eq(documentId), anyString()))
@@ -95,6 +104,52 @@ class DocumentStructureServiceTest {
         verify(outlineExtractorService).extractOutline(canonicalText.getText());
         verify(outlineAlignmentService).alignOutlineToOffsets(eq(outline), eq(canonicalText), eq(windows), eq(documentId), anyString());
         verify(documentNodeRepository).saveAll(alignedNodes);
+    }
+
+    @Test
+    void shouldExtractAndAlignDocumentStructureWithHierarchicalProcessing() {
+        // Given - Set up for hierarchical processing (long document)
+        when(documentStructureProperties.getLongDocThresholdChars()).thenReturn(50); // Low threshold to trigger hierarchical
+        
+        UUID documentId = UUID.randomUUID();
+        String text = "Chapter 1: Introduction. This is the first chapter. Chapter 2: Methods. This is the second chapter.";
+        
+        CanonicalTextService.CanonicalizedText canonicalText = new CanonicalTextService.CanonicalizedText(
+            text, "hash123", List.of(), List.of());
+
+        DocumentOutlineDto hierarchicalOutline = new DocumentOutlineDto(List.of(
+            new OutlineNodeDto("CHAPTER", "Chapter 1: Introduction", "Chapter 1: Introduction", "Chapter 2: Methods", List.of()),
+            new OutlineNodeDto("CHAPTER", "Chapter 2: Methods", "Chapter 2: Methods", "", List.of())
+        ));
+
+        DocumentNode chapter1 = createDocumentNode("Chapter 1: Introduction", 0, 50, 0);
+        DocumentNode chapter2 = createDocumentNode("Chapter 2: Methods", 50, 100, 0);
+        List<DocumentNode> alignedNodes = List.of(chapter1, chapter2);
+
+        // Mock hierarchical service calls
+        when(canonicalTextService.loadOrBuild(documentId)).thenReturn(canonicalText);
+        when(documentStructureProperties.getLongDocThresholdChars()).thenReturn(50); // Low threshold to trigger hierarchical
+        when(preSegmentationService.generateWindows(canonicalText)).thenReturn(List.of()); // Windows still needed for alignment
+        when(hierarchicalStructureService.buildHierarchicalOutline(canonicalText)).thenReturn(hierarchicalOutline);
+        when(outlineAlignmentService.alignOutlineToOffsets(eq(hierarchicalOutline), eq(canonicalText), any(), eq(documentId), anyString()))
+            .thenReturn(alignedNodes);
+        when(documentNodeRepository.saveAll(anyList())).thenReturn(alignedNodes);
+
+        // When
+        int result = documentStructureService.extractAndAlignStructure(documentId, DocumentNode.Strategy.AI);
+
+        // Then
+        assertThat(result).isEqualTo(2);
+
+        // Verify hierarchical service interactions
+        verify(canonicalTextService).loadOrBuild(documentId);
+        verify(preSegmentationService).generateWindows(canonicalText); // Windows still needed for alignment
+        verify(hierarchicalStructureService).buildHierarchicalOutline(canonicalText);
+        verify(outlineAlignmentService).alignOutlineToOffsets(eq(hierarchicalOutline), eq(canonicalText), any(), eq(documentId), anyString());
+        verify(documentNodeRepository).saveAll(alignedNodes);
+        
+        // Verify non-hierarchical services are NOT called
+        verify(outlineExtractorService, never()).extractOutline(any());
     }
 
     @Test
@@ -503,7 +558,7 @@ class DocumentStructureServiceTest {
     void extractAndAlignStructure_shouldWrapOutlineExtractorExceptions() {
         // Given
         UUID docId = UUID.randomUUID();
-        String text = "Chapter 1: Introduction. This is the first chapter.";
+        String text = "Chapter 1: Introduction. This is the first chapter. Chapter 2: Methods. This is the second chapter. Chapter 3: Results. This is the third chapter. Chapter 4: Conclusion. This is the final chapter.";
         
         CanonicalTextService.CanonicalizedText canonicalText = new CanonicalTextService.CanonicalizedText(
             text, "hash123", List.of(), List.of());
@@ -513,6 +568,7 @@ class DocumentStructureServiceTest {
         );
 
         when(canonicalTextService.loadOrBuild(docId)).thenReturn(canonicalText);
+        when(documentStructureProperties.getLongDocThresholdChars()).thenReturn(100000); // High threshold for non-hierarchical
         when(preSegmentationService.generateWindows(canonicalText)).thenReturn(windows);
         when(outlineExtractorService.extractOutline(canonicalText.getText()))
             .thenThrow(new RuntimeException("extractor failed"));
@@ -528,7 +584,7 @@ class DocumentStructureServiceTest {
     void extractAndAlignStructure_shouldWrapAlignmentExceptions() {
         // Given
         UUID docId = UUID.randomUUID();
-        String text = "Chapter 1: Introduction. This is the first chapter.";
+        String text = "Chapter 1: Introduction. This is the first chapter. Chapter 2: Methods. This is the second chapter. Chapter 3: Results. This is the third chapter. Chapter 4: Conclusion. This is the final chapter.";
         
         CanonicalTextService.CanonicalizedText canonicalText = new CanonicalTextService.CanonicalizedText(
             text, "hash123", List.of(), List.of());
@@ -542,6 +598,7 @@ class DocumentStructureServiceTest {
         ));
 
         when(canonicalTextService.loadOrBuild(docId)).thenReturn(canonicalText);
+        when(documentStructureProperties.getLongDocThresholdChars()).thenReturn(100000); // High threshold for non-hierarchical
         when(preSegmentationService.generateWindows(canonicalText)).thenReturn(windows);
         when(outlineExtractorService.extractOutline(canonicalText.getText())).thenReturn(outline);
         when(outlineAlignmentService.alignOutlineToOffsets(any(), any(), any(), any(), anyString()))

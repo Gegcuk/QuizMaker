@@ -43,6 +43,13 @@ public class OutlineExtractorService {
      * @throws AIResponseParseException if response parsing fails
      */
     public DocumentOutlineDto extractOutline(String documentContent) {
+        return extractOutlineWithDepth(documentContent, MAX_OUTLINE_DEPTH);
+    }
+
+    /**
+     * Extract document outline with a maximum depth hint for the model and validation.
+     */
+    public DocumentOutlineDto extractOutlineWithDepth(String documentContent, int maxDepth) {
         if (documentContent == null || documentContent.trim().isEmpty()) {
             throw new IllegalArgumentException("Document content cannot be null or empty");
         }
@@ -57,7 +64,7 @@ public class OutlineExtractorService {
             String promptTemplate = loadPromptTemplate();
             
             // Build the complete prompt
-            String prompt = buildPrompt(promptTemplate, documentContent);
+            String prompt = buildPrompt(promptTemplate, documentContent, maxDepth);
             
             // Call AI service
             ChatResponse response = chatClient.prompt()
@@ -84,7 +91,7 @@ public class OutlineExtractorService {
             DocumentOutlineDto outline = parseOutlineResponse(aiResponse);
             
             // Validate the outline structure against the source text
-            validateOutline(outline, documentContent);
+            validateOutline(outline, documentContent, maxDepth);
             
             // Check total node count to prevent explosion
             int totalNodes = countTotalNodes(outline);
@@ -120,10 +127,11 @@ public class OutlineExtractorService {
     /**
      * Build the complete prompt with document content
      */
-    private String buildPrompt(String template, String documentContent) {
-        // For now, we'll use a simple approach. In a more sophisticated implementation,
-        // we might want to chunk very long documents or use different strategies
-        return template + "\n\nDOCUMENT CONTENT:\n" + documentContent;
+    private String buildPrompt(String template, String documentContent, int maxDepth) {
+        // Provide an explicit instruction about the desired outline depth to reduce tokens
+        String depthHint = "\n\nCONSTRAINTS:\n- Max outline depth: " + Math.max(1, Math.min(MAX_OUTLINE_DEPTH, maxDepth)) +
+                " (e.g., up to CHAPTER for 2, up to SECTION for 3).";
+        return template + depthHint + "\n\nDOCUMENT CONTENT:\n" + documentContent;
     }
 
     /**
@@ -284,23 +292,23 @@ public class OutlineExtractorService {
     /**
      * Validate the extracted outline structure against source text
      */
-    private void validateOutline(DocumentOutlineDto outline, String doc) throws AIResponseParseException {
+    private void validateOutline(DocumentOutlineDto outline, String doc, int maxDepth) throws AIResponseParseException {
         if (outline.nodes().isEmpty()) {
             throw new AIResponseParseException("Outline contains no nodes");
         }
 
         // Validate each node recursively
         for (OutlineNodeDto node : outline.nodes()) {
-            validateNode(node, 0, doc);
+            validateNode(node, 0, doc, Math.max(1, Math.min(MAX_OUTLINE_DEPTH, maxDepth)));
         }
     }
 
     /**
      * Validate a single node and its children recursively
      */
-    private void validateNode(OutlineNodeDto node, int depth, String doc) throws AIResponseParseException {
-        if (depth >= MAX_OUTLINE_DEPTH) {
-            throw new AIResponseParseException("Outline depth exceeds maximum allowed depth: " + MAX_OUTLINE_DEPTH);
+    private void validateNode(OutlineNodeDto node, int depth, String doc, int maxDepth) throws AIResponseParseException {
+        if (depth >= maxDepth) {
+            throw new AIResponseParseException("Outline depth exceeds maximum allowed depth: " + maxDepth);
         }
 
         // Validate required fields
@@ -345,7 +353,7 @@ public class OutlineExtractorService {
             }
             
             for (OutlineNodeDto child : node.children()) {
-                validateNode(child, depth + 1, doc);
+                validateNode(child, depth + 1, doc, maxDepth);
             }
         }
     }
@@ -364,7 +372,11 @@ public class OutlineExtractorService {
      * Find anchor in document or throw exception
      */
     private int indexOrFail(String doc, String anchor, String kind, String title) throws AIResponseParseException {
-        return indexOrFail(doc, anchor, 0, kind, title);
+        int index = indexOfIgnoreCase(doc, anchor, 0);
+        if (index < 0) {
+            throw new AIResponseParseException("Cannot find " + kind + " anchor in document for: " + title);
+        }
+        return index;
     }
 
     /**
