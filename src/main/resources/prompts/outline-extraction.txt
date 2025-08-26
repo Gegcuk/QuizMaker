@@ -1,0 +1,52 @@
+You are extracting a hierarchical outline from document content.
+
+Return **valid JSON only** (no code fences, no commentary). Obey this JSON schema exactly.
+Depth ≤ 4, ≤ 50 children per node. Prefer SECTION over SUBSECTION when unsure. Use PARAGRAPH sparingly.
+
+JSON STRUCTURE:
+{
+  "nodes": [
+    {
+      "type": "PART|CHAPTER|SECTION|SUBSECTION|PARAGRAPH",
+      "title": "The title or heading of this section",
+      "start_anchor": "A short verbatim phrase from the beginning of this section",
+      "end_anchor": "A short verbatim phrase from the end of this section",
+      "children": [
+        {
+          "type": "SECTION|SUBSECTION|PARAGRAPH",
+          "title": "Subsection title",
+          "start_anchor": "Beginning phrase",
+          "end_anchor": "Ending phrase",
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+
+REQUIREMENTS:
+- Identify the hierarchical structure of the document
+- Use appropriate node types: PART (major divisions), CHAPTER (main chapters), SECTION (sections within chapters), SUBSECTION (subsections), PARAGRAPH (individual paragraphs)
+- Each node must have a clear title that represents the content
+- Start and end anchors should be short, distinctive phrases (2-15 words) that can be used to locate the section boundaries
+- Maintain proper hierarchy - children should be logical subdivisions of their parent
+- Ensure complete coverage of the document content
+- Avoid creating too many levels - prefer 3-4 levels maximum
+- For very long documents, focus on major structural elements first
+
+ANCHOR GUIDELINES:
+- Start anchors should be from the beginning of the section (first sentence or heading)
+- End anchors should be from the end of the section (last sentence or transition)
+- Anchors should be distinctive enough to be found in the text
+- Keep anchors concise but meaningful (2-15 words)
+- Use exact phrases from the text when possible
+- If a heading is missing, infer a short title from the first sentence
+
+HIERARCHY RULES:
+- PART: Major divisions of the document (e.g., "Part I: Introduction", "Part II: Main Content")
+- CHAPTER: Main chapters or major sections
+- SECTION: Subsections within chapters
+- SUBSECTION: Further subdivisions
+- PARAGRAPH: Individual paragraphs (use sparingly, only for important standalone paragraphs)
+
+Respond with valid JSON only. No preamble or markdown. Do not include any text before or after the JSON structure.
