@@ -24,15 +24,15 @@ public interface DocumentNodeRepository extends JpaRepository<DocumentNode, UUID
     void deleteByDocument_Id(UUID documentId);
 
     // Global ordering queries (using startOffset instead of ordinal)
-    @Query("SELECT dn FROM DocumentNode dn WHERE dn.document.id = :documentId ORDER BY dn.startOffset ASC, dn.endOffset ASC")
+    @Query("SELECT DISTINCT dn FROM DocumentNode dn WHERE dn.document.id = :documentId ORDER BY dn.startOffset ASC, dn.endOffset ASC")
     List<DocumentNode> findByDocumentIdOrderByStartOffset(@Param("documentId") UUID documentId);
 
-    @Query("SELECT dn FROM DocumentNode dn WHERE dn.document.id = :documentId AND dn.type = :type ORDER BY dn.startOffset ASC")
+    @Query("SELECT DISTINCT dn FROM DocumentNode dn WHERE dn.document.id = :documentId AND dn.type = :type ORDER BY dn.startOffset ASC")
     List<DocumentNode> findByDocumentIdAndTypeOrderByStartOffset(@Param("documentId") UUID documentId, @Param("type") DocumentNode.NodeType type);
 
     // Range scan for overlapping nodes
     @Query("""
-            SELECT dn FROM DocumentNode dn
+            SELECT DISTINCT dn FROM DocumentNode dn
             WHERE dn.document.id = :documentId
               AND dn.startOffset < :endOffset
               AND dn.endOffset > :startOffset
