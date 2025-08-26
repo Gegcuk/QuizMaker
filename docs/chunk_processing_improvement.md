@@ -2,7 +2,8 @@
 
 ## Overview
 
-This document outlines a comprehensive 10-day plan to improve document chunk processing by introducing a thin, AI-agnostic structure layer without touching existing `document_chunks`.
+This document outlines a comprehensive 10-day plan to improve document chunk processing by introducing a thin,
+AI-agnostic structure layer without touching existing `document_chunks`.
 
 ## Day 1 — Data Model + Migrations + Contracts
 
@@ -13,27 +14,28 @@ This document outlines a comprehensive 10-day plan to improve document chunk pro
 New table `document_nodes` (thin "coordinates of chunks"):
 
 ```sql
-CREATE TABLE document_nodes (
-    id UUID PRIMARY KEY,
-    document_id UUID NOT NULL REFERENCES documents(id),
-    parent_id UUID REFERENCES document_nodes(id),
-    level SMALLINT NOT NULL, -- 0=doc, 1=part, 2=chapter, 3=section, 4=subsection, 5=paragraph
-    type VARCHAR(32) NOT NULL, -- enum-like: DOCUMENT|PART|CHAPTER|SECTION|SUBSECTION|PARAGRAPH|OTHER
-    title TEXT,
-    start_offset INT NOT NULL,
-    end_offset INT NOT NULL,
-    start_anchor TEXT,
-    end_anchor TEXT,
-    ordinal INT NOT NULL,
-    strategy VARCHAR(16), -- REGEX|AI|HYBRID
-    confidence NUMERIC(3,2),
+CREATE TABLE document_nodes
+(
+    id                  UUID PRIMARY KEY,
+    document_id         UUID        NOT NULL REFERENCES documents (id),
+    parent_id           UUID REFERENCES document_nodes (id),
+    level               SMALLINT    NOT NULL, -- 0=doc, 1=part, 2=chapter, 3=section, 4=subsection, 5=paragraph
+    type                VARCHAR(32) NOT NULL, -- enum-like: DOCUMENT|PART|CHAPTER|SECTION|SUBSECTION|PARAGRAPH|OTHER
+    title               TEXT,
+    start_offset        INT         NOT NULL,
+    end_offset          INT         NOT NULL,
+    start_anchor        TEXT,
+    end_anchor          TEXT,
+    ordinal             INT         NOT NULL,
+    strategy            VARCHAR(16),          -- REGEX|AI|HYBRID
+    confidence          NUMERIC(3, 2),
     source_version_hash VARCHAR(64) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
+    created_at          TIMESTAMP   NOT NULL DEFAULT now()
 );
 
 -- Indexes
-CREATE INDEX idx_document_nodes_doc_ordinal ON document_nodes(document_id, ordinal);
-CREATE INDEX idx_document_nodes_doc_offset ON document_nodes(document_id, start_offset);
+CREATE INDEX idx_document_nodes_doc_ordinal ON document_nodes (document_id, ordinal);
+CREATE INDEX idx_document_nodes_doc_offset ON document_nodes (document_id, start_offset);
 -- Optional: exclusion constraint to forbid overlapping ranges under the same parent
 ```
 
@@ -60,18 +62,19 @@ CREATE INDEX idx_document_nodes_doc_offset ON document_nodes(document_id, start_
 `features/document/application/CanonicalTextService.java`
 
 ```java
-CanonicalizedText loadOrBuild(UUID documentId) → { 
-    text, 
-    sourceVersionHash, 
-    pageOffsets, 
-    paragraphOffsets 
+CanonicalizedText loadOrBuild(UUID documentId) → {
+text,
+sourceVersionHash,
+pageOffsets,
+paragraphOffsets 
 }
 ```
 
 ### Implementation
 
 - Reuse existing converters (`ConvertedDocument`) to build the final text
-- If PDF extraction is noisy, optionally add an adapter for Unstructured with `strategy=hi_res` to preserve layout semantics (only if needed; keep dependency optional)
+- If PDF extraction is noisy, optionally add an adapter for Unstructured with `strategy=hi_res` to preserve layout
+  semantics (only if needed; keep dependency optional)
 
 ### Persistence
 
@@ -91,7 +94,8 @@ CanonicalizedText loadOrBuild(UUID documentId) → {
 `features/document/application/PreSegmentationService.java`
 
 - Split into coarse blocks (likely: chapter-like headings, `\n\n` paragraphs, page headers) with offsets
-- Use existing `SentenceBoundaryDetector` and `ChunkTitleGenerator` carefully (read-only) to produce windows, not final chunks
+- Use existing `SentenceBoundaryDetector` and `ChunkTitleGenerator` carefully (read-only) to produce windows, not final
+  chunks
 
 ### Output
 
@@ -118,7 +122,13 @@ Ensure windows cover 100% of text, are ordered, and non-overlapping.
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["PART", "CHAPTER", "SECTION", "SUBSECTION", "PARAGRAPH"]
+            "enum": [
+              "PART",
+              "CHAPTER",
+              "SECTION",
+              "SUBSECTION",
+              "PARAGRAPH"
+            ]
           },
           "title": {
             "type": "string"
@@ -133,7 +143,10 @@ Ensure windows cover 100% of text, are ordered, and non-overlapping.
             "$ref": "#/$defs/n"
           }
         },
-        "required": ["type", "start_anchor"]
+        "required": [
+          "type",
+          "start_anchor"
+        ]
       }
     }
   },
@@ -195,9 +208,11 @@ Ensure windows cover 100% of text, are ordered, and non-overlapping.
 
 ### Strategy
 
-**Pass 1**: Run outline on overlapped slices (2–3 big slices with ~3–5% overlap). Stitch top-level (PART/CHAPTER) using title+anchor similarity.
+**Pass 1**: Run outline on overlapped slices (2–3 big slices with ~3–5% overlap). Stitch top-level (PART/CHAPTER) using
+title+anchor similarity.
 
-**Pass 2**: Per chapter, run section/subsection extraction; for paragraphs, consider a rules-first pass (cheaper) and use LLM only when needed.
+**Pass 2**: Per chapter, run section/subsection extraction; for paragraphs, consider a rules-first pass (cheaper) and
+use LLM only when needed.
 
 - Use long-context models only if stitching fails or doc is extreme
 - Cost remains token-based, Structured Outputs improves reliability (fewer retries)
@@ -349,7 +364,8 @@ features/quiz/application/QuizFromStructureService.java
 
 ### Structured Outputs
 
-Use Structured Outputs (Responses API) to force schema-valid JSON—this drastically reduces brittle parsing & retries. Keep fields short to reduce token out.
+Use Structured Outputs (Responses API) to force schema-valid JSON—this drastically reduces brittle parsing & retries.
+Keep fields short to reduce token out.
 
 ### Model Tiering
 
@@ -358,32 +374,39 @@ Use Structured Outputs (Responses API) to force schema-valid JSON—this drastic
 
 ### PDFs & Layout
 
-If pages/headers are messy, consider Unstructured's `hi_res` partitioner in the converter to preserve structure before LLM.
+If pages/headers are messy, consider Unstructured's `hi_res` partitioner in the converter to preserve structure before
+LLM.
 
 ## Acceptance Criteria (Per Day Buckets)
 
 ### Data Layer
+
 - `document_nodes` created
 - Nodes persist with correct parent/ordinal and non-overlap guarantees
 
 ### Extractor
+
 - Returns schema-valid tree
 - Configurable depth
 - Measurable token usage
 
 ### Aligner
+
 - ≥95% anchors resolved on golden samples
 - Coverage 100%
 - No crossings
 
 ### APIs
+
 - `POST /documents/{id}/structure` (202/LRO) + `GET /documents/{id}/structure` (tree/flat)
 - RFC9457 errors
 
 ### Quiz Bridge
+
 - `POST /quizzes/from-structure` produces quizzes identical in quality (or better) than current chunk-based flow
 
 ### Operations
+
 - Metrics emitted
 - Feature flag toggles
 - Rate limits enforced

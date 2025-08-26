@@ -57,10 +57,10 @@ class UserRepositoryPerformanceTest {
         // Clean up any existing test data first
         userRepository.findByUsername("testuser").ifPresent(userRepository::delete);
         userRepository.findByEmail("test@example.com").ifPresent(userRepository::delete);
-        
+
         // Use unique names with timestamp to avoid conflicts
         String timestamp = String.valueOf(System.currentTimeMillis());
-        
+
         // Create permissions with unique names
         readPermission = Permission.builder()
                 .permissionName("READ_TEST_" + timestamp)
@@ -128,12 +128,12 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         User user = result.get();
-        
+
         // Verify roles are loaded without additional queries
         assertThat(user.getRoles()).hasSize(2);
         assertThat(user.getRoles()).extracting(Role::getRoleName)
                 .containsExactlyInAnyOrder(userRole.getRoleName(), adminRole.getRoleName());
-        
+
         log.info("Successfully fetched user with roles in single query");
     }
 
@@ -145,12 +145,12 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         User user = result.get();
-        
+
         // Verify roles are loaded without additional queries
         assertThat(user.getRoles()).hasSize(2);
         assertThat(user.getRoles()).extracting(Role::getRoleName)
                 .containsExactlyInAnyOrder(userRole.getRoleName(), adminRole.getRoleName());
-        
+
         log.info("Successfully fetched user with roles by email in single query");
     }
 
@@ -162,12 +162,12 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         User user = result.get();
-        
+
         // Verify roles are loaded without additional queries
         assertThat(user.getRoles()).hasSize(2);
         assertThat(user.getRoles()).extracting(Role::getRoleName)
                 .containsExactlyInAnyOrder(userRole.getRoleName(), adminRole.getRoleName());
-        
+
         log.info("Successfully fetched user with roles by ID in single query");
     }
 
@@ -179,20 +179,20 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         User user = result.get();
-        
+
         // Verify roles are loaded
         assertThat(user.getRoles()).hasSize(2);
-        
+
         // Verify permissions are loaded for each role without additional queries
         Set<Permission> allPermissions = new HashSet<>();
         for (Role role : user.getRoles()) {
             allPermissions.addAll(role.getPermissions());
         }
-        
+
         assertThat(allPermissions).hasSize(3);
         assertThat(allPermissions).extracting(Permission::getPermissionName)
                 .containsExactlyInAnyOrder(readPermission.getPermissionName(), writePermission.getPermissionName(), deletePermission.getPermissionName());
-        
+
         log.info("Successfully fetched user with roles and permissions in single query");
     }
 
@@ -204,20 +204,20 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         User user = result.get();
-        
+
         // Verify roles are loaded
         assertThat(user.getRoles()).hasSize(2);
-        
+
         // Verify permissions are loaded for each role without additional queries
         Set<Permission> allPermissions = new HashSet<>();
         for (Role role : user.getRoles()) {
             allPermissions.addAll(role.getPermissions());
         }
-        
+
         assertThat(allPermissions).hasSize(3);
         assertThat(allPermissions).extracting(Permission::getPermissionName)
                 .containsExactlyInAnyOrder(readPermission.getPermissionName(), writePermission.getPermissionName(), deletePermission.getPermissionName());
-        
+
         log.info("Successfully fetched user with roles and permissions by ID in single query");
     }
 
@@ -229,12 +229,12 @@ class UserRepositoryPerformanceTest {
         // Then
         assertThat(result).isPresent();
         Role role = result.get();
-        
+
         // Verify permissions are loaded without additional queries
         assertThat(role.getPermissions()).hasSize(3);
         assertThat(role.getPermissions()).extracting(Permission::getPermissionName)
                 .containsExactlyInAnyOrder(readPermission.getPermissionName(), writePermission.getPermissionName(), deletePermission.getPermissionName());
-        
+
         log.info("Successfully fetched role with permissions in single query");
     }
 
@@ -245,11 +245,11 @@ class UserRepositoryPerformanceTest {
 
         // Then - Should include both system roles and our test roles
         assertThat(roles).hasSizeGreaterThanOrEqualTo(2); // At least our 2 test roles
-        
+
         // Verify our test roles are included and permissions are loaded without additional queries
         boolean foundUserTestRole = false;
         boolean foundAdminTestRole = false;
-        
+
         for (Role role : roles) {
             if (role.getRoleName().equals(userRole.getRoleName())) {
                 foundUserTestRole = true;
@@ -260,10 +260,10 @@ class UserRepositoryPerformanceTest {
             }
             log.info("Role {} has {} permissions", role.getRoleName(), role.getPermissions().size());
         }
-        
+
         assertThat(foundUserTestRole).isTrue();
         assertThat(foundAdminTestRole).isTrue();
-        
+
         log.info("Successfully fetched all {} roles with permissions in single query", roles.size());
     }
 

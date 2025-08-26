@@ -7,4 +7,5 @@ public record ResendVerificationRequest(
         @NotBlank(message = "Email is required")
         @Email(message = "Invalid email format")
         String email
-) {}
+) {
+}

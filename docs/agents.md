@@ -1,6 +1,7 @@
 # QuizMaker Development Guide (agents.md) — Code Rules Only
 
-**Target stack:** Java 17+/21, Spring Boot 3.x, Spring MVC, Spring Data JPA, Spring Security, Jackson, Jakarta Bean Validation, MapStruct.
+**Target stack:** Java 17+/21, Spring Boot 3.x, Spring MVC, Spring Data JPA, Spring Security, Jackson, Jakarta Bean
+Validation, MapStruct.
 
 **Layout:** feature-first
 
@@ -17,15 +18,20 @@ shared/
 
 ## 0) North Star (house style)
 
-- **Thin controllers, business in services, lean repositories.** Controllers do I/O + validation; services own transactions and domain rules; repositories are query-centric.
+- **Thin controllers, business in services, lean repositories.** Controllers do I/O + validation; services own
+  transactions and domain rules; repositories are query-centric.
 
-- **Never expose entities in the API.** Map to DTOs (prefer record DTOs). Use MapStruct (`@Mapper(componentModel="spring")`).
+- **Never expose entities in the API.** Map to DTOs (prefer record DTOs). Use MapStruct (
+  `@Mapper(componentModel="spring")`).
 
-- **Uniform error bodies:** use Spring's ProblemDetail (RFC 9457). Add one `@RestControllerAdvice` to convert exceptions. No stack traces to clients.
+- **Uniform error bodies:** use Spring's ProblemDetail (RFC 9457). Add one `@RestControllerAdvice` to convert
+  exceptions. No stack traces to clients.
 
-- **Validate everything at the edge:** Jakarta Bean Validation on request DTOs (`@Valid`), plus method validation on services (`@Validated`).
+- **Validate everything at the edge:** Jakarta Bean Validation on request DTOs (`@Valid`), plus method validation on
+  services (`@Validated`).
 
-- **JPA discipline:** default LAZY; avoid N+1 with JOIN FETCH or `@EntityGraph`; page large reads; prefer projections for list views.
+- **JPA discipline:** default LAZY; avoid N+1 with JOIN FETCH or `@EntityGraph`; page large reads; prefer projections
+  for list views.
 
 - **Concurrency:** add `@Version` for optimistic locking where concurrent writes happen.
 
@@ -33,7 +39,8 @@ shared/
 
 - **Logging:** use parameterized SLF4J; avoid credentials/PII (follow OWASP logging guidance).
 
-- **Don't rely on OSIV.** Fetch what you need within transactions; OSIV only keeps the EntityManager open for view rendering and encourages leaky access patterns.
+- **Don't rely on OSIV.** Fetch what you need within transactions; OSIV only keeps the EntityManager open for view
+  rendering and encourages leaky access patterns.
 
 - **Optional only as return type.** Don't use Optional in fields/params (per JDK guidance).
 
@@ -49,25 +56,28 @@ shared/
 ### Template
 
 ```java
+
 @RestController
 @RequestMapping("/api/v1/quizzes")
 @RequiredArgsConstructor
 class QuizController {
-  private final QuizService service;
+    private final QuizService service;
 
-  @PostMapping
-  @ResponseStatus(HttpStatus.CREATED)
-  QuizDto create(@Valid @RequestBody CreateQuizRequest req) {
-    return service.create(req);
-  }
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    QuizDto create(@Valid @RequestBody CreateQuizRequest req) {
+        return service.create(req);
+    }
 
-  @GetMapping("/{id}")
-  QuizDto get(@PathVariable UUID id) { return service.get(id); }
+    @GetMapping("/{id}")
+    QuizDto get(@PathVariable UUID id) {
+        return service.get(id);
+    }
 
-  @GetMapping
-  Page<QuizSummaryDto> list(@ParameterObject Pageable pageable) {
-    return service.list(pageable);
-  }
+    @GetMapping
+    Page<QuizSummaryDto> list(@ParameterObject Pageable pageable) {
+        return service.list(pageable);
+    }
 }
 ```
 
@@ -92,7 +102,8 @@ Spring Framework 6+ ships ProblemDetail aligned to RFC 9457.
 
 ### Streaming (long operations)
 
-For long-running exports or AI streams, return `ResponseBodyEmitter` or `SseEmitter`. Keep controller method fast; push work to a separate thread/executor.
+For long-running exports or AI streams, return `ResponseBodyEmitter` or `SseEmitter`. Keep controller method fast; push
+work to a separate thread/executor.
 
 ## 2) DTOs & Mapping (features/<x>/infra for mappers)
 
@@ -102,11 +113,13 @@ For long-running exports or AI streams, return `ResponseBodyEmitter` or `SseEmit
 - MapStruct for compile-time, type-safe, fast mappers.
 
 ```java
+
 @Mapper(componentModel = "spring")
 public interface QuizMapper {
-  QuizDto toDto(Quiz e);
-  @Mapping(target = "id", ignore = true)
-  Quiz toEntity(CreateQuizRequest r);
+    QuizDto toDto(Quiz e);
+
+    @Mapping(target = "id", ignore = true)
+    Quiz toEntity(CreateQuizRequest r);
 }
 ```
 
@@ -114,9 +127,10 @@ public interface QuizMapper {
 
 ```java
 public record CreateQuizRequest(
-    @NotBlank String title,
-    @Size(max = 500) String description
-) {}
+        @NotBlank String title,
+        @Size(max = 500) String description
+) {
+}
 ```
 
 Use `@Validated` on service classes to enforce method-level constraints.
@@ -132,29 +146,30 @@ Use `@Validated` on service classes to enforce method-level constraints.
 ### Template
 
 ```java
+
 @Service
 @Validated
 @RequiredArgsConstructor
 class QuizService {
-  private final QuizRepository repo;
-  private final QuizMapper mapper;
-  private final ApplicationEventPublisher events;
+    private final QuizRepository repo;
+    private final QuizMapper mapper;
+    private final ApplicationEventPublisher events;
 
-  @Transactional
-  @PreAuthorize("hasAuthority('quiz:write')")
-  QuizDto create(@Valid CreateQuizRequest req) {
-    var saved = repo.save(mapper.toEntity(req));
-    events.publishEvent(new QuizCreated(saved.getId()));
-    return mapper.toDto(saved);
-  }
+    @Transactional
+    @PreAuthorize("hasAuthority('quiz:write')")
+    QuizDto create(@Valid CreateQuizRequest req) {
+        var saved = repo.save(mapper.toEntity(req));
+        events.publishEvent(new QuizCreated(saved.getId()));
+        return mapper.toDto(saved);
+    }
 
-  @Transactional(readOnly = true)
-  @PreAuthorize("hasAuthority('quiz:read')")
-  QuizDto get(UUID id) {
-    var e = repo.findById(id)
-      .orElseThrow(() -> new EntityNotFoundException("Quiz %s".formatted(id)));
-    return mapper.toDto(e);
-  }
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAuthority('quiz:read')")
+    QuizDto get(UUID id) {
+        var e = repo.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Quiz %s".formatted(id)));
+        return mapper.toDto(e);
+    }
 }
 ```
 
@@ -176,19 +191,19 @@ Use `@Cacheable`/`@CacheEvict` at service boundary for read-mostly use-cases.
 ```java
 public interface QuizRepository extends JpaRepository<Quiz, UUID> {
 
-  Optional<Quiz> findByTitle(String title);
+    Optional<Quiz> findByTitle(String title);
 
-  // Avoid N+1 when we need categories with the quiz
-  @EntityGraph(attributePaths = {"categories"})
-  @Query("select q from Quiz q where q.createdAt >= :since")
-  Page<Quiz> findRecentWithCategories(@Param("since") Instant since, Pageable page);
+    // Avoid N+1 when we need categories with the quiz
+    @EntityGraph(attributePaths = {"categories"})
+    @Query("select q from Quiz q where q.createdAt >= :since")
+    Page<Quiz> findRecentWithCategories(@Param("since") Instant since, Pageable page);
 
-  // Projection for list view
-  @Query("""
-     select q.id as id, q.title as title, q.updatedAt as updatedAt
-     from Quiz q
-  """)
-  Page<QuizSummaryDto> findAllSummaries(Pageable page);
+    // Projection for list view
+    @Query("""
+               select q.id as id, q.title as title, q.updatedAt as updatedAt
+               from Quiz q
+            """)
+    Page<QuizSummaryDto> findAllSummaries(Pageable page);
 }
 ```
 
@@ -203,18 +218,25 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID> {
 ### Example
 
 ```java
-@Entity
-@Table(name="quizzes")
-@Getter @Setter
-public class Quiz {
-  @Id @GeneratedValue private UUID id;
-  @Column(nullable=false, unique=true) private String title;
-  @Column(length=500) private String description;
-  @Version private long version;
 
-  @ManyToMany(fetch = FetchType.LAZY)
-  @JoinTable(name="quiz_categories")
-  private Set<Category> categories = new HashSet<>();
+@Entity
+@Table(name = "quizzes")
+@Getter
+@Setter
+public class Quiz {
+    @Id
+    @GeneratedValue
+    private UUID id;
+    @Column(nullable = false, unique = true)
+    private String title;
+    @Column(length = 500)
+    private String description;
+    @Version
+    private long version;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "quiz_categories")
+    private Set<Category> categories = new HashSet<>();
 }
 ```
 
@@ -223,38 +245,42 @@ public class Quiz {
 ### Service skeleton
 
 ```java
+
 @Service
 @RequiredArgsConstructor
 public class AiQuizGenerationService {
-  private final ChatClient chatClient;               // Spring AI interface
-  private final QuestionParserFactory parserFactory; // polymorphic parsers
-  private final RateLimitService rateLimit;          // shared/rate_limit
-  private final Executor aiExecutor;                 // async pool
+    private final ChatClient chatClient;               // Spring AI interface
+    private final QuestionParserFactory parserFactory; // polymorphic parsers
+    private final RateLimitService rateLimit;          // shared/rate_limit
+    private final Executor aiExecutor;                 // async pool
 
-  @Async("aiTaskExecutor")
-  @Transactional
-  public void generateFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest req) {
-    // 1) pre-checks (size, type, user quota)
-    // 2) chunk selection
-    // 3) prompt assembly (include system + few-shot + constraints)
-    // 4) call model with retry + backoff
-    // 5) parse via parserFactory by type, collect errors
-    // 6) persist questions atomically; emit progress events
-  }
+    @Async("aiTaskExecutor")
+    @Transactional
+    public void generateFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest req) {
+        // 1) pre-checks (size, type, user quota)
+        // 2) chunk selection
+        // 3) prompt assembly (include system + few-shot + constraints)
+        // 4) call model with retry + backoff
+        // 5) parse via parserFactory by type, collect errors
+        // 6) persist questions atomically; emit progress events
+    }
 }
 ```
 
 ### Question generation
 
-Support the 9 types you listed (MCQ_SINGLE, MCQ_MULTI, OPEN, FILL_GAP, COMPLIANCE, TRUE_FALSE, ORDERING, HOTSPOT, MATCHING).
+Support the 9 types you listed (MCQ_SINGLE, MCQ_MULTI, OPEN, FILL_GAP, COMPLIANCE, TRUE_FALSE, ORDERING, HOTSPOT,
+MATCHING).
 
-Each parser: pure function `String → List<Question>` with strict validation and idempotent behavior (same prompt → same result).
+Each parser: pure function `String → List<Question>` with strict validation and idempotent behavior (same prompt → same
+result).
 
 Fallback strategy: downgrade to simpler types when parsing fails (e.g., MATCHING → MCQ_MULTI), but record the downgrade.
 
 ### Rate limiting & retries
 
-Enforce per-user quotas in service; on 429/5xx apply exponential backoff and jitter; surface a ProblemDetail with status=503 for exhaustion.
+Enforce per-user quotas in service; on 429/5xx apply exponential backoff and jitter; surface a ProblemDetail with
+status=503 for exhaustion.
 
 ### Streaming responses
 
@@ -275,20 +301,24 @@ public DocumentDto upload(@RequestParam("file") MultipartFile file,
 
 ### Chunking strategies
 
-- **CHAPTER_BASED:** split on headings (`(?m)^(chapter|section|part)\b\s+\d+[:.)-]?\s+.*$` case-insensitive), then recursively bisect oversize blocks near sentence boundaries.
+- **CHAPTER_BASED:** split on headings (`(?m)^(chapter|section|part)\b\s+\d+[:.)-]?\s+.*$` case-insensitive), then
+  recursively bisect oversize blocks near sentence boundaries.
 - **SECTION_BASED:** same but on `^#{1,3}\s+`/numeric headings if markdown-like.
-- **SIZE_BASED:** walk forward using `BreakIterator.getSentenceInstance(Locale)` to keep ≤ max chars (hard cap); never cut in the middle of a token.
+- **SIZE_BASED:** walk forward using `BreakIterator.getSentenceInstance(Locale)` to keep ≤ max chars (hard cap); never
+  cut in the middle of a token.
 - **PAGE_BASED:** keep page numbers as metadata for traceability.
 
 ### Safety & sanitation
 
-Strip dangerous HTML with JSoup; validate MIME via Tika before parsing. (Implementation remains local to code; no config guidance here.)
+Strip dangerous HTML with JSoup; validate MIME via Tika before parsing. (Implementation remains local to code; no config
+guidance here.)
 
 ## 8) Security in Code
 
 Use method security (`@PreAuthorize`) at service boundary with authorities like `quiz:write`, `quiz:read`.
 
-For JWT parsing/signing, encapsulate token logic behind one component; validate audiences/expiry; never log tokens or secrets (OWASP logging).
+For JWT parsing/signing, encapsulate token logic behind one component; validate audiences/expiry; never log tokens or
+secrets (OWASP logging).
 
 ## 9) Validation (DTO & method)
 
@@ -325,15 +355,17 @@ Stream long responses via ResponseBodyEmitter/SseEmitter.
 
 ## 11) Logging (code snippets)
 
-Use correlation IDs if present; never log secrets, tokens, or PII; if you must correlate on a session, log a salted hash only.
+Use correlation IDs if present; never log secrets, tokens, or PII; if you must correlate on a session, log a salted hash
+only.
 
 ```java
+
 @Slf4j
 @Service
 class QuizAuditService {
-  void created(UUID quizId) {
-    log.info("quiz.created id={}", quizId);
-  }
+    void created(UUID quizId) {
+        log.info("quiz.created id={}", quizId);
+    }
 }
 ```
 
@@ -341,7 +373,8 @@ class QuizAuditService {
 
 - **Controllers:** `@WebMvcTest` + MockMvc for status/body/validation paths.
 - **Services:** plain JUnit + Mockito (no Spring context unless needed).
-- **Repositories:** `@DataJpaTest` to assert queries, projections, and `@EntityGraph` eliminates N+1. (Keep these as close to the code as possible.)
+- **Repositories:** `@DataJpaTest` to assert queries, projections, and `@EntityGraph` eliminates N+1. (Keep these as
+  close to the code as possible.)
 
 ## 13) Per-Layer Checklists (agent must self-verify)
 

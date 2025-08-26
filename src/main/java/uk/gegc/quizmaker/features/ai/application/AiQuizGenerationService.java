@@ -1,11 +1,11 @@
 package uk.gegc.quizmaker.features.ai.application;
 
-import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
-import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
 import java.util.List;
 import java.util.Map;

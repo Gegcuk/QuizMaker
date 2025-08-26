@@ -79,7 +79,7 @@ public class JwtTokenService {
 
         String username = claims.getSubject();
         UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-        
+
         return new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
     }
 

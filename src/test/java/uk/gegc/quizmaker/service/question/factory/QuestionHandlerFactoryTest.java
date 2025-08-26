@@ -26,10 +26,10 @@ class QuestionHandlerFactoryTest {
 
     @Mock
     private QuestionHandler mcqSingleHandler;
-    
+
     @Mock
     private QuestionHandler trueFalseHandler;
-    
+
     @Mock
     private QuestionHandler openQuestionHandler;
 
@@ -91,7 +91,7 @@ class QuestionHandlerFactoryTest {
     @DisplayName("should work with empty handler list")
     void shouldWorkWithEmptyHandlerList() {
         QuestionHandlerFactory emptyFactory = new QuestionHandlerFactory(List.of());
-        
+
         assertThatThrownBy(() -> emptyFactory.getHandler(QuestionType.MCQ_SINGLE))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessage("No handler for type MCQ_SINGLE");

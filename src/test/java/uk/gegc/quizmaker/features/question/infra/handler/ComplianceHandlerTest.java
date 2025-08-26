@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class ComplianceHandlerTest {
     void setUp() {
         handler = new ComplianceHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.COMPLIANCE);
@@ -186,10 +186,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -205,10 +205,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -225,10 +225,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1,2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -245,10 +245,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -265,10 +265,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1,2,3]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -284,10 +284,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -303,10 +303,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -322,10 +322,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[999]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -341,10 +341,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1,1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -362,11 +362,11 @@ class ComplianceHandlerTest {
                 """);
         JsonNode response1 = mapper.readTree("{\"selectedStatementIds\":[1,2]}");
         JsonNode response2 = mapper.readTree("{\"selectedStatementIds\":[2,1]}");
-        
+
         // When
         Answer answer1 = handler.doHandle(testAttempt, testQuestion, content, response1);
         Answer answer2 = handler.doHandle(testAttempt, testQuestion, content, response2);
-        
+
         // Then
         assertTrue(answer1.getIsCorrect());
         assertTrue(answer2.getIsCorrect());
@@ -384,10 +384,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -403,10 +403,10 @@ class ComplianceHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedStatementIds\":[2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());

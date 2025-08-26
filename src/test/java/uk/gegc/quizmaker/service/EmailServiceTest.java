@@ -49,7 +49,7 @@ class EmailServiceTest {
         // Given
         String email = "user@example.com";
         String resetToken = "test-token-123";
-        
+
         doThrow(new RuntimeException("SMTP error")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // When & Then
@@ -57,7 +57,7 @@ class EmailServiceTest {
         assertDoesNotThrow(() -> {
             emailService.sendPasswordResetEmail(email, resetToken);
         });
-        
+
         verify(mailSender, times(1)).send(any(SimpleMailMessage.class));
     }
 
@@ -92,7 +92,7 @@ class EmailServiceTest {
         // Given
         String email = "user@example.com";
         String verificationToken = "test-verification-token-123";
-        
+
         doThrow(new RuntimeException("SMTP error")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // When & Then
@@ -100,7 +100,7 @@ class EmailServiceTest {
         assertDoesNotThrow(() -> {
             emailService.sendEmailVerificationEmail(email, verificationToken);
         });
-        
+
         verify(mailSender, times(1)).send(any(SimpleMailMessage.class));
     }
 }

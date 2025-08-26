@@ -53,7 +53,7 @@ class ResendVerificationRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("email") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("email") &&
                         v.getMessage().contains("required")));
     }
 
@@ -69,7 +69,7 @@ class ResendVerificationRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("email") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("email") &&
                         v.getMessage().contains("required")));
     }
 
@@ -86,7 +86,7 @@ class ResendVerificationRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("email") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("email") &&
                         v.getMessage().contains("Invalid email format")));
     }
 }

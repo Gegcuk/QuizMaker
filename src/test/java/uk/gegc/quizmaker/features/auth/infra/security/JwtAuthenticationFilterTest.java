@@ -51,7 +51,7 @@ public class JwtAuthenticationFilterTest {
         MockitoAnnotations.openMocks(this);
         authenticationFilter = new JwtAuthenticationFilter(jwtTokenService);
         SecurityContextHolder.clearContext();
-        
+
         // Set up log capture
         filterLogger = (Logger) LoggerFactory.getLogger(JwtAuthenticationFilter.class);
         filterLogger.setLevel(Level.DEBUG); // Ensure we capture all log levels
@@ -141,8 +141,8 @@ public class JwtAuthenticationFilterTest {
 
         // Debug: Print all captured logs
         System.out.println("Filter captured logs: " + logWatcher.list.size());
-        logWatcher.list.forEach(event -> 
-            System.out.println("Filter Log: " + event.getLevel() + " - " + event.getMessage())
+        logWatcher.list.forEach(event ->
+                System.out.println("Filter Log: " + event.getLevel() + " - " + event.getMessage())
         );
 
         assertThat(logWatcher.list)
@@ -169,13 +169,13 @@ public class JwtAuthenticationFilterTest {
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
                 .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}")));
-                
+
         // Verify we logged the security details
         ILoggingEvent warnEvent = logWatcher.list.stream()
                 .filter(event -> event.getLevel() == Level.WARN)
                 .findFirst()
                 .orElse(null);
-        
+
         assertThat(warnEvent).isNotNull();
         assertThat(warnEvent.getArgumentArray()).containsExactly(clientIp, requestUri, userAgent);
     }

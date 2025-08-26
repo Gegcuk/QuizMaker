@@ -5,10 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
-import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.features.ai.application.AiChatService;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -67,7 +67,7 @@ public class AiChatServiceImpl implements AiChatService {
                     long delayMs = calculateBackoffDelay(retryCount);
                     log.warn("Rate limit hit for chat message (attempt {}). Waiting {} ms before retry.",
                             retryCount + 1, delayMs);
-                    
+
                     if (retryCount < maxRetries - 1) {
                         sleepForRateLimit(delayMs);
                         retryCount++;
@@ -99,14 +99,14 @@ public class AiChatServiceImpl implements AiChatService {
         if (message == null) {
             return false;
         }
-        
+
         // Check for common rate limit indicators
-        return message.contains("429") || 
-               message.contains("rate limit") || 
-               message.contains("rate_limit_exceeded") ||
-               message.contains("Too Many Requests") ||
-               message.contains("TPM") ||
-               message.contains("RPM");
+        return message.contains("429") ||
+                message.contains("rate limit") ||
+                message.contains("rate_limit_exceeded") ||
+                message.contains("Too Many Requests") ||
+                message.contains("TPM") ||
+                message.contains("RPM");
     }
 
     /**
@@ -116,13 +116,13 @@ public class AiChatServiceImpl implements AiChatService {
     private long calculateBackoffDelay(int retryCount) {
         // Exponential backoff: 2^retryCount * baseDelay
         long exponentialDelay = rateLimitConfig.getBaseDelayMs() * (long) Math.pow(2, retryCount);
-        
+
         // Add jitter to prevent thundering herd
         double jitterRange = rateLimitConfig.getJitterFactor();
         double jitter = (1.0 - jitterRange) + (Math.random() * 2 * jitterRange);
-        
+
         long delayWithJitter = (long) (exponentialDelay * jitter);
-        
+
         // Cap at maximum delay
         return Math.min(delayWithJitter, rateLimitConfig.getMaxDelayMs());
     }

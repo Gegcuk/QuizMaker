@@ -1,8 +1,8 @@
 package uk.gegc.quizmaker.features.ai.infra.parser;
 
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.List;
 

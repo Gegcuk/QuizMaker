@@ -11,12 +11,12 @@ import java.lang.annotation.*;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface DifferentFrom {
     String message() default "{password.same}";
-    
+
     String field();
-    
+
     String notEqualTo();
-    
+
     Class<?>[] groups() default {};
-    
+
     Class<? extends Payload>[] payload() default {};
 } 

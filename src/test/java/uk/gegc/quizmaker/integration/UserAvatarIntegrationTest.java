@@ -22,7 +22,7 @@ class UserAvatarIntegrationTest {
     @Test
     @WithMockUser(username = "it-user")
     void uploadAvatar_badImage_returns400() throws Exception {
-        MockMultipartFile bad = new MockMultipartFile("file", "x.png", "image/png", new byte[]{1,2,3});
+        MockMultipartFile bad = new MockMultipartFile("file", "x.png", "image/png", new byte[]{1, 2, 3});
         mockMvc.perform(multipart("/api/v1/users/me/avatar").file(bad)
                         .contentType(MediaType.MULTIPART_FORM_DATA))
                 .andExpect(status().isBadRequest());

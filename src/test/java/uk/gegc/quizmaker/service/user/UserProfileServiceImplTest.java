@@ -15,10 +15,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
+import uk.gegc.quizmaker.features.user.application.impl.UserProfileServiceImpl;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.user.application.impl.UserProfileServiceImpl;
 import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.time.LocalDateTime;
@@ -228,7 +228,8 @@ class UserProfileServiceImplTest {
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsernameWithRoles("testuser")).thenReturn(Optional.of(testUser));
-        when(objectMapper.readValue("invalid json", Map.class)).thenThrow(new JsonProcessingException("Invalid JSON") {});
+        when(objectMapper.readValue("invalid json", Map.class)).thenThrow(new JsonProcessingException("Invalid JSON") {
+        });
 
         // When
         UserProfileResponse result = meService.getCurrentUserProfile(authentication);
@@ -306,7 +307,8 @@ class UserProfileServiceImplTest {
         when(authentication.getName()).thenReturn("testuser");
         when(userRepository.findByUsernameWithRoles("testuser")).thenReturn(Optional.of(testUser));
         when(objectMapper.writeValueAsString(Map.of("invalid", "data")))
-                .thenThrow(new JsonProcessingException("Serialization failed") {});
+                .thenThrow(new JsonProcessingException("Serialization failed") {
+                });
 
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,

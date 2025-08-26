@@ -89,22 +89,6 @@ public class DocumentNode {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    public enum NodeType {
-        DOCUMENT,
-        PART,
-        CHAPTER,
-        SECTION,
-        SUBSECTION,
-        PARAGRAPH,
-        OTHER
-    }
-
-    public enum Strategy {
-        REGEX,
-        AI,
-        HYBRID
-    }
-
     // Helper methods for tree operations
     public void addChild(DocumentNode child) {
         children.add(child);
@@ -126,5 +110,21 @@ public class DocumentNode {
 
     public int getDepth() {
         return level;
+    }
+
+    public enum NodeType {
+        DOCUMENT,
+        PART,
+        CHAPTER,
+        SECTION,
+        SUBSECTION,
+        PARAGRAPH,
+        OTHER
+    }
+
+    public enum Strategy {
+        REGEX,
+        AI,
+        HYBRID
     }
 }

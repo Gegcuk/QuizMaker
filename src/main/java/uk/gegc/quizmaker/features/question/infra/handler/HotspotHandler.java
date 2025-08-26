@@ -2,12 +2,12 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -58,7 +58,7 @@ public class HotspotHandler extends QuestionHandler {
                 throw new ValidationException("Region IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
-            
+
             // Validate correct field
             if (!region.has("correct")) {
                 throw new ValidationException("Each region must have a 'correct' field");
@@ -69,7 +69,7 @@ public class HotspotHandler extends QuestionHandler {
             if (region.get("correct").asBoolean()) {
                 hasCorrectRegion = true;
             }
-            
+
             // Validate coordinate fields
             for (String field : new String[]{"x", "y", "width", "height"}) {
                 if (!region.has(field) || !region.get(field).canConvertToInt()) {
@@ -81,7 +81,7 @@ public class HotspotHandler extends QuestionHandler {
                 }
             }
         }
-        
+
         if (!hasCorrectRegion) {
             throw new ValidationException("At least one region must be marked as correct");
         }

@@ -11,10 +11,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-
-import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,8 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
-    "spring.jpa.hibernate.ddl-auto=create-drop",
-    "spring.jpa.show-sql=true"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.show-sql=true"
 })
 class DocumentNodeRepositoryTest {
 
@@ -219,7 +216,7 @@ class DocumentNodeRepositoryTest {
         document.setTitle("Test Document");
         document.setUploadedAt(LocalDateTime.now());
         document.setProcessedAt(LocalDateTime.now());
-        
+
         User user = new User();
         user.setUsername("testuser");
         user.setEmail("test@example.com");
@@ -232,9 +229,9 @@ class DocumentNodeRepositoryTest {
         entityManager.flush();
         User savedUser = user;
         document.setUploadedBy(savedUser);
-        
+
         Document savedDocument = entityManager.merge(document);
-        
+
         // Create nodes with overlapping ranges
         DocumentNode node1 = new DocumentNode();
         node1.setDocument(savedDocument);
@@ -294,7 +291,7 @@ class DocumentNodeRepositoryTest {
         document.setTitle("Test Document");
         document.setUploadedAt(LocalDateTime.now());
         document.setProcessedAt(LocalDateTime.now());
-        
+
         User user = new User();
         user.setUsername("testuser");
         user.setEmail("test@example.com");
@@ -307,9 +304,9 @@ class DocumentNodeRepositoryTest {
         entityManager.flush();
         User savedUser = user;
         document.setUploadedBy(savedUser);
-        
+
         Document savedDocument = entityManager.merge(document);
-        
+
         // Create nodes with different start offsets
         DocumentNode node1 = new DocumentNode();
         node1.setDocument(savedDocument);

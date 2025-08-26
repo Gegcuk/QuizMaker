@@ -11,23 +11,23 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.features.document.domain.model.Document;
-import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
-import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
-import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
 
 import java.util.HashMap;
 import java.util.List;
@@ -80,7 +80,7 @@ class AiQuizGenerationServiceTest {
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class));
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class));
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class), any(Object.class));
-        
+
         testUser = new User();
         testUser.setUsername("testuser");
 
@@ -283,10 +283,10 @@ class AiQuizGenerationServiceTest {
     void shouldHandleEmptyQuestionsPerType() {
         // Given
         Map<QuestionType, Integer> emptyQuestionsPerType = new HashMap<>();
-        
+
         // When
         int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(3, emptyQuestionsPerType);
-        
+
         // Then
         assertTrue(estimatedTime > 0);
         // Should still calculate base time even with no questions
@@ -296,10 +296,10 @@ class AiQuizGenerationServiceTest {
     void shouldHandleZeroChunks() {
         // Given
         Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.MCQ_SINGLE, 5);
-        
+
         // When
         int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(0, questionsPerType);
-        
+
         // Then
         assertTrue(estimatedTime > 0);
         // Should calculate time for question types even with zero chunks
@@ -310,10 +310,10 @@ class AiQuizGenerationServiceTest {
         // Given
         Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.MCQ_SINGLE, 3);
         int largeChunkCount = 1000;
-        
+
         // When
         int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(largeChunkCount, questionsPerType);
-        
+
         // Then
         assertTrue(estimatedTime > 0);
         // Should handle large numbers without overflow
@@ -326,10 +326,10 @@ class AiQuizGenerationServiceTest {
         for (QuestionType type : QuestionType.values()) {
             allQuestionTypes.put(type, 1);
         }
-        
+
         // When
         int estimatedTime = aiQuizGenerationService.calculateEstimatedGenerationTime(5, allQuestionTypes);
-        
+
         // Then
         assertTrue(estimatedTime > 0);
         // Should handle all question types
@@ -381,7 +381,7 @@ class AiQuizGenerationServiceTest {
 
         // When - simulate concurrent access
         CompletableFuture<Void> future1 = CompletableFuture.runAsync(() -> aiQuizGenerationService.updateJobProgress(testJobId, 1, "chunk1"));
-        
+
         CompletableFuture<Void> future2 = CompletableFuture.runAsync(() -> aiQuizGenerationService.updateJobProgress(testJobId, 2, "chunk2"));
 
         // Then - should complete without exceptions

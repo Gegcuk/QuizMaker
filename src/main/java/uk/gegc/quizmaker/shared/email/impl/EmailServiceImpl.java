@@ -27,7 +27,7 @@ public class EmailServiceImpl implements EmailService {
 
     @Value("${app.frontend.base-url:http://localhost:3000}")
     private String baseUrl;
-    
+
     @Value("${app.auth.reset-token-ttl-minutes:60}")
     private long resetTokenTtlMinutes;
 
@@ -52,7 +52,7 @@ public class EmailServiceImpl implements EmailService {
             message.setTo(email);
             message.setSubject(passwordResetSubject);
             message.setText(createPasswordResetEmailContent(resetToken));
-            
+
             mailSender.send(message);
             log.info("Password reset email sent to: {}", maskEmail(email));
         } catch (Exception e) {
@@ -69,7 +69,7 @@ public class EmailServiceImpl implements EmailService {
             message.setTo(email);
             message.setSubject(verificationSubject);
             message.setText(createEmailVerificationContent(verificationToken));
-            
+
             mailSender.send(message);
             log.info("Email verification email sent to: {}", maskEmail(email));
         } catch (Exception e) {
@@ -89,53 +89,53 @@ public class EmailServiceImpl implements EmailService {
         return email.charAt(0) + "***@" + email.substring(atIndex + 1);
     }
 
-        private String createPasswordResetEmailContent(String resetToken) {
+    private String createPasswordResetEmailContent(String resetToken) {
         String encodedToken = URLEncoder.encode(resetToken, StandardCharsets.UTF_8);
         String resetUrl = baseUrl + "/reset-password?token=" + encodedToken;
-        
+
         String timeDescription = formatTimeDescription(resetTokenTtlMinutes);
 
         return String.format("""
-            Hello,
-
-            You have requested to reset your password for your QuizMaker account.
-
-            To reset your password, please click on the following link:
-            %s
-
-            This link will expire in %s for security reasons.
-
-            If you did not request this password reset, please ignore this email.
-            Your password will remain unchanged.
-
-            Best regards,
-            The QuizMaker Team
-            """, resetUrl, timeDescription);
+                Hello,
+                
+                You have requested to reset your password for your QuizMaker account.
+                
+                To reset your password, please click on the following link:
+                %s
+                
+                This link will expire in %s for security reasons.
+                
+                If you did not request this password reset, please ignore this email.
+                Your password will remain unchanged.
+                
+                Best regards,
+                The QuizMaker Team
+                """, resetUrl, timeDescription);
     }
 
     private String createEmailVerificationContent(String verificationToken) {
         String encodedToken = URLEncoder.encode(verificationToken, StandardCharsets.UTF_8);
         String verificationUrl = baseUrl + "/verify-email?token=" + encodedToken;
-        
+
         String timeDescription = formatTimeDescription(verificationTokenTtlMinutes);
 
         return String.format("""
-            Hello,
-
-            Thank you for registering with QuizMaker!
-
-            To complete your registration and verify your email address, please click on the following link:
-            %s
-
-            This link will expire in %s for security reasons.
-
-            If you did not create a QuizMaker account, please ignore this email.
-
-            Best regards,
-            The QuizMaker Team
-            """, verificationUrl, timeDescription);
+                Hello,
+                
+                Thank you for registering with QuizMaker!
+                
+                To complete your registration and verify your email address, please click on the following link:
+                %s
+                
+                This link will expire in %s for security reasons.
+                
+                If you did not create a QuizMaker account, please ignore this email.
+                
+                Best regards,
+                The QuizMaker Team
+                """, verificationUrl, timeDescription);
     }
-    
+
     private String formatTimeDescription(long minutes) {
         if (minutes == 60) {
             return "1 hour";

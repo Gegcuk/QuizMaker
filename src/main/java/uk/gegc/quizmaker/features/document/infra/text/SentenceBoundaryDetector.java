@@ -14,15 +14,10 @@ import java.util.regex.Pattern;
 @Slf4j
 public class SentenceBoundaryDetector {
 
-    // Pattern for sentence endings: . ! ? followed by whitespace or end of text
-    // Also handles common abbreviations and edge cases
-    private static final Pattern SENTENCE_END_PATTERN = Pattern.compile(
-            "([.!?])\\s+"
-    );
-
     // Pattern for common abbreviations that shouldn't end sentences
+    // Fixed: removed double-dot for etc. and other abbreviations
     private static final Pattern ABBREVIATION_PATTERN = Pattern.compile(
-            "\\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|Inc|Ltd|Corp|Co|vs|etc|i\\.e|e\\.g|a\\.m|p\\.m|U\\.S|U\\.K|Ph\\.D|M\\.A|B\\.A|etc\\.)\\."
+            "\\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|Inc|Ltd|Corp|Co|vs|etc|i\\.e|e\\.g|a\\.m|p\\.m|U\\.S|U\\.K|Ph\\.D|M\\.A|B\\.A)\\."
     );
 
     // Pattern for numbers with decimals
@@ -34,6 +29,14 @@ public class SentenceBoundaryDetector {
     private static final Pattern ELLIPSIS_PATTERN = Pattern.compile(
             "\\.{3,}"
     );
+
+    /**
+     * Check if a code point is a closing punctuation character
+     */
+    private static boolean isCloser(int cp) {
+        int t = Character.getType(cp);
+        return t == Character.END_PUNCTUATION || t == Character.FINAL_QUOTE_PUNCTUATION;
+    }
 
     /**
      * Find the last sentence boundary in the given text
@@ -59,6 +62,29 @@ public class SentenceBoundaryDetector {
     }
 
     /**
+     * Find the next sentence boundary in the given text
+     *
+     * @param text The text to analyze
+     * @return The index of the next sentence boundary, or -1 if not found
+     */
+    public int findNextSentenceEnd(String text) {
+        if (text == null || text.isEmpty()) {
+            return -1;
+        }
+
+        // Start from the beginning and work forwards
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+
+            if (isSentenceEnding(c, text, i)) {
+                return i + 1; // Return position after the sentence ending
+            }
+        }
+
+        return -1;
+    }
+
+    /**
      * Check if a character at the given position is a sentence ending
      *
      * @param c        The character to check
@@ -67,19 +93,33 @@ public class SentenceBoundaryDetector {
      * @return true if it's a sentence ending, false otherwise
      */
     private boolean isSentenceEnding(char c, String text, int position) {
+        // Handle CJK punctuation (Chinese/Japanese) first
+        if (c == '。' || c == '！' || c == '？') {
+            return true;
+        }
+
+        // Handle standard punctuation
         if (c != '.' && c != '!' && c != '?') {
             return false;
         }
 
-        // Check if followed by whitespace or end of text
-        if (position < text.length() - 1) {
-            char nextChar = text.charAt(position + 1);
-            if (!Character.isWhitespace(nextChar)) {
+        // Skip closing quotes/brackets after punctuation using Unicode-aware check
+        int i = position + 1;
+        while (i < text.length()) {
+            int cp = text.codePointAt(i);
+            if (!isCloser(cp)) break;
+            i += Character.charCount(cp);
+        }
+
+        // Accept whitespace OR space chars (covers NBSP)
+        if (i < text.length()) {
+            char ch = text.charAt(i);
+            if (!(Character.isWhitespace(ch) || Character.isSpaceChar(ch))) {
                 return false;
             }
         }
 
-        // Handle special cases
+        // Handle special cases for periods
         if (c == '.') {
             return !isAbbreviation(text, position) &&
                     !isDecimal(text, position) &&
@@ -156,11 +196,11 @@ public class SentenceBoundaryDetector {
 
         // For short texts or when maxLength is small, be more flexible with minSplitSize
         int effectiveMinSplitSize = Math.min(minSplitSize, maxLength / 2);
-        
+
         // Try to find a sentence boundary within the max length
         String searchText = text.substring(0, maxLength);
 
-        log.debug("Finding split point: maxLength={}, minSplitSize={}, effectiveMinSplitSize={}", 
+        log.debug("Finding split point: maxLength={}, minSplitSize={}, effectiveMinSplitSize={}",
                 maxLength, minSplitSize, effectiveMinSplitSize);
 
         // First, try to find natural breaks like list items or exercise patterns
@@ -212,8 +252,8 @@ public class SentenceBoundaryDetector {
         String searchText = text.substring(searchStart);
 
         // Explicitly match numbered list starts (e.g., "1. Some text", "a. Some text")
-        // This is more specific than the previous pattern
-        Pattern numberedListPattern = Pattern.compile("\\n\\s*\\d+\\.\\s+[A-Z]");
+        // Language-agnostic: use \p{L} instead of [A-Z]
+        Pattern numberedListPattern = Pattern.compile("\\n\\s*\\d+\\.\\s+\\p{L}", Pattern.CASE_INSENSITIVE);
         Matcher numberedMatcher = numberedListPattern.matcher(searchText);
         if (numberedMatcher.find()) {
             return searchStart + numberedMatcher.start();
@@ -284,7 +324,8 @@ public class SentenceBoundaryDetector {
         }
 
         // If it ends with a sentence ending, it's valid
-        if (trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?")) {
+        if (trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?") ||
+                trimmed.endsWith("。") || trimmed.endsWith("！") || trimmed.endsWith("？")) {
             return true;
         }
 

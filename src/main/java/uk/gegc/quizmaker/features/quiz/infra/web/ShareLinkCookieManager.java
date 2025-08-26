@@ -30,10 +30,10 @@ public class ShareLinkCookieManager {
 
     /**
      * Sets a secure share link cookie with scoped path and security attributes.
-     * 
+     *
      * @param response The HTTP response to add the cookie to
-     * @param token The share link token
-     * @param quizId The quiz ID for path scoping
+     * @param token    The share link token
+     * @param quizId   The quiz ID for path scoping
      */
     public void setShareLinkCookie(HttpServletResponse response, String token, UUID quizId) {
         ResponseCookie cookie = ResponseCookie.from(SHARE_TOKEN_COOKIE_NAME, token)
@@ -45,13 +45,13 @@ public class ShareLinkCookieManager {
                 .build();
 
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        
+
         log.debug("Set share link cookie for quiz {} with path {}", quizId, cookie.getPath());
     }
 
     /**
      * Retrieves the share link token from the request cookies.
-     * 
+     *
      * @param request The HTTP request to extract the cookie from
      * @return Optional containing the token if found, empty otherwise
      */
@@ -69,7 +69,7 @@ public class ShareLinkCookieManager {
 
     /**
      * Clears the share link cookie from the response.
-     * 
+     *
      * @param response The HTTP response to clear the cookie from
      */
     public void clearShareLinkCookie(HttpServletResponse response) {
@@ -82,16 +82,16 @@ public class ShareLinkCookieManager {
                 .build();
 
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        
+
         log.debug("Cleared share link cookie");
     }
 
     /**
      * Invalidates all share link cookies for a specific quiz.
      * This is useful when a quiz is unpublished or share links are revoked.
-     * 
+     *
      * @param response The HTTP response to add invalidation cookies to
-     * @param quizId The quiz ID to invalidate cookies for
+     * @param quizId   The quiz ID to invalidate cookies for
      */
     public void invalidateCookiesForQuiz(HttpServletResponse response, UUID quizId) {
         // Clear cookie from the specific quiz path
@@ -104,13 +104,13 @@ public class ShareLinkCookieManager {
                 .build();
 
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        
+
         log.debug("Invalidated share link cookies for quiz {}", quizId);
     }
 
     /**
      * Gets the configured cookie TTL in seconds.
-     * 
+     *
      * @return The cookie TTL in seconds
      */
     public int getCookieTtlSeconds() {

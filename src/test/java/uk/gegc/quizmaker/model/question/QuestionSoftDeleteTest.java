@@ -78,7 +78,7 @@ class QuestionSoftDeleteTest {
         // Given
         Question question1 = createTestQuestion();
         Question question2 = createTestQuestion();
-        
+
         Question savedQuestion1 = questionRepository.save(question1);
         Question savedQuestion2 = questionRepository.save(question2);
 

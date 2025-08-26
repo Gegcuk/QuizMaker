@@ -7,14 +7,14 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.*;
-import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
-import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.util.HashSet;
 import java.util.List;

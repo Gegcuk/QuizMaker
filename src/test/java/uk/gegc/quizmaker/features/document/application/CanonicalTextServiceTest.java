@@ -10,13 +10,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
-import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,15 +29,12 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CanonicalTextServiceTest {
 
-    @Mock
-    private DocumentRepository documentRepository;
-
-    @Mock
-    private DocumentConversionService documentConversionService;
-
     @TempDir
     Path tempDir;
-
+    @Mock
+    private DocumentRepository documentRepository;
+    @Mock
+    private DocumentConversionService documentConversionService;
     private CanonicalTextService canonicalTextService;
     private Document testDocument;
     private UUID documentId;
@@ -108,17 +103,17 @@ class CanonicalTextServiceTest {
         // Create existing canonical text files
         Path canonicalDir = tempDir.resolve("canonical");
         Files.createDirectories(canonicalDir);
-        
+
         String existingText = "Existing canonical text content.";
-        Files.write(canonicalDir.resolve(documentId + ".txt"), 
-                   existingText.getBytes(StandardCharsets.UTF_8));
-        
+        Files.write(canonicalDir.resolve(documentId + ".txt"),
+                existingText.getBytes(StandardCharsets.UTF_8));
+
         // Create proper JSON metadata with 64-char hex hash
         String metadata = """
                 {"sourceVersionHash":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","pageOffsets":[{"start":0,"end":30,"title":"Page 1"}],"paragraphOffsets":[{"start":0,"end":30,"title":"Existing canonical text content."}]}
                 """;
-        Files.write(canonicalDir.resolve(documentId + ".meta"), 
-                   metadata.getBytes(StandardCharsets.UTF_8));
+        Files.write(canonicalDir.resolve(documentId + ".meta"),
+                metadata.getBytes(StandardCharsets.UTF_8));
 
         // When
         CanonicalTextService.CanonicalizedText result = canonicalTextService.loadOrBuild(documentId);
@@ -139,10 +134,10 @@ class CanonicalTextServiceTest {
         // Create corrupted canonical text file (invalid JSON metadata)
         Path canonicalDir = tempDir.resolve("canonical");
         Files.createDirectories(canonicalDir);
-        Files.write(canonicalDir.resolve(documentId + ".txt"), 
-                   "test content".getBytes(StandardCharsets.UTF_8));
-        Files.write(canonicalDir.resolve(documentId + ".meta"), 
-                   "invalid json".getBytes(StandardCharsets.UTF_8));
+        Files.write(canonicalDir.resolve(documentId + ".txt"),
+                "test content".getBytes(StandardCharsets.UTF_8));
+        Files.write(canonicalDir.resolve(documentId + ".meta"),
+                "invalid json".getBytes(StandardCharsets.UTF_8));
 
         ConvertedDocument convertedDocument = new ConvertedDocument();
         convertedDocument.setFullContent("Test Document\n\nChapter 1\n\nThis is chapter 1 content.\n\nSection 1.1\n\nThis is section 1.1 content.");
@@ -258,12 +253,12 @@ class CanonicalTextServiceTest {
         ConvertedDocument convertedDocument = new ConvertedDocument();
         convertedDocument.setFullContent(null); // Force fallback to structured content
         convertedDocument.setTitle("Test Document");
-        
+
         List<ConvertedDocument.Chapter> chapters = new ArrayList<>();
         ConvertedDocument.Chapter chapter = new ConvertedDocument.Chapter();
         chapter.setTitle("Chapter 1");
         chapter.setContent("This is chapter 1 content.");
-        
+
         List<ConvertedDocument.Section> sections = new ArrayList<>();
         ConvertedDocument.Section section = new ConvertedDocument.Section();
         section.setTitle("Section 1.1");
@@ -271,10 +266,10 @@ class CanonicalTextServiceTest {
         sections.add(section);
         chapter.setSections(sections);
         chapters.add(chapter);
-        
+
         convertedDocument.setChapters(chapters);
         convertedDocument.setTotalPages(1);
-        
+
         when(documentConversionService.convertDocument(any(), anyString(), anyString()))
                 .thenReturn(convertedDocument);
 

@@ -6,8 +6,11 @@ import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
 
 public interface UserProfileService {
     UserProfileResponse getCurrentUserProfile(Authentication authentication);
+
     UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request);
+
     UserProfileResponse updateCurrentUserProfile(Authentication authentication, UpdateUserProfileRequest request, Long ifMatchVersion);
+
     UserProfileResponse updateCurrentUserProfile(Authentication authentication, com.fasterxml.jackson.databind.JsonNode mergePatch, Long ifMatchVersion);
 }
 

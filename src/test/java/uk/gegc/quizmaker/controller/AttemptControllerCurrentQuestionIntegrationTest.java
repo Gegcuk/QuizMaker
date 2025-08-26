@@ -14,22 +14,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
-import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
-import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
-import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
@@ -81,7 +81,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         // Clean up any existing test data first
         userRepository.findByUsername("testuser").ifPresent(userRepository::delete);
         userRepository.findByEmail("test@example.com").ifPresent(userRepository::delete);
-        
+
         // Use unique names with timestamp to avoid conflicts
         String timestamp = String.valueOf(System.currentTimeMillis());
         String uniqueEmail = "test_" + timestamp + "@example.com";
@@ -197,7 +197,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                 .sorted(Comparator.comparing(Question::getId))
                 .collect(java.util.stream.Collectors.toList());
         Question first = sortedQuestions.get(0);
-        
+
         Answer answer = new Answer();
         answer.setQuestion(first);
         answer.setAnsweredAt(Instant.now());
@@ -205,7 +205,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         answer.setResponse("{\"selectedOption\": \"4\"}");  // User selected "4" as answer
         answer.setIsCorrect(true);
         answer.setScore(1.0);
-        
+
         // Save the answer separately to ensure it's persisted
         AnswerRepository answerRepo = context.getBean(AnswerRepository.class);
         answerRepo.save(answer);
@@ -263,7 +263,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         List<Question> sortedQuestions = testQuiz.getQuestions().stream()
                 .sorted(Comparator.comparing(Question::getId))
                 .collect(java.util.stream.Collectors.toList());
-        
+
         Answer answer1 = new Answer();
         answer1.setQuestion(sortedQuestions.get(0));
         answer1.setAnsweredAt(Instant.now());

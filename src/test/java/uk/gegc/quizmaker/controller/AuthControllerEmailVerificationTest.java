@@ -13,12 +13,12 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
+import uk.gegc.quizmaker.features.auth.api.AuthController;
 import uk.gegc.quizmaker.features.auth.api.dto.ResendVerificationRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.VerifyEmailRequest;
-import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.features.auth.api.AuthController;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
@@ -32,8 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(AuthController.class)
 @TestPropertySource(properties = {
-    "app.auth.verification-token-pepper=test-pepper",
-    "app.auth.verification-token-ttl-minutes=1440"
+        "app.auth.verification-token-pepper=test-pepper",
+        "app.auth.verification-token-ttl-minutes=1440"
 })
 @DisplayName("AuthController Email Verification Tests")
 class AuthControllerEmailVerificationTest {
@@ -65,9 +65,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.verified").value(true))
                 .andExpect(jsonPath("$.message").value("Email verified successfully"))
@@ -85,9 +85,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).verifyEmail(anyString());
@@ -103,9 +103,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).verifyEmail(anyString());
@@ -122,9 +122,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
         verify(authService).verifyEmail("invalid-token");
@@ -142,9 +142,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.message").value("If the email exists and is not verified, a verification link was sent."));
 
@@ -161,9 +161,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
         verify(rateLimitService, never()).checkRateLimit(anyString(), anyString());
@@ -182,9 +182,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests());
 
         verify(rateLimitService).checkRateLimit("resend-verification", "test@example.com|127.0.0.1");
@@ -200,9 +200,9 @@ class AuthControllerEmailVerificationTest {
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/resend-verification")
-                .with(SecurityMockMvcRequestPostProcessors.csrf())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
         verify(rateLimitService, never()).checkRateLimit(anyString(), anyString());

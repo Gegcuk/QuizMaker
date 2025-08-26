@@ -13,8 +13,8 @@ jobs:
     env:
       # App secrets (masked). Provide test-safe defaults if not set.
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'test-noop' }}
-      OPENAI_MODEL:   ${{ secrets.OPENAI_MODEL   || 'disabled' }}
-      JWT_SECRET:     ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL   || 'disabled' }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
       TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
       SPRING_PROFILES_ACTIVE: test
       # Point Spring to the service hostname, not localhost

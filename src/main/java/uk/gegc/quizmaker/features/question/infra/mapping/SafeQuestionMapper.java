@@ -3,8 +3,8 @@ package uk.gegc.quizmaker.features.question.infra.mapping;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
-import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 
 import java.util.List;
 import java.util.stream.Collectors;

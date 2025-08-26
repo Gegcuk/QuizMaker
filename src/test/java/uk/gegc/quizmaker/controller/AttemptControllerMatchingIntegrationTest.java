@@ -18,7 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AttemptControllerMatchingIntegrationTest {
 
-    @Autowired private MockMvc mockMvc;
+    @Autowired
+    private MockMvc mockMvc;
 
     @Test
     void submitMatchingAnswer_smoke() throws Exception {
@@ -32,8 +33,8 @@ class AttemptControllerMatchingIntegrationTest {
                 "\"response\":{\"matches\":[{\"leftId\":1,\"rightId\":10}]}}";
 
         mockMvc.perform(post("/api/v1/attempts/" + fakeAttemptId + "/answers")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(payload))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
                 .andExpect(status().is4xxClientError());
     }
 }

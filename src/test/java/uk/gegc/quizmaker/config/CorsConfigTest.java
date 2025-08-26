@@ -24,9 +24,9 @@ class CorsConfigTest {
     @Test
     void testCorsPreflightRequest() throws Exception {
         mockMvc.perform(options("/api/v1/quizzes")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD"))
@@ -37,9 +37,9 @@ class CorsConfigTest {
     @Test
     void testCorsPreflightRequestForPatch() throws Exception {
         mockMvc.perform(options("/api/v1/quizzes/123")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization,Content-Type"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization,Content-Type"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD"))
@@ -50,9 +50,9 @@ class CorsConfigTest {
     @Test
     void testCorsPreflightRequestForHead() throws Exception {
         mockMvc.perform(options("/api/v1/quizzes/123")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "HEAD")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "HEAD")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD"))
@@ -62,7 +62,7 @@ class CorsConfigTest {
     @Test
     void testCorsWithAllowedOrigin() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
@@ -71,15 +71,15 @@ class CorsConfigTest {
     @Test
     void testCorsWithDisallowedOrigin() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                .header(HttpHeaders.ORIGIN, "http://malicious-site.com"))
+                        .header(HttpHeaders.ORIGIN, "http://malicious-site.com"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void testCorsWithCredentials() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
@@ -88,8 +88,8 @@ class CorsConfigTest {
     @Test
     void testCorsForSwaggerEndpoint() throws Exception {
         mockMvc.perform(options("/v3/api-docs")
-                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
-                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"));
     }

@@ -53,7 +53,7 @@ class VerifyEmailRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("token") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("token") &&
                         v.getMessage().contains("required")));
     }
 
@@ -69,7 +69,7 @@ class VerifyEmailRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("token") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("token") &&
                         v.getMessage().contains("required")));
     }
 
@@ -86,7 +86,7 @@ class VerifyEmailRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("token") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("token") &&
                         v.getMessage().contains("512 characters")));
     }
 }

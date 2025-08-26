@@ -2,9 +2,9 @@ package uk.gegc.quizmaker.service.quiz;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -44,7 +44,7 @@ class QuizHashCalculatorTest {
     @DisplayName("Same content with different tag order yields same hash")
     void stableAgainstTagOrder() {
         List<UUID> tags1 = List.of(UUID.fromString("00000000-0000-0000-0000-000000000001"),
-                                   UUID.fromString("00000000-0000-0000-0000-000000000002"));
+                UUID.fromString("00000000-0000-0000-0000-000000000002"));
         List<UUID> tags2 = List.of(tags1.get(1), tags1.get(0));
 
         String h1 = calculator.calculateContentHash(sample("Title", "Desc", tags1));

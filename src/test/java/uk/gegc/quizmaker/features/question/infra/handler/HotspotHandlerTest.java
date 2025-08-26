@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class HotspotHandlerTest {
     void setUp() {
         handler = new HotspotHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.HOTSPOT);
@@ -204,10 +204,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":1}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -223,10 +223,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":2}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -243,10 +243,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":1}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -263,10 +263,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":2}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -282,10 +282,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -301,10 +301,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":999}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -320,10 +320,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":null}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -339,10 +339,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":\"not_a_number\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -358,10 +358,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":1}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -377,10 +377,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":2}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -399,10 +399,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":2}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -421,10 +421,10 @@ class HotspotHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedRegionId\":1}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());

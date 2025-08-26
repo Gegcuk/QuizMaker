@@ -9,14 +9,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsSummaryDto;
+import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkAnalyticsServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkAnalytics;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
-import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkAnalyticsServiceImpl;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -153,7 +153,7 @@ class ShareLinkAnalyticsServiceTest {
         ShareLinkAnalytics analytics = createAnalyticsEvent();
         LocalDate startDate = LocalDate.now().minusDays(7);
         LocalDate endDate = LocalDate.now();
-        
+
         when(analyticsRepository.findByQuizIdAndDateRange(quizId, startDate.toString(), endDate.toString()))
                 .thenReturn(List.of(analytics));
 
@@ -169,7 +169,7 @@ class ShareLinkAnalyticsServiceTest {
         ShareLinkAnalytics analytics = createAnalyticsEvent();
         LocalDate startDate = LocalDate.now().minusDays(7);
         LocalDate endDate = LocalDate.now();
-        
+
         when(analyticsRepository.findByQuizIdAndDateRange(quizId, startDate.toString(), endDate.toString()))
                 .thenReturn(List.of(analytics));
 
@@ -185,7 +185,7 @@ class ShareLinkAnalyticsServiceTest {
     void getQuizSummary_returnsEmptySummaryWhenNoEvents() {
         LocalDate startDate = LocalDate.now().minusDays(7);
         LocalDate endDate = LocalDate.now();
-        
+
         when(analyticsRepository.findByQuizIdAndDateRange(quizId, startDate.toString(), endDate.toString()))
                 .thenReturn(List.of());
 
@@ -203,7 +203,7 @@ class ShareLinkAnalyticsServiceTest {
     void getUniqueVisitorCount_returnsCorrectCount() {
         LocalDate startDate = LocalDate.now().minusDays(7);
         LocalDate endDate = LocalDate.now();
-        
+
         when(analyticsRepository.getUniqueVisitorCount(quizId, startDate.toString(), endDate.toString()))
                 .thenReturn(5L);
 

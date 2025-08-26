@@ -9,6 +9,7 @@ import java.util.UUID;
 public record ApproveRequest(
         @NotNull @Schema(description = "Moderator user UUID") UUID moderatorId,
         @Schema(description = "Optional approval reason/notes") String reason
-) {}
+) {
+}
 
 

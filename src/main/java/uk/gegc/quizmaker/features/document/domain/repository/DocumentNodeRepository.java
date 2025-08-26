@@ -6,22 +6,21 @@ import org.springframework.data.repository.query.Param;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 public interface DocumentNodeRepository extends JpaRepository<DocumentNode, UUID> {
 
     // Fixed derived method names with proper property traversal
     List<DocumentNode> findByDocument_IdAndParentIsNullOrderByOrdinalAsc(UUID documentId);
-    
+
     List<DocumentNode> findByDocument_IdAndParent_IdOrderByOrdinalAsc(UUID documentId, UUID parentId);
-    
+
     List<DocumentNode> findBySourceVersionHash(String sourceVersionHash);
-    
+
     boolean existsByDocument_Id(UUID documentId);
-    
+
     long countByDocument_Id(UUID documentId);
-    
+
     void deleteByDocument_Id(UUID documentId);
 
     // Global ordering queries (using startOffset instead of ordinal)
@@ -33,12 +32,12 @@ public interface DocumentNodeRepository extends JpaRepository<DocumentNode, UUID
 
     // Range scan for overlapping nodes
     @Query("""
-        SELECT dn FROM DocumentNode dn
-        WHERE dn.document.id = :documentId
-          AND dn.startOffset < :endOffset
-          AND dn.endOffset > :startOffset
-        ORDER BY dn.startOffset ASC
-        """)
+            SELECT dn FROM DocumentNode dn
+            WHERE dn.document.id = :documentId
+              AND dn.startOffset < :endOffset
+              AND dn.endOffset > :startOffset
+            ORDER BY dn.startOffset ASC
+            """)
     List<DocumentNode> findOverlapping(@Param("documentId") UUID documentId, @Param("startOffset") int startOffset, @Param("endOffset") int endOffset);
 
     // Helper for finding next ordinal for a specific parent

@@ -14,33 +14,33 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
-import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
-import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
-import uk.gegc.quizmaker.features.quiz.api.dto.*;
-import uk.gegc.quizmaker.features.quiz.domain.model.*;
-import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.tag.domain.model.Tag;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
-import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
-import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.model.*;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
+import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.io.IOException;
 import java.util.*;
@@ -51,6 +51,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class QuizServiceImpl implements QuizService {
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
     private final QuizRepository quizRepository;
     private final QuestionRepository questionRepository;
     private final TagRepository tagRepository;
@@ -63,10 +65,6 @@ public class QuizServiceImpl implements QuizService {
     private final AiQuizGenerationService aiQuizGenerationService;
     private final DocumentProcessingService documentProcessingService;
     private final QuizHashCalculator quizHashCalculator;
-
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
-
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -220,16 +218,16 @@ public class QuizServiceImpl implements QuizService {
         try {
             // Step 1: Process document completely first
             DocumentDto document = processDocumentCompletely(username, file, request);
-            
+
             // Step 2: Verify chunks are available and sufficient
             verifyDocumentChunks(document.getId(), request);
-            
+
             // Step 3: Generate quiz from the processed document
             GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
-            
+
             // Step 4: Start generation and return job ID immediately
             return startQuizGeneration(username, quizRequest);
-            
+
         } catch (Exception e) {
             log.error("Failed to start quiz generation from upload for user: {}", username, e);
             throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
@@ -240,17 +238,17 @@ public class QuizServiceImpl implements QuizService {
     public DocumentDto processDocumentCompletely(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
         try {
             log.info("Starting document processing for user: {}", username);
-            
+
             // Process document in its own transaction
             DocumentDto document = documentProcessingService.uploadAndProcessDocument(
-                    username, 
-                    file.getBytes(), 
-                    file.getOriginalFilename(), 
+                    username,
+                    file.getBytes(),
+                    file.getOriginalFilename(),
                     request.toProcessDocumentRequest()
             );
-            
+
             log.info("Document processed successfully: {} with {} chunks", document.getId(), document.getTotalChunks());
-            
+
             return document;
         } catch (IOException e) {
             throw new RuntimeException("Failed to read file bytes: " + e.getMessage(), e);
@@ -260,14 +258,14 @@ public class QuizServiceImpl implements QuizService {
     @Transactional(readOnly = true)
     public void verifyDocumentChunks(UUID documentId, GenerateQuizFromUploadRequest request) {
         log.info("Verifying document chunks for document: {}", documentId);
-        
+
         // Calculate total chunks to verify they are available
         int totalChunks = aiQuizGenerationService.calculateTotalChunks(documentId, request.toGenerateQuizFromDocumentRequest(documentId));
-        
+
         if (totalChunks <= 0) {
             throw new RuntimeException("Document has no chunks available for quiz generation. Please try processing the document again.");
         }
-        
+
         log.info("Document verification successful: {} chunks available", totalChunks);
     }
 
@@ -295,7 +293,7 @@ public class QuizServiceImpl implements QuizService {
             // Create generation job with proper estimates
             QuizGenerationJob job = jobService.createJob(user, request.documentId(),
                     objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
-            
+
             log.info("Created job {} for user {}, starting async generation", job.getId(), username);
 
             // Start async generation
@@ -572,7 +570,7 @@ public class QuizServiceImpl implements QuizService {
     private String getChunkTitle(int chunkIndex, List<Question> questions) {
         // Generate a unique identifier to prevent title conflicts in concurrent tests
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
-        
+
         // Try to extract meaningful title from questions
         if (!questions.isEmpty()) {
             String firstQuestion = questions.get(0).getQuestionText();

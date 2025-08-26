@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-    "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.flyway.enabled=false",
+        "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 @DisplayName("EmailVerificationTokenRepository Tests")
 class EmailVerificationTokenRepositoryTest {
@@ -58,14 +58,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "valid-token-hash";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(false);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When
@@ -86,14 +86,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "expired-token-hash";
         LocalDateTime expiresAt = now.minusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(false);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When
@@ -111,14 +111,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "used-token-hash";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(true);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When
@@ -152,21 +152,21 @@ class EmailVerificationTokenRepositoryTest {
         String tokenHash1 = "token-hash-1";
         String tokenHash2 = "token-hash-2";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken token1 = new EmailVerificationToken();
         token1.setTokenHash(tokenHash1);
         token1.setUserId(userId);
         token1.setEmail("test@example.com");
         token1.setUsed(false);
         token1.setExpiresAt(expiresAt);
-        
+
         EmailVerificationToken token2 = new EmailVerificationToken();
         token2.setTokenHash(tokenHash2);
         token2.setUserId(userId);
         token2.setEmail("test@example.com");
         token2.setUsed(false);
         token2.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token1);
         entityManager.persistAndFlush(token2);
 
@@ -177,7 +177,7 @@ class EmailVerificationTokenRepositoryTest {
         // Then
         EmailVerificationToken updatedToken1 = entityManager.find(EmailVerificationToken.class, token1.getId());
         EmailVerificationToken updatedToken2 = entityManager.find(EmailVerificationToken.class, token2.getId());
-        
+
         assertTrue(updatedToken1.isUsed());
         assertTrue(updatedToken2.isUsed());
     }
@@ -194,25 +194,25 @@ class EmailVerificationTokenRepositoryTest {
         otherUser.setActive(true);
         otherUser.setEmailVerified(false);
         otherUser = entityManager.persistAndFlush(otherUser);
-        
+
         String userTokenHash = "user-token-hash";
         String otherUserTokenHash = "other-user-token-hash";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken userToken = new EmailVerificationToken();
         userToken.setTokenHash(userTokenHash);
         userToken.setUserId(userId);
         userToken.setEmail("test@example.com");
         userToken.setUsed(false);
         userToken.setExpiresAt(expiresAt);
-        
+
         EmailVerificationToken otherUserToken = new EmailVerificationToken();
         otherUserToken.setTokenHash(otherUserTokenHash);
         otherUserToken.setUserId(otherUser.getId());
         otherUserToken.setEmail("other@example.com");
         otherUserToken.setUsed(false);
         otherUserToken.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(userToken);
         entityManager.persistAndFlush(otherUserToken);
 
@@ -223,7 +223,7 @@ class EmailVerificationTokenRepositoryTest {
         // Then
         EmailVerificationToken updatedUserToken = entityManager.find(EmailVerificationToken.class, userToken.getId());
         EmailVerificationToken updatedOtherUserToken = entityManager.find(EmailVerificationToken.class, otherUserToken.getId());
-        
+
         assertTrue(updatedUserToken.isUsed());
         assertFalse(updatedOtherUserToken.isUsed());
     }
@@ -237,21 +237,21 @@ class EmailVerificationTokenRepositoryTest {
         String validTokenHash = "valid-token-hash";
         LocalDateTime expiredAt = now.minusHours(1);
         LocalDateTime validAt = now.plusHours(1);
-        
+
         EmailVerificationToken expiredToken = new EmailVerificationToken();
         expiredToken.setTokenHash(expiredTokenHash);
         expiredToken.setUserId(userId);
         expiredToken.setEmail("test@example.com");
         expiredToken.setUsed(false);
         expiredToken.setExpiresAt(expiredAt);
-        
+
         EmailVerificationToken validToken = new EmailVerificationToken();
         validToken.setTokenHash(validTokenHash);
         validToken.setUserId(userId);
         validToken.setEmail("test@example.com");
         validToken.setUsed(false);
         validToken.setExpiresAt(validAt);
-        
+
         entityManager.persistAndFlush(expiredToken);
         entityManager.persistAndFlush(validToken);
 
@@ -262,7 +262,7 @@ class EmailVerificationTokenRepositoryTest {
         // Then
         EmailVerificationToken deletedToken = entityManager.find(EmailVerificationToken.class, expiredToken.getId());
         EmailVerificationToken remainingToken = entityManager.find(EmailVerificationToken.class, validToken.getId());
-        
+
         assertNull(deletedToken);
         assertNotNull(remainingToken);
     }
@@ -274,14 +274,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "valid-token-hash";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(false);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When
@@ -301,14 +301,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "used-token-hash";
         LocalDateTime expiresAt = now.plusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(true);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When
@@ -325,14 +325,14 @@ class EmailVerificationTokenRepositoryTest {
         LocalDateTime now = LocalDateTime.now();
         String tokenHash = "expired-token-hash";
         LocalDateTime expiresAt = now.minusHours(1);
-        
+
         EmailVerificationToken token = new EmailVerificationToken();
         token.setTokenHash(tokenHash);
         token.setUserId(userId);
         token.setEmail("test@example.com");
         token.setUsed(false);
         token.setExpiresAt(expiresAt);
-        
+
         entityManager.persistAndFlush(token);
 
         // When

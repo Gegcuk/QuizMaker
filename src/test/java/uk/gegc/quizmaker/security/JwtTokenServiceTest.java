@@ -46,13 +46,13 @@ public class JwtTokenServiceTest {
         secretKey = Jwts.SIG.HS256.key().build();
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
 
-        jwtTokenService = new JwtTokenService( null);
+        jwtTokenService = new JwtTokenService(null);
         ReflectionTestUtils.setField(jwtTokenService, "base64secret", base64Secret);
         ReflectionTestUtils.setField(jwtTokenService, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(jwtTokenService, "refreshTokenValidityInMs", refreshTokenValidityInMs);
 
         jwtTokenService.init();
-        
+
         // Set up log capture
         jwtProviderLogger = (Logger) LoggerFactory.getLogger(JwtTokenService.class);
         jwtProviderLogger.setLevel(Level.DEBUG); // Ensure we capture all log levels
@@ -256,27 +256,27 @@ public class JwtTokenServiceTest {
                 .compact();
 
         boolean result = jwtTokenService.validateToken(expired);
-        
+
         assertThat(result).isFalse();
-        
+
         // Debug: Print all captured logs
         System.out.println("Captured logs: " + logWatcher.list.size());
-        logWatcher.list.forEach(event -> 
-            System.out.println("Log: " + event.getLevel() + " - " + event.getMessage())
+        logWatcher.list.forEach(event ->
+                System.out.println("Log: " + event.getLevel() + " - " + event.getMessage())
         );
-        
+
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
                 .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "JWT token is expired: {}")));
     }
 
-    @Test 
+    @Test
     @DisplayName("validateToken: malformed token logs appropriate warn message")
     void validateToken_malformedToken_logsWarnMessage() {
         String malformedToken = "not.a.valid.jwt.token";
-        
+
         boolean result = jwtTokenService.validateToken(malformedToken);
-        
+
         assertThat(result).isFalse();
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
@@ -284,7 +284,7 @@ public class JwtTokenServiceTest {
     }
 
     @Test
-    @DisplayName("validateToken: invalid signature logs appropriate warn message") 
+    @DisplayName("validateToken: invalid signature logs appropriate warn message")
     void validateToken_invalidSignature_logsWarnMessage() {
         SecretKey wrongKey = Jwts.SIG.HS256.key().build();
         Date now = new Date();
@@ -297,7 +297,7 @@ public class JwtTokenServiceTest {
                 .compact();
 
         boolean result = jwtTokenService.validateToken(invalidSignatureToken);
-        
+
         assertThat(result).isFalse();
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)

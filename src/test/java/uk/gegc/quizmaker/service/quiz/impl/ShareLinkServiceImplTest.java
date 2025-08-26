@@ -9,22 +9,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.quiz.application.impl.ShareLinkServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkUsage;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ShareLinkAlreadyUsedException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -44,13 +44,19 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ShareLinkServiceImplTest {
 
-    @Mock private ShareLinkRepository shareLinkRepository;
-    @Mock private ShareLinkUsageRepository usageRepository;
-    @Mock private QuizRepository quizRepository;
-    @Mock private UserRepository userRepository;
-    @Mock private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock
+    private ShareLinkRepository shareLinkRepository;
+    @Mock
+    private ShareLinkUsageRepository usageRepository;
+    @Mock
+    private QuizRepository quizRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private AppPermissionEvaluator appPermissionEvaluator;
 
-    @InjectMocks private ShareLinkServiceImpl service;
+    @InjectMocks
+    private ShareLinkServiceImpl service;
 
     // Helper method to compute SHA-256 hash
     private static String sha256Hex(String input) {
@@ -68,9 +74,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_success() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         quiz.setCreator(creator);
 
@@ -104,11 +110,11 @@ class ShareLinkServiceImplTest {
         UUID quizId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         UUID nonOwnerId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User owner = new User(); 
+        User owner = new User();
         owner.setId(ownerId);
-        User nonOwner = new User(); 
+        User nonOwner = new User();
         nonOwner.setId(nonOwnerId);
         quiz.setCreator(owner);
 
@@ -130,11 +136,11 @@ class ShareLinkServiceImplTest {
         UUID quizId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         UUID adminId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User owner = new User(); 
+        User owner = new User();
         owner.setId(ownerId);
-        User admin = new User(); 
+        User admin = new User();
         admin.setId(adminId);
         quiz.setCreator(owner);
 
@@ -150,7 +156,7 @@ class ShareLinkServiceImplTest {
 
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, null, false);
         CreateShareLinkResponse resp = service.createShareLink(quizId, adminId, req);
-        
+
         assertThat(resp.token()).isNotNull();
         assertThat(resp.link().quizId()).isEqualTo(quizId);
         verify(shareLinkRepository).save(any(ShareLink.class));
@@ -162,11 +168,11 @@ class ShareLinkServiceImplTest {
         UUID quizId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         UUID moderatorId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User owner = new User(); 
+        User owner = new User();
         owner.setId(ownerId);
-        User moderator = new User(); 
+        User moderator = new User();
         moderator.setId(moderatorId);
         quiz.setCreator(owner);
 
@@ -183,7 +189,7 @@ class ShareLinkServiceImplTest {
 
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, null, false);
         CreateShareLinkResponse resp = service.createShareLink(quizId, moderatorId, req);
-        
+
         assertThat(resp.token()).isNotNull();
         assertThat(resp.link().quizId()).isEqualTo(quizId);
         verify(shareLinkRepository).save(any(ShareLink.class));
@@ -194,9 +200,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_expiresAtInPast() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         quiz.setCreator(creator);
 
@@ -205,7 +211,7 @@ class ShareLinkServiceImplTest {
 
         Instant pastTime = Instant.now().minusSeconds(3600);
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, pastTime, false);
-        
+
         assertThatThrownBy(() -> service.createShareLink(quizId, userId, req))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Expiry must be in the future");
@@ -217,9 +223,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_expiresAtCapped() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         quiz.setCreator(creator);
 
@@ -230,13 +236,13 @@ class ShareLinkServiceImplTest {
         // Set a far future date that should be capped
         Instant farFuture = Instant.now().plusSeconds(365 * 24 * 3600); // 1 year from now
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, farFuture, false);
-        
+
         service.createShareLink(quizId, userId, req);
 
         var captor = forClass(ShareLink.class);
         verify(shareLinkRepository).save(captor.capture());
         ShareLink saved = captor.getValue();
-        
+
         // Should be capped to maxExpiryHours (720 hours = 30 days)
         Instant expectedCap = Instant.now().plusSeconds(720 * 3600);
         assertThat(saved.getExpiresAt()).isBeforeOrEqualTo(expectedCap);
@@ -249,9 +255,11 @@ class ShareLinkServiceImplTest {
     void consumeOneTimeToken_atomicRace() {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
-        
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
+
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class)))
                 .thenReturn(1)  // First call succeeds
@@ -274,9 +282,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_tokenShape() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         quiz.setCreator(creator);
 
@@ -291,7 +299,7 @@ class ShareLinkServiceImplTest {
 
         CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, null, false);
         CreateShareLinkResponse resp = service.createShareLink(quizId, userId, req);
-        
+
         String token = resp.token();
         assertThat(token).matches("^[A-Za-z0-9_-]{43}$");
         assertThat(token).hasSize(43);
@@ -317,7 +325,7 @@ class ShareLinkServiceImplTest {
         var captor = forClass(ShareLinkUsage.class);
         verify(usageRepository).save(captor.capture());
         ShareLinkUsage saved = captor.getValue();
-        
+
         assertThat(saved.getUserAgent()).hasSize(256);
         assertThat(saved.getUserAgent()).isEqualTo(userAgent.substring(0, 256));
     }
@@ -336,20 +344,20 @@ class ShareLinkServiceImplTest {
         var captor = forClass(ShareLinkUsage.class);
         verify(usageRepository).save(captor.capture());
         ShareLinkUsage saved = captor.getValue();
-        
+
         // The actual pepper value is configured in the service, but for testing we can verify
         // that the hash is computed and stored correctly without knowing the exact pepper
         assertThat(saved.getIpHash()).isNotNull();
         assertThat(saved.getIpHash()).matches("[0-9A-F]{64}");
-        
+
         // We can also verify that the hash is different for different IPs
         String ipAddress2 = "192.168.1.101";
         service.recordShareLinkUsage("HASH", "UA", ipAddress2);
-        
+
         var captor2 = forClass(ShareLinkUsage.class);
         verify(usageRepository, times(2)).save(captor2.capture());
         ShareLinkUsage saved2 = captor2.getValue();
-        
+
         assertThat(saved2.getIpHash()).isNotEqualTo(saved.getIpHash());
     }
 
@@ -358,7 +366,7 @@ class ShareLinkServiceImplTest {
     void validateToken_revokedLinkNotFound() {
         // The service uses findByTokenHashAndRevokedAtIsNull, so revoked links won't be found
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.empty());
-        
+
         assertThatThrownBy(() -> service.validateToken("revoked-token"))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Invalid or unknown token");
@@ -371,9 +379,9 @@ class ShareLinkServiceImplTest {
         UUID creatorId = UUID.randomUUID();
         UUID adminId = UUID.randomUUID();
         ShareLink link = new ShareLink();
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(creatorId);
-        User admin = new User(); 
+        User admin = new User();
         admin.setId(adminId);
         link.setCreatedBy(creator);
 
@@ -394,9 +402,9 @@ class ShareLinkServiceImplTest {
         UUID creatorId = UUID.randomUUID();
         UUID moderatorId = UUID.randomUUID();
         ShareLink link = new ShareLink();
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(creatorId);
-        User moderator = new User(); 
+        User moderator = new User();
         moderator.setId(moderatorId);
         link.setCreatedBy(creator);
 
@@ -417,7 +425,7 @@ class ShareLinkServiceImplTest {
         UUID linkId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         ShareLink link = new ShareLink();
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         link.setCreatedBy(creator);
 
@@ -437,16 +445,16 @@ class ShareLinkServiceImplTest {
         UUID creatorId = UUID.randomUUID();
         UUID nonCreatorId = UUID.randomUUID();
         ShareLink link = new ShareLink();
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(creatorId);
-        User nonCreator = new User(); 
+        User nonCreator = new User();
         nonCreator.setId(nonCreatorId);
         link.setCreatedBy(creator);
-        
+
         when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
         when(userRepository.findById(nonCreatorId)).thenReturn(Optional.of(nonCreator));
         when(appPermissionEvaluator.hasPermission(eq(nonCreator), any())).thenReturn(false);
-        
+
         assertThatThrownBy(() -> service.revokeShareLink(linkId, nonCreatorId))
                 .isInstanceOf(ForbiddenException.class);
         verify(shareLinkRepository, never()).save(any());
@@ -467,11 +475,11 @@ class ShareLinkServiceImplTest {
         UUID linkId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         ShareLink link = new ShareLink();
-        User creator = new User(); 
+        User creator = new User();
         creator.setId(userId);
         link.setCreatedBy(creator);
         link.setRevokedAt(Instant.now());
-        
+
         when(shareLinkRepository.findById(linkId)).thenReturn(Optional.of(link));
         when(userRepository.findById(userId)).thenReturn(Optional.of(creator));
 
@@ -484,13 +492,23 @@ class ShareLinkServiceImplTest {
     @DisplayName("getUserShareLinks: returns list of user links ordered by createdAt desc")
     void getUserShareLinks_success() {
         UUID userId = UUID.randomUUID();
-        ShareLink a = new ShareLink(); a.setId(UUID.randomUUID());
-        ShareLink b = new ShareLink(); b.setId(UUID.randomUUID());
+        ShareLink a = new ShareLink();
+        a.setId(UUID.randomUUID());
+        ShareLink b = new ShareLink();
+        b.setId(UUID.randomUUID());
         // minimal required nested to map DTOs
-        Quiz qa = new Quiz(); qa.setId(UUID.randomUUID()); a.setQuiz(qa);
-        User ua = new User(); ua.setId(userId); a.setCreatedBy(ua);
-        Quiz qb = new Quiz(); qb.setId(UUID.randomUUID()); b.setQuiz(qb);
-        User ub = new User(); ub.setId(userId); b.setCreatedBy(ub);
+        Quiz qa = new Quiz();
+        qa.setId(UUID.randomUUID());
+        a.setQuiz(qa);
+        User ua = new User();
+        ua.setId(userId);
+        a.setCreatedBy(ua);
+        Quiz qb = new Quiz();
+        qb.setId(UUID.randomUUID());
+        b.setQuiz(qb);
+        User ub = new User();
+        ub.setId(userId);
+        b.setCreatedBy(ub);
 
         when(shareLinkRepository.findAllByCreatedBy_IdOrderByCreatedAtDesc(userId)).thenReturn(java.util.List.of(a, b));
 
@@ -534,8 +552,10 @@ class ShareLinkServiceImplTest {
     void consumeOneTimeToken_success() {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
 
@@ -549,8 +569,10 @@ class ShareLinkServiceImplTest {
     void consumeOneTimeToken_nonOneTime() {
         ShareLink link = new ShareLink();
         link.setOneTime(false);
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
 
         ShareLinkDto dto = service.consumeOneTimeToken("RAW");
@@ -571,10 +593,12 @@ class ShareLinkServiceImplTest {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
         link.setRevokedAt(Instant.now()); // Already revoked
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
-        
+
         assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
                 .isInstanceOf(ShareLinkAlreadyUsedException.class)
                 .hasMessageContaining("Token already used");
@@ -587,10 +611,12 @@ class ShareLinkServiceImplTest {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
         link.setExpiresAt(Instant.now().minusSeconds(1)); // Expired
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
-        
+
         assertThatThrownBy(() -> service.consumeOneTimeToken("X"))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Token expired");
@@ -602,8 +628,10 @@ class ShareLinkServiceImplTest {
     void consumeOneTimeToken_recordsUsage() {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
@@ -620,8 +648,10 @@ class ShareLinkServiceImplTest {
     void consumeOneTimeToken_delegation() {
         ShareLink link = new ShareLink();
         link.setOneTime(true);
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHash(anyString())).thenReturn(Optional.of(link));
         when(shareLinkRepository.consumeOneTime(anyString(), any(Instant.class))).thenReturn(1);
 
@@ -634,8 +664,14 @@ class ShareLinkServiceImplTest {
     @DisplayName("revokeActiveShareLinksForQuiz: revokes all active links and saves batch")
     void revokeActiveShareLinksForQuiz_success() {
         UUID quizId = UUID.randomUUID();
-        ShareLink a = new ShareLink(); a.setRevokedAt(null); a.setQuiz(new Quiz()); a.getQuiz().setId(quizId);
-        ShareLink b = new ShareLink(); b.setRevokedAt(null); b.setQuiz(new Quiz()); b.getQuiz().setId(quizId);
+        ShareLink a = new ShareLink();
+        a.setRevokedAt(null);
+        a.setQuiz(new Quiz());
+        a.getQuiz().setId(quizId);
+        ShareLink b = new ShareLink();
+        b.setRevokedAt(null);
+        b.setQuiz(new Quiz());
+        b.getQuiz().setId(quizId);
         when(shareLinkRepository.findAllByQuiz_IdAndRevokedAtIsNull(quizId)).thenReturn(java.util.List.of(a, b));
 
         service.revokeActiveShareLinksForQuiz(quizId);
@@ -659,8 +695,10 @@ class ShareLinkServiceImplTest {
     void validateToken_success() {
         ShareLink link = new ShareLink();
         link.setId(UUID.randomUUID());
-        Quiz quiz = new Quiz(); quiz.setId(UUID.randomUUID());
-        User user = new User(); user.setId(UUID.randomUUID());
+        Quiz quiz = new Quiz();
+        quiz.setId(UUID.randomUUID());
+        User user = new User();
+        user.setId(UUID.randomUUID());
         link.setQuiz(quiz);
         link.setCreatedBy(user);
         link.setScope(ShareLinkScope.QUIZ_VIEW);
@@ -692,8 +730,10 @@ class ShareLinkServiceImplTest {
     void validateToken_expired() {
         ShareLink link = new ShareLink();
         link.setExpiresAt(Instant.now().minusSeconds(1));
-        link.setQuiz(new Quiz()); link.getQuiz().setId(UUID.randomUUID());
-        link.setCreatedBy(new User()); link.getCreatedBy().setId(UUID.randomUUID());
+        link.setQuiz(new Quiz());
+        link.getQuiz().setId(UUID.randomUUID());
+        link.setCreatedBy(new User());
+        link.getCreatedBy().setId(UUID.randomUUID());
         when(shareLinkRepository.findByTokenHashAndRevokedAtIsNull(anyString())).thenReturn(Optional.of(link));
         assertThatThrownBy(() -> service.validateToken("t"))
                 .isInstanceOf(ValidationException.class)
@@ -716,7 +756,7 @@ class ShareLinkServiceImplTest {
     void hashToken_success() {
         String token = "test-token";
         String hash = service.hashToken(token);
-        
+
         assertThat(hash).isNotNull();
         assertThat(hash).matches("[0-9A-F]{64}");
         // The hash should be the same for the same token
@@ -730,9 +770,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_defaults() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User user = new User(); 
+        User user = new User();
         user.setId(userId);
         quiz.setCreator(user);
 
@@ -762,9 +802,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_tokenHashShape() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User user = new User(); 
+        User user = new User();
         user.setId(userId);
         quiz.setCreator(user);
 
@@ -787,9 +827,9 @@ class ShareLinkServiceImplTest {
     void createShareLink_oneTimeFalse() {
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        Quiz quiz = new Quiz(); 
+        Quiz quiz = new Quiz();
         quiz.setId(quizId);
-        User user = new User(); 
+        User user = new User();
         user.setId(userId);
         quiz.setCreator(user);
 

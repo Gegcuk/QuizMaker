@@ -2,12 +2,12 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Map;
 import java.util.Set;
@@ -70,12 +70,12 @@ public class FillGapHandler extends QuestionHandler {
         JsonNode answersNode = response.get("answers");
         Map<Integer, String> given = answersNode != null && answersNode.isArray()
                 ? StreamSupport.stream(answersNode.spliterator(), false)
-                        .filter(answer -> answer.has("gapId") && answer.has("answer") && 
-                                answer.get("gapId").canConvertToInt() && answer.get("answer").isTextual())
-                        .collect(Collectors.toMap(
-                                answer -> answer.get("gapId").asInt(),
-                                answer -> answer.get("answer").asText().trim().toLowerCase()
-                        ))
+                .filter(answer -> answer.has("gapId") && answer.has("answer") &&
+                        answer.get("gapId").canConvertToInt() && answer.get("answer").isTextual())
+                .collect(Collectors.toMap(
+                        answer -> answer.get("gapId").asInt(),
+                        answer -> answer.get("answer").asText().trim().toLowerCase()
+                ))
                 : Map.of();
 
         boolean allMatch = correct.entrySet().stream()

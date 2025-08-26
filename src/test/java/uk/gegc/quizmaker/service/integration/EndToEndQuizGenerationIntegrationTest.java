@@ -15,25 +15,25 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.support.TransactionTemplate;
-import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
-import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,12 +43,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(SpringExtension.class)
 @SpringBootTest(properties = {
-    "spring.datasource.url=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true",
-    "spring.datasource.username=bestuser",
-    "spring.datasource.password=bestuser",
-    "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
-    "spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect",
-    "spring.jpa.hibernate.ddl-auto=create"
+        "spring.datasource.url=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true",
+        "spring.datasource.username=bestuser",
+        "spring.datasource.password=bestuser",
+        "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
+        "spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect",
+        "spring.jpa.hibernate.ddl-auto=create"
 })
 @ActiveProfiles("test-mysql")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -94,10 +94,10 @@ class EndToEndQuizGenerationIntegrationTest {
     void setUp() {
         // Generate unique identifier for this test run to prevent conflicts
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
-        
+
         // Clean up any existing data
         cleanupDatabase();
-        
+
         // Create test user with unique identifier
         testUser = new User();
         testUser.setUsername("testuser_" + uniqueId);
@@ -122,7 +122,7 @@ class EndToEndQuizGenerationIntegrationTest {
                 createChunk(1, "Chapter 2: Advanced Topics\nThis chapter covers more advanced concepts and detailed explanations. REST stands for Representational State Transfer. When implementing security measures, it's important to follow these steps: first, identify vulnerabilities; second, implement authentication; third, add authorization; fourth, monitor access logs."),
                 createChunk(2, "Chapter 3: Conclusion\nThis final chapter summarizes all the key points and provides conclusions. The database server should be located in a secure environment. Microservices architecture involves breaking down applications into smaller, independent services that communicate through well-defined APIs.")
         );
-        
+
         // Save chunks to database through document relationship
         for (DocumentChunk chunk : chunks) {
             testDocument.getChunks().add(chunk);
@@ -166,10 +166,10 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // Then - Verify job was created with proper estimates
         assertNotNull(testJobId);
-        
+
         // Get the job to verify estimates
         QuizGenerationJob job = jobRepository.findById(testJobId).orElseThrow();
-        
+
         assertTrue(job.getEstimatedCompletion() != null);
         assertEquals(GenerationStatus.PENDING, job.getStatus());
         assertNotNull(job.getStartedAt());
@@ -178,8 +178,8 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // Manually trigger the async method
         // Get the job and pass it directly (in a separate transaction)
-        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, testRequest);
 
@@ -197,14 +197,14 @@ class EndToEndQuizGenerationIntegrationTest {
         UUID generatedQuizId = job.getGeneratedQuizId();
         Quiz consolidatedQuiz = quizRepository.findById(generatedQuizId).orElseThrow();
         assertTrue(consolidatedQuiz.getTitle().startsWith("Test Quiz"));
-        
+
         // Access creator within a transaction to avoid LazyInitializationException
         User quizCreator = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             return quiz.getCreator();
         });
         assertEquals(testUser.getId(), quizCreator.getId());
-        
+
         // Access questions within a transaction to avoid LazyInitializationException
         int consolidatedQuestionCount = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
@@ -214,19 +214,19 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // Verify individual chunk quizzes were created
         List<Quiz> allQuizzes = quizRepository.findAll();
-        
+
         // Filter chunk quizzes within a transaction to avoid LazyInitializationException
         List<Quiz> chunkQuizzes = transactionTemplate.execute(status -> {
             return allQuizzes.stream()
                     .filter(quiz -> {
                         Quiz loadedQuiz = quizRepository.findById(quiz.getId()).orElseThrow();
-                        return loadedQuiz.getCreator().getId().equals(testUser.getId()) && 
-                               quiz.getTitle().startsWith("Quiz:") && 
-                               !quiz.getTitle().startsWith("Test Quiz");
+                        return loadedQuiz.getCreator().getId().equals(testUser.getId()) &&
+                                quiz.getTitle().startsWith("Quiz:") &&
+                                !quiz.getTitle().startsWith("Test Quiz");
                     })
                     .toList();
         });
-        assertTrue(chunkQuizzes.size() >= 2, "Expected at least 2 chunk quizzes, but found " + chunkQuizzes.size() + ". All quizzes: " + 
+        assertTrue(chunkQuizzes.size() >= 2, "Expected at least 2 chunk quizzes, but found " + chunkQuizzes.size() + ". All quizzes: " +
                 allQuizzes.stream().map(q -> q.getTitle()).collect(java.util.stream.Collectors.joining(", "))); // At least 2 chunk quizzes
 
         // Verify all quizzes have questions
@@ -254,12 +254,12 @@ class EndToEndQuizGenerationIntegrationTest {
         Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
-            
+
             for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }
-            
+
             return counts;
         });
 
@@ -268,10 +268,10 @@ class EndToEndQuizGenerationIntegrationTest {
             QuestionType expectedType = entry.getKey();
             Integer expectedCount = entry.getValue();
             Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
-            
-            assertTrue(actualCount >= expectedCount, 
-                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
-                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+
+            assertTrue(actualCount >= expectedCount,
+                    String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s",
+                            expectedCount, expectedType, actualCount, actualQuestionCounts));
         }
 
         // Log the actual question type distribution for debugging
@@ -288,10 +288,10 @@ class EndToEndQuizGenerationIntegrationTest {
     void shouldHandleAsyncEventProcessingCorrectly() throws Exception {
         // Given
         testJobId = createJobOnly(testUser.getUsername(), testRequest);
-        
+
         // Manually trigger the async method
-        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, testRequest);
 
@@ -299,10 +299,10 @@ class EndToEndQuizGenerationIntegrationTest {
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
 
         // Then - Verify event was processed and quiz created
-        QuizGenerationJob job = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob job = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
-        
+
         // Check if the job completed successfully
         if (job.getStatus() == GenerationStatus.FAILED) {
             // If failed, log the error and skip the quiz verification
@@ -311,17 +311,17 @@ class EndToEndQuizGenerationIntegrationTest {
             assertTrue(job.getStatus().isTerminal());
             return;
         }
-        
+
         assertEquals(GenerationStatus.COMPLETED, job.getStatus());
         assertNotNull(job.getGeneratedQuizId());
 
         // Verify quiz collection was created through event handling
         UUID generatedQuizId = job.getGeneratedQuizId();
-        Quiz consolidatedQuiz = transactionTemplate.execute(status -> 
-            quizRepository.findById(generatedQuizId).orElseThrow()
+        Quiz consolidatedQuiz = transactionTemplate.execute(status ->
+                quizRepository.findById(generatedQuizId).orElseThrow()
         );
         assertNotNull(consolidatedQuiz);
-        
+
         // Access questions within a transaction to avoid LazyInitializationException
         int questionCount = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
@@ -343,12 +343,12 @@ class EndToEndQuizGenerationIntegrationTest {
         Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
-            
+
             for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }
-            
+
             return counts;
         });
 
@@ -357,10 +357,10 @@ class EndToEndQuizGenerationIntegrationTest {
             QuestionType expectedType = entry.getKey();
             Integer expectedCount = entry.getValue();
             Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
-            
-            assertTrue(actualCount >= expectedCount, 
-                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
-                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+
+            assertTrue(actualCount >= expectedCount,
+                    String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s",
+                            expectedCount, expectedType, actualCount, actualQuestionCounts));
         }
 
         // Log the actual question type distribution for debugging
@@ -376,14 +376,14 @@ class EndToEndQuizGenerationIntegrationTest {
         testJobId = createJobOnly(testUser.getUsername(), testRequest);
 
         // When & Then - Verify status transitions
-        QuizGenerationJob job = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob job = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         assertEquals(GenerationStatus.PENDING, job.getStatus());
 
         // Manually trigger the async method
-        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, testRequest);
 
@@ -391,8 +391,8 @@ class EndToEndQuizGenerationIntegrationTest {
         Thread.sleep(1000);
 
         // Check if status changed to PROCESSING
-        job = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        job = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         if (job.getStatus() == GenerationStatus.PROCESSING) {
             assertNotNull(job.getStartedAt());
@@ -403,8 +403,8 @@ class EndToEndQuizGenerationIntegrationTest {
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
 
         // Verify final status
-        job = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        job = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         assertEquals(GenerationStatus.COMPLETED, job.getStatus());
         assertNotNull(job.getCompletedAt());
@@ -465,18 +465,18 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // When
         testJobId = createJobOnly(testUser.getUsername(), complexRequest);
-        
+
         // Manually trigger the async method
-        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, complexRequest);
 
         // Then
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
 
-        QuizGenerationJob job = transactionTemplate.execute(status -> 
-            jobRepository.findById(testJobId).orElseThrow()
+        QuizGenerationJob job = transactionTemplate.execute(status ->
+                jobRepository.findById(testJobId).orElseThrow()
         );
         assertEquals(GenerationStatus.COMPLETED, job.getStatus());
         assertTrue(job.getTotalQuestionsGenerated() >= 13); // At least 13 questions total (3+2+2+1+2+1+2)
@@ -486,12 +486,12 @@ class EndToEndQuizGenerationIntegrationTest {
         Map<QuestionType, Integer> actualQuestionCounts = transactionTemplate.execute(status -> {
             Quiz quiz = quizRepository.findById(generatedQuizId).orElseThrow();
             Map<QuestionType, Integer> counts = new HashMap<>();
-            
+
             for (Question question : quiz.getQuestions()) {
                 QuestionType type = question.getType();
                 counts.put(type, counts.getOrDefault(type, 0) + 1);
             }
-            
+
             return counts;
         });
 
@@ -500,10 +500,10 @@ class EndToEndQuizGenerationIntegrationTest {
             QuestionType expectedType = entry.getKey();
             Integer expectedCount = entry.getValue();
             Integer actualCount = actualQuestionCounts.getOrDefault(expectedType, 0);
-            
-            assertTrue(actualCount >= expectedCount, 
-                String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s", 
-                    expectedCount, expectedType, actualCount, actualQuestionCounts));
+
+            assertTrue(actualCount >= expectedCount,
+                    String.format("Expected at least %d questions of type %s, but found %d. All question types found: %s",
+                            expectedCount, expectedType, actualCount, actualQuestionCounts));
         }
 
         // Log the actual question type distribution for debugging
@@ -534,10 +534,10 @@ class EndToEndQuizGenerationIntegrationTest {
         Instant startTime = Instant.now();
         while (Duration.between(startTime, Instant.now()).compareTo(timeout) < 0) {
             // Use a separate transaction for each check to avoid holding connections
-            QuizGenerationJob job = transactionTemplate.execute(status -> 
-                jobRepository.findById(jobId).orElse(null)
+            QuizGenerationJob job = transactionTemplate.execute(status ->
+                    jobRepository.findById(jobId).orElse(null)
             );
-            
+
             if (job != null && job.getStatus().isTerminal()) {
                 // Log the final status for debugging
                 if (job.getStatus() == GenerationStatus.FAILED) {
@@ -565,13 +565,13 @@ class EndToEndQuizGenerationIntegrationTest {
                 // Create generation job with proper estimates (without starting async generation)
                 QuizGenerationJob job = jobService.createJob(user, request.documentId(),
                         objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
-                
+
                 return job.getId();
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
         });
-        
+
         return jobId;
     }
 

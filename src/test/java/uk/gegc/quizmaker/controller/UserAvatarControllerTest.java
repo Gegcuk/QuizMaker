@@ -10,10 +10,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.features.user.api.UserController;
 import uk.gegc.quizmaker.features.user.application.AvatarService;
 import uk.gegc.quizmaker.features.user.application.UserProfileService;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -36,7 +36,7 @@ class UserAvatarControllerTest {
     @WithMockUser(username = "alice")
     @DisplayName("Should upload avatar successfully")
     void uploadAvatar_success() throws Exception {
-        byte[] image = new byte[]{(byte)0x89, 0x50, 0x4E, 0x47}; // mock bytes
+        byte[] image = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}; // mock bytes
         MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", image);
         when(avatarService.uploadAndAssignAvatar(any(), any())).thenReturn("http://test-host/avatars/abc.png");
 
@@ -74,7 +74,7 @@ class UserAvatarControllerTest {
     @Test
     @DisplayName("Should return 401 when unauthenticated")
     void uploadAvatar_unauthenticated() throws Exception {
-        byte[] image = new byte[]{(byte)0x89, 0x50, 0x4E, 0x47};
+        byte[] image = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47};
         MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", image);
         mockMvc.perform(multipart("/api/v1/users/me/avatar").file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf())
@@ -86,7 +86,7 @@ class UserAvatarControllerTest {
     @WithMockUser(username = "alice")
     @DisplayName("Should return 403 when CSRF token missing")
     void uploadAvatar_missingCsrf() throws Exception {
-        byte[] image = new byte[]{(byte)0x89, 0x50, 0x4E, 0x47};
+        byte[] image = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47};
         MockMultipartFile file = new MockMultipartFile("file", "avatar.png", "image/png", image);
         mockMvc.perform(multipart("/api/v1/users/me/avatar").file(file)
                         .contentType(MediaType.MULTIPART_FORM_DATA))

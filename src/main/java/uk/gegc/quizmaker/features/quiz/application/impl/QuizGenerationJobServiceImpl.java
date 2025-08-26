@@ -6,13 +6,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,7 +49,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (estimatedTimeSeconds <= 0) {
             throw new IllegalArgumentException("Estimated time must be positive");
         }
-        
+
         log.info("Creating quiz generation job for user: {}, document: {}, chunks: {}",
                 user.getUsername(), documentId, totalChunks);
 
@@ -66,15 +66,15 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
         QuizGenerationJob savedJob = jobRepository.save(job);
         log.info("Created quiz generation job with ID: {}", savedJob.getId());
-        
+
         // Verify the job was actually saved by trying to find it again
         Optional<QuizGenerationJob> verificationJob = jobRepository.findById(savedJob.getId());
         log.info("Job verification after save: {}", verificationJob.isPresent() ? "FOUND" : "NOT FOUND");
-        
+
         if (verificationJob.isEmpty()) {
             log.error("CRITICAL: Job was not found immediately after save! This indicates a transaction issue.");
         }
-        
+
         return savedJob;
     }
 
@@ -114,7 +114,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (totalQuestionsGenerated < 0) {
             throw new IllegalArgumentException("Total questions generated cannot be negative");
         }
-        
+
         log.debug("Updating job progress for job: {}, processed: {}, current: {}, questions: {}",
                 jobId, processedChunks, currentChunk, totalQuestionsGenerated);
 
@@ -141,7 +141,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (generatedQuizId == null) {
             throw new IllegalArgumentException("Generated quiz ID cannot be null");
         }
-        
+
         log.info("Marking job as completed: {} with generated quiz: {}", jobId, generatedQuizId);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
@@ -167,7 +167,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (errorMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("Error message cannot be empty");
         }
-        
+
         log.error("Marking job as failed: {}, error: {}", jobId, errorMessage);
 
         QuizGenerationJob job = jobRepository.findById(jobId)
@@ -193,7 +193,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username cannot be empty");
         }
-        
+
         log.info("Cancelling job: {} for user: {}", jobId, username);
 
         QuizGenerationJob job = getJobByIdAndUsername(jobId, username);
@@ -223,7 +223,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (pageable == null) {
             throw new IllegalArgumentException("Pageable cannot be null");
         }
-        
+
         log.debug("Getting jobs for user: {} with pagination", username);
         return jobRepository.findByUser_UsernameOrderByStartedAtDesc(username, pageable);
     }
@@ -235,7 +235,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (status == null) {
             throw new IllegalArgumentException("Status cannot be null");
         }
-        
+
         log.debug("Getting jobs by status: {}", status);
         return jobRepository.findByStatus(status);
     }
@@ -244,10 +244,10 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Transactional(readOnly = true)
     public List<QuizGenerationJob> getActiveJobs() {
         log.debug("Getting active jobs");
-        
+
         // First, clean up any stale pending jobs (older than 10 minutes)
         cleanupStalePendingJobs();
-        
+
         return jobRepository.findByStatusIn(List.of(GenerationStatus.PENDING, GenerationStatus.PROCESSING));
     }
 
@@ -256,18 +256,18 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     public void cleanupStalePendingJobs() {
         LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(10); // 10 minutes timeout
         log.info("Cleaning up stale pending jobs older than: {}", cutoffTime);
-        
+
         // First, let's see all pending jobs
         List<QuizGenerationJob> allPendingJobs = jobRepository.findByStatus(GenerationStatus.PENDING);
         log.info("Found {} total pending jobs", allPendingJobs.size());
         for (QuizGenerationJob job : allPendingJobs) {
-            log.info("Pending job: {} - started at: {} - user: {}", 
+            log.info("Pending job: {} - started at: {} - user: {}",
                     job.getId(), job.getStartedAt(), job.getUser().getUsername());
         }
-        
+
         List<QuizGenerationJob> staleJobs = jobRepository.findByStatusAndStartedAtBefore(GenerationStatus.PENDING, cutoffTime);
         log.info("Found {} stale pending jobs (older than {} minutes)", staleJobs.size(), 10);
-        
+
         if (!staleJobs.isEmpty()) {
             log.warn("Found {} stale pending jobs, marking them as failed", staleJobs.size());
             for (QuizGenerationJob job : staleJobs) {
@@ -290,7 +290,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (documentId == null) {
             throw new IllegalArgumentException("Document ID cannot be null");
         }
-        
+
         log.debug("Getting jobs by document: {}", documentId);
         return jobRepository.findByDocumentIdAndStatus(documentId, GenerationStatus.COMPLETED);
     }
@@ -308,7 +308,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (start.isAfter(end)) {
             throw new IllegalArgumentException("Start time cannot be after end time");
         }
-        
+
         log.debug("Getting jobs by time range: {} to {}", start, end);
         return jobRepository.findByStartedAtBetween(start, end);
     }
@@ -323,7 +323,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username cannot be empty");
         }
-        
+
         log.debug("Getting job statistics for user: {}", username);
 
         // Simplified statistics using available repository methods
@@ -371,7 +371,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (daysToKeep <= 0) {
             throw new IllegalArgumentException("Days to keep must be positive");
         }
-        
+
         log.info("Cleaning up jobs older than {} days", daysToKeep);
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysToKeep);
         jobRepository.deleteOldCompletedJobs(cutoffDate);
@@ -385,7 +385,7 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         if (maxDurationHours <= 0) {
             throw new IllegalArgumentException("Max duration hours must be positive");
         }
-        
+
         log.debug("Finding stuck jobs running longer than {} hours", maxDurationHours);
         LocalDateTime cutoffTime = LocalDateTime.now().minusHours(maxDurationHours);
         return jobRepository.findStuckJobs(cutoffTime);

@@ -6,4 +6,5 @@ public record VerifyEmailResponse(
         boolean verified,
         String message,
         LocalDateTime verifiedAt
-) {}
+) {
+}

@@ -11,6 +11,7 @@ public record CreateShareLinkRequest(
         @NotNull @Schema(description = "Scope of the link", example = "QUIZ_VIEW") ShareLinkScope scope,
         @Schema(description = "Expiry timestamp (UTC)") Instant expiresAt,
         @Schema(description = "Whether the link is one-time use", example = "true") Boolean oneTime
-) {}
+) {
+}
 
 

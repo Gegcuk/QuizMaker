@@ -9,13 +9,13 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionParserFactory;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParserImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
-import uk.gegc.quizmaker.features.ai.infra.parser.QuestionParserFactory;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.List;
 
@@ -28,18 +28,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
 class QuestionResponseParserTest {
-
-    @Mock
-    private ObjectMapper objectMapper;
-
-    @Mock
-    private QuestionHandlerFactory questionHandlerFactory;
-
-    @Mock
-    private QuestionParserFactory questionParserFactory;
-
-    @InjectMocks
-    private QuestionResponseParserImpl questionResponseParser;
 
     private static final String VALID_MCQ_RESPONSE = """
             {
@@ -54,7 +42,6 @@ class QuestionResponseParserTest {
                 ]
             }
             """;
-
     private static final String VALID_TRUE_FALSE_RESPONSE = """
             {
                 "questions": [
@@ -67,7 +54,6 @@ class QuestionResponseParserTest {
                 ]
             }
             """;
-
     private static final String VALID_OPEN_RESPONSE = """
             {
                 "questions": [
@@ -80,7 +66,14 @@ class QuestionResponseParserTest {
                 ]
             }
             """;
-
+    @Mock
+    private ObjectMapper objectMapper;
+    @Mock
+    private QuestionHandlerFactory questionHandlerFactory;
+    @Mock
+    private QuestionParserFactory questionParserFactory;
+    @InjectMocks
+    private QuestionResponseParserImpl questionResponseParser;
     @Mock
     private QuestionHandler mockQuestionHandler;
 

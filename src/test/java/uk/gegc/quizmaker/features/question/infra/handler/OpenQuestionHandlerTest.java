@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class OpenQuestionHandlerTest {
     void setUp() {
         handler = new OpenQuestionHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.OPEN);
@@ -85,10 +85,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"The correct answer\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -99,10 +99,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The Correct Answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"the correct answer\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -113,10 +113,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"  The correct answer  \"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -127,10 +127,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"Wrong answer\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -141,10 +141,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"correct answer\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -155,10 +155,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -169,10 +169,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"   \"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -183,10 +183,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -197,10 +197,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":null}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -211,10 +211,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The correct answer\"}");
         JsonNode response = mapper.readTree("{\"answer\":123}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -226,10 +226,10 @@ class OpenQuestionHandlerTest {
         String longAnswer = "This is a very long answer that contains many words and should be handled correctly by the system. It includes various punctuation marks and different types of content.";
         JsonNode content = mapper.readTree("{\"answer\":\"" + longAnswer + "\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"" + longAnswer + "\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -240,10 +240,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"Answer with special chars: !@#$%^&*()_+-=[]{}|;':\\\",./<>?\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"Answer with special chars: !@#$%^&*()_+-=[]{}|;':\\\",./<>?\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -254,10 +254,10 @@ class OpenQuestionHandlerTest {
         // Given
         JsonNode content = mapper.readTree("{\"answer\":\"The answer is 42\"}");
         JsonNode response = mapper.readTree("{\"answer\":\"The answer is 42\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());

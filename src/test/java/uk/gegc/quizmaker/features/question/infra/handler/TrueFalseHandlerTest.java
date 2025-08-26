@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -30,12 +30,12 @@ public class TrueFalseHandlerTest {
     void setUp() {
         handler = new TrueFalseHandler();
         objectMapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.TRUE_FALSE);
@@ -74,10 +74,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.readTree("{\"answer\":true}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -88,10 +88,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":false}");
         JsonNode response = objectMapper.readTree("{\"answer\":false}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -102,10 +102,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.readTree("{\"answer\":false}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -116,10 +116,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // When
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -130,10 +130,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.readTree("{\"answer\":\"maybe\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -144,10 +144,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.readTree("{\"answer\":null}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -158,10 +158,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":true}");
         JsonNode response = objectMapper.readTree("{\"answer\":false}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -172,10 +172,10 @@ public class TrueFalseHandlerTest {
         // Given
         JsonNode content = objectMapper.readTree("{\"answer\":false}");
         JsonNode response = objectMapper.readTree("{\"answer\":false}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());

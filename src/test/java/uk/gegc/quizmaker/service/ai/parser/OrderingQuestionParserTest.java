@@ -6,11 +6,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.ai.infra.parser.OrderingQuestionParser;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.List;
 
@@ -32,26 +32,26 @@ class OrderingQuestionParserTest {
     void shouldParseValidOrderingQuestions() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the following steps in the correct order",
-                  "difficulty": "MEDIUM",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "Write the code"},
-                      {"id": 2, "text": "Compile the code"},
-                      {"id": 3, "text": "Run the program"},
-                      {"id": 4, "text": "Debug if needed"}
-                    ]
-                  },
-                  "hint": "Think about the software development lifecycle",
-                  "explanation": "The correct order follows the typical software development process"
+                  "questions": [
+                    {
+                      "questionText": "Arrange the following steps in the correct order",
+                      "difficulty": "MEDIUM",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "Write the code"},
+                          {"id": 2, "text": "Compile the code"},
+                          {"id": 3, "text": "Run the program"},
+                          {"id": 4, "text": "Debug if needed"}
+                        ]
+                      },
+                      "hint": "Think about the software development lifecycle",
+                      "explanation": "The correct order follows the typical software development process"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 
@@ -66,7 +66,7 @@ class OrderingQuestionParserTest {
         assertEquals(Difficulty.MEDIUM, question.getDifficulty());
         assertEquals("Think about the software development lifecycle", question.getHint());
         assertEquals("The correct order follows the typical software development process", question.getExplanation());
-        
+
         // Verify content structure
         JsonNode content = objectMapper.readTree(question.getContent());
         assertTrue(content.has("items"));
@@ -81,37 +81,37 @@ class OrderingQuestionParserTest {
     void shouldParseMultipleOrderingQuestions() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Order the Java compilation steps",
-                  "difficulty": "EASY",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "Write Java source code"},
-                      {"id": 2, "text": "Compile to bytecode"},
-                      {"id": 3, "text": "Run on JVM"}
-                    ]
-                  }
-                },
-                {
-                  "questionText": "Arrange the Spring Boot startup sequence",
-                  "difficulty": "HARD",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "Load application context"},
-                      {"id": 2, "text": "Initialize beans"},
-                      {"id": 3, "text": "Start embedded server"},
-                      {"id": 4, "text": "Application ready"},
-                      {"id": 5, "text": "Handle requests"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Order the Java compilation steps",
+                      "difficulty": "EASY",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "Write Java source code"},
+                          {"id": 2, "text": "Compile to bytecode"},
+                          {"id": 3, "text": "Run on JVM"}
+                        ]
+                      }
+                    },
+                    {
+                      "questionText": "Arrange the Spring Boot startup sequence",
+                      "difficulty": "HARD",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "Load application context"},
+                          {"id": 2, "text": "Initialize beans"},
+                          {"id": 3, "text": "Start embedded server"},
+                          {"id": 4, "text": "Application ready"},
+                          {"id": 5, "text": "Handle requests"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 
@@ -120,20 +120,20 @@ class OrderingQuestionParserTest {
 
         // Then
         assertEquals(2, questions.size());
-        
+
         // First question
         Question question1 = questions.get(0);
         assertEquals("Order the Java compilation steps", question1.getQuestionText());
         assertEquals(Difficulty.EASY, question1.getDifficulty());
-        
+
         JsonNode content1 = objectMapper.readTree(question1.getContent());
         assertEquals(3, content1.get("items").size());
-        
+
         // Second question
         Question question2 = questions.get(1);
         assertEquals("Arrange the Spring Boot startup sequence", question2.getQuestionText());
         assertEquals(Difficulty.HARD, question2.getDifficulty());
-        
+
         JsonNode content2 = objectMapper.readTree(question2.getContent());
         assertEquals(5, content2.get("items").size());
     }
@@ -142,21 +142,21 @@ class OrderingQuestionParserTest {
     void shouldHandleMissingDifficulty() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "First item"},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "First item"},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 
@@ -172,22 +172,22 @@ class OrderingQuestionParserTest {
     void shouldHandleInvalidDifficulty() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "difficulty": "INVALID_DIFFICULTY",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "First item"},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "difficulty": "INVALID_DIFFICULTY",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "First item"},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 
@@ -203,15 +203,15 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForMissingContent() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING"
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -224,16 +224,16 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForMissingItems() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {}
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {}
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -246,18 +246,18 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForEmptyItems() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": []
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": []
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -270,20 +270,20 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForSingleItem() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "Only one item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "Only one item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -296,30 +296,30 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForTooManyItems() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "Item 1"},
-                      {"id": 2, "text": "Item 2"},
-                      {"id": 3, "text": "Item 3"},
-                      {"id": 4, "text": "Item 4"},
-                      {"id": 5, "text": "Item 5"},
-                      {"id": 6, "text": "Item 6"},
-                      {"id": 7, "text": "Item 7"},
-                      {"id": 8, "text": "Item 8"},
-                      {"id": 9, "text": "Item 9"},
-                      {"id": 10, "text": "Item 10"},
-                      {"id": 11, "text": "Item 11"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "Item 1"},
+                          {"id": 2, "text": "Item 2"},
+                          {"id": 3, "text": "Item 3"},
+                          {"id": 4, "text": "Item 4"},
+                          {"id": 5, "text": "Item 5"},
+                          {"id": 6, "text": "Item 6"},
+                          {"id": 7, "text": "Item 7"},
+                          {"id": 8, "text": "Item 8"},
+                          {"id": 9, "text": "Item 9"},
+                          {"id": 10, "text": "Item 10"},
+                          {"id": 11, "text": "Item 11"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -332,21 +332,21 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForMissingItemId() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"text": "First item"},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"text": "First item"},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -359,21 +359,21 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForNonIntegerItemId() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": "one", "text": "First item"},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": "one", "text": "First item"},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -386,21 +386,21 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForMissingItemText() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -413,21 +413,21 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForEmptyItemText() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": ""},
-                      {"id": 2, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": ""},
+                          {"id": 2, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -440,21 +440,21 @@ class OrderingQuestionParserTest {
     void shouldThrowExceptionForDuplicateItemIds() {
         // Given
         String jsonContent = """
-            {
-              "questions": [
                 {
-                  "questionText": "Arrange the items in order",
-                  "type": "ORDERING",
-                  "content": {
-                    "items": [
-                      {"id": 1, "text": "First item"},
-                      {"id": 1, "text": "Second item"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Arrange the items in order",
+                      "type": "ORDERING",
+                      "content": {
+                        "items": [
+                          {"id": 1, "text": "First item"},
+                          {"id": 1, "text": "Second item"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(AIResponseParseException.class, () -> {
@@ -467,10 +467,10 @@ class OrderingQuestionParserTest {
     void shouldHandleEmptyQuestionsArray() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "questions": []
-            }
-            """;
+                {
+                  "questions": []
+                }
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 
@@ -485,10 +485,10 @@ class OrderingQuestionParserTest {
     void shouldHandleMissingQuestionsArray() throws Exception {
         // Given
         String jsonContent = """
-            {
-              "otherField": "value"
-            }
-            """;
+                {
+                  "otherField": "value"
+                }
+                """;
 
         JsonNode contentNode = objectMapper.readTree(jsonContent);
 

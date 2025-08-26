@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class McqSingleHandlerTest {
     void setUp() {
         handler = new McqSingleHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.MCQ_SINGLE);
@@ -195,10 +195,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"b\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -214,10 +214,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"a\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -233,10 +233,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -252,10 +252,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -271,10 +271,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"nonexistent\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -290,10 +290,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"b\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect()); // Should be false because "b" != "B"
         assertEquals(0.0, answer.getScore());
@@ -311,10 +311,10 @@ class McqSingleHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionId\":\"c\"}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());

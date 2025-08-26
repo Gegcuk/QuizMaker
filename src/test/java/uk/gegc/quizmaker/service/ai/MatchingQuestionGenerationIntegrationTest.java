@@ -9,11 +9,11 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionParserFactory;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.ai.infra.parser.QuestionParserFactory;
-import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 
 import java.util.List;
 
@@ -41,30 +41,30 @@ class MatchingQuestionGenerationIntegrationTest {
     void shouldGenerateMatchingQuestionsFromContent() throws Exception {
         // Given - Simulated AI response for MATCHING questions
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Match each fruit to its typical color",
-                  "difficulty": "MEDIUM",
-                  "type": "MATCHING",
-                  "content": {
-                    "left": [
-                      {"id": 1, "text": "Apple", "matchId": 10},
-                      {"id": 2, "text": "Banana", "matchId": 11},
-                      {"id": 3, "text": "Grape", "matchId": 12}
-                    ],
-                    "right": [
-                      {"id": 10, "text": "Red"},
-                      {"id": 11, "text": "Yellow"},
-                      {"id": 12, "text": "Purple"}
-                    ]
-                  },
-                  "hint": "Think of common varieties",
-                  "explanation": "Apples are often red, bananas yellow, grapes purple"
+                  "questions": [
+                    {
+                      "questionText": "Match each fruit to its typical color",
+                      "difficulty": "MEDIUM",
+                      "type": "MATCHING",
+                      "content": {
+                        "left": [
+                          {"id": 1, "text": "Apple", "matchId": 10},
+                          {"id": 2, "text": "Banana", "matchId": 11},
+                          {"id": 3, "text": "Grape", "matchId": 12}
+                        ],
+                        "right": [
+                          {"id": 10, "text": "Red"},
+                          {"id": 11, "text": "Yellow"},
+                          {"id": 12, "text": "Purple"}
+                        ]
+                      },
+                      "hint": "Think of common varieties",
+                      "explanation": "Apples are often red, bananas yellow, grapes purple"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -95,19 +95,19 @@ class MatchingQuestionGenerationIntegrationTest {
     void shouldValidateMatchingQuestionStructure() {
         // Given - Invalid structure: left item missing matchId
         String invalidResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Match A to B",
-                  "type": "MATCHING",
-                  "content": {
-                    "left": [ {"id": 1, "text": "A"} ],
-                    "right": [ {"id": 10, "text": "B"} ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Match A to B",
+                      "type": "MATCHING",
+                      "content": {
+                        "left": [ {"id": 1, "text": "A"} ],
+                        "right": [ {"id": 10, "text": "B"} ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         assertThrows(Exception.class, () -> {
             // Go through the full response parser so handler-based validation runs

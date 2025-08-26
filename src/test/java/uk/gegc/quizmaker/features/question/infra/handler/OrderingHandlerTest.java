@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class OrderingHandlerTest {
     void setUp() {
         handler = new OrderingHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.ORDERING);
@@ -148,10 +148,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2,3]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -168,10 +168,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[3,1,2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -188,10 +188,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -207,10 +207,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2,999]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -226,10 +226,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -245,10 +245,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -264,10 +264,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[999]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -283,10 +283,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -303,10 +303,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[3,2,1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -322,10 +322,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -341,10 +341,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[2,1]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -363,10 +363,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2,3,4,5]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -385,10 +385,10 @@ class OrderingHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"orderedItemIds\":[1,2,4,3,5]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());

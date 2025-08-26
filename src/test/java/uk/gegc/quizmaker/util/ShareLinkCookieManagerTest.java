@@ -145,7 +145,7 @@ class ShareLinkCookieManagerTest {
         Cookie shareTokenCookie = new Cookie("share_token", expectedToken);
         Cookie otherCookie1 = new Cookie("other_cookie1", "value1");
         Cookie otherCookie2 = new Cookie("other_cookie2", "value2");
-        
+
         when(request.getCookies()).thenReturn(new Cookie[]{otherCookie1, shareTokenCookie, otherCookie2});
 
         Optional<String> result = cookieManager.getShareLinkToken(request);

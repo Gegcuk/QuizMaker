@@ -18,7 +18,7 @@ public interface ShareLinkAnalyticsRepository extends JpaRepository<ShareLinkAna
 
     /**
      * Find analytics events for a specific share link.
-     * 
+     *
      * @param shareLinkId The share link ID
      * @return List of analytics events
      */
@@ -26,35 +26,35 @@ public interface ShareLinkAnalyticsRepository extends JpaRepository<ShareLinkAna
 
     /**
      * Find analytics events for a specific share link and event type.
-     * 
+     *
      * @param shareLinkId The share link ID
-     * @param eventType The event type
+     * @param eventType   The event type
      * @return List of analytics events
      */
     List<ShareLinkAnalytics> findByShareLink_IdAndEventTypeOrderByCreatedAtDesc(UUID shareLinkId, ShareLinkEventType eventType);
 
     /**
      * Count events by type for a specific share link.
-     * 
+     *
      * @param shareLinkId The share link ID
-     * @param eventType The event type
+     * @param eventType   The event type
      * @return Count of events
      */
     long countByShareLink_IdAndEventType(UUID shareLinkId, ShareLinkEventType eventType);
 
     /**
      * Find analytics events for a specific quiz within a date range.
-     * 
-     * @param quizId The quiz ID
+     *
+     * @param quizId    The quiz ID
      * @param startDate Start date (inclusive)
-     * @param endDate End date (inclusive)
+     * @param endDate   End date (inclusive)
      * @return List of analytics events
      */
     @Query("SELECT sa FROM ShareLinkAnalytics sa " +
-           "JOIN sa.shareLink sl " +
-           "WHERE sl.quiz.id = :quizId " +
-           "AND sa.dateBucket BETWEEN :startDate AND :endDate " +
-           "ORDER BY sa.createdAt DESC")
+            "JOIN sa.shareLink sl " +
+            "WHERE sl.quiz.id = :quizId " +
+            "AND sa.dateBucket BETWEEN :startDate AND :endDate " +
+            "ORDER BY sa.createdAt DESC")
     List<ShareLinkAnalytics> findByQuizIdAndDateRange(
             @Param("quizId") UUID quizId,
             @Param("startDate") String startDate,
@@ -63,19 +63,19 @@ public interface ShareLinkAnalyticsRepository extends JpaRepository<ShareLinkAna
 
     /**
      * Get daily event counts for a quiz within a date range.
-     * 
-     * @param quizId The quiz ID
+     *
+     * @param quizId    The quiz ID
      * @param startDate Start date (inclusive)
-     * @param endDate End date (inclusive)
+     * @param endDate   End date (inclusive)
      * @return List of daily event counts
      */
     @Query("SELECT sa.dateBucket, sa.eventType, COUNT(sa) " +
-           "FROM ShareLinkAnalytics sa " +
-           "JOIN sa.shareLink sl " +
-           "WHERE sl.quiz.id = :quizId " +
-           "AND sa.dateBucket BETWEEN :startDate AND :endDate " +
-           "GROUP BY sa.dateBucket, sa.eventType " +
-           "ORDER BY sa.dateBucket DESC, sa.eventType")
+            "FROM ShareLinkAnalytics sa " +
+            "JOIN sa.shareLink sl " +
+            "WHERE sl.quiz.id = :quizId " +
+            "AND sa.dateBucket BETWEEN :startDate AND :endDate " +
+            "GROUP BY sa.dateBucket, sa.eventType " +
+            "ORDER BY sa.dateBucket DESC, sa.eventType")
     List<Object[]> getDailyEventCounts(
             @Param("quizId") UUID quizId,
             @Param("startDate") String startDate,
@@ -84,17 +84,17 @@ public interface ShareLinkAnalyticsRepository extends JpaRepository<ShareLinkAna
 
     /**
      * Get unique visitor count (by IP hash) for a quiz within a date range.
-     * 
-     * @param quizId The quiz ID
+     *
+     * @param quizId    The quiz ID
      * @param startDate Start date (inclusive)
-     * @param endDate End date (inclusive)
+     * @param endDate   End date (inclusive)
      * @return Count of unique visitors
      */
     @Query("SELECT COUNT(DISTINCT sa.ipHash) " +
-           "FROM ShareLinkAnalytics sa " +
-           "JOIN sa.shareLink sl " +
-           "WHERE sl.quiz.id = :quizId " +
-           "AND sa.dateBucket BETWEEN :startDate AND :endDate")
+            "FROM ShareLinkAnalytics sa " +
+            "JOIN sa.shareLink sl " +
+            "WHERE sl.quiz.id = :quizId " +
+            "AND sa.dateBucket BETWEEN :startDate AND :endDate")
     long getUniqueVisitorCount(
             @Param("quizId") UUID quizId,
             @Param("startDate") String startDate,
@@ -103,7 +103,7 @@ public interface ShareLinkAnalyticsRepository extends JpaRepository<ShareLinkAna
 
     /**
      * Delete analytics events older than the specified date.
-     * 
+     *
      * @param cutoffDate The cutoff date (events older than this will be deleted)
      * @return Number of deleted records
      */

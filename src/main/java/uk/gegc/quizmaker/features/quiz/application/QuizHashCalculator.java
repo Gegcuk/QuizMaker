@@ -20,6 +20,52 @@ import java.util.stream.Collectors;
 @Component
 public class QuizHashCalculator {
 
+    private static List<UUID> extractTagIds(Set<Tag> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        return tags.stream()
+                .filter(Objects::nonNull)
+                .map(Tag::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private static String normalizeText(String input) {
+        if (input == null) return "";
+        String normalized = Normalizer.normalize(input, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT)
+                .trim()
+                .replaceAll("\\s+", " ");
+        return normalized;
+    }
+
+    private static String normalizeUuidList(List<java.util.UUID> uuids) {
+        if (uuids == null || uuids.isEmpty()) {
+            return "[]";
+        }
+        return uuids.stream()
+                .filter(Objects::nonNull)
+                .map(java.util.UUID::toString)
+                .sorted(Comparator.naturalOrder())
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static String sha256Hex(String canonical) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().withUpperCase().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static String emptyHash() {
+        // SHA-256 of empty string
+        return "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
+    }
+
     public String calculateContentHash(QuizDto quizDto) {
         if (quizDto == null) {
             return emptyHash();
@@ -130,52 +176,6 @@ public class QuizHashCalculator {
                 .toString();
 
         return sha256Hex(canonical);
-    }
-
-    private static List<UUID> extractTagIds(Set<Tag> tags) {
-        if (tags == null || tags.isEmpty()) {
-            return List.of();
-        }
-        return tags.stream()
-                .filter(Objects::nonNull)
-                .map(Tag::getId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
-    }
-
-    private static String normalizeText(String input) {
-        if (input == null) return "";
-        String normalized = Normalizer.normalize(input, Normalizer.Form.NFKC)
-                .toLowerCase(Locale.ROOT)
-                .trim()
-                .replaceAll("\\s+", " ");
-        return normalized;
-    }
-
-    private static String normalizeUuidList(List<java.util.UUID> uuids) {
-        if (uuids == null || uuids.isEmpty()) {
-            return "[]";
-        }
-        return uuids.stream()
-                .filter(Objects::nonNull)
-                .map(java.util.UUID::toString)
-                .sorted(Comparator.naturalOrder())
-                .collect(Collectors.joining(",", "[", "]"));
-    }
-
-    private static String sha256Hex(String canonical) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(canonical.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().withUpperCase().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    }
-
-    private static String emptyHash() {
-        // SHA-256 of empty string
-        return "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
     }
 }
 

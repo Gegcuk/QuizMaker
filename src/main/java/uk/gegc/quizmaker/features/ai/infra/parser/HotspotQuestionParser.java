@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,16 +54,16 @@ public class HotspotQuestionParser {
         }
 
         JsonNode contentNode = questionNode.get("content");
-        
+
         // Validate imageUrl
         if (!contentNode.has("imageUrl")) {
             throw new AIResponseParseException("HOTSPOT question must have 'imageUrl' field");
         }
-        
+
         if (contentNode.get("imageUrl").asText().trim().isEmpty()) {
             throw new AIResponseParseException("HOTSPOT question must have non-empty 'imageUrl'");
         }
-        
+
         // Validate regions array
         if (!contentNode.has("regions") || !contentNode.get("regions").isArray()) {
             throw new AIResponseParseException("HOTSPOT question must have 'regions' array");
@@ -87,42 +87,42 @@ public class HotspotQuestionParser {
             if (!region.has("id")) {
                 throw new AIResponseParseException("Each region must have 'id' field");
             }
-            
+
             if (!region.get("id").canConvertToInt()) {
                 throw new AIResponseParseException("Region 'id' must be an integer");
             }
-            
+
             int id = region.get("id").asInt();
             if (ids.contains(id)) {
                 throw new AIResponseParseException("Region IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
-            
+
             // Validate coordinates
             for (String coordinate : new String[]{"x", "y", "width", "height"}) {
                 if (!region.has(coordinate)) {
                     throw new AIResponseParseException("Each region must have '" + coordinate + "' field");
                 }
-                
+
                 if (!region.get(coordinate).canConvertToInt()) {
                     throw new AIResponseParseException("Region '" + coordinate + "' must be an integer");
                 }
-                
+
                 int value = region.get(coordinate).asInt();
                 if (value < 0) {
                     throw new AIResponseParseException("Region '" + coordinate + "' must be non-negative");
                 }
             }
-            
+
             // Validate correct flag
             if (!region.has("correct")) {
                 throw new AIResponseParseException("Each region must have 'correct' field");
             }
-            
+
             if (!region.get("correct").isBoolean()) {
                 throw new AIResponseParseException("Region 'correct' field must be a boolean");
             }
-            
+
             // Check if at least one region is correct
             if (region.get("correct").asBoolean()) {
                 hasCorrectRegion = true;

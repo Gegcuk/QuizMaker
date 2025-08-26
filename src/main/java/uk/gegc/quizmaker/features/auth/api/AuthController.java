@@ -17,9 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
-import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
@@ -156,13 +156,13 @@ public class AuthController {
     ) {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
-        
+
         // Rate limiting check by email + IP
         rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + clientIp);
-        
+
         // Generate reset token (if email exists)
         authService.generatePasswordResetToken(request.email());
-        
+
         return ResponseEntity.accepted()
                 .body(new ForgotPasswordResponse("If the email exists, a reset link was sent."));
     }
@@ -195,13 +195,13 @@ public class AuthController {
     ) {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
-        
+
         // Rate limiting check by IP + token
         rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
-        
+
         // Reset the password
         authService.resetPassword(token, request.newPassword());
-        
+
         return ResponseEntity.ok(new ResetPasswordResponse("Password updated successfully"));
     }
 
@@ -216,16 +216,16 @@ public class AuthController {
     @PostMapping("/verify-email")
     public ResponseEntity<VerifyEmailResponse> verifyEmail(
             @Valid @RequestBody VerifyEmailRequest request,
-            HttpServletRequest httpRequest    ) {
-        
+            HttpServletRequest httpRequest) {
+
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
-        
+
         // Rate limiting check by IP to prevent brute force attempts
         rateLimitService.checkRateLimit("verify-email", clientIp);
-        
+
         LocalDateTime verifiedAt = authService.verifyEmail(request.token());
-        
+
         return ResponseEntity.ok(new VerifyEmailResponse(true, "Email verified successfully", verifiedAt));
     }
 
@@ -241,16 +241,16 @@ public class AuthController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<ResendVerificationResponse> resendVerification(
             @Valid @RequestBody ResendVerificationRequest request,
-            HttpServletRequest httpRequest    ) {
-        
+            HttpServletRequest httpRequest) {
+
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
-        
+
         // Rate limiting check with IP + email
         rateLimitService.checkRateLimit("resend-verification", request.email() + "|" + clientIp);
-        
+
         // Generate verification token (if email exists and not verified)
         authService.generateEmailVerificationToken(request.email());
-        
+
         return ResponseEntity.accepted()
                 .body(new ResendVerificationResponse("If the email exists and is not verified, a verification link was sent."));
     }

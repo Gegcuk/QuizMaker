@@ -102,7 +102,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
 
-
     @ExceptionHandler(AiServiceException.class)
     public ResponseEntity<ErrorResponse> handleAiServiceException(AiServiceException ex) {
         HttpStatus status = ex.getCause() instanceof org.springframework.web.client.RestClientException

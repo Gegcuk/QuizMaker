@@ -69,7 +69,7 @@ class ResetPasswordRequestValidationTest {
         // Then
         assertFalse(violations.isEmpty());
         assertTrue(violations.stream()
-                .anyMatch(v -> v.getPropertyPath().toString().equals("newPassword") && 
+                .anyMatch(v -> v.getPropertyPath().toString().equals("newPassword") &&
                         v.getMessage().contains("required")));
     }
 

@@ -11,9 +11,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.test.util.ReflectionTestUtils;
+import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -27,33 +27,25 @@ import static org.mockito.Mockito.*;
 @Execution(ExecutionMode.CONCURRENT)
 class PromptTemplateServiceTest {
 
-    @Mock
-    private ResourceLoader resourceLoader;
-
-    @Mock
-    private Resource systemPromptResource;
-
-    @Mock
-    private Resource contextTemplateResource;
-
-    @Mock
-    private Resource mcqTemplateResource;
-
-    @Mock
-    private Resource trueFalseTemplateResource;
-
-    @Mock
-    private Resource openTemplateResource;
-
-    @Mock
-    private Resource nonexistentResource;
-
-    @InjectMocks
-    private PromptTemplateServiceImpl promptTemplateService;
-
     private static final String SYSTEM_PROMPT = "You are an expert quiz generator.";
     private static final String CONTEXT_TEMPLATE = "Document content: {content}\nGenerate {questionCount} questions.";
     private static final String MCQ_TEMPLATE = "Generate {questionType} questions with {difficulty} difficulty.";
+    @Mock
+    private ResourceLoader resourceLoader;
+    @Mock
+    private Resource systemPromptResource;
+    @Mock
+    private Resource contextTemplateResource;
+    @Mock
+    private Resource mcqTemplateResource;
+    @Mock
+    private Resource trueFalseTemplateResource;
+    @Mock
+    private Resource openTemplateResource;
+    @Mock
+    private Resource nonexistentResource;
+    @InjectMocks
+    private PromptTemplateServiceImpl promptTemplateService;
 
     @BeforeEach
     void setUp() {
@@ -302,19 +294,19 @@ class PromptTemplateServiceTest {
     void shouldBeThreadSafe() throws IOException, InterruptedException {
         // Given
         setupMcqTemplatesOnly();
-        
+
         // When - Multiple threads access the service simultaneously
         int threadCount = 10;
         Thread[] threads = new Thread[threadCount];
-        
+
         for (int i = 0; i < threadCount; i++) {
             final int threadId = i;
             threads[i] = new Thread(() -> {
                 try {
                     String result = promptTemplateService.buildPromptForChunk(
-                            "Thread " + threadId + " content", 
-                            QuestionType.MCQ_SINGLE, 
-                            2, 
+                            "Thread " + threadId + " content",
+                            QuestionType.MCQ_SINGLE,
+                            2,
                             Difficulty.MEDIUM
                     );
                     assertNotNull(result);
@@ -324,17 +316,17 @@ class PromptTemplateServiceTest {
                 }
             });
         }
-        
+
         // Start all threads
         for (Thread thread : threads) {
             thread.start();
         }
-        
+
         // Wait for all threads to complete
         for (Thread thread : threads) {
             thread.join();
         }
-        
+
         // Then - No ConcurrentModificationException should occur
         // The test passes if no exception is thrown
     }

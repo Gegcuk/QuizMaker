@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class FillGapHandlerTest {
     void setUp() {
         handler = new FillGapHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.FILL_GAP);
@@ -120,10 +120,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -136,10 +136,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"ocean\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -152,10 +152,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"Sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -168,10 +168,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer\":\"sky\"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"  sky  \"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -184,10 +184,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"blue\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -200,10 +200,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"red\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -216,10 +216,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -232,10 +232,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -248,10 +248,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":999,\"answer\":\"sky\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -264,10 +264,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -280,10 +280,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"   \"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -296,10 +296,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"answer\":\"sky\"}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -312,10 +312,10 @@ class FillGapHandlerTest {
                 {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1}]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -329,11 +329,11 @@ class FillGapHandlerTest {
                 """);
         JsonNode response1 = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"blue\"}]}");
         JsonNode response2 = mapper.readTree("{\"answers\":[{\"gapId\":2,\"answer\":\"blue\"},{\"gapId\":1,\"answer\":\"sky\"}]}");
-        
+
         // When
         Answer answer1 = handler.doHandle(testAttempt, testQuestion, content, response1);
         Answer answer2 = handler.doHandle(testAttempt, testQuestion, content, response2);
-        
+
         // Then
         assertTrue(answer1.getIsCorrect());
         assertTrue(answer2.getIsCorrect());

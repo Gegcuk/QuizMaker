@@ -43,10 +43,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             } else {
                 // Log failed token validation with request details for security monitoring
                 String clientIp = trustedProxyUtil != null ? trustedProxyUtil.getClientIp(request) : request.getRemoteAddr();
-                log.warn("Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}", 
-                    clientIp, 
-                    request.getRequestURI(),
-                    request.getHeader("User-Agent"));
+                log.warn("Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}",
+                        clientIp,
+                        request.getRequestURI(),
+                        request.getHeader("User-Agent"));
             }
         }
 

@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 @Component
 @RequiredArgsConstructor
 public class EmailVerificationTokenCleanupScheduler {
-    
+
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
 
     @Scheduled(cron = "0 */10 * * * *") // Run every 10 minutes

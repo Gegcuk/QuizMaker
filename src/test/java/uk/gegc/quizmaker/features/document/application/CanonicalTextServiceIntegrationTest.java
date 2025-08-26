@@ -3,14 +3,12 @@ package uk.gegc.quizmaker.features.document.application;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
@@ -21,7 +19,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -32,29 +29,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional
 class CanonicalTextServiceIntegrationTest {
 
-    @Autowired
-    private CanonicalTextService canonicalTextService;
-
-    @Autowired
-    private DocumentRepository documentRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
     @TempDir
     static Path tempBase; // must be static for DynamicPropertySource
+    @TempDir
+    Path tempDir;
+    @Autowired
+    private CanonicalTextService canonicalTextService;
+    @Autowired
+    private DocumentRepository documentRepository;
+    @Autowired
+    private UserRepository userRepository;
+    private Document testDocument;
+    private User testUser;
+    private UUID documentId;
 
     @DynamicPropertySource
     static void props(DynamicPropertyRegistry r) {
         r.add("quizmaker.canonical.base-dir", () -> tempBase.resolve("qm-canon").toString());
     }
-
-    @TempDir
-    Path tempDir;
-
-    private Document testDocument;
-    private User testUser;
-    private UUID documentId;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -202,7 +194,7 @@ class CanonicalTextServiceIntegrationTest {
 
         // Then - verify files were created
         Path canonicalTextPath = tempBase.resolve("qm-canon").resolve(documentId + ".txt");
-        Path metadataPath      = tempBase.resolve("qm-canon").resolve(documentId + ".meta");
+        Path metadataPath = tempBase.resolve("qm-canon").resolve(documentId + ".meta");
 
         assertThat(Files.exists(canonicalTextPath)).isTrue();
         assertThat(Files.exists(metadataPath)).isTrue();

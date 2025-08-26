@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +54,7 @@ public class OrderingQuestionParser {
         }
 
         JsonNode contentNode = questionNode.get("content");
-        
+
         // Validate items array
         if (!contentNode.has("items") || !contentNode.get("items").isArray()) {
             throw new AIResponseParseException("ORDERING question must have 'items' array");
@@ -74,11 +74,11 @@ public class OrderingQuestionParser {
             if (!item.has("id")) {
                 throw new AIResponseParseException("Each item must have 'id' field");
             }
-            
+
             if (!item.get("id").canConvertToInt()) {
                 throw new AIResponseParseException("Item 'id' must be an integer");
             }
-            
+
             if (!item.has("text") || item.get("text").asText().trim().isEmpty()) {
                 throw new AIResponseParseException("Each item must have non-empty 'text' field");
             }

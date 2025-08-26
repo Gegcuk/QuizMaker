@@ -10,13 +10,13 @@ import java.util.UUID;
  * DTO for share link analytics data with privacy protection.
  */
 public record ShareLinkAnalyticsDto(
-    UUID id,
-    UUID shareLinkId,
-    ShareLinkEventType eventType,
-    String dateBucket,
-    String countryCode,
-    @JsonFormat(shape = JsonFormat.Shape.STRING)
-    Instant createdAt
+        UUID id,
+        UUID shareLinkId,
+        ShareLinkEventType eventType,
+        String dateBucket,
+        String countryCode,
+        @JsonFormat(shape = JsonFormat.Shape.STRING)
+        Instant createdAt
 ) {
     // Note: ipHash, userAgent, and referrer are intentionally excluded for privacy
 }

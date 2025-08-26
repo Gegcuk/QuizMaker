@@ -16,22 +16,22 @@ import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
-import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
-import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.auth.domain.model.EmailVerificationToken;
 import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
+import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
+import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
+import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
-import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
 import uk.gegc.quizmaker.shared.email.EmailService;
-import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -56,16 +56,16 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
-    
+
     @Value("${app.auth.reset-token-pepper}")
     private String resetTokenPepper;
-    
+
     @Value("${app.auth.reset-token-ttl-minutes:60}")
     private long resetTokenTtlMinutes;
 
     @Value("${app.auth.verification-token-pepper}")
     private String verificationTokenPepper;
-    
+
     @Value("${app.auth.verification-token-ttl-minutes:1440}")
     private long verificationTokenTtlMinutes;
 
@@ -102,10 +102,10 @@ public class AuthServiceImpl implements AuthService {
         user.setRoles(Set.of(userRole));
 
         User saved = userRepository.save(user);
-        
+
         // Send email verification
         generateEmailVerificationToken(saved.getEmail());
-        
+
         return userMapper.toDto(saved);
     }
 
@@ -170,30 +170,30 @@ public class AuthServiceImpl implements AuthService {
     public void generatePasswordResetToken(String email) {
         // Check if user exists (but don't reveal if they do or don't)
         Optional<User> userOpt = userRepository.findByEmail(email);
-        
+
         if (userOpt.isPresent()) {
             User user = userOpt.get();
-            
+
             // Invalidate any existing tokens for this user
             passwordResetTokenRepository.invalidateUserTokens(user.getId());
-            
+
             // Generate a secure random token
             String token = generateSecureToken();
             String tokenHash = hashToken(token);
-            
+
             // Create and save the reset token
             PasswordResetToken resetToken = new PasswordResetToken();
             resetToken.setTokenHash(tokenHash);
             resetToken.setUserId(user.getId());
             resetToken.setEmail(email);
-            
-                    // Set expiresAt using configurable TTL (UTC)
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        resetToken.setCreatedAt(now);
-        resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
-            
+
+            // Set expiresAt using configurable TTL (UTC)
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            resetToken.setCreatedAt(now);
+            resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
+
             passwordResetTokenRepository.save(resetToken);
-            
+
             // Send the reset email
             emailService.sendPasswordResetEmail(email, token);
         }
@@ -205,29 +205,29 @@ public class AuthServiceImpl implements AuthService {
     public void resetPassword(String token, String newPassword) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashToken(token);
-        
+
         // Find valid, unused, non-expired token
         Optional<PasswordResetToken> tokenOpt = passwordResetTokenRepository
                 .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, LocalDateTime.now());
-        
+
         if (tokenOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
         }
-        
+
         PasswordResetToken resetToken = tokenOpt.get();
-        
+
         // Find the user
         Optional<User> userOpt = userRepository.findById(resetToken.getUserId());
         if (userOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid reset token");
         }
-        
+
         User user = userOpt.get();
-        
+
         // Update the user's password
         user.setHashedPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-        
+
         // Mark the token as used
         resetToken.setUsed(true);
         passwordResetTokenRepository.save(resetToken);
@@ -239,32 +239,32 @@ public class AuthServiceImpl implements AuthService {
         // Hash the provided token to match against stored hash
         String tokenHash = hashVerificationToken(token);
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        
+
         // Find valid, unused, non-expired token
         Optional<EmailVerificationToken> tokenOpt = emailVerificationTokenRepository
                 .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, now);
-        
+
         if (tokenOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token");
         }
-        
+
         EmailVerificationToken verificationToken = tokenOpt.get();
-        
+
         // Find the user first to check if already verified
         Optional<User> userOpt = userRepository.findById(verificationToken.getUserId());
         if (userOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification token");
         }
-        
+
         User user = userOpt.get();
-        
+
         // Verify that the token is for the current user's email (prevent email change attacks)
         if (!user.getEmail().equals(verificationToken.getEmail())) {
             // Token is for a different email - invalidate all tokens for this user and reject
             emailVerificationTokenRepository.invalidateUserTokens(user.getId());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid verification token");
         }
-        
+
         // If user is already verified, mark token as used and return existing timestamp (idempotent behavior)
         if (user.isEmailVerified()) {
             // Still mark the token as used to prevent reuse
@@ -273,22 +273,22 @@ public class AuthServiceImpl implements AuthService {
             emailVerificationTokenRepository.invalidateUserTokens(user.getId());
             return user.getEmailVerifiedAt(); // User is already verified, return existing timestamp
         }
-        
+
         // Atomically mark the token as used to prevent race conditions
         int updated = emailVerificationTokenRepository.markUsedIfValid(verificationToken.getId(), now);
         if (updated == 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token");
         }
-        
+
         // Mark the user's email as verified
         user.setEmailVerified(true);
         user.setEmailVerifiedAt(now);
         user.setEmailVerifiedByTokenId(verificationToken.getId());
         userRepository.save(user);
-        
+
         // Invalidate all other verification tokens for this user
         emailVerificationTokenRepository.invalidateUserTokens(user.getId());
-        
+
         return now;
     }
 
@@ -297,46 +297,46 @@ public class AuthServiceImpl implements AuthService {
     public void generateEmailVerificationToken(String email) {
         // Check if user exists (but don't reveal if they do or don't)
         Optional<User> userOpt = userRepository.findByEmail(email);
-        
+
         if (userOpt.isPresent()) {
             User user = userOpt.get();
-            
+
             // Only send verification if email is not already verified
             if (!user.isEmailVerified()) {
                 // Invalidate any existing tokens for this user
                 emailVerificationTokenRepository.invalidateUserTokens(user.getId());
-                
+
                 // Generate a secure random token
                 String token = generateSecureToken();
                 String tokenHash = hashVerificationToken(token);
-                
+
                 // Create and save the verification token
                 EmailVerificationToken verificationToken = new EmailVerificationToken();
                 verificationToken.setTokenHash(tokenHash);
                 verificationToken.setUserId(user.getId());
                 verificationToken.setEmail(email);
-                
+
                 // Set expiresAt using configurable TTL (UTC)
                 LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
                 verificationToken.setCreatedAt(now);
                 verificationToken.setExpiresAt(now.plusMinutes(verificationTokenTtlMinutes));
-                
+
                 emailVerificationTokenRepository.save(verificationToken);
-                
+
                 // Send the verification email
                 emailService.sendEmailVerificationEmail(email, token);
             }
         }
         // If user doesn't exist, we don't do anything (security through obscurity)
     }
-    
+
     private String generateSecureToken() {
         SecureRandom random = new SecureRandom();
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
-    
+
     private String hashToken(String token) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

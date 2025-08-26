@@ -16,7 +16,7 @@ class DocumentNodeTest {
         // Given
         UUID documentId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        
+
         Document document = new Document();
         document.setId(documentId);
         document.setOriginalFilename("test.pdf");
@@ -25,7 +25,7 @@ class DocumentNodeTest {
         document.setFilePath("/uploads/test.pdf");
         document.setStatus(Document.DocumentStatus.PROCESSED);
         document.setTitle("Test Document");
-        
+
         User user = new User();
         user.setId(userId);
         document.setUploadedBy(user);

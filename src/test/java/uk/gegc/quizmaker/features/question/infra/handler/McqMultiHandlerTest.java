@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -29,12 +29,12 @@ class McqMultiHandlerTest {
     void setUp() {
         handler = new McqMultiHandler();
         mapper = new ObjectMapper();
-        
+
         // Setup test attempt and question
         testAttempt = new Attempt();
         testAttempt.setId(UUID.randomUUID());
         testAttempt.setStartedAt(Instant.now());
-        
+
         testQuestion = new Question();
         testQuestion.setId(UUID.randomUUID());
         testQuestion.setType(QuestionType.MCQ_MULTI);
@@ -179,10 +179,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"a\",\"c\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -199,10 +199,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"a\",\"b\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -219,10 +219,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"a\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -239,10 +239,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"a\",\"c\",\"b\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -258,10 +258,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -277,10 +277,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.createObjectNode();
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -296,10 +296,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"nonexistent\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -316,10 +316,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"a\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertTrue(answer.getIsCorrect());
         assertEquals(1.0, answer.getScore());
@@ -336,10 +336,10 @@ class McqMultiHandlerTest {
                 ]}
                 """);
         JsonNode response = mapper.readTree("{\"selectedOptionIds\":[\"b\",\"c\"]}");
-        
+
         // When
         Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
-        
+
         // Then
         assertFalse(answer.getIsCorrect());
         assertEquals(0.0, answer.getScore());
@@ -357,11 +357,11 @@ class McqMultiHandlerTest {
                 """);
         JsonNode response1 = mapper.readTree("{\"selectedOptionIds\":[\"a\",\"c\"]}");
         JsonNode response2 = mapper.readTree("{\"selectedOptionIds\":[\"c\",\"a\"]}");
-        
+
         // When
         Answer answer1 = handler.doHandle(testAttempt, testQuestion, content, response1);
         Answer answer2 = handler.doHandle(testAttempt, testQuestion, content, response2);
-        
+
         // Then
         assertTrue(answer1.getIsCorrect());
         assertTrue(answer2.getIsCorrect());

@@ -15,7 +15,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Configuration for asynchronous processing in the QuizMaker application.
- * 
+ * <p>
  * This configuration provides:
  * - Custom thread pool for AI operations with appropriate sizing
  * - Separate thread pool for general async operations
@@ -58,35 +58,35 @@ public class AsyncConfig implements AsyncConfigurer {
     @Bean(name = "aiTaskExecutor")
     public Executor aiTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        
+
         // Core pool size - number of threads to keep alive
         executor.setCorePoolSize(aiCorePoolSize);
-        
+
         // Maximum pool size - maximum number of threads to create
         executor.setMaxPoolSize(aiMaxPoolSize);
-        
+
         // Queue capacity - how many tasks can be queued before creating new threads
         executor.setQueueCapacity(aiQueueCapacity);
-        
+
         // Keep alive time for threads beyond core pool size
         executor.setKeepAliveSeconds(aiKeepAliveSeconds);
-        
+
         // Thread name prefix for easier debugging
         executor.setThreadNamePrefix("ai-");
-        
+
         // Rejection policy - caller runs the task if queue is full
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
-        
+
         // Wait for tasks to complete on shutdown
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
-        
+
         // Initialize the executor
         executor.initialize();
-        
+
         log.info("AI Task Executor configured - Core: {}, Max: {}, Queue: {}, KeepAlive: {}s",
                 aiCorePoolSize, aiMaxPoolSize, aiQueueCapacity, aiKeepAliveSeconds);
-        
+
         return executor;
     }
 
@@ -97,7 +97,7 @@ public class AsyncConfig implements AsyncConfigurer {
     @Bean(name = "generalTaskExecutor")
     public Executor generalTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        
+
         executor.setCorePoolSize(generalCorePoolSize);
         executor.setMaxPoolSize(generalMaxPoolSize);
         executor.setQueueCapacity(generalQueueCapacity);
@@ -106,12 +106,12 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
-        
+
         executor.initialize();
-        
+
         log.info("General Task Executor configured - Core: {}, Max: {}, Queue: {}, KeepAlive: {}s",
                 generalCorePoolSize, generalMaxPoolSize, generalQueueCapacity, generalKeepAliveSeconds);
-        
+
         return executor;
     }
 
@@ -137,7 +137,7 @@ public class AsyncConfig implements AsyncConfigurer {
                         method.getDeclaringClass().getSimpleName(),
                         method.getName(),
                         java.util.Arrays.toString(params), ex);
-                
+
                 // Call parent handler for default behavior
                 super.handleUncaughtException(ex, method, params);
             }

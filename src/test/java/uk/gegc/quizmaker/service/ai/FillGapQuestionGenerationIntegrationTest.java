@@ -9,10 +9,10 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import uk.gegc.quizmaker.features.ai.infra.parser.FillGapQuestionParser;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.ai.infra.parser.FillGapQuestionParser;
 
 import java.util.List;
 
@@ -34,51 +34,51 @@ class FillGapQuestionGenerationIntegrationTest {
     @BeforeEach
     void setUp() {
         testChunkContent = """
-            Java is a high-level, class-based, object-oriented programming language that is designed to have as few implementation dependencies as possible. It is a general-purpose programming language intended to let programmers write once, run anywhere (WORA), meaning that compiled Java code can run on all platforms that support Java without the need to recompile.
-            
-            Spring Framework is an application framework and inversion of control container for the Java platform. The framework's core features can be used by any Java application, but there are extensions for building web applications on top of the Java EE (Enterprise Edition) platform.
-            
-            REST (Representational State Transfer) is an architectural style that defines a set of constraints to be used for creating web services. Web services that conform to the REST architectural style, called RESTful web services, provide interoperability between computer systems on the internet.
-            """;
+                Java is a high-level, class-based, object-oriented programming language that is designed to have as few implementation dependencies as possible. It is a general-purpose programming language intended to let programmers write once, run anywhere (WORA), meaning that compiled Java code can run on all platforms that support Java without the need to recompile.
+                
+                Spring Framework is an application framework and inversion of control container for the Java platform. The framework's core features can be used by any Java application, but there are extensions for building web applications on top of the Java EE (Enterprise Edition) platform.
+                
+                REST (Representational State Transfer) is an architectural style that defines a set of constraints to be used for creating web services. Web services that conform to the REST architectural style, called RESTful web services, provide interoperability between computer systems on the internet.
+                """;
     }
 
     @Test
     void shouldParseValidFillGapQuestionsFromAIResponse() throws Exception {
         // Given - Simulated AI response for FILL_GAP questions
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Complete the sentence about Java programming language",
-                  "difficulty": "MEDIUM",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Java is a ___ programming language that follows the ___ principle",
-                    "gaps": [
-                      {"id": 1, "answer": "object-oriented"},
-                      {"id": 2, "answer": "WORA"}
-                    ]
-                  },
-                  "hint": "Think about Java's main characteristics and its famous slogan",
-                  "explanation": "Java is an object-oriented programming language that follows the WORA (Write Once, Run Anywhere) principle"
-                },
-                {
-                  "questionText": "Fill in the blanks about Spring Framework",
-                  "difficulty": "HARD",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Spring Framework provides ___ and ___ for Java applications",
-                    "gaps": [
-                      {"id": 1, "answer": "dependency injection"},
-                      {"id": 2, "answer": "inversion of control"}
-                    ]
-                  },
-                  "hint": "Consider the core features that Spring Framework is known for",
-                  "explanation": "Spring Framework provides dependency injection and inversion of control for Java applications"
+                  "questions": [
+                    {
+                      "questionText": "Complete the sentence about Java programming language",
+                      "difficulty": "MEDIUM",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Java is a ___ programming language that follows the ___ principle",
+                        "gaps": [
+                          {"id": 1, "answer": "object-oriented"},
+                          {"id": 2, "answer": "WORA"}
+                        ]
+                      },
+                      "hint": "Think about Java's main characteristics and its famous slogan",
+                      "explanation": "Java is an object-oriented programming language that follows the WORA (Write Once, Run Anywhere) principle"
+                    },
+                    {
+                      "questionText": "Fill in the blanks about Spring Framework",
+                      "difficulty": "HARD",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Spring Framework provides ___ and ___ for Java applications",
+                        "gaps": [
+                          {"id": 1, "answer": "dependency injection"},
+                          {"id": 2, "answer": "inversion of control"}
+                        ]
+                      },
+                      "hint": "Consider the core features that Spring Framework is known for",
+                      "explanation": "Spring Framework provides dependency injection and inversion of control for Java applications"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -122,24 +122,24 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldHandleSingleGapQuestions() throws Exception {
         // Given - AI response with single gap questions
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "What does REST stand for?",
-                  "difficulty": "EASY",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "REST stands for ___ State Transfer",
-                    "gaps": [
-                      {"id": 1, "answer": "Representational"}
-                    ]
-                  },
-                  "hint": "Think about the full name of REST",
-                  "explanation": "REST stands for Representational State Transfer"
+                  "questions": [
+                    {
+                      "questionText": "What does REST stand for?",
+                      "difficulty": "EASY",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "REST stands for ___ State Transfer",
+                        "gaps": [
+                          {"id": 1, "answer": "Representational"}
+                        ]
+                      },
+                      "hint": "Think about the full name of REST",
+                      "explanation": "REST stands for Representational State Transfer"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -162,25 +162,25 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldHandleQuestionsWithMultipleGaps() throws Exception {
         // Given - AI response with multiple gaps
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Complete the Java programming description",
-                  "difficulty": "HARD",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Java is a ___ programming language that is designed to have ___ implementation dependencies as possible",
-                    "gaps": [
-                      {"id": 1, "answer": "high-level"},
-                      {"id": 2, "answer": "few"}
-                    ]
-                  },
-                  "hint": "Consider Java's design philosophy and level of abstraction",
-                  "explanation": "Java is a high-level programming language that is designed to have few implementation dependencies as possible"
+                  "questions": [
+                    {
+                      "questionText": "Complete the Java programming description",
+                      "difficulty": "HARD",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Java is a ___ programming language that is designed to have ___ implementation dependencies as possible",
+                        "gaps": [
+                          {"id": 1, "answer": "high-level"},
+                          {"id": 2, "answer": "few"}
+                        ]
+                      },
+                      "hint": "Consider Java's design philosophy and level of abstraction",
+                      "explanation": "Java is a high-level programming language that is designed to have few implementation dependencies as possible"
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -195,7 +195,7 @@ class FillGapQuestionGenerationIntegrationTest {
         JsonNode content = objectMapper.readTree(question.getContent());
         assertEquals("Java is a ___ programming language that is designed to have ___ implementation dependencies as possible", content.get("text").asText());
         assertEquals(2, content.get("gaps").size());
-        
+
         // Verify gap order and content
         assertEquals(1, content.get("gaps").get(0).get("id").asInt());
         assertEquals("high-level", content.get("gaps").get(0).get("answer").asText());
@@ -207,22 +207,22 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldHandleQuestionsWithoutHintsAndExplanations() throws Exception {
         // Given - AI response without optional fields
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Complete the sentence",
-                  "difficulty": "MEDIUM",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Spring Framework is an ___ framework for Java",
-                    "gaps": [
-                      {"id": 1, "answer": "application"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Complete the sentence",
+                      "difficulty": "MEDIUM",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Spring Framework is an ___ framework for Java",
+                        "gaps": [
+                          {"id": 1, "answer": "application"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -241,21 +241,21 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldHandleQuestionsWithDefaultDifficulty() throws Exception {
         // Given - AI response without difficulty field
         String aiResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Complete the sentence",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Java follows the ___ principle",
-                    "gaps": [
-                      {"id": 1, "answer": "WORA"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Complete the sentence",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Java follows the ___ principle",
+                        "gaps": [
+                          {"id": 1, "answer": "WORA"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 
@@ -272,21 +272,21 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldValidateGapStructureCorrectly() {
         // Given - Invalid AI response with missing gap ID
         String invalidResponse = """
-            {
-              "questions": [
                 {
-                  "questionText": "Complete the sentence",
-                  "type": "FILL_GAP",
-                  "content": {
-                    "text": "Java is a ___ language",
-                    "gaps": [
-                      {"answer": "programming"}
-                    ]
-                  }
+                  "questions": [
+                    {
+                      "questionText": "Complete the sentence",
+                      "type": "FILL_GAP",
+                      "content": {
+                        "text": "Java is a ___ language",
+                        "gaps": [
+                          {"answer": "programming"}
+                        ]
+                      }
+                    }
+                  ]
                 }
-              ]
-            }
-            """;
+                """;
 
         // When & Then
         assertThrows(Exception.class, () -> {
@@ -299,10 +299,10 @@ class FillGapQuestionGenerationIntegrationTest {
     void shouldHandleEmptyQuestionsArray() throws Exception {
         // Given - AI response with empty questions array
         String aiResponse = """
-            {
-              "questions": []
-            }
-            """;
+                {
+                  "questions": []
+                }
+                """;
 
         JsonNode contentNode = objectMapper.readTree(aiResponse);
 

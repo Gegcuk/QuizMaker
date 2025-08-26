@@ -16,13 +16,13 @@ public class QuestionHandlerFactory {
 
     public QuestionHandlerFactory(List<QuestionHandler> handlers) {
         log.info("Initializing QuestionHandlerFactory with {} handlers", handlers.size());
-        
+
         handlers.forEach(handler -> {
             QuestionType supportedType = handler.supportedType();
             log.debug("Registering handler {} for type {}", handler.getClass().getSimpleName(), supportedType);
             handlerMap.put(supportedType, handler);
         });
-        
+
         log.info("QuestionHandlerFactory initialized with handlers for types: {}", handlerMap.keySet());
     }
 

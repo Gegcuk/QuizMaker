@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record AvatarUploadResponse(
         @Schema(description = "Public URL of the uploaded avatar") String avatarUrl,
         @Schema(description = "Human friendly message") String message
-) {}
+) {
+}
 
 

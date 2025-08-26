@@ -10,11 +10,12 @@ public record UpdateUserProfileRequest(
         @Schema(description = "Display name (max 50 characters)")
         @Size(max = 50, message = "Display name must not exceed 50 characters")
         String displayName,
-        
+
         @Schema(description = "Bio (max 500 characters)")
         @Size(max = 500, message = "Bio must not exceed 500 characters")
         String bio,
-        
+
         @Schema(description = "User preferences as JSON object")
         Map<String, Object> preferences
-) {}
+) {
+}

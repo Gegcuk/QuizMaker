@@ -10,12 +10,12 @@ import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.shared.security.annotation.RequireRole;
-import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 
 import java.util.List;
 import java.util.UUID;

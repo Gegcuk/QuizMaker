@@ -2,12 +2,12 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -68,10 +68,10 @@ public class McqMultiHandler extends QuestionHandler {
                 .collect(Collectors.toSet());
 
         JsonNode selectedNode = response.get("selectedOptionIds");
-        Set<String> selected = selectedNode != null && selectedNode.isArray() 
+        Set<String> selected = selectedNode != null && selectedNode.isArray()
                 ? StreamSupport.stream(selectedNode.spliterator(), false)
-                        .map(JsonNode::asText)
-                        .collect(Collectors.toSet())
+                .map(JsonNode::asText)
+                .collect(Collectors.toSet())
                 : Set.of();
 
         boolean isCorrect = correct.equals(selected);

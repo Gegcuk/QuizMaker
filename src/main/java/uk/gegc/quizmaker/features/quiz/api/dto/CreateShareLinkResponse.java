@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record CreateShareLinkResponse(
         @Schema(description = "Share link descriptor") ShareLinkDto link,
         @Schema(description = "Raw token, return only on creation") String token
-) {}
+) {
+}
 
 

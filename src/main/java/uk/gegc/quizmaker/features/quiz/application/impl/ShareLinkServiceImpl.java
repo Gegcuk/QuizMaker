@@ -8,20 +8,20 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
-import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
-import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkUsageRepository;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ShareLinkAlreadyUsedException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -39,21 +39,35 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ShareLinkServiceImpl implements ShareLinkService {
 
+    private static final SecureRandom RNG = new SecureRandom();
     private final ShareLinkRepository shareLinkRepository;
     private final QuizRepository quizRepository;
     private final UserRepository userRepository;
     private final ShareLinkUsageRepository usageRepository;
     private final ShareLinkAnalyticsRepository analyticsRepository;
     private final AppPermissionEvaluator appPermissionEvaluator;
-
     @Value("${quizmaker.share-links.token-pepper:}")
     private String tokenPepper;
-
     @Value("${quizmaker.share-links.default-expiry-hours:168}")
     private long defaultExpiryHours;
-
     @Value("${quizmaker.share-links.max-expiry-hours:720}")
     private long maxExpiryHours;
+
+    private static String sha256Hex(String input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().withUpperCase().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static String newToken() {
+        byte[] b = new byte[32];
+        RNG.nextBytes(b);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
 
     @PostConstruct
     void checkPepperConfigured() {
@@ -136,23 +150,6 @@ public class ShareLinkServiceImpl implements ShareLinkService {
                 link.getRevokedAt(),
                 link.getCreatedAt()
         );
-    }
-
-    private static String sha256Hex(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().withUpperCase().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    }
-
-    private static final SecureRandom RNG = new SecureRandom();
-    private static String newToken() {
-        byte[] b = new byte[32];
-        RNG.nextBytes(b);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
     }
 
     @Override
@@ -261,7 +258,7 @@ public class ShareLinkServiceImpl implements ShareLinkService {
     @Transactional
     public ShareLinkDto consumeOneTimeToken(String token, String userAgent, String ipAddress) {
         String tokenHash = sha256Hex(tokenPepper + token);
-        
+
         // First, try to find the token (including revoked ones)
         ShareLink link = shareLinkRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new ResourceNotFoundException("Invalid or unknown token"));

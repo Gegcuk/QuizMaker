@@ -34,23 +34,23 @@ public class AiAnalysisController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> analyzeAiResponses() {
         log.info("Starting AI response analysis...");
-        
+
         try {
             aiResponseAnalyzer.analyzeRecentResponses();
-            
+
             Map<String, String> response = new HashMap<>();
             response.put("status", "success");
             response.put("message", "AI response analysis completed. Check application logs for details.");
-            
+
             return ResponseEntity.ok(response);
-            
+
         } catch (Exception e) {
             log.error("Error during AI response analysis", e);
-            
+
             Map<String, String> response = new HashMap<>();
             response.put("status", "error");
             response.put("message", "Error during analysis: " + e.getMessage());
-            
+
             return ResponseEntity.internalServerError().body(response);
         }
     }

@@ -47,9 +47,9 @@ public class AuthRequestValidationTest {
     @Test
     void registerRequest_shouldAcceptValidPassword() {
         RegisterRequest request = new RegisterRequest(
-            "testuser", 
-            "test@example.com", 
-            "Valid@Pass123"
+                "testuser",
+                "test@example.com",
+                "Valid@Pass123"
         );
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
         assertThat(violations).isEmpty();
@@ -58,25 +58,25 @@ public class AuthRequestValidationTest {
     @Test
     void registerRequest_shouldRejectWeakPassword() {
         RegisterRequest request = new RegisterRequest(
-            "testuser", 
-            "test@example.com", 
-            "weak"
+                "testuser",
+                "test@example.com",
+                "weak"
         );
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
-        
+
         // Should have 2 violations: @Size and @ValidPassword
         assertThat(violations).hasSize(2);
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("password");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("password");
     }
 
     @Test
     void registerRequest_shouldRejectUsernameWithSpaces() {
         RegisterRequest request = new RegisterRequest(
-            " testuser ", 
-            "test@example.com", 
-            "Valid@Pass123"
+                " testuser ",
+                "test@example.com",
+                "Valid@Pass123"
         );
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(1);
@@ -86,37 +86,37 @@ public class AuthRequestValidationTest {
     @Test
     void registerRequest_shouldRejectEmailWithSpaces() {
         RegisterRequest request = new RegisterRequest(
-            "testuser",
-            " test@example.com ",  // email with leading/trailing spaces
-            "ValidPass123!"
+                "testuser",
+                " test@example.com ",  // email with leading/trailing spaces
+                "ValidPass123!"
         );
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(2); // @NoLeadingTrailingSpaces and @Email violations
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("email");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("email");
     }
 
     @Test
     void registerRequest_shouldRejectOversizedEmail() {
         String longEmail = "a".repeat(250) + "@example.com"; // Over 254 chars
         RegisterRequest request = new RegisterRequest(
-            "testuser",
-            longEmail,
-            "ValidPass123!"
+                "testuser",
+                longEmail,
+                "ValidPass123!"
         );
         Set<ConstraintViolation<RegisterRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(2); // @Size and @Email violations
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("email");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("email");
     }
 
     @Test
     void changePasswordRequest_shouldAcceptValidNewPassword() {
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "OldPassword123!", 
-            "NewValid@Pass123"
+                "OldPassword123!",
+                "NewValid@Pass123"
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).isEmpty();
@@ -125,26 +125,26 @@ public class AuthRequestValidationTest {
     @Test
     void changePasswordRequest_shouldRejectWeakNewPassword() {
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "OldPassword123!", 
-            "weak"
+                "OldPassword123!",
+                "weak"
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(2); // @Size and @ValidPassword
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("newPassword");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("newPassword");
     }
 
     @Test
     void changePasswordRequest_shouldRejectSamePasswords() {
         // Test the @DifferentFrom constraint
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "SamePass123!",
-            "SamePass123!"
+                "SamePass123!",
+                "SamePass123!"
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(1);
-        
+
         // The violation should now be attached to the newPassword field
         ConstraintViolation<ChangePasswordRequest> violation = violations.iterator().next();
         assertThat(violation.getPropertyPath().toString()).isEqualTo("newPassword");
@@ -155,8 +155,8 @@ public class AuthRequestValidationTest {
         // @DifferentFrom should skip validation when currentPassword is blank
         // Only @NotBlank violation should be reported, no duplicate @DifferentFrom violation
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "",  // blank current password
-            "NewValid@Pass123"
+                "",  // blank current password
+                "NewValid@Pass123"
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(1); // Only @NotBlank violation
@@ -168,14 +168,14 @@ public class AuthRequestValidationTest {
         // @DifferentFrom should skip validation when newPassword is blank
         // Only @NotBlank, @Size, and @ValidPassword violations should be reported, no @DifferentFrom violation
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "OldPassword123!",
-            ""  // blank new password
+                "OldPassword123!",
+                ""  // blank new password
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(3); // @NotBlank, @Size, and @ValidPassword violations
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("newPassword");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("newPassword");
     }
 
     @Test
@@ -183,21 +183,21 @@ public class AuthRequestValidationTest {
         // @DifferentFrom should skip validation when both passwords are blank
         // Only @NotBlank violations should be reported, no @DifferentFrom violation
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "",  // blank current password
-            ""   // blank new password
+                "",  // blank current password
+                ""   // blank new password
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(4); // @NotBlank for current, @NotBlank, @Size, and @ValidPassword for new
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("currentPassword", "newPassword");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("currentPassword", "newPassword");
     }
 
     @Test
     void changePasswordRequest_shouldAcceptDifferentValidPasswords() {
         ChangePasswordRequest request = new ChangePasswordRequest(
-            "OldValid@Pass123",
-            "NewValid@Pass456"
+                "OldValid@Pass123",
+                "NewValid@Pass456"
         );
         Set<ConstraintViolation<ChangePasswordRequest>> violations = validator.validate(request);
         assertThat(violations).isEmpty();
@@ -206,7 +206,7 @@ public class AuthRequestValidationTest {
     @Test
     void resetPasswordRequest_shouldAcceptValidNewPassword() {
         ResetPasswordRequest request = new ResetPasswordRequest(
-            "NewValid@Pass123"
+                "NewValid@Pass123"
         );
         Set<ConstraintViolation<ResetPasswordRequest>> violations = validator.validate(request);
         assertThat(violations).isEmpty();
@@ -215,13 +215,13 @@ public class AuthRequestValidationTest {
     @Test
     void resetPasswordRequest_shouldRejectWeakNewPassword() {
         ResetPasswordRequest request = new ResetPasswordRequest(
-            "weak"
+                "weak"
         );
         Set<ConstraintViolation<ResetPasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(1); // Only @ValidPassword violation (no @Size since "weak" is 4 chars)
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("newPassword");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("newPassword");
     }
 
     @Test
@@ -242,12 +242,12 @@ public class AuthRequestValidationTest {
     @Test
     void forgotPasswordRequest_shouldRejectEmailWithSpaces() {
         ForgotPasswordRequest request = new ForgotPasswordRequest(
-            " test@example.com "  // email with leading/trailing spaces
+                " test@example.com "  // email with leading/trailing spaces
         );
         Set<ConstraintViolation<ForgotPasswordRequest>> violations = validator.validate(request);
         assertThat(violations).hasSize(2); // @NoLeadingTrailingSpaces and @Email violations
         assertThat(violations)
-            .extracting(v -> v.getPropertyPath().toString())
-            .containsOnly("email");
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsOnly("email");
     }
 } 

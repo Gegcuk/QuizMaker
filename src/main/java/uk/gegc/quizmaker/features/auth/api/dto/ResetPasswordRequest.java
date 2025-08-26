@@ -7,4 +7,5 @@ public record ResetPasswordRequest(
         @NotBlank(message = "Password is required")
         @ValidPassword
         String newPassword
-) {}
+) {
+}

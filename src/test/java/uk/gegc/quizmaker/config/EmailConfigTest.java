@@ -19,7 +19,7 @@ class EmailConfigTest {
     void emailConfiguration_ShouldBeProperlyConfigured() {
         // Verify that the JavaMailSender is properly configured
         assertThat(mailSender).isNotNull();
-        
+
         // The mailSender should be able to create messages
         assertThat(mailSender.createMimeMessage()).isNotNull();
     }

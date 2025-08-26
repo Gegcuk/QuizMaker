@@ -30,21 +30,6 @@ public class DifferentFromValidatorTest {
         validator = validatorFactory.getValidator();
     }
 
-    @DifferentFrom(field = "field1", notEqualTo = "field2")
-    static class TestRecord {
-        private final String field1;
-        private final String field2;
-
-        public TestRecord(String field1, String field2) {
-            this.field1 = field1;
-            this.field2 = field2;
-        }
-
-        // Property accessor methods for bean introspection
-        public String getField1() { return field1; }
-        public String getField2() { return field2; }
-    }
-
     @Test
     void shouldAcceptDifferentValues() {
         TestRecord record = new TestRecord("value1", "value2");
@@ -57,7 +42,7 @@ public class DifferentFromValidatorTest {
         TestRecord record = new TestRecord("sameValue", "sameValue");
         Set<ConstraintViolation<TestRecord>> violations = validator.validate(record);
         assertThat(violations).hasSize(1);
-        
+
         ConstraintViolation<TestRecord> violation = violations.iterator().next();
         // Now the violation should be attached to the specific field
         assertThat(violation.getPropertyPath().toString()).isEqualTo("field1");
@@ -137,7 +122,7 @@ public class DifferentFromValidatorTest {
         DifferentFromValidator validator = new DifferentFromValidator();
         DifferentFrom annotation = TestRecord.class.getAnnotation(DifferentFrom.class);
         validator.initialize(annotation);
-        
+
         boolean result = validator.isValid(null, null);
         assertThat(result).isTrue();
     }
@@ -147,39 +132,48 @@ public class DifferentFromValidatorTest {
         @DifferentFrom(field = "nonExistent1", notEqualTo = "nonExistent2")
         class InvalidRecord {
             private final String field1 = "value1";
-            public String getField1() { return field1; }
+
+            public String getField1() {
+                return field1;
+            }
         }
 
         InvalidRecord record = new InvalidRecord();
-        
+
         // Hibernate Validator wraps our ValidationException in another ValidationException
         // We need to check for the cause chain properly
         assertThatThrownBy(() -> validator.validate(record))
-            .isInstanceOf(jakarta.validation.ValidationException.class)
-            .hasMessageContaining("HV000028: Unexpected exception during isValid call")
-            .getCause()
-            .isInstanceOf(jakarta.validation.ValidationException.class)
-            .hasMessageContaining("Invalid fields for @DifferentFrom: 'nonExistent1' and 'nonExistent2' on InvalidRecord")
-            .getCause()
-            .isInstanceOf(NoSuchFieldException.class)
-            .hasMessage("nonExistent1");
+                .isInstanceOf(jakarta.validation.ValidationException.class)
+                .hasMessageContaining("HV000028: Unexpected exception during isValid call")
+                .getCause()
+                .isInstanceOf(jakarta.validation.ValidationException.class)
+                .hasMessageContaining("Invalid fields for @DifferentFrom: 'nonExistent1' and 'nonExistent2' on InvalidRecord")
+                .getCause()
+                .isInstanceOf(NoSuchFieldException.class)
+                .hasMessage("nonExistent1");
     }
 
     @Test
     void shouldWorkWithJavaRecords() {
         // Test with actual Java record
-        record SimpleRecord(String field1, String field2) {}
-        
+        record SimpleRecord(String field1, String field2) {
+        }
+
         @DifferentFrom(field = "field1", notEqualTo = "field2")
         class RecordWrapper {
             private final SimpleRecord record;
-            
+
             public RecordWrapper(String field1, String field2) {
                 this.record = new SimpleRecord(field1, field2);
             }
-            
-            public String getField1() { return record.field1(); }
-            public String getField2() { return record.field2(); }
+
+            public String getField1() {
+                return record.field1();
+            }
+
+            public String getField2() {
+                return record.field2();
+            }
         }
 
         RecordWrapper wrapper = new RecordWrapper("different1", "different2");
@@ -190,5 +184,25 @@ public class DifferentFromValidatorTest {
         Set<ConstraintViolation<RecordWrapper>> violationsSame = validator.validate(wrapperSame);
         assertThat(violationsSame).hasSize(1);
         assertThat(violationsSame.iterator().next().getPropertyPath().toString()).isEqualTo("field1");
+    }
+
+    @DifferentFrom(field = "field1", notEqualTo = "field2")
+    static class TestRecord {
+        private final String field1;
+        private final String field2;
+
+        public TestRecord(String field1, String field2) {
+            this.field1 = field1;
+            this.field2 = field2;
+        }
+
+        // Property accessor methods for bean introspection
+        public String getField1() {
+            return field1;
+        }
+
+        public String getField2() {
+            return field2;
+        }
     }
 } 

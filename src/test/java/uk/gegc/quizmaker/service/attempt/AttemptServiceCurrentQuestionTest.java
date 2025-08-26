@@ -10,18 +10,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.attempt.api.dto.CurrentQuestionDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
+import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
-import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
-import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.*;
@@ -58,7 +58,7 @@ class AttemptServiceCurrentQuestionTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        
+
         testUser = new User();
         testUser.setId(UUID.randomUUID());
         testUser.setUsername("testuser");
@@ -134,7 +134,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(0L);
-        
+
         // Use a custom answer that returns different DTOs based on the question
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenAnswer(invocation -> {
@@ -167,7 +167,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(1L);
-        
+
         // Use a custom answer that returns different DTOs based on the question
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenAnswer(invocation -> {
@@ -264,7 +264,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(2L);
-        
+
         // Use a custom answer that returns different DTOs based on the question
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenAnswer(invocation -> {
@@ -300,13 +300,13 @@ class AttemptServiceCurrentQuestionTest {
             manyQuestions.add(q);
         }
         testQuiz.setQuestions(manyQuestions);
-        
+
         UUID attemptId = testAttempt.getId();
         when(attemptRepository.findFullyLoadedById(attemptId))
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(7L); // 7 questions answered, so should return question 8
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenReturn(safeQuestionDto1);
 
@@ -332,13 +332,13 @@ class AttemptServiceCurrentQuestionTest {
         q.setContent("{\"question\": \"Single Question\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
         singleQuestion.add(q);
         testQuiz.setQuestions(singleQuestion);
-        
+
         UUID attemptId = testAttempt.getId();
         when(attemptRepository.findFullyLoadedById(attemptId))
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(0L); // No questions answered
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenReturn(safeQuestionDto1);
 
@@ -364,7 +364,7 @@ class AttemptServiceCurrentQuestionTest {
         q.setContent("{\"question\": \"Single Question\", \"options\": [\"A\", \"B\", \"C\", \"D\"]}");
         singleQuestion.add(q);
         testQuiz.setQuestions(singleQuestion);
-        
+
         UUID attemptId = testAttempt.getId();
         when(attemptRepository.findFullyLoadedById(attemptId))
                 .thenReturn(Optional.of(testAttempt));
@@ -403,13 +403,13 @@ class AttemptServiceCurrentQuestionTest {
         // Add questions in random order to test sorting
         Set<Question> questions = new HashSet<>(Arrays.asList(q3, q1, q2));
         testQuiz.setQuestions(questions);
-        
+
         UUID attemptId = testAttempt.getId();
         when(attemptRepository.findFullyLoadedById(attemptId))
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(1L); // 1 question answered, should return second question
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenAnswer(invocation -> {
                     Question question = invocation.getArgument(0);
@@ -437,7 +437,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(0L); // No answers
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenReturn(safeQuestionDto1);
 
@@ -459,7 +459,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(1L); // 1 answer, should return second question
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenReturn(safeQuestionDto2);
 
@@ -481,7 +481,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(Optional.of(testAttempt));
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(2L); // 2 answers, should return third question (last)
-        
+
         when(safeQuestionMapper.toSafeDto(any(Question.class)))
                 .thenReturn(safeQuestionDto2);
 

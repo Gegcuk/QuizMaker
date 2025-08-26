@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +54,7 @@ public class FillGapQuestionParser {
         }
 
         JsonNode contentNode = questionNode.get("content");
-        
+
         // Validate text field
         if (!contentNode.has("text") || contentNode.get("text").asText().trim().isEmpty()) {
             throw new AIResponseParseException("FILL_GAP question must have non-empty 'text' field");
@@ -75,11 +75,11 @@ public class FillGapQuestionParser {
             if (!gap.has("id")) {
                 throw new AIResponseParseException("Each gap must have 'id' field");
             }
-            
+
             if (!gap.get("id").canConvertToInt()) {
                 throw new AIResponseParseException("Gap 'id' must be an integer");
             }
-            
+
             if (!gap.has("answer") || gap.get("answer").asText().trim().isEmpty()) {
                 throw new AIResponseParseException("Each gap must have non-empty 'answer' field");
             }

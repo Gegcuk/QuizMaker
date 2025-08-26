@@ -7,10 +7,10 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.shared.exception.ForbiddenException;
-import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.shared.security.annotation.RequireResourceOwnership;
@@ -82,36 +82,36 @@ public class PermissionAspect {
         UUID resourceOwnerId = null;
 
         // Find the resource parameter
-		for (int i = 0; i < parameters.length; i++) {
+        for (int i = 0; i < parameters.length; i++) {
             if (parameters[i].getName().equals(resourceParam)) {
                 Object resourceValue = args[i];
 
                 if (resourceValue instanceof UUID) {
                     resourceOwnerId = (UUID) resourceValue;
                 } else if (resourceValue != null) {
-					// Try to extract owner ID from the resource object using a public or declared getter
-					try {
-						String getterName = "get" + capitalize(ownerField);
-						Method ownerMethod = resolveAccessibleMethod(resourceValue.getClass(), getterName);
-						if (ownerMethod != null) {
-							ownerMethod.setAccessible(true);
-							Object owner = ownerMethod.invoke(resourceValue);
-							if (owner instanceof UUID) {
-								resourceOwnerId = (UUID) owner;
-							} else if (owner instanceof String) {
-								try {
-									resourceOwnerId = UUID.fromString((String) owner);
-								} catch (IllegalArgumentException ignored) {
-									// not a UUID string; ignore
-								}
-							}
-						} else {
-							log.warn("Could not extract owner ID from resource parameter: no accessible getter '{}' on {}",
-									getterName, resourceValue.getClass().getName());
-						}
-					} catch (Exception e) {
-						log.warn("Could not extract owner ID from resource parameter: {}", e.getMessage());
-					}
+                    // Try to extract owner ID from the resource object using a public or declared getter
+                    try {
+                        String getterName = "get" + capitalize(ownerField);
+                        Method ownerMethod = resolveAccessibleMethod(resourceValue.getClass(), getterName);
+                        if (ownerMethod != null) {
+                            ownerMethod.setAccessible(true);
+                            Object owner = ownerMethod.invoke(resourceValue);
+                            if (owner instanceof UUID) {
+                                resourceOwnerId = (UUID) owner;
+                            } else if (owner instanceof String) {
+                                try {
+                                    resourceOwnerId = UUID.fromString((String) owner);
+                                } catch (IllegalArgumentException ignored) {
+                                    // not a UUID string; ignore
+                                }
+                            }
+                        } else {
+                            log.warn("Could not extract owner ID from resource parameter: no accessible getter '{}' on {}",
+                                    getterName, resourceValue.getClass().getName());
+                        }
+                    } catch (Exception e) {
+                        log.warn("Could not extract owner ID from resource parameter: {}", e.getMessage());
+                    }
                 }
                 break;
             }
@@ -129,29 +129,29 @@ public class PermissionAspect {
         }
     }
 
-	private String capitalize(String str) {
+    private String capitalize(String str) {
         if (str == null || str.isEmpty()) {
             return str;
         }
         return str.substring(0, 1).toUpperCase() + str.substring(1);
     }
 
-	private Method resolveAccessibleMethod(Class<?> type, String methodName) {
-		// Try public method first
-		try {
-			return type.getMethod(methodName);
-		} catch (NoSuchMethodException ignored) {
-			// fall through
-		}
-		// Try declared methods up the hierarchy
-		Class<?> current = type;
-		while (current != null) {
-			try {
-				return current.getDeclaredMethod(methodName);
-			} catch (NoSuchMethodException ignored) {
-				current = current.getSuperclass();
-			}
-		}
-		return null;
-	}
+    private Method resolveAccessibleMethod(Class<?> type, String methodName) {
+        // Try public method first
+        try {
+            return type.getMethod(methodName);
+        } catch (NoSuchMethodException ignored) {
+            // fall through
+        }
+        // Try declared methods up the hierarchy
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredMethod(methodName);
+            } catch (NoSuchMethodException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
+    }
 } 

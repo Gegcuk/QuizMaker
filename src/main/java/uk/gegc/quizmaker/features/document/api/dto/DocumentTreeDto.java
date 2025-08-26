@@ -7,9 +7,9 @@ import java.util.UUID;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DocumentTreeDto(
-    UUID documentId,
-    String documentTitle,
-    List<DocumentNodeDto> nodes
+        UUID documentId,
+        String documentTitle,
+        List<DocumentNodeDto> nodes
 ) {
     // Empty constructor for Jackson
     public DocumentTreeDto {

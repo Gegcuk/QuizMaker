@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -27,11 +26,11 @@ import java.util.UUID;
 
 /**
  * Service for managing canonical text representation of documents.
- * 
+ * <p>
  * This service provides one canonical UTF-8 text string per document with offset indexing
  * for pages and paragraphs. The canonical text is stored in the filesystem alongside
  * the original upload, and a source version hash is maintained for determinism.
- * 
+ * <p>
  * Implementation of Day 2 — Canonical Text Pipeline from the chunk processing improvement plan.
  */
 @Service
@@ -55,7 +54,7 @@ public class CanonicalTextService {
 
     /**
      * Load or build canonical text for a document.
-     * 
+     *
      * @param documentId the document ID
      * @return canonicalized text with metadata and offsets
      */
@@ -66,17 +65,17 @@ public class CanonicalTextService {
         // Check if canonical text already exists
         Path canonicalTextPath = getCanonicalTextPath(documentId);
         Path metadataPath = getCanonicalTextMetadataPath(documentId);
-        log.debug("Checking for existing canonical text: {} and metadata: {}", 
+        log.debug("Checking for existing canonical text: {} and metadata: {}",
                 canonicalTextPath, metadataPath);
-        log.debug("Files exist: canonicalText={}, metadata={}", 
+        log.debug("Files exist: canonicalText={}, metadata={}",
                 Files.exists(canonicalTextPath), Files.exists(metadataPath));
-        
+
         if (Files.exists(canonicalTextPath) && Files.exists(metadataPath)) {
             try {
                 log.debug("Loading existing canonical text for document: {}", documentId);
                 return loadFromFile(canonicalTextPath, document);
             } catch (IOException e) {
-                log.warn("Failed to load existing canonical text for document {}, rebuilding: {}", 
+                log.warn("Failed to load existing canonical text for document {}, rebuilding: {}",
                         documentId, e.getMessage());
             }
         }
@@ -98,17 +97,17 @@ public class CanonicalTextService {
 
             // Convert document using existing converter system
             ConvertedDocument convertedDocument = documentConversionService.convertDocument(
-                    fileContent, 
-                    document.getOriginalFilename(), 
+                    fileContent,
+                    document.getOriginalFilename(),
                     document.getContentType()
             );
 
             // Extract canonical text
             String canonicalText = extractCanonicalText(convertedDocument);
-            
+
             // Generate source version hash
             String sourceVersionHash = calculateSourceVersionHash(canonicalText);
-            
+
             // Build offset indexes
             List<OffsetRange> pageOffsets = buildPageOffsets(convertedDocument, canonicalText);
             List<OffsetRange> paragraphOffsets = buildParagraphOffsets(canonicalText);
@@ -133,7 +132,7 @@ public class CanonicalTextService {
             return canonicalizedText;
 
         } catch (Exception e) {
-            String errorMessage = String.format("Failed to build canonical text for document %s: %s", 
+            String errorMessage = String.format("Failed to build canonical text for document %s: %s",
                     document.getId(), e.getMessage());
             log.error(errorMessage, e);
             throw new DocumentProcessingException(errorMessage, e);
@@ -214,16 +213,16 @@ public class CanonicalTextService {
         if (text == null) {
             return "";
         }
-        
+
         // Normalize Unicode characters
         String normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFC);
-        
+
         // Ensure consistent line endings
         normalized = normalized.replaceAll("\\r\\n", "\n").replaceAll("\\r", "\n");
-        
+
         // Remove excessive whitespace while preserving structure
         normalized = normalized.replaceAll("\\n{3,}", "\n\n");
-        
+
         return normalized.trim();
     }
 
@@ -245,26 +244,26 @@ public class CanonicalTextService {
      */
     private List<OffsetRange> buildPageOffsets(ConvertedDocument convertedDocument, String canonicalText) {
         List<OffsetRange> pageOffsets = new ArrayList<>();
-        
+
         // If we have page information from the converter, use it
         if (convertedDocument.getTotalPages() != null && convertedDocument.getTotalPages() > 0) {
             // For now, create placeholder page offsets
             // In a full implementation, this would use actual page boundaries from the converter
             int charsPerPage = canonicalText.length() / convertedDocument.getTotalPages();
-            
+
             for (int i = 0; i < convertedDocument.getTotalPages(); i++) {
                 int startOffset = i * charsPerPage;
-                int endOffset = (i == convertedDocument.getTotalPages() - 1) 
-                        ? canonicalText.length() 
+                int endOffset = (i == convertedDocument.getTotalPages() - 1)
+                        ? canonicalText.length()
                         : (i + 1) * charsPerPage;
-                
+
                 pageOffsets.add(new OffsetRange(startOffset, endOffset, "Page " + (i + 1) + " (approx)"));
             }
         } else {
             // Fallback: treat entire document as single page
             pageOffsets.add(new OffsetRange(0, canonicalText.length(), "Page 1"));
         }
-        
+
         return pageOffsets;
     }
 
@@ -298,15 +297,15 @@ public class CanonicalTextService {
     private void saveToFile(CanonicalizedText canonicalizedText, UUID documentId) throws IOException {
         Path canonicalTextPath = getCanonicalTextPath(documentId);
         Path metadataPath = getCanonicalTextMetadataPath(documentId);
-        
+
         // Ensure directory exists
         Files.createDirectories(baseDir);
-        
+
         // Atomic write for canonical text
         Path tmpTxt = Files.createTempFile(baseDir, documentId.toString(), ".txt.tmp");
         Files.writeString(tmpTxt, canonicalizedText.getText(), StandardCharsets.UTF_8);
         Files.move(tmpTxt, canonicalTextPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        
+
         // Build metadata JSON
         CanonicalMetaJson json = new CanonicalMetaJson(
                 canonicalizedText.getSourceVersionHash(),
@@ -317,12 +316,12 @@ public class CanonicalTextService {
                         .map(o -> new OffsetJson(o.getStartOffset(), o.getEndOffset(), o.getTitle()))
                         .toList()
         );
-        
+
         // Atomic write for metadata
         Path tmpMeta = Files.createTempFile(baseDir, documentId.toString(), ".meta.tmp");
         Files.writeString(tmpMeta, objectMapper.writeValueAsString(json), StandardCharsets.UTF_8);
         Files.move(tmpMeta, metadataPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        
+
         log.debug("Saved canonical text to: {}", canonicalTextPath);
     }
 
@@ -331,21 +330,21 @@ public class CanonicalTextService {
      */
     private CanonicalizedText loadFromFile(Path canonicalTextPath, Document document) throws IOException {
         log.debug("Loading canonical text from: {}", canonicalTextPath);
-        
+
         // Load the canonical text
         String text = Files.readString(canonicalTextPath, StandardCharsets.UTF_8);
         log.debug("Loaded canonical text, length: {}", text.length());
-        
+
         // Load and parse metadata
         Path metadataPath = getCanonicalTextMetadataPath(document.getId());
         log.debug("Loading metadata from: {}", metadataPath);
-        
+
         try {
             String metadataContent = Files.readString(metadataPath, StandardCharsets.UTF_8);
             log.debug("Loaded metadata, length: {}", metadataContent.length());
-            
+
             CanonicalMetaJson meta = objectMapper.readValue(metadataContent, CanonicalMetaJson.class);
-            
+
             // Convert JSON objects back to domain objects
             List<OffsetRange> pageOffsets = meta.pageOffsets().stream()
                     .map(j -> new OffsetRange(j.start(), j.end(), j.title()))
@@ -353,15 +352,15 @@ public class CanonicalTextService {
             List<OffsetRange> paragraphOffsets = meta.paragraphOffsets().stream()
                     .map(j -> new OffsetRange(j.start(), j.end(), j.title()))
                     .toList();
-            
+
             log.debug("Extracted source version hash: {}", meta.sourceVersionHash());
             log.debug("Extracted {} page offsets", pageOffsets.size());
             log.debug("Extracted {} paragraph offsets", paragraphOffsets.size());
-            
+
             return new CanonicalizedText(text, meta.sourceVersionHash(), pageOffsets, paragraphOffsets);
-            
+
         } catch (Exception parse) {
-            log.warn("Corrupt canonical metadata for {} — rebuilding. Reason: {}", 
+            log.warn("Corrupt canonical metadata for {} — rebuilding. Reason: {}",
                     document.getId(), parse.toString());
             throw new IOException("Corrupt metadata", parse); // triggers rebuild in caller
         }
@@ -429,7 +428,8 @@ public class CanonicalTextService {
             @JsonProperty("sourceVersionHash") String sourceVersionHash,
             @JsonProperty("pageOffsets") List<OffsetJson> pageOffsets,
             @JsonProperty("paragraphOffsets") List<OffsetJson> paragraphOffsets
-    ) {}
+    ) {
+    }
 
     /**
      * JSON record for offset serialization.
@@ -438,5 +438,6 @@ public class CanonicalTextService {
             @JsonProperty("start") int start,
             @JsonProperty("end") int end,
             @JsonProperty("title") String title
-    ) {}
+    ) {
+    }
 }

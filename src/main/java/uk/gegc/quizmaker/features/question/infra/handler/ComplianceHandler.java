@@ -2,12 +2,12 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.List;
 import java.util.Set;
@@ -50,12 +50,12 @@ public class ComplianceHandler extends QuestionHandler {
                 throw new ValidationException("Statement IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
-            
+
             // Validate text field
             if (!statement.has("text") || statement.get("text").asText().isBlank()) {
                 throw new ValidationException("Each statement must have a non-empty 'text'");
             }
-            
+
             // Validate compliant field
             if (!statement.has("compliant")) {
                 throw new ValidationException("Each statement must have a 'compliant' field");
@@ -86,9 +86,9 @@ public class ComplianceHandler extends QuestionHandler {
         JsonNode selectedNode = response.get("selectedStatementIds");
         List<Integer> selectedList = selectedNode != null && selectedNode.isArray()
                 ? StreamSupport.stream(selectedNode.spliterator(), false)
-                        .filter(id -> id.canConvertToInt())
-                        .map(JsonNode::asInt)
-                        .toList()
+                .filter(id -> id.canConvertToInt())
+                .map(JsonNode::asInt)
+                .toList()
                 : List.of();
 
         // Check for duplicates in the response

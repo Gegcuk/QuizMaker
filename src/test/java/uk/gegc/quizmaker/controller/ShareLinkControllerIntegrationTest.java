@@ -15,18 +15,18 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
-import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
-import uk.gegc.quizmaker.features.quiz.domain.model.*;
-import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateShareLinkRequest;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
+import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 
 import java.time.Instant;
 import java.util.Set;
@@ -104,15 +104,15 @@ class ShareLinkControllerIntegrationTest {
         Permission quizAdminPermission = new Permission();
         quizAdminPermission.setPermissionName(PermissionName.QUIZ_ADMIN.name());
         quizAdminPermission = permissionRepository.save(quizAdminPermission);
-        
+
         Permission quizModeratePermission = new Permission();
         quizModeratePermission.setPermissionName(PermissionName.QUIZ_MODERATE.name());
         quizModeratePermission = permissionRepository.save(quizModeratePermission);
-        
+
         Permission quizCreatePermission = new Permission();
         quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
         quizCreatePermission = permissionRepository.save(quizCreatePermission);
-        
+
         Permission quizReadPermission = new Permission();
         quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
         quizReadPermission = permissionRepository.save(quizReadPermission);
@@ -122,7 +122,7 @@ class ShareLinkControllerIntegrationTest {
         adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
         adminRole.setPermissions(Set.of(quizAdminPermission, quizModeratePermission, quizCreatePermission, quizReadPermission));
         adminRole = roleRepository.save(adminRole);
-        
+
         Role userRole = new Role();
         userRole.setRoleName(RoleName.ROLE_USER.name());
         userRole.setPermissions(Set.of(quizReadPermission));
@@ -217,7 +217,7 @@ class ShareLinkControllerIntegrationTest {
 
         JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString());
         String token = response.get("token").asText();
-        
+
         // Verify token format (URL-safe Base64, 43 chars)
         assertTrue(token.matches("^[A-Za-z0-9_-]{43}$"));
         assertEquals(43, token.length());
@@ -441,7 +441,7 @@ class ShareLinkControllerIntegrationTest {
         // Don't set ID manually - let Hibernate generate it
         shareLink.setQuiz(quizRepository.findById(quizId).orElseThrow());
         shareLink.setCreatedBy(userRepository.findById(userId).orElseThrow());
-        
+
         // Generate a properly formatted token and its hash
         String token = "expired-token-1234567890123456789012345678901234567890123";
         // The token needs to be exactly 43 characters for the regex to pass

@@ -22,8 +22,8 @@ class RateLimitServiceTest {
     @DisplayName("First request should pass")
     void firstRequest_ShouldPass() {
         // When & Then
-        assertDoesNotThrow(() -> 
-            rateLimitService.checkRateLimit("test-operation", "test-key")
+        assertDoesNotThrow(() ->
+                rateLimitService.checkRateLimit("test-operation", "test-key")
         );
     }
 
@@ -36,8 +36,8 @@ class RateLimitServiceTest {
 
         // When & Then
         for (int i = 0; i < 5; i++) {
-            assertDoesNotThrow(() -> 
-                rateLimitService.checkRateLimit(operation, key)
+            assertDoesNotThrow(() ->
+                    rateLimitService.checkRateLimit(operation, key)
             );
         }
     }
@@ -56,7 +56,7 @@ class RateLimitServiceTest {
 
         // Then - 6th request should throw exception
         RateLimitExceededException exception = assertThrows(RateLimitExceededException.class, () ->
-            rateLimitService.checkRateLimit(operation, key)
+                rateLimitService.checkRateLimit(operation, key)
         );
 
         assertEquals("Too many requests for test-operation", exception.getMessage());
@@ -79,12 +79,12 @@ class RateLimitServiceTest {
 
         // Then - key1 should be rate limited
         assertThrows(RateLimitExceededException.class, () ->
-            rateLimitService.checkRateLimit(operation, key1)
+                rateLimitService.checkRateLimit(operation, key1)
         );
 
         // But key2 should still work
         assertDoesNotThrow(() ->
-            rateLimitService.checkRateLimit(operation, key2)
+                rateLimitService.checkRateLimit(operation, key2)
         );
     }
 
@@ -103,12 +103,12 @@ class RateLimitServiceTest {
 
         // Then - operation1 should be rate limited
         assertThrows(RateLimitExceededException.class, () ->
-            rateLimitService.checkRateLimit(operation1, key)
+                rateLimitService.checkRateLimit(operation1, key)
         );
 
         // But operation2 should still work
         assertDoesNotThrow(() ->
-            rateLimitService.checkRateLimit(operation2, key)
+                rateLimitService.checkRateLimit(operation2, key)
         );
     }
 
@@ -126,13 +126,13 @@ class RateLimitServiceTest {
 
         // Then - 6th request should throw exception with retry-after
         RateLimitExceededException exception = assertThrows(RateLimitExceededException.class, () ->
-            rateLimitService.checkRateLimit(operation, key)
+                rateLimitService.checkRateLimit(operation, key)
         );
 
         long retryAfter = exception.getRetryAfterSeconds();
         assertTrue(retryAfter > 0, "Retry-after should be positive");
         assertTrue(retryAfter <= 60, "Retry-after should not exceed 60 seconds");
-        
+
         // The retry-after should be close to 60 seconds (within 5 seconds tolerance)
         // since we just hit the limit and the window should reset in about 1 minute
         assertTrue(retryAfter >= 55, "Retry-after should be close to 60 seconds");

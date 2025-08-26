@@ -31,27 +31,17 @@ public class NoLeadingTrailingSpacesValidatorTest {
         validator = validatorFactory.getValidator();
     }
 
-    // Test class to hold string for validation
-    static class StringHolder {
-        @NoLeadingTrailingSpaces
-        private String value;
-
-        public StringHolder(String value) {
-            this.value = value;
-        }
-    }
-
     @ParameterizedTest
     @ValueSource(strings = {
-        "username",           // Valid: no spaces
-        "user.name",          // Valid: no spaces
-        "user-name",          // Valid: no spaces
-        "user_name",          // Valid: no spaces
-        "user123",            // Valid: no spaces
-        "email@example.com",  // Valid: no spaces
-        "a",                  // Valid: single character
-        "multi word",         // Valid: internal spaces allowed
-        "multiple   spaces"   // Valid: internal spaces allowed
+            "username",           // Valid: no spaces
+            "user.name",          // Valid: no spaces
+            "user-name",          // Valid: no spaces
+            "user_name",          // Valid: no spaces
+            "user123",            // Valid: no spaces
+            "email@example.com",  // Valid: no spaces
+            "a",                  // Valid: single character
+            "multi word",         // Valid: internal spaces allowed
+            "multiple   spaces"   // Valid: internal spaces allowed
     })
     void shouldAcceptValidStrings(String value) {
         StringHolder holder = new StringHolder(value);
@@ -61,18 +51,18 @@ public class NoLeadingTrailingSpacesValidatorTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-        " username",          // Invalid: leading space
-        "username ",          // Invalid: trailing space
-        " username ",         // Invalid: both leading and trailing
-        "  username",         // Invalid: multiple leading spaces
-        "username  ",         // Invalid: multiple trailing spaces
-        "  username  ",       // Invalid: multiple leading and trailing
-        " ",                  // Invalid: only space
-        "  ",                 // Invalid: only spaces
-        "\tusername",         // Invalid: leading tab
-        "username\t",         // Invalid: trailing tab
-        "\nusername",         // Invalid: leading newline
-        "username\n"          // Invalid: trailing newline
+            " username",          // Invalid: leading space
+            "username ",          // Invalid: trailing space
+            " username ",         // Invalid: both leading and trailing
+            "  username",         // Invalid: multiple leading spaces
+            "username  ",         // Invalid: multiple trailing spaces
+            "  username  ",       // Invalid: multiple leading and trailing
+            " ",                  // Invalid: only space
+            "  ",                 // Invalid: only spaces
+            "\tusername",         // Invalid: leading tab
+            "username\t",         // Invalid: trailing tab
+            "\nusername",         // Invalid: leading newline
+            "username\n"          // Invalid: trailing newline
     })
     void shouldRejectInvalidStrings(String value) {
         StringHolder holder = new StringHolder(value);
@@ -98,38 +88,48 @@ public class NoLeadingTrailingSpacesValidatorTest {
     @Test
     void shouldHandleUnicodeCharacters() {
         String[] unicodeStrings = {
-            "café",               // Valid: no spaces
-            "naïve",              // Valid: no spaces
-            "résumé",             // Valid: no spaces
-            "münchen",            // Valid: no spaces
-            "москва",             // Valid: no spaces
-            "ελλάδα",             // Valid: no spaces
-            "日本"                // Valid: no spaces
+                "café",               // Valid: no spaces
+                "naïve",              // Valid: no spaces
+                "résumé",             // Valid: no spaces
+                "münchen",            // Valid: no spaces
+                "москва",             // Valid: no spaces
+                "ελλάδα",             // Valid: no spaces
+                "日本"                // Valid: no spaces
         };
 
         for (String value : unicodeStrings) {
             StringHolder holder = new StringHolder(value);
             Set<ConstraintViolation<StringHolder>> violations = validator.validate(holder);
             assertThat(violations)
-                .as("Unicode string '%s' should be valid", value)
-                .isEmpty();
+                    .as("Unicode string '%s' should be valid", value)
+                    .isEmpty();
         }
     }
 
     @Test
     void shouldRejectUnicodeStringsWithSpaces() {
         String[] unicodeStringsWithSpaces = {
-            " café",              // Invalid: leading space
-            "café ",              // Invalid: trailing space
-            " résumé ",           // Invalid: both
+                " café",              // Invalid: leading space
+                "café ",              // Invalid: trailing space
+                " résumé ",           // Invalid: both
         };
 
         for (String value : unicodeStringsWithSpaces) {
             StringHolder holder = new StringHolder(value);
             Set<ConstraintViolation<StringHolder>> violations = validator.validate(holder);
             assertThat(violations)
-                .as("Unicode string with spaces '%s' should be invalid", value)
-                .isNotEmpty();
+                    .as("Unicode string with spaces '%s' should be invalid", value)
+                    .isNotEmpty();
+        }
+    }
+
+    // Test class to hold string for validation
+    static class StringHolder {
+        @NoLeadingTrailingSpaces
+        private String value;
+
+        public StringHolder(String value) {
+            this.value = value;
         }
     }
 } 

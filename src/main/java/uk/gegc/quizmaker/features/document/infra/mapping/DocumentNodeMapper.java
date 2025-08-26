@@ -7,8 +7,8 @@ import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentNode;
 
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class DocumentNodeMapper {
@@ -19,22 +19,22 @@ public class DocumentNodeMapper {
         }
 
         return new DocumentNodeDto(
-            entity.getId(),
-            entity.getDocument() != null ? entity.getDocument().getId() : null,
-            entity.getParent() != null ? entity.getParent().getId() : null,
-            entity.getLevel(),
-            entity.getType(),
-            entity.getTitle(),
-            entity.getStartOffset(),
-            entity.getEndOffset(),
-            entity.getStartAnchor(),
-            entity.getEndAnchor(),
-            entity.getOrdinal(),
-            entity.getStrategy(),
-            entity.getConfidence(),
-            entity.getSourceVersionHash(),
-            entity.getCreatedAt(),
-            toDtoList(entity.getChildren())
+                entity.getId(),
+                entity.getDocument() != null ? entity.getDocument().getId() : null,
+                entity.getParent() != null ? entity.getParent().getId() : null,
+                entity.getLevel(),
+                entity.getType(),
+                entity.getTitle(),
+                entity.getStartOffset(),
+                entity.getEndOffset(),
+                entity.getStartAnchor(),
+                entity.getEndAnchor(),
+                entity.getOrdinal(),
+                entity.getStrategy(),
+                entity.getConfidence(),
+                entity.getSourceVersionHash(),
+                entity.getCreatedAt(),
+                toDtoList(entity.getChildren())
         );
     }
 
@@ -44,22 +44,22 @@ public class DocumentNodeMapper {
         }
 
         return new DocumentNodeDto(
-            entity.getId(),
-            entity.getDocument() != null ? entity.getDocument().getId() : null,
-            entity.getParent() != null ? entity.getParent().getId() : null,
-            entity.getLevel(),
-            entity.getType(),
-            entity.getTitle(),
-            entity.getStartOffset(),
-            entity.getEndOffset(),
-            entity.getStartAnchor(),
-            entity.getEndAnchor(),
-            entity.getOrdinal(),
-            entity.getStrategy(),
-            entity.getConfidence(),
-            entity.getSourceVersionHash(),
-            entity.getCreatedAt(),
-            List.of() // Empty list instead of null for flat DTOs
+                entity.getId(),
+                entity.getDocument() != null ? entity.getDocument().getId() : null,
+                entity.getParent() != null ? entity.getParent().getId() : null,
+                entity.getLevel(),
+                entity.getType(),
+                entity.getTitle(),
+                entity.getStartOffset(),
+                entity.getEndOffset(),
+                entity.getStartAnchor(),
+                entity.getEndAnchor(),
+                entity.getOrdinal(),
+                entity.getStrategy(),
+                entity.getConfidence(),
+                entity.getSourceVersionHash(),
+                entity.getCreatedAt(),
+                List.of() // Empty list instead of null for flat DTOs
         );
     }
 
@@ -83,19 +83,20 @@ public class DocumentNodeMapper {
 
     /**
      * Maps a list of root nodes and a document to a DocumentTreeDto
+     *
      * @param rootNodes List of root nodes (nodes with no parent)
-     * @param document The document entity containing title and ID
+     * @param document  The document entity containing title and ID
      * @return DocumentTreeDto with document info and tree structure
      */
     public DocumentTreeDto toTreeDto(List<DocumentNode> rootNodes, Document document) {
         if (rootNodes == null) {
             rootNodes = List.of();
         }
-        
+
         return new DocumentTreeDto(
-            document.getId(),
-            document.getTitle(),
-            toDtoList(rootNodes)
+                document.getId(),
+                document.getTitle(),
+                toDtoList(rootNodes)
         );
     }
 
@@ -107,11 +108,11 @@ public class DocumentNodeMapper {
         if (documentId == null) {
             throw new IllegalArgumentException("Document ID cannot be null");
         }
-        
+
         return new DocumentTreeDto(
-            documentId,
-            documentTitle,
-            toDtoList(rootNodes)
+                documentId,
+                documentTitle,
+                toDtoList(rootNodes)
         );
     }
 

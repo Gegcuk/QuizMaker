@@ -22,6 +22,7 @@ public record UserProfileResponse(
         @Schema(description = "Email verified flag") boolean verified,
         @Schema(description = "Assigned roles") List<String> roles,
         @Schema(description = "Entity version for optimistic locking") Long version
-) {}
+) {
+}
 
 

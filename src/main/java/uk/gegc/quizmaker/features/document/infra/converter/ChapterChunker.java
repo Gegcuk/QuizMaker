@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
-import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
+import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,14 +30,14 @@ public class ChapterChunker implements UniversalChunker {
         if (!document.getChapters().isEmpty()) {
             // Phase 1: Split by chapters first
             List<Chunk> chapterChunks = splitDocumentByChapters(document, request);
-            
+
             // Phase 2: Optimize chapter chunks for size
             chunks = optimizeChapterChunks(chapterChunks, request);
-            
+
         } else {
             // No chapters detected, treat entire document as one chapter and apply two-phase logic
             log.info("No chapters detected, treating entire document as single chapter");
-            
+
             // Phase 1: Create single document chunk
             List<Chunk> documentChunks = new ArrayList<>();
             Chunk documentChunk = createChunk(
@@ -48,7 +48,7 @@ public class ChapterChunker implements UniversalChunker {
                     document
             );
             documentChunks.add(documentChunk);
-            
+
             // Phase 2: Optimize document chunk for size
             chunks = optimizeChapterChunks(documentChunks, request);
         }
@@ -63,13 +63,13 @@ public class ChapterChunker implements UniversalChunker {
         chunks = combineSmallChunks(chunks, minChunkSize, request);
 
         log.info("Final chunking result: {} chunks", chunks.size());
-        
+
         // Log chunk sizes for debugging
         for (int i = 0; i < chunks.size(); i++) {
             Chunk chunk = chunks.get(i);
             log.info("Final chunk {}: '{}' ({} chars)", i, chunk.getTitle(), chunk.getCharacterCount());
         }
-        
+
         return chunks;
     }
 
@@ -82,11 +82,11 @@ public class ChapterChunker implements UniversalChunker {
 
         for (ConvertedDocument.Chapter chapter : document.getChapters()) {
             String chapterContent = chapter.getContent();
-            
+
             // Handle null or empty chapter content
             if (chapterContent == null || chapterContent.trim().isEmpty()) {
                 log.warn("Chapter '{}' has no content, checking sections", chapter.getTitle());
-                
+
                 // If chapter has no content but has sections, process the sections
                 if (!chapter.getSections().isEmpty()) {
                     for (ConvertedDocument.Section section : chapter.getSections()) {
@@ -125,26 +125,26 @@ public class ChapterChunker implements UniversalChunker {
         int maxSize = request.getMaxChunkSize();
         int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
 
-        log.info("Phase 2: Optimizing {} chapter chunks (maxSize: {}, minSize: {})", 
+        log.info("Phase 2: Optimizing {} chapter chunks (maxSize: {}, minSize: {})",
                 chapterChunks.size(), maxSize, minSize);
 
         for (int i = 0; i < chapterChunks.size(); i++) {
             Chunk currentChunk = chapterChunks.get(i);
             int currentSize = currentChunk.getCharacterCount();
 
-            log.debug("Processing chapter chunk {}: '{}' ({} chars)", 
+            log.debug("Processing chapter chunk {}: '{}' ({} chars)",
                     i, currentChunk.getTitle(), currentSize);
 
             // Case 1: Chapter is too large - split it
             if (currentSize > maxSize) {
                 log.info("Chapter '{}' is too large ({} chars), splitting", currentChunk.getTitle(), currentSize);
                 List<Chunk> splitChunks = splitContentBySize(
-                        currentChunk.getContent(), 
+                        currentChunk.getContent(),
                         currentChunk.getTitle(),
-                        currentChunk.getStartPage(), 
-                        currentChunk.getEndPage(), 
-                        request, 
-                        optimizedChunks.size(), 
+                        currentChunk.getStartPage(),
+                        currentChunk.getEndPage(),
+                        request,
+                        optimizedChunks.size(),
                         null // We don't have the full document context here, but createChunk handles null
                 );
                 optimizedChunks.addAll(splitChunks);
@@ -153,22 +153,22 @@ public class ChapterChunker implements UniversalChunker {
             else if (currentSize < minSize && i < chapterChunks.size() - 1) {
                 Chunk nextChunk = chapterChunks.get(i + 1);
                 int combinedSize = currentSize + nextChunk.getCharacterCount();
-                
-                log.info("Chapter '{}' is too small ({} chars), combining with next chapter '{}' ({} chars) = {} chars", 
-                        currentChunk.getTitle(), currentSize, 
+
+                log.info("Chapter '{}' is too small ({} chars), combining with next chapter '{}' ({} chars) = {} chars",
+                        currentChunk.getTitle(), currentSize,
                         nextChunk.getTitle(), nextChunk.getCharacterCount(), combinedSize);
 
                 if (combinedSize <= maxSize) {
                     // Combine chunks
                     String combinedContent = currentChunk.getContent() + "\n\n" + nextChunk.getContent();
                     String combinedTitle = currentChunk.getTitle() + " + " + nextChunk.getTitle();
-                    
+
                     // Create a minimal document context for the combined chunk
                     ConvertedDocument combinedDoc = new ConvertedDocument();
                     combinedDoc.setTitle(currentChunk.getDocumentTitle());
                     combinedDoc.setAuthor(currentChunk.getDocumentAuthor());
                     combinedDoc.setConverterType(currentChunk.getConverterType());
-                    
+
                     Chunk combinedChunk = createChunk(
                             combinedTitle, combinedContent,
                             currentChunk.getStartPage(), nextChunk.getEndPage(),
@@ -315,29 +315,29 @@ public class ChapterChunker implements UniversalChunker {
         List<Chunk> chunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
         int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
-        int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
+        int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ?
                 request.getAggressiveCombinationThreshold() : 3000;
 
-        log.info("Splitting content: title='{}', totalLength={}, maxSize={}, minSize={}, aggressiveThreshold={}", 
+        log.info("Splitting content: title='{}', totalLength={}, maxSize={}, minSize={}, aggressiveThreshold={}",
                 title, content.length(), maxSize, minSize, aggressiveThreshold);
 
         // Use recursive middle-first approach
         chunks = splitContentRecursively(content, title, startPage, endPage, request, startChunkIndex, document, 0);
 
         log.info("Total chunks created: {}", chunks.size());
-        
+
         // Handle tiny final chunk by combining with previous chunk if needed
         if (chunks.size() > 1) {
             Chunk finalChunk = chunks.get(chunks.size() - 1);
-            
+
             if (finalChunk.getCharacterCount() < minSize) {
-                log.info("Final chunk is too small ({} chars < {}), combining with previous chunk", 
+                log.info("Final chunk is too small ({} chars < {}), combining with previous chunk",
                         finalChunk.getCharacterCount(), minSize);
-                
+
                 Chunk previousChunk = chunks.get(chunks.size() - 2);
                 String combinedContent = previousChunk.getContent() + "\n\n" + finalChunk.getContent();
                 String combinedTitle = previousChunk.getTitle() + " + " + finalChunk.getTitle();
-                
+
                 // Create combined chunk
                 Chunk combinedChunk = createChunk(
                         combinedTitle, combinedContent,
@@ -345,15 +345,15 @@ public class ChapterChunker implements UniversalChunker {
                         previousChunk.getChapterTitle(), previousChunk.getSectionTitle(),
                         previousChunk.getChunkIndex(), ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document
                 );
-                
+
                 // Replace last two chunks with combined chunk
                 chunks.set(chunks.size() - 2, combinedChunk);
                 chunks.remove(chunks.size() - 1);
-                
+
                 log.info("Combined final chunks: {} characters", combinedContent.length());
             }
         }
-        
+
         return chunks;
     }
 
@@ -361,14 +361,14 @@ public class ChapterChunker implements UniversalChunker {
      * Recursive middle-first chunking strategy
      */
     private List<Chunk> splitContentRecursively(String content, String title,
-                                               Integer startPage, Integer endPage,
-                                               ProcessDocumentRequest request,
-                                               int startChunkIndex, ConvertedDocument document,
-                                               int recursionDepth) {
+                                                Integer startPage, Integer endPage,
+                                                ProcessDocumentRequest request,
+                                                int startChunkIndex, ConvertedDocument document,
+                                                int recursionDepth) {
         List<Chunk> chunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
         int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
-        int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
+        int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ?
                 request.getAggressiveCombinationThreshold() : 5000; // Raised from 3000 to 5000
 
         // Prevent infinite recursion
@@ -394,15 +394,15 @@ public class ChapterChunker implements UniversalChunker {
         // Find optimal split point starting from middle
         int targetSize = content.length() / 2; // true midpoint instead of hard limit
         int middlePoint = targetSize;
-        
+
         // Ensure we don't exceed maxSize to guarantee recursion termination
         targetSize = Math.min(targetSize, maxSize);
-        
+
         int tolerance = (int) (content.length() * 0.05); // 5% tolerance
         int minSearchPoint = Math.max(targetSize - tolerance, minSize);
         int maxSearchPoint = Math.min(targetSize + tolerance, content.length() - minSize);
 
-        log.debug("Searching for split point around middle {} (range: {} to {})", 
+        log.debug("Searching for split point around middle {} (range: {} to {})",
                 middlePoint, minSearchPoint, maxSearchPoint);
 
         // Search for best split point starting from middle
@@ -437,7 +437,7 @@ public class ChapterChunker implements UniversalChunker {
         // Create first chunk
         String firstChunkContent = content.substring(0, bestSplitPoint).trim();
         String firstChunkTitle = titleGenerator.generateChunkTitle(title, 0, 2, false);
-        
+
         Chunk firstChunk = createChunk(firstChunkTitle, firstChunkContent, startPage, endPage,
                 null, title, startChunkIndex, ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document);
         chunks.add(firstChunk);
@@ -478,9 +478,9 @@ public class ChapterChunker implements UniversalChunker {
         if (position > 0 && position < content.length() - 1) {
             char before = content.charAt(position - 1);
             char after = content.charAt(position);
-            
-            if ((before == '.' || before == '!' || before == '?') && 
-                (after == ' ' || after == '\n' || after == '\t')) {
+
+            if ((before == '.' || before == '!' || before == '?') &&
+                    (after == ' ' || after == '\n' || after == '\t')) {
                 return true;
             }
         }
@@ -490,7 +490,7 @@ public class ChapterChunker implements UniversalChunker {
             // Look ahead for potential section header
             int endOfLine = content.indexOf('\n', position);
             if (endOfLine == -1) endOfLine = content.length();
-            
+
             String line = content.substring(position, endOfLine).trim();
             if (line.matches("^\\d+\\..*") || line.matches("^[A-Z][A-Z\\s]+$")) {
                 return true;
@@ -512,9 +512,9 @@ public class ChapterChunker implements UniversalChunker {
         for (int i = startPosition; i < content.length() - 1; i++) {
             char current = content.charAt(i);
             char next = content.charAt(i + 1);
-            
-            if ((current == '.' || current == '!' || current == '?') && 
-                (next == ' ' || next == '\n' || next == '\t')) {
+
+            if ((current == '.' || current == '!' || current == '?') &&
+                    (next == ' ' || next == '\n' || next == '\t')) {
                 return i + 1; // Return position after the sentence ending
             }
         }
@@ -538,22 +538,22 @@ public class ChapterChunker implements UniversalChunker {
 
             // More aggressive combination logic for tiny chunks
             int combinedSize = currentChunk.getCharacterCount() + nextChunk.getCharacterCount();
-            
+
             // Always combine if current chunk is very small (< 50% of minSize)
             boolean shouldCombine = currentChunk.getCharacterCount() < (minSize / 2);
-            
+
             // Also combine if current chunk is below minimum size (more aggressive)
             if (!shouldCombine && currentChunk.getCharacterCount() < minSize) {
                 shouldCombine = true;
             }
-            
+
             // Very aggressive: combine if current chunk is smaller than threshold (for better quiz generation)
-            int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
+            int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ?
                     request.getAggressiveCombinationThreshold() : 5000; // Raised from 3000 to 5000
             if (!shouldCombine && currentChunk.getCharacterCount() < aggressiveThreshold) {
                 shouldCombine = true;
             }
-            
+
             // Also combine if both chunks are small and combining gets closer to target size
             if (!shouldCombine && currentChunk.getCharacterCount() < minSize && nextChunk.getCharacterCount() < minSize) {
                 shouldCombine = combinedSize <= 100000 && combinedSize > Math.max(currentChunk.getCharacterCount(), nextChunk.getCharacterCount());
@@ -566,7 +566,7 @@ public class ChapterChunker implements UniversalChunker {
                 // Combine chunks
                 String combinedContent = currentChunk.getContent() + "\n\n" + nextChunk.getContent();
                 String combinedTitle = currentChunk.getTitle() + " + " + nextChunk.getTitle();
-                
+
                 // Create combined chunk
                 Chunk combinedChunk = new Chunk();
                 combinedChunk.setTitle(combinedTitle.length() > 100 ? combinedTitle.substring(0, 97) + "..." : combinedTitle);
@@ -619,7 +619,7 @@ public class ChapterChunker implements UniversalChunker {
         chunk.setCharacterCount(content.length());
         chunk.setChapterTitle(chapterTitle);
         chunk.setSectionTitle(sectionTitle);
-        
+
         // Handle null document case (when called from optimizeChapterChunks)
         if (document != null) {
             chunk.setDocumentTitle(document.getTitle());

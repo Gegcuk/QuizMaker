@@ -4,10 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +54,7 @@ public class ComplianceQuestionParser {
         }
 
         JsonNode contentNode = questionNode.get("content");
-        
+
         // Validate statements array
         if (!contentNode.has("statements") || !contentNode.get("statements").isArray()) {
             throw new AIResponseParseException("COMPLIANCE question must have 'statements' array");
@@ -78,31 +78,31 @@ public class ComplianceQuestionParser {
             if (!statement.has("id")) {
                 throw new AIResponseParseException("Each statement must have 'id' field");
             }
-            
+
             if (!statement.get("id").canConvertToInt()) {
                 throw new AIResponseParseException("Statement 'id' must be an integer");
             }
-            
+
             int id = statement.get("id").asInt();
             if (ids.contains(id)) {
                 throw new AIResponseParseException("Statement IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
-            
+
             // Validate text
             if (!statement.has("text") || statement.get("text").asText().trim().isEmpty()) {
                 throw new AIResponseParseException("Each statement must have non-empty 'text' field");
             }
-            
+
             // Validate compliant flag
             if (!statement.has("compliant")) {
                 throw new AIResponseParseException("Each statement must have 'compliant' field");
             }
-            
+
             if (!statement.get("compliant").isBoolean()) {
                 throw new AIResponseParseException("Statement 'compliant' field must be a boolean");
             }
-            
+
             // Check if at least one statement is compliant
             if (statement.get("compliant").asBoolean()) {
                 hasCompliantStatement = true;

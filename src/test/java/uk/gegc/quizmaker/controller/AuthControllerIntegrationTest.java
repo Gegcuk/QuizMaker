@@ -59,7 +59,12 @@ public class AuthControllerIntegrationTest {
     @Autowired
     private MessageSource messageSource;
 
-
+    static Stream<Arguments> loginBlankFields() {
+        return Stream.of(
+                Arguments.of("", "somePass"),
+                Arguments.of("someUser", "")
+        );
+    }
 
     /**
      * Helper method to get validation messages from ValidationMessages.properties
@@ -68,7 +73,7 @@ public class AuthControllerIntegrationTest {
      * - Automatic updates when messages change
      * - Validation of internationalization setup
      * - Single source of truth for validation messages
-     * 
+     * <p>
      * Note: In test context, ValidationMessages.properties might not be automatically loaded,
      * so we provide fallback messages to ensure tests work reliably.
      * This approach ensures tests are robust and don't depend on specific Spring Boot configuration.
@@ -81,7 +86,8 @@ public class AuthControllerIntegrationTest {
             return switch (code) {
                 case "password.blank" -> "Password must not be blank.";
                 case "password.length" -> "Password must be between 8 and 100 characters long.";
-                case "password.composition" -> "Password must contain an uppercase letter, a lowercase letter, a digit, and a special character, with no spaces.";
+                case "password.composition" ->
+                        "Password must contain an uppercase letter, a lowercase letter, a digit, and a special character, with no spaces.";
                 case "username.blank" -> "Username must not be blank.";
                 case "username.length" -> "Username must be between 4 and 20 characters.";
                 case "email.blank" -> "Email must not be blank.";
@@ -102,13 +108,6 @@ public class AuthControllerIntegrationTest {
             // If message not found, return the code as fallback
             return code;
         }
-    }
-
-    static Stream<Arguments> loginBlankFields() {
-        return Stream.of(
-                Arguments.of("", "somePass"),
-                Arguments.of("someUser", "")
-        );
     }
 
     /**

@@ -20,13 +20,15 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.util.*;
- 
+
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class UserProfileServiceImpl implements UserProfileService {
 
+    private static final int MAX_PREF_KEYS = 50;
+    private static final int MAX_KEY_LEN = 64;
     private final UserRepository userRepository;
     private final XssSanitizer xssSanitizer;
     private final ObjectMapper objectMapper;
@@ -166,9 +168,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         log.info("User profile updated for user: {}", savedUser.getId());
         return toMeResponse(savedUser);
     }
-    
-    private static final int MAX_PREF_KEYS = 50;
-    private static final int MAX_KEY_LEN = 64;
+
     private void validatePreferences(Map<String, Object> prefs) {
         if (prefs == null) {
             return;
@@ -182,7 +182,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             }
         }
     }
-    
+
     private UserProfileResponse toMeResponse(User user) {
         List<String> roles = user.getRoles() == null ? List.of() : user.getRoles().stream()
                 .map(Role::getRoleName)

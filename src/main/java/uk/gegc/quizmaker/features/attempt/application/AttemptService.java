@@ -2,11 +2,10 @@ package uk.gegc.quizmaker.features.attempt.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
-import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
-import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
+import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -47,7 +46,7 @@ public interface AttemptService {
      * @param username  the username of the authenticated user
      * @param attemptId the UUID of the attempt to delete
      * @throws ResourceNotFoundException if the attempt is not found
-     * @throws AccessDeniedException if the user doesn't own the attempt
+     * @throws AccessDeniedException     if the user doesn't own the attempt
      */
     void deleteAttempt(String username, UUID attemptId);
 
@@ -59,8 +58,8 @@ public interface AttemptService {
      * @param attemptId the UUID of the attempt
      * @return CurrentQuestionDto containing the current question and progress information
      * @throws ResourceNotFoundException if the attempt is not found
-     * @throws AccessDeniedException if the user doesn't own the attempt
-     * @throws IllegalStateException if the attempt is not in progress or all questions are answered
+     * @throws AccessDeniedException     if the user doesn't own the attempt
+     * @throws IllegalStateException     if the attempt is not in progress or all questions are answered
      */
     CurrentQuestionDto getCurrentQuestion(String username, UUID attemptId);
 

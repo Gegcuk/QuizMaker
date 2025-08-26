@@ -11,12 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
-import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.features.user.application.AvatarService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
@@ -152,7 +152,7 @@ public class AvatarServiceImpl implements AvatarService {
 
     private String buildPublicUrl(String filename) {
         String base = publicBaseUrl == null ? "" : publicBaseUrl.replaceAll("/+$", "");
-        String path = (publicPath == null ? "/avatars": ("/" + publicPath.replaceAll("^/+", "").replaceAll("/+$", "")));
+        String path = (publicPath == null ? "/avatars" : ("/" + publicPath.replaceAll("^/+", "").replaceAll("/+$", "")));
         return base + path + "/" + filename;
     }
 

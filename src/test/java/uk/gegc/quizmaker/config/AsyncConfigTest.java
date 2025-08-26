@@ -31,7 +31,7 @@ class AsyncConfigTest {
     void shouldCreateAiTaskExecutor() {
         assertNotNull(aiTaskExecutor);
         assertTrue(aiTaskExecutor instanceof ThreadPoolTaskExecutor);
-        
+
         ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) aiTaskExecutor;
         assertEquals(8, executor.getCorePoolSize()); // Test profile value
         assertEquals(8, executor.getMaxPoolSize()); // Test profile value
@@ -43,7 +43,7 @@ class AsyncConfigTest {
     void shouldCreateGeneralTaskExecutor() {
         assertNotNull(generalTaskExecutor);
         assertTrue(generalTaskExecutor instanceof ThreadPoolTaskExecutor);
-        
+
         ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) generalTaskExecutor;
         assertEquals(4, executor.getCorePoolSize()); // Test profile value
         assertEquals(4, executor.getMaxPoolSize()); // Test profile value

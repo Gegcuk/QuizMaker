@@ -21,20 +21,20 @@ import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
-import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
-import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
+import uk.gegc.quizmaker.features.auth.application.impl.AuthServiceImpl;
 import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
+import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
+import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
 import uk.gegc.quizmaker.shared.email.EmailService;
-import uk.gegc.quizmaker.features.auth.application.impl.AuthServiceImpl;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -314,14 +314,14 @@ class AuthServiceImplTest {
         String token = "valid-reset-token";
         String newPassword = "NewP@ssw0rd123!";
         String tokenHash = "test_pepper" + token; // This is how the hashToken method works
-        
+
         PasswordResetToken resetToken = new PasswordResetToken();
         resetToken.setTokenHash(tokenHash);
         resetToken.setUserId(userId);
         resetToken.setEmail("test@example.com");
         resetToken.setUsed(false);
         resetToken.setExpiresAt(LocalDateTime.now().plusHours(1));
-        
+
         when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class)))
                 .thenReturn(Optional.of(resetToken));
@@ -340,7 +340,7 @@ class AuthServiceImplTest {
         verify(passwordEncoder).encode(newPassword);
         verify(userRepository).save(testUser);
         verify(passwordResetTokenRepository).save(resetToken);
-        
+
         // Verify token is marked as used
         assertTrue(resetToken.isUsed());
         // Verify user password is updated
@@ -353,7 +353,7 @@ class AuthServiceImplTest {
         // Given
         String token = "invalid-token";
         String newPassword = "NewP@ssw0rd123!";
-        
+
         when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class)))
                 .thenReturn(Optional.empty());
@@ -361,10 +361,10 @@ class AuthServiceImplTest {
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> authService.resetPassword(token, newPassword));
-        
+
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         assertEquals("Invalid or expired reset token", exception.getReason());
-        
+
         verify(passwordResetTokenRepository).findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class));
         verify(userRepository, never()).findById(any());
@@ -377,7 +377,7 @@ class AuthServiceImplTest {
         // Given
         String token = "expired-token";
         String newPassword = "NewP@ssw0rd123!";
-        
+
         when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class)))
                 .thenReturn(Optional.empty());
@@ -385,7 +385,7 @@ class AuthServiceImplTest {
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> authService.resetPassword(token, newPassword));
-        
+
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         assertEquals("Invalid or expired reset token", exception.getReason());
     }
@@ -396,7 +396,7 @@ class AuthServiceImplTest {
         // Given
         String token = "used-token";
         String newPassword = "NewP@ssw0rd123!";
-        
+
         when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class)))
                 .thenReturn(Optional.empty());
@@ -404,7 +404,7 @@ class AuthServiceImplTest {
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> authService.resetPassword(token, newPassword));
-        
+
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         assertEquals("Invalid or expired reset token", exception.getReason());
     }
@@ -415,13 +415,13 @@ class AuthServiceImplTest {
         // Given
         String token = "valid-token";
         String newPassword = "NewP@ssw0rd123!";
-        
+
         PasswordResetToken resetToken = new PasswordResetToken();
         resetToken.setTokenHash("test_pepper" + token);
         resetToken.setUserId(userId);
         resetToken.setUsed(false);
         resetToken.setExpiresAt(LocalDateTime.now().plusHours(1));
-        
+
         when(passwordResetTokenRepository.findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class)))
                 .thenReturn(Optional.of(resetToken));
@@ -430,10 +430,10 @@ class AuthServiceImplTest {
         // When & Then
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                 () -> authService.resetPassword(token, newPassword));
-        
+
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         assertEquals("Invalid reset token", exception.getReason());
-        
+
         verify(passwordResetTokenRepository).findByTokenHashAndUsedFalseAndExpiresAtAfter(
                 any(String.class), any(LocalDateTime.class));
         verify(userRepository).findById(userId);
@@ -471,9 +471,9 @@ class AuthServiceImplTest {
         // Then
         verify(passwordResetTokenRepository).save(argThat(token -> {
             return token.getUserId().equals(userId) &&
-                   token.getEmail().equals(email) &&
-                   !token.isUsed() &&
-                   token.getTokenHash() != null;
+                    token.getEmail().equals(email) &&
+                    !token.isUsed() &&
+                    token.getTokenHash() != null;
         }));
     }
 }

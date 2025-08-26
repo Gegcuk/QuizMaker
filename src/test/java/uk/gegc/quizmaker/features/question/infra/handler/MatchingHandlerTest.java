@@ -6,12 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -115,9 +115,14 @@ class MatchingHandlerTest {
 
     record FakeReq(JsonNode content) implements QuestionContentRequest {
         @Override
-        public QuestionType getType() { return QuestionType.MATCHING; }
+        public QuestionType getType() {
+            return QuestionType.MATCHING;
+        }
+
         @Override
-        public JsonNode getContent() { return content; }
+        public JsonNode getContent() {
+            return content;
+        }
     }
 }
 

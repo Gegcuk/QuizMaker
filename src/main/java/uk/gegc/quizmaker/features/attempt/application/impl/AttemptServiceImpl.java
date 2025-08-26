@@ -6,32 +6,31 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
-import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
-import uk.gegc.quizmaker.features.result.api.dto.QuestionStatsDto;
-import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
-import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
-import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
-import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.features.attempt.application.ScoringService;
+import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
+import uk.gegc.quizmaker.features.result.api.dto.QuestionStatsDto;
+import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -195,21 +194,21 @@ public class AttemptServiceImpl implements AttemptService {
                 .sorted(Comparator.comparing(Question::getId))
                 .collect(Collectors.toList());
         int totalQuestions = allQuestions.size();
-        
+
         if (totalQuestions == 0) {
             throw new IllegalStateException("Quiz has no questions");
         }
 
         // Count answers using a separate query to avoid collection issues
         long answeredCount = answerRepository.countByAttemptId(attemptId);
-        
+
         if (answeredCount >= totalQuestions) {
             throw new IllegalStateException("All questions have already been answered");
         }
 
         // Get the current question (next unanswered question)
         Question currentQuestion = allQuestions.get((int) answeredCount);
-        
+
         return new CurrentQuestionDto(
                 safeQuestionMapper.toSafeDto(currentQuestion),
                 (int) answeredCount + 1, // 1-based question number
@@ -262,23 +261,23 @@ public class AttemptServiceImpl implements AttemptService {
             List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
                     .sorted(Comparator.comparing(Question::getId))
                     .collect(Collectors.toList());
-            
+
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
-            
+
             // Determine which question should be answered next
             if (answeredCount >= allQuestions.size()) {
                 throw new IllegalStateException("All questions have already been answered");
             }
-            
+
             Question expectedQuestion = allQuestions.get((int) answeredCount);
-            
+
             // Verify the submitted question is the expected next question
             if (!expectedQuestion.getId().equals(question.getId())) {
                 throw new IllegalStateException(
-                        "Expected question " + expectedQuestion.getId() + 
-                        " but received " + question.getId() + 
-                        " (answered count: " + answeredCount + ")");
+                        "Expected question " + expectedQuestion.getId() +
+                                " but received " + question.getId() +
+                                " (answered count: " + answeredCount + ")");
             }
         } else {
             // For ALL_AT_ONCE mode, just check for duplicate answers
@@ -302,10 +301,10 @@ public class AttemptServiceImpl implements AttemptService {
             List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
                     .sorted(Comparator.comparing(Question::getId))
                     .collect(Collectors.toList());
-            
+
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
-            
+
             // Check if there are more questions to answer
             if (answeredCount < allQuestions.size()) {
                 Question nextQ = allQuestions.get((int) answeredCount);
@@ -605,7 +604,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         // Delete all answers associated with this attempt first
         answerRepository.deleteByAttemptId(attemptId);
-        
+
         // Then delete the attempt itself
         attemptRepository.delete(attempt);
     }

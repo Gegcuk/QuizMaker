@@ -10,22 +10,22 @@ import java.util.UUID;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record DocumentNodeDto(
-    UUID id,
-    UUID documentId,
-    UUID parentId,
-    Integer level,
-    DocumentNode.NodeType type,
-    String title,
-    Integer startOffset,
-    Integer endOffset,
-    String startAnchor,
-    String endAnchor,
-    Integer ordinal,
-    DocumentNode.Strategy strategy,
-    BigDecimal confidence,
-    String sourceVersionHash,
-    Instant createdAt,
-    List<DocumentNodeDto> children
+        UUID id,
+        UUID documentId,
+        UUID parentId,
+        Integer level,
+        DocumentNode.NodeType type,
+        String title,
+        Integer startOffset,
+        Integer endOffset,
+        String startAnchor,
+        String endAnchor,
+        Integer ordinal,
+        DocumentNode.Strategy strategy,
+        BigDecimal confidence,
+        String sourceVersionHash,
+        Instant createdAt,
+        List<DocumentNodeDto> children
 ) {
     // Empty constructor for Jackson
     public DocumentNodeDto {

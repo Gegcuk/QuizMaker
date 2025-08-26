@@ -6,9 +6,9 @@ import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptDetailsDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptResultDto;
-import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
+import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 
 import java.util.Comparator;
 import java.util.List;

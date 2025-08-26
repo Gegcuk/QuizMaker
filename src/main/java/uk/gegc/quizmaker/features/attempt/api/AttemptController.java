@@ -21,10 +21,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import uk.gegc.quizmaker.features.attempt.api.dto.QuestionForAttemptDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 
 import java.util.List;
 import java.util.UUID;

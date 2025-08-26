@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 
 /**
  * Utility class to analyze logged AI responses and identify patterns of non-compliance
- *
+ * <p>
  * Note: External ai-responses_*.log files are no longer generated. This analyzer will
  * only operate if such files already exist from previous runs or are provided manually.
  */
@@ -58,17 +58,17 @@ public class AiResponseAnalyzer {
      */
     public void analyzeLogFile(Path logFile) throws IOException {
         log.info("Analyzing AI responses from: {}", logFile);
-        
+
         List<String> lines = Files.readAllLines(logFile);
         List<AiResponse> responses = parseResponses(lines);
-        
+
         log.info("Found {} AI responses to analyze", responses.size());
-        
+
         // Analyze each response
         for (AiResponse response : responses) {
             analyzeResponse(response);
         }
-        
+
         // Generate summary
         generateSummary(responses);
     }
@@ -117,10 +117,10 @@ public class AiResponseAnalyzer {
                 }
 
                 // Add to response content if it's not a metadata line
-                if (!line.startsWith("Question Type:") && 
-                    !line.startsWith("Expected Count:") && 
-                    !line.startsWith("Difficulty:") &&
-                    !line.startsWith("Response:")) {
+                if (!line.startsWith("Question Type:") &&
+                        !line.startsWith("Expected Count:") &&
+                        !line.startsWith("Difficulty:") &&
+                        !line.startsWith("Response:")) {
                     responseContent.append(line).append("\n");
                 } else if (line.startsWith("Response:")) {
                     // Extract the actual response content
@@ -138,58 +138,58 @@ public class AiResponseAnalyzer {
         log.info("Question Type: {}", response.getQuestionType());
         log.info("Expected Count: {}", response.getExpectedCount());
         log.info("Difficulty: {}", response.getDifficulty());
-        
+
         // Check for common issues
         List<String> issues = new ArrayList<>();
-        
+
         // Check if response contains JSON
         if (!response.getContent().contains("{") || !response.getContent().contains("}")) {
             issues.add("No JSON structure found");
         }
-        
+
         // Check if response contains markdown formatting
         if (response.getContent().contains("```") || response.getContent().contains("#")) {
             issues.add("Contains markdown formatting (should be pure JSON)");
         }
-        
+
         // Check if response is too short
         if (response.getContent().length() < 50) {
             issues.add("Response too short");
         }
-        
+
         // Check if response contains explanations outside JSON
         if (response.getContent().contains("Here are") || response.getContent().contains("I've created")) {
             issues.add("Contains explanatory text outside JSON");
         }
-        
+
         if (!issues.isEmpty()) {
             log.warn("Issues found: {}", issues);
             log.warn("Response content: {}", response.getContent());
         } else {
             log.info("Response appears to follow instructions correctly");
         }
-        
+
         log.info("=== End Analysis ===");
     }
 
     private void generateSummary(List<AiResponse> responses) {
         log.info("=== SUMMARY ===");
         log.info("Total responses analyzed: {}", responses.size());
-        
+
         // Count by question type
         responses.stream()
                 .collect(java.util.stream.Collectors.groupingBy(
                         AiResponse::getQuestionType,
                         java.util.stream.Collectors.counting()))
                 .forEach((type, count) -> log.info("{}: {} responses", type, count));
-        
+
         // Count by difficulty
         responses.stream()
                 .collect(java.util.stream.Collectors.groupingBy(
                         AiResponse::getDifficulty,
                         java.util.stream.Collectors.counting()))
                 .forEach((difficulty, count) -> log.info("Difficulty {}: {} responses", difficulty, count));
-        
+
         log.info("=== END SUMMARY ===");
     }
 
@@ -203,16 +203,36 @@ public class AiResponseAnalyzer {
         private String content;
 
         // Getters and setters
-        public String getQuestionType() { return questionType; }
-        public void setQuestionType(String questionType) { this.questionType = questionType; }
-        
-        public Integer getExpectedCount() { return expectedCount; }
-        public void setExpectedCount(Integer expectedCount) { this.expectedCount = expectedCount; }
-        
-        public String getDifficulty() { return difficulty; }
-        public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
-        
-        public String getContent() { return content; }
-        public void setContent(String content) { this.content = content; }
+        public String getQuestionType() {
+            return questionType;
+        }
+
+        public void setQuestionType(String questionType) {
+            this.questionType = questionType;
+        }
+
+        public Integer getExpectedCount() {
+            return expectedCount;
+        }
+
+        public void setExpectedCount(Integer expectedCount) {
+            this.expectedCount = expectedCount;
+        }
+
+        public String getDifficulty() {
+            return difficulty;
+        }
+
+        public void setDifficulty(String difficulty) {
+            this.difficulty = difficulty;
+        }
+
+        public String getContent() {
+            return content;
+        }
+
+        public void setContent(String content) {
+            this.content = content;
+        }
     }
 } 

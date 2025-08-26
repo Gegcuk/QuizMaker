@@ -6,21 +6,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
-import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
-import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.util.*;
 
@@ -95,7 +95,7 @@ class QuizCollectionCreationTest {
     void shouldCreateQuizCollectionSuccessfully() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
+
         when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
         when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
         when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
@@ -110,10 +110,10 @@ class QuizCollectionCreationTest {
         // Then
         verify(jobRepository).findById(testJobId);
         verify(categoryRepository).findByName("AI Generated");
-        
+
         // Should create 2 chunk quizzes + 1 consolidated quiz = 3 total
         verify(quizRepository, times(3)).save(any(Quiz.class));
-        
+
         // Should update job with completed status
         verify(jobRepository).save(testJob);
         assertEquals(GenerationStatus.COMPLETED, testJob.getStatus());
@@ -125,7 +125,7 @@ class QuizCollectionCreationTest {
     void shouldCreateAICategoryIfNotExists() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
+
         when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
         when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.empty());
         when(categoryRepository.findByName("General")).thenReturn(Optional.empty());
@@ -150,7 +150,7 @@ class QuizCollectionCreationTest {
     void shouldHandleEmptyChunkQuestions() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-        
+
         when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
         when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
         when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
@@ -173,7 +173,7 @@ class QuizCollectionCreationTest {
     void shouldHandleJobNotFound() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
+
         when(jobRepository.findById(testJobId)).thenReturn(Optional.empty());
 
         // When & Then
@@ -186,7 +186,7 @@ class QuizCollectionCreationTest {
     void shouldHandleQuizCreationFailure() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
+
         when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
         when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
         when(quizRepository.save(any(Quiz.class))).thenThrow(new RuntimeException("Database error"));
@@ -204,7 +204,7 @@ class QuizCollectionCreationTest {
 
     private Map<Integer, List<Question>> createTestChunkQuestions() {
         Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-        
+
         // Create questions for chunk 0
         List<Question> chunk0Questions = Arrays.asList(
                 createTestQuestion("Question 1 from chunk 0", QuestionType.MCQ_SINGLE),
@@ -212,7 +212,7 @@ class QuizCollectionCreationTest {
                 createTestQuestion("Question 3 from chunk 0", QuestionType.TRUE_FALSE)
         );
         chunkQuestions.put(0, chunk0Questions);
-        
+
         // Create questions for chunk 1
         List<Question> chunk1Questions = Arrays.asList(
                 createTestQuestion("Question 1 from chunk 1", QuestionType.MCQ_SINGLE),
@@ -220,7 +220,7 @@ class QuizCollectionCreationTest {
                 createTestQuestion("Question 3 from chunk 1", QuestionType.TRUE_FALSE)
         );
         chunkQuestions.put(1, chunk1Questions);
-        
+
         return chunkQuestions;
     }
 

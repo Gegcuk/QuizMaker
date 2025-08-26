@@ -20,7 +20,7 @@ class UserProfileResponseValidationTest {
         UUID id = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now();
         UserProfileResponse r = new UserProfileResponse(id, "alice", "alice@example.com", "Alice", "bio", "https://avatar",
-                Map.of("theme", "dark"), now, true, List.of("USER"),                         1L);
+                Map.of("theme", "dark"), now, true, List.of("USER"), 1L);
 
         assertEquals(id, r.id());
         assertEquals("alice", r.username());

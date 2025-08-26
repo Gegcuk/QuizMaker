@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
@@ -16,10 +16,9 @@ class AiRateLimitTest {
 
     @Mock
     private AiRateLimitConfig rateLimitConfig;
-    
+
     @Mock
     private Logger aiResponseLogger;
-
 
 
     @Test
@@ -146,7 +145,7 @@ class AiRateLimitTest {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
                 null, null, null, null, null, null, null, null, null, rateLimitConfig
         );
-        
+
         long delay = aiService.calculateBackoffDelay(1);
         // Should be exactly 2000ms (no jitter)
         assertEquals(2000L, delay);

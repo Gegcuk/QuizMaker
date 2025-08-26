@@ -15,13 +15,6 @@ public enum ModerationStateMachine {
         this.allowedTransitions = allowedTransitions;
     }
 
-    public boolean canTransitionTo(QuizStatus targetStatus) {
-        if (targetStatus == null) {
-            return false;
-        }
-        return allowedTransitions.contains(targetStatus);
-    }
-
     public static boolean isValidTransition(QuizStatus from, QuizStatus to) {
         if (from == null || to == null) {
             return false;
@@ -33,6 +26,13 @@ public enum ModerationStateMachine {
             // from state is not part of moderation state machine (e.g., ARCHIVED)
             return false;
         }
+    }
+
+    public boolean canTransitionTo(QuizStatus targetStatus) {
+        if (targetStatus == null) {
+            return false;
+        }
+        return allowedTransitions.contains(targetStatus);
     }
 }
 

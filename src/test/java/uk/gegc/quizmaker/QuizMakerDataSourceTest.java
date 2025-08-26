@@ -23,8 +23,8 @@ public class QuizMakerDataSourceTest {
             System.out.println("Connected to: " + url);
             // Check for either quizmaker_test_mysql (local) or quizmakerdb (CI)
             assertThat(url).satisfiesAnyOf(
-                urlAssert -> urlAssert.contains("quizmaker_test_mysql"),
-                urlAssert -> urlAssert.contains("quizmakerdb")
+                    urlAssert -> urlAssert.contains("quizmaker_test_mysql"),
+                    urlAssert -> urlAssert.contains("quizmakerdb")
             );
         }
     }

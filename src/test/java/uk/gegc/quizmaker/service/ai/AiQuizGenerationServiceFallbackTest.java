@@ -9,15 +9,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
-import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
-import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import java.lang.reflect.Method;
 import java.util.EnumMap;
@@ -98,6 +98,34 @@ class AiQuizGenerationServiceFallbackTest {
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class));
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class));
         lenient().doNothing().when(aiResponseLogger).info(anyString(), any(Object.class), any(Object.class), any(Object.class), any(Object.class));
+    }
+
+    // Helper method to mock successful AI response
+    private void mockSuccessfulAiResponse(List<Question> questions) {
+        // Always set up the ChatClient mock chain, even when questions is null
+        mockChatClientChain();
+
+        // Only set up the parser mock if questions is provided
+        if (questions != null) {
+            when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any())).thenReturn(questions);
+        }
+    }
+
+    // Helper method to set up ChatClient mock chain without interfering with parser mocks
+    private void mockChatClientChain() {
+        org.springframework.ai.chat.client.ChatClient.CallResponseSpec callResponseSpec = mock(org.springframework.ai.chat.client.ChatClient.CallResponseSpec.class);
+        org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec requestSpec = mock(org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec.class);
+        org.springframework.ai.chat.model.ChatResponse chatResponse = mock(org.springframework.ai.chat.model.ChatResponse.class);
+        org.springframework.ai.chat.model.Generation generation = mock(org.springframework.ai.chat.model.Generation.class);
+        org.springframework.ai.chat.messages.AssistantMessage assistantMessage = mock(org.springframework.ai.chat.messages.AssistantMessage.class);
+
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.chatResponse()).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getText()).thenReturn("Mock AI response");
     }
 
     @Nested
@@ -230,7 +258,7 @@ class AiQuizGenerationServiceFallbackTest {
             setupLoggerStubbing();
             when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
                     .thenReturn("test prompt");
-            
+
             // Mock successful AI response
             mockSuccessfulAiResponse(List.of(mockQuestion1, mockQuestion2, mockQuestion3));
 
@@ -259,7 +287,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Strategy 1: First 3 attempts fail, then internal retries return partial results (2 questions)
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
                     .thenThrow(new AiServiceException("Parse failed")) // Attempt 1
-                    .thenThrow(new AiServiceException("Parse failed")) // Attempt 2  
+                    .thenThrow(new AiServiceException("Parse failed")) // Attempt 2
                     .thenThrow(new AiServiceException("Parse failed")) // Attempt 3
                     // Internal retries within generateQuestionsByType return 2 questions (partial success)
                     .thenReturn(List.of(mockQuestion1, mockQuestion2))
@@ -627,33 +655,5 @@ class AiQuizGenerationServiceFallbackTest {
             // Should try: 3×3 (strategy 1) + 2×3 (strategy 2) + 0 (strategy 3 skipped) + 1×1 (strategy 4 succeeds on first try) = 16 attempts
             verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any());
         }
-    }
-
-    // Helper method to mock successful AI response
-    private void mockSuccessfulAiResponse(List<Question> questions) {
-        // Always set up the ChatClient mock chain, even when questions is null
-        mockChatClientChain();
-
-        // Only set up the parser mock if questions is provided
-        if (questions != null) {
-            when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any())).thenReturn(questions);
-        }
-    }
-
-    // Helper method to set up ChatClient mock chain without interfering with parser mocks
-    private void mockChatClientChain() {
-        org.springframework.ai.chat.client.ChatClient.CallResponseSpec callResponseSpec = mock(org.springframework.ai.chat.client.ChatClient.CallResponseSpec.class);
-        org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec requestSpec = mock(org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec.class);
-        org.springframework.ai.chat.model.ChatResponse chatResponse = mock(org.springframework.ai.chat.model.ChatResponse.class);
-        org.springframework.ai.chat.model.Generation generation = mock(org.springframework.ai.chat.model.Generation.class);
-        org.springframework.ai.chat.messages.AssistantMessage assistantMessage = mock(org.springframework.ai.chat.messages.AssistantMessage.class);
-
-        when(chatClient.prompt()).thenReturn(requestSpec);
-        when(requestSpec.user(anyString())).thenReturn(requestSpec);
-        when(requestSpec.call()).thenReturn(callResponseSpec);
-        when(callResponseSpec.chatResponse()).thenReturn(chatResponse);
-        when(chatResponse.getResult()).thenReturn(generation);
-        when(generation.getOutput()).thenReturn(assistantMessage);
-        when(assistantMessage.getText()).thenReturn("Mock AI response");
     }
 }  

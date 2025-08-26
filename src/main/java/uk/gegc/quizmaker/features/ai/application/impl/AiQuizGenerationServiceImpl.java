@@ -1,4 +1,5 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -9,29 +10,29 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.features.document.domain.model.Document;
-import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
-import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
-import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
-import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
-import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -72,7 +73,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         } catch (Exception e) {
             log.warn("Failed to find job {} in database, will retry: {}", jobId, e.getMessage());
         }
-        
+
         // If job not found, retry with delay
         if (job == null) {
             try {
@@ -82,14 +83,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.warn("Failed to find job {} after retry: {}", jobId, e.getMessage());
             }
         }
-        
+
         // If still not found, throw exception
         if (job == null) {
-            log.error("Job {} not found in database after retries. Available jobs: {}", jobId, 
+            log.error("Job {} not found in database after retries. Available jobs: {}", jobId,
                     jobRepository.findAll().stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
             throw new ResourceNotFoundException("Generation job not found: " + jobId);
         }
-        
+
         // Call the method that accepts the job directly
         generateQuizFromDocumentAsync(job, request);
     }
@@ -101,20 +102,20 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         UUID jobId = job.getId();
         Instant startTime = Instant.now();
         log.info("Starting quiz generation for job {} with document {}", jobId, request.documentId());
-        log.info("Thread: {}, Transaction: {}", Thread.currentThread().getName(), 
+        log.info("Thread: {}, Transaction: {}", Thread.currentThread().getName(),
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
 
         try {
             // Get the job from database in this transaction
             log.info("Attempting to find job {} in database from thread {}", jobId, Thread.currentThread().getName());
-            
+
             // First, let's see what jobs are available
             List<QuizGenerationJob> allJobs = jobRepository.findAll();
             log.info("Available jobs in database: {}", allJobs.stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
-            
+
             QuizGenerationJob freshJob = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            
+
             log.info("Retrieved job from database, updating status to PROCESSING for job: {}", jobId);
             freshJob.setStatus(GenerationStatus.PROCESSING);
             jobRepository.save(freshJob);
@@ -149,12 +150,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
             Map<QuestionType, Integer> generatedByType = new EnumMap<>(QuestionType.class);
             Map<QuestionType, Integer> requestedByType = new EnumMap<>(request.questionsPerType());
-            
+
             // Initialize counters
             for (QuestionType type : QuestionType.values()) {
                 generatedByType.put(type, 0);
             }
-            
+
             int processedChunks = 0;
 
             // Collect results from all chunks
@@ -162,17 +163,17 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 try {
                     CompletableFuture<List<Question>> future = chunkFutures.get(chunkIndex);
                     List<Question> chunkQuestionsList = future.get();
-                    
+
                     if (!chunkQuestionsList.isEmpty()) {
                         allQuestions.addAll(chunkQuestionsList);
                         chunkQuestions.put(chunkIndex, chunkQuestionsList);
-                        
+
                         // Track generated question types
                         for (Question question : chunkQuestionsList) {
                             generatedByType.merge(question.getType(), 1, Integer::sum);
                         }
                     }
-                    
+
                     processedChunks++;
 
                     // Update progress in database
@@ -193,19 +194,19 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Analyze coverage and attempt to fill gaps
             Map<QuestionType, Integer> missingTypes = findMissingQuestionTypes(requestedByType, generatedByType);
-            
+
             if (!missingTypes.isEmpty()) {
-                log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
+                log.info("Missing question types detected for job {}: {}. Attempting redistribution...",
                         jobId, missingTypes);
-                
+
                 // Update job status to show redistribution phase
                 freshJob.updateProgress(chunks.size(), "Analyzing coverage: " + missingTypes.size() + " question types need redistribution");
                 jobRepository.save(freshJob);
-                
+
                 // Attempt to generate missing types from successful chunks
-                redistributeMissingQuestions(chunks, missingTypes, request.difficulty(), 
-                                           chunkQuestions, allQuestions, generatedByType, jobId);
-                        
+                redistributeMissingQuestions(chunks, missingTypes, request.difficulty(),
+                        chunkQuestions, allQuestions, generatedByType, jobId);
+
                 // Update progress after redistribution
                 String finalCoverage = formatCoverageSummary(generatedByType, requestedByType);
                 freshJob.updateProgress(chunks.size(), "Generation completed with redistribution: " + finalCoverage);
@@ -218,7 +219,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
 
             log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks. Coverage: {}",
-                    jobId, Duration.between(startTime, Instant.now()).getSeconds(), 
+                    jobId, Duration.between(startTime, Instant.now()).getSeconds(),
                     allQuestions.size(), chunkQuestions.size(), formatCoverageSummary(generatedByType, requestedByType));
 
             // Publish event to trigger quiz creation
@@ -310,7 +311,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                 chunk.getChunkIndex(),
                                 jobId
                         );
-                        
+
                         if (!questions.isEmpty()) {
                             allQuestions.addAll(questions);
                             log.debug("Generated {} {} questions for chunk {}",
@@ -446,7 +447,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     long delayMs = calculateBackoffDelay(retryCount);
                     log.warn("Rate limit hit for {} questions of type {} (attempt {}). Waiting {} ms before retry.",
                             questionCount, questionType, retryCount + 1, delayMs);
-                    
+
                     if (retryCount < maxRetries - 1) {
                         sleepForRateLimit(delayMs);
                         retryCount++;
@@ -481,7 +482,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Integer chunkIndex,
             UUID jobId
     ) {
-        log.debug("Attempting to generate {} {} questions for chunk {} with fallbacks", 
+        log.debug("Attempting to generate {} {} questions for chunk {} with fallbacks",
                 questionCount, questionType, chunkIndex);
 
         // Update job status to show fallback attempt
@@ -492,25 +493,25 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         for (int attempt = 1; attempt <= normalAttempts; attempt++) {
             try {
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + "/3");
-                
+
                 List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, difficulty);
                 if (questions.size() >= questionCount) {
                     log.debug("Strategy 1 (normal) succeeded on attempt {} for {} {}", attempt, questionType, chunkIndex);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
                 } else {
-                    log.warn("Strategy 1 (normal) attempt {} generated only {}/{} questions for {} chunk {}", 
+                    log.warn("Strategy 1 (normal) attempt {} generated only {}/{} questions for {} chunk {}",
                             attempt, questions.size(), questionCount, questionType, chunkIndex);
                     // If we got some questions but not enough, and this is the last attempt, return what we have
                     if (attempt == normalAttempts && !questions.isEmpty()) {
-                        log.info("Strategy 1 (normal) returning partial result: {}/{} questions for {} chunk {}", 
+                        log.info("Strategy 1 (normal) returning partial result: {}/{} questions for {} chunk {}",
                                 questions.size(), questionCount, questionType, chunkIndex);
                         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " partial success (" + questions.size() + "/" + questionCount + ")");
                         return questions;
                     }
                 }
             } catch (Exception e) {
-                log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
+                log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}",
                         attempt, questionType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + " failed, retrying...");
                 // Continue to next attempt unless this is the last one
@@ -520,25 +521,25 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         // Strategy 2: Try with reduced count (multiple attempts, if requesting more than 1)
         if (questionCount > 1) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using reduced count strategy");
-            
+
             int reducedAttempts = 2;
             int reducedCount = Math.max(1, questionCount / 2);
-            
+
             for (int attempt = 1; attempt <= reducedAttempts; attempt++) {
                 try {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + "/2");
-                    log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}", 
+                    log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}",
                             reducedCount, attempt, questionType, chunkIndex);
-                    
+
                     List<Question> questions = generateQuestionsByType(chunkContent, questionType, reducedCount, difficulty);
                     if (!questions.isEmpty()) {
-                        log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
+                        log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}",
                                 attempt, questions.size(), questionCount, questionType, chunkIndex);
                         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count success");
                         return questions;
                     }
                 } catch (Exception e) {
-                    log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
+                    log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}",
                             attempt, questionType, chunkIndex, e.getMessage());
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + " failed");
                     // Continue to next attempt unless this is the last one
@@ -549,15 +550,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         // Strategy 3: Try with easier difficulty (if not already EASY)
         if (difficulty != Difficulty.EASY) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using easier difficulty");
-            
+
             try {
                 Difficulty easierDifficulty = getEasierDifficulty(difficulty);
-                log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}", 
+                log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}",
                         easierDifficulty, questionType, chunkIndex);
-                
+
                 List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, easierDifficulty);
                 if (!questions.isEmpty()) {
-                    log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}", 
+                    log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}",
                             questions.size(), questionCount, questionType, chunkIndex);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty success");
                     return questions;
@@ -572,14 +573,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         QuestionType alternativeType = findAlternativeQuestionType(questionType);
         if (alternativeType != null) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": trying " + alternativeType + " instead of " + questionType);
-            
+
             try {
-                log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}", 
+                log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}",
                         alternativeType, questionType, chunkIndex);
-                
+
                 List<Question> questions = generateQuestionsByType(chunkContent, alternativeType, questionCount, difficulty);
                 if (!questions.isEmpty()) {
-                    log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}", 
+                    log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}",
                             questions.size(), alternativeType, questionType, chunkIndex);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative success");
                     return questions;
@@ -593,13 +594,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         // Strategy 5: Last resort - try the most reliable question type (MCQ_SINGLE)
         if (questionType != QuestionType.MCQ_SINGLE) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": last resort MCQ_SINGLE attempt");
-            
+
             try {
                 log.debug("Strategy 5: Last resort - trying MCQ_SINGLE for chunk {}", chunkIndex);
-                
+
                 List<Question> questions = generateQuestionsByType(chunkContent, QuestionType.MCQ_SINGLE, questionCount, difficulty);
                 if (!questions.isEmpty()) {
-                    log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})", 
+                    log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})",
                             questions.size(), chunkIndex, questionType);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": MCQ_SINGLE last resort success");
                     return questions;
@@ -610,7 +611,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
         }
 
-        log.error("All fallback strategies failed for {} questions of type {} in chunk {}", 
+        log.error("All fallback strategies failed for {} questions of type {} in chunk {}",
                 questionCount, questionType, chunkIndex);
         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generation failed completely");
         return new ArrayList<>();
@@ -648,21 +649,21 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Find question types that are missing or under-represented
      */
     private Map<QuestionType, Integer> findMissingQuestionTypes(
-            Map<QuestionType, Integer> requested, 
+            Map<QuestionType, Integer> requested,
             Map<QuestionType, Integer> generated) {
-        
+
         Map<QuestionType, Integer> missing = new EnumMap<>(QuestionType.class);
-        
+
         for (Map.Entry<QuestionType, Integer> entry : requested.entrySet()) {
             QuestionType type = entry.getKey();
             int requestedCount = entry.getValue();
             int generatedCount = generated.getOrDefault(type, 0);
-            
+
             if (generatedCount < requestedCount) {
                 missing.put(type, requestedCount - generatedCount);
             }
         }
-        
+
         return missing;
     }
 
@@ -677,7 +678,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             List<Question> allQuestions,
             Map<QuestionType, Integer> generatedByType,
             UUID jobId) {
-        
+
         // Find chunks that generated questions successfully (have more than average content)
         List<DocumentChunk> goodChunks = chunks.stream()
                 .filter(chunk -> chunkQuestions.containsKey(chunk.getChunkIndex()))
@@ -706,7 +707,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 try {
                     int countToTry = Math.min(neededCount - attemptedCount, 2); // Max 2 per chunk
-                    
+
                     List<Question> redistributedQuestions = generateQuestionsByTypeWithFallbacks(
                             chunk.getContent(),
                             missingType,
@@ -718,26 +719,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                     if (!redistributedQuestions.isEmpty()) {
                         allQuestions.addAll(redistributedQuestions);
-                        
+
                         // Add to chunk questions (append to existing)
                         chunkQuestions.computeIfAbsent(chunk.getChunkIndex(), k -> new ArrayList<>())
-                                     .addAll(redistributedQuestions);
-                        
+                                .addAll(redistributedQuestions);
+
                         // Update counter
                         generatedByType.merge(missingType, redistributedQuestions.size(), Integer::sum);
                         attemptedCount += redistributedQuestions.size();
 
-                        log.info("Redistributed {} {} questions to chunk {}", 
+                        log.info("Redistributed {} {} questions to chunk {}",
                                 redistributedQuestions.size(), missingType, chunk.getChunkIndex());
                     }
                 } catch (Exception e) {
-                    log.warn("Failed to redistribute {} questions to chunk {}: {}", 
+                    log.warn("Failed to redistribute {} questions to chunk {}: {}",
                             missingType, chunk.getChunkIndex(), e.getMessage());
                 }
             }
 
             if (attemptedCount > 0) {
-                log.info("Successfully redistributed {}/{} {} questions", 
+                log.info("Successfully redistributed {}/{} {} questions",
                         attemptedCount, neededCount, missingType);
                 updateJobStatusSafely(jobId, "Redistribution: Successfully added " + attemptedCount + "/" + neededCount + " " + missingType + " questions");
             } else {
@@ -751,16 +752,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Format a coverage summary for logging
      */
     private String formatCoverageSummary(
-            Map<QuestionType, Integer> generated, 
+            Map<QuestionType, Integer> generated,
             Map<QuestionType, Integer> requested) {
-        
+
         List<String> summaryParts = new ArrayList<>();
-        
+
         for (Map.Entry<QuestionType, Integer> entry : requested.entrySet()) {
             QuestionType type = entry.getKey();
             int requestedCount = entry.getValue();
             int generatedCount = generated.getOrDefault(type, 0);
-            
+
             String coverage = String.format("%s: %d/%d", type, generatedCount, requestedCount);
             if (generatedCount >= requestedCount) {
                 coverage += " ✓";
@@ -769,10 +770,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             } else {
                 coverage += " ✗";
             }
-            
+
             summaryParts.add(coverage);
         }
-        
+
         return String.join(", ", summaryParts);
     }
 
@@ -823,22 +824,22 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     public int calculateTotalChunks(UUID documentId, GenerateQuizFromDocumentRequest request) {
         try {
             log.debug("Calculating total chunks for document: {} with scope: {}", documentId, request.quizScope());
-            
+
             Document document = documentRepository.findByIdWithChunks(documentId)
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
-            log.debug("Document {} status: {}, chunks: {}", documentId, document.getStatus(), 
+            log.debug("Document {} status: {}, chunks: {}", documentId, document.getStatus(),
                     document.getChunks() != null ? document.getChunks().size() : "null");
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             log.debug("Found {} chunks for document: {} with scope: {}", chunks.size(), documentId, request.quizScope());
-            
+
             if (chunks.isEmpty()) {
                 log.warn("No chunks found for document: {} with scope: {}", documentId, request.quizScope());
                 // Return 1 as default to prevent "Total chunks must be positive" error
                 return 1;
             }
-            
+
             return chunks.size();
         } catch (Exception e) {
             log.error("Error calculating total chunks for document: {}", documentId, e);
@@ -850,7 +851,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Create a new generation job and store request data
      */
-        public QuizGenerationJob createGenerationJob(UUID documentId, String username, GenerateQuizFromDocumentRequest request) {
+    public QuizGenerationJob createGenerationJob(UUID documentId, String username, GenerateQuizFromDocumentRequest request) {
         // Input validation
         if (username == null) {
             throw new IllegalArgumentException("Username cannot be null");
@@ -858,15 +859,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         if (request == null) {
             throw new IllegalArgumentException("Request cannot be null");
         }
-        
+
         try {
             // Serialize request data to JSON
             String requestData = objectMapper.writeValueAsString(request);
-            
+
             // Get user by username
             User user = userRepository.findByUsername(username)
                     .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
-            
+
             // Create job entity
             QuizGenerationJob job = new QuizGenerationJob();
             job.setUser(user);
@@ -905,7 +906,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         if (username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username cannot be empty");
         }
-        
+
         return jobRepository.findById(jobId)
                 .filter(job -> job.getUser().getUsername().equals(username))
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found or access denied"));
@@ -928,7 +929,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         if (currentChunk.trim().isEmpty()) {
             throw new IllegalArgumentException("Current chunk cannot be empty");
         }
-        
+
         QuizGenerationJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
 
@@ -936,27 +937,27 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         jobRepository.save(job);
     }
 
-         /**
-      * Update job status safely, ensuring transaction integrity
-      */
-     private void updateJobStatusSafely(UUID jobId, String statusMessage) {
-         if (jobId == null) {
-             // When called from public interface without jobId, just log
-             log.debug("Job status update (no jobId): {}", statusMessage);
-             return;
-         }
-         
-         try {
-             QuizGenerationJob job = jobRepository.findById(jobId)
-                     .orElse(null);
-             if (job != null) {
-                 job.updateProgress(job.getProcessedChunks(), statusMessage);
-                 jobRepository.save(job);
-             }
-         } catch (Exception e) {
-             log.error("Failed to update job status for job {}: {}", jobId, statusMessage, e);
-         }
-     }
+    /**
+     * Update job status safely, ensuring transaction integrity
+     */
+    private void updateJobStatusSafely(UUID jobId, String statusMessage) {
+        if (jobId == null) {
+            // When called from public interface without jobId, just log
+            log.debug("Job status update (no jobId): {}", statusMessage);
+            return;
+        }
+
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElse(null);
+            if (job != null) {
+                job.updateProgress(job.getProcessedChunks(), statusMessage);
+                jobRepository.save(job);
+            }
+        } catch (Exception e) {
+            log.error("Failed to update job status for job {}: {}", jobId, statusMessage, e);
+        }
+    }
 
     /**
      * Get chunks based on the quiz scope
@@ -985,7 +986,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 List<DocumentChunk> chapterChunks = allChunks.stream()
                         .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                log.debug("Filtered to {} chunks for chapter: title={}, number={}", 
+                log.debug("Filtered to {} chunks for chapter: title={}, number={}",
                         chapterChunks.size(), request.chapterTitle(), request.chapterNumber());
                 return chapterChunks;
 
@@ -993,7 +994,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 List<DocumentChunk> sectionChunks = allChunks.stream()
                         .filter(chunk -> matchesSection(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                log.debug("Filtered to {} chunks for section: title={}, number={}", 
+                log.debug("Filtered to {} chunks for section: title={}, number={}",
                         sectionChunks.size(), request.chapterTitle(), request.chapterNumber());
                 return sectionChunks;
 
@@ -1031,15 +1032,64 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     /**
+     * Check if the exception is a rate limit error (429)
+     */
+    public boolean isRateLimitError(Exception e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+
+        // Check for common rate limit indicators
+        return message.contains("429") ||
+                message.contains("rate limit") ||
+                message.contains("rate_limit_exceeded") ||
+                message.contains("Too Many Requests") ||
+                message.contains("TPM") ||
+                message.contains("RPM");
+    }
+
+    /**
+     * Calculate exponential backoff delay with jitter
+     * Uses configuration values for base delay, max delay, and jitter factor
+     */
+    public long calculateBackoffDelay(int retryCount) {
+        // Exponential backoff: 2^retryCount * baseDelay
+        long exponentialDelay = rateLimitConfig.getBaseDelayMs() * (long) Math.pow(2, retryCount);
+
+        // Add jitter to prevent thundering herd
+        double jitterRange = rateLimitConfig.getJitterFactor();
+        double jitter = (1.0 - jitterRange) + (Math.random() * 2 * jitterRange);
+
+        long delayWithJitter = (long) (exponentialDelay * jitter);
+
+        // Cap at maximum delay
+        return Math.min(delayWithJitter, rateLimitConfig.getMaxDelayMs());
+    }
+
+    /**
+     * Sleep for the specified delay during rate limiting
+     * This method can be overridden in tests to avoid actual sleeping
+     */
+    protected void sleepForRateLimit(long delayMs) {
+        try {
+            Thread.sleep(delayMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new AiServiceException("Interrupted while waiting for rate limit", ie);
+        }
+    }
+
+    /**
      * Inner class to track generation progress
      */
     public static class GenerationProgress {
         private final AtomicInteger processedChunks = new AtomicInteger(0);
+        private final Instant startTime = Instant.now();
         private int totalChunks;
         private boolean completed = false;
         private List<Question> generatedQuestions = new ArrayList<>();
         private List<String> errors = new ArrayList<>();
-        private final Instant startTime = Instant.now();
 
         public void incrementProcessedChunks() {
             processedChunks.incrementAndGet();
@@ -1093,55 +1143,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         public Instant getStartTime() {
             return startTime;
-        }
-    }
-
-    /**
-     * Check if the exception is a rate limit error (429)
-     */
-    public boolean isRateLimitError(Exception e) {
-        String message = e.getMessage();
-        if (message == null) {
-            return false;
-        }
-        
-        // Check for common rate limit indicators
-        return message.contains("429") || 
-               message.contains("rate limit") || 
-               message.contains("rate_limit_exceeded") ||
-               message.contains("Too Many Requests") ||
-               message.contains("TPM") ||
-               message.contains("RPM");
-    }
-
-    /**
-     * Calculate exponential backoff delay with jitter
-     * Uses configuration values for base delay, max delay, and jitter factor
-     */
-    public long calculateBackoffDelay(int retryCount) {
-        // Exponential backoff: 2^retryCount * baseDelay
-        long exponentialDelay = rateLimitConfig.getBaseDelayMs() * (long) Math.pow(2, retryCount);
-        
-        // Add jitter to prevent thundering herd
-        double jitterRange = rateLimitConfig.getJitterFactor();
-        double jitter = (1.0 - jitterRange) + (Math.random() * 2 * jitterRange);
-        
-        long delayWithJitter = (long) (exponentialDelay * jitter);
-        
-        // Cap at maximum delay
-        return Math.min(delayWithJitter, rateLimitConfig.getMaxDelayMs());
-    }
-
-    /**
-     * Sleep for the specified delay during rate limiting
-     * This method can be overridden in tests to avoid actual sleeping
-     */
-    protected void sleepForRateLimit(long delayMs) {
-        try {
-            Thread.sleep(delayMs);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new AiServiceException("Interrupted while waiting for rate limit", ie);
         }
     }
 } 

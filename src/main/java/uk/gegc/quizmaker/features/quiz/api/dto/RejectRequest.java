@@ -10,6 +10,7 @@ import java.util.UUID;
 public record RejectRequest(
         @NotNull @Schema(description = "Moderator user UUID") UUID moderatorId,
         @NotBlank @Schema(description = "Reason for rejection") String reason
-) {}
+) {
+}
 
 

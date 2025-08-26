@@ -22,21 +22,21 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
-import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
-import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.List;
@@ -603,7 +603,7 @@ public class AttemptControllerIntegrationTest {
 
         System.out.println("Created attempt " + attemptId + " with 1-minute timer");
         System.out.println("Current time: " + Instant.now());
-        
+
         // Test that the timeout logic is working by submitting an answer immediately
         // This should NOT timeout since we just created the attempt
         String validSubmit = String.format(
@@ -615,7 +615,7 @@ public class AttemptControllerIntegrationTest {
                         .content(validSubmit))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isCorrect", is(true)));
-        
+
         // Verify that the attempt is still in progress (not timed out)
         mockMvc.perform(get("/api/v1/attempts/{id}", attemptId))
                 .andExpect(status().isOk())

@@ -7,11 +7,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsSummaryDto;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkAnalyticsService;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkAnalytics;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.features.quiz.application.ShareLinkAnalyticsService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -40,8 +40,8 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
 
     @Override
     @Transactional
-    public void recordEvent(UUID shareLinkId, ShareLinkEventType eventType, String userAgent, 
-                          String ipAddress, String referrer, String countryCode) {
+    public void recordEvent(UUID shareLinkId, ShareLinkEventType eventType, String userAgent,
+                            String ipAddress, String referrer, String countryCode) {
         try {
             // Find the share link
             var shareLink = shareLinkRepository.findById(shareLinkId)
@@ -59,7 +59,7 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
                     .build();
 
             analyticsRepository.save(analytics);
-            
+
             log.debug("Recorded analytics event: {} for share link: {}", eventType, shareLinkId);
         } catch (Exception e) {
             log.error("Failed to record analytics event for share link: {}", shareLinkId, e);
@@ -89,11 +89,11 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
     @Transactional(readOnly = true)
     public ShareLinkAnalyticsSummaryDto getShareLinkSummary(UUID shareLinkId) {
         var events = analyticsRepository.findByShareLink_IdOrderByCreatedAtDesc(shareLinkId);
-        
+
         long totalViews = analyticsRepository.countByShareLink_IdAndEventType(shareLinkId, ShareLinkEventType.VIEW);
         long totalAttempts = analyticsRepository.countByShareLink_IdAndEventType(shareLinkId, ShareLinkEventType.ATTEMPT_START);
         long totalConsumptions = analyticsRepository.countByShareLink_IdAndEventType(shareLinkId, ShareLinkEventType.CONSUMED);
-        
+
         // Count unique visitors (by IP hash)
         long uniqueVisitors = events.stream()
                 .map(ShareLinkAnalytics::getIpHash)
@@ -130,8 +130,8 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
     @Transactional(readOnly = true)
     public List<ShareLinkAnalyticsDto> getQuizEvents(UUID quizId, LocalDate startDate, LocalDate endDate) {
         return analyticsRepository.findByQuizIdAndDateRange(
-                        quizId, 
-                        startDate.toString(), 
+                        quizId,
+                        startDate.toString(),
                         endDate.toString()
                 )
                 .stream()
@@ -143,8 +143,8 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
     @Transactional(readOnly = true)
     public ShareLinkAnalyticsSummaryDto getQuizSummary(UUID quizId, LocalDate startDate, LocalDate endDate) {
         var events = analyticsRepository.findByQuizIdAndDateRange(
-                quizId, 
-                startDate.toString(), 
+                quizId,
+                startDate.toString(),
                 endDate.toString()
         );
 
@@ -197,8 +197,8 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
     @Transactional(readOnly = true)
     public long getUniqueVisitorCount(UUID quizId, LocalDate startDate, LocalDate endDate) {
         return analyticsRepository.getUniqueVisitorCount(
-                quizId, 
-                startDate.toString(), 
+                quizId,
+                startDate.toString(),
                 endDate.toString()
         );
     }
@@ -230,10 +230,10 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
         if (ipAddress == null || ipAddress.trim().isEmpty()) {
             return "";
         }
-        
+
         String dateBucket = LocalDate.now(ZoneOffset.UTC).toString();
         String input = tokenPepper + ":" + dateBucket + ":" + ipAddress.trim();
-        
+
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));

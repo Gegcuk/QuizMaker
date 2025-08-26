@@ -243,8 +243,14 @@ POST /api/v1/attempts/{attemptId}/answers/batch # Submit multiple answers
   "questionText": "Which is correct Java syntax?",
   "safeContent": {
     "options": [
-      {"id": "opt1", "text": "int x = 5;"},
-      {"id": "opt2", "text": "int x := 5;"}
+      {
+        "id": "opt1",
+        "text": "int x = 5;"
+      },
+      {
+        "id": "opt2",
+        "text": "int x := 5;"
+      }
     ]
   },
   "hint": "Think about variable declaration"

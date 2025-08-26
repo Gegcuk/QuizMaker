@@ -5,11 +5,11 @@ package uk.gegc.quizmaker.shared.exception;
  * Maps to HTTP 410 Gone status.
  */
 public class ShareLinkAlreadyUsedException extends RuntimeException {
-    
+
     public ShareLinkAlreadyUsedException(String message) {
         super(message);
     }
-    
+
     public ShareLinkAlreadyUsedException(String message, Throwable cause) {
         super(message, cause);
     }

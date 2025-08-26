@@ -6,4 +6,5 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record ResetPasswordResponse(
         @Schema(description = "Success message", example = "Password updated successfully")
         String message
-) {}
+) {
+}

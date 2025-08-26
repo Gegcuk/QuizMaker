@@ -2,12 +2,12 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.List;
 import java.util.Set;
@@ -32,7 +32,7 @@ public class OrderingHandler extends QuestionHandler {
         if (items == null || !items.isArray() || items.size() < 2) {
             throw new ValidationException("ORDERING must have at least 2 items");
         }
-        
+
         if (items.size() > 10) {
             throw new ValidationException("ORDERING must have at most 10 items");
         }
@@ -65,9 +65,9 @@ public class OrderingHandler extends QuestionHandler {
         JsonNode itemIdsNode = response.get("orderedItemIds");
         List<Integer> userOrder = itemIdsNode != null && itemIdsNode.isArray()
                 ? StreamSupport.stream(itemIdsNode.spliterator(), false)
-                        .filter(id -> id.canConvertToInt())
-                        .map(JsonNode::asInt)
-                        .toList()
+                .filter(id -> id.canConvertToInt())
+                .map(JsonNode::asInt)
+                .toList()
                 : List.of();
 
         boolean isCorrect = correctOrder.equals(userOrder);

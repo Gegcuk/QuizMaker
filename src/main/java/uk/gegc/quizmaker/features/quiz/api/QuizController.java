@@ -27,27 +27,27 @@ import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptStatsDto;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
-import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
-import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.features.quiz.api.dto.*;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.*;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
+import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
-import uk.gegc.quizmaker.features.attempt.application.AttemptService;
-import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
-import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
@@ -890,13 +890,13 @@ public class QuizController {
         try {
             QuizGenerationJob job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Job not found: " + jobId));
-            
+
             log.info("Force cancelling job: {} (current status: {})", jobId, job.getStatus());
             job.setStatus(GenerationStatus.CANCELLED);
             job.setErrorMessage("Force cancelled by user");
             job.setCompletedAt(LocalDateTime.now());
             jobRepository.save(job);
-            
+
             return ResponseEntity.ok("Job " + jobId + " force cancelled successfully");
         } catch (Exception e) {
             log.error("Error force cancelling job: {}", jobId, e);
@@ -910,7 +910,8 @@ public class QuizController {
      */
     private Map<QuestionType, Integer> parseQuestionsPerType(String questionsPerTypeJson) {
         try {
-            return objectMapper.readValue(questionsPerTypeJson, new TypeReference<Map<QuestionType, Integer>>() {});
+            return objectMapper.readValue(questionsPerTypeJson, new TypeReference<Map<QuestionType, Integer>>() {
+            });
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid questionsPerType JSON format: " + e.getMessage());
         }

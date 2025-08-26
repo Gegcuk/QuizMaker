@@ -16,6 +16,7 @@ public record ShareLinkDto(
         @Schema(description = "One-time link?") boolean oneTime,
         @Schema(description = "Revoked at") Instant revokedAt,
         @Schema(description = "Created at") Instant createdAt
-) {}
+) {
+}
 
 
