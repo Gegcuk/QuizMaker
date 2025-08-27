@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
+import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
@@ -56,13 +57,13 @@ public class DocumentQueryService {
         
         // Validate bounds
         if (start < 0) {
-            throw new IllegalArgumentException("Start offset cannot be negative: " + start);
+            throw new ValidationErrorException("Start offset cannot be negative: " + start);
         }
         if (end < start) {
-            throw new IllegalArgumentException("End offset must be greater than or equal to start: end=" + end + ", start=" + start);
+            throw new ValidationErrorException("End offset must be greater than or equal to start: end=" + end + ", start=" + start);
         }
         if (start > textLength) {
-            throw new IllegalArgumentException("Start offset exceeds text length: start=" + start + ", length=" + textLength);
+            throw new ValidationErrorException("Start offset exceeds text length: start=" + start + ", length=" + textLength);
         }
         
         // Adjust end to text length if it exceeds

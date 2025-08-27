@@ -164,13 +164,11 @@ Returns `NormalizationResult(text, charCount)`.
 
 - `PdfBoxDocumentConverter`, `EpubDocumentConverter`, `HtmlDocumentConverter`, `SrtVttDocumentConverter` (stubs or basic)
 - A lightweight MIME/extension detector
-- `GlobalExceptionHandler` to return consistent `ApiError` codes:
-  - `UNSUPPORTED_FORMAT`, `CONVERSION_FAILED`, `NORMALIZATION_FAILED`, `NOT_FOUND`, `VALIDATION_ERROR`
+
 
 ### Why these pieces?
 
 - Converters now = zero later refactors. You keep the same ingest flow; only the factory grows.
-- Error handler = predictable API for callers; easier debugging.
 
 ### Acceptance checks
 

@@ -18,6 +18,10 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import uk.gegc.quizmaker.shared.exception.*;
+import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
+import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
+import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
+import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -42,7 +46,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             UnsupportedQuestionTypeException.class,
             UnsupportedFileTypeException.class,
             ApiError.class,
-            QuizGenerationException.class
+            QuizGenerationException.class,
+            ValidationErrorException.class
     })
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(RuntimeException ex) {
@@ -50,6 +55,28 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 LocalDateTime.now(),
                 HttpStatus.BAD_REQUEST.value(),
                 "Bad Request",
+                List.of(ex.getMessage())
+        );
+    }
+
+    @ExceptionHandler(UnsupportedFormatException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorResponse handleUnsupportedFormat(UnsupportedFormatException ex) {
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(),
+                "Unsupported Format",
+                List.of(ex.getMessage())
+        );
+    }
+
+    @ExceptionHandler({ConversionFailedException.class, NormalizationFailedException.class})
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ErrorResponse handleProcessingFailed(RuntimeException ex) {
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "Processing Failed",
                 List.of(ex.getMessage())
         );
     }
@@ -78,12 +105,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
     public ErrorResponse handleIllegalState(IllegalStateException ex) {
         return new ErrorResponse(
                 LocalDateTime.now(),
-                HttpStatus.CONFLICT.value(),
-                "Conflict",
+                HttpStatus.UNPROCESSABLE_ENTITY.value(),
+                "Processing Failed",
                 List.of(ex.getMessage())
         );
     }

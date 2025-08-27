@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionResult;
 import uk.gegc.quizmaker.features.conversion.domain.DocumentConverter;
+import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 
 import java.util.List;
 
@@ -19,6 +20,7 @@ import java.util.List;
 public class DocumentConversionService {
 
     private final List<DocumentConverter> converters;
+    private final MimeTypeDetector mimeTypeDetector;
 
     /**
      * Converts document bytes to text using the appropriate converter.
@@ -26,14 +28,19 @@ public class DocumentConversionService {
      * @param originalName the original filename (used for format detection)
      * @param bytes the document bytes
      * @return ConversionResult containing the extracted text
-     * @throws ConversionException if no suitable converter is found or conversion fails
+     * @throws UnsupportedFormatException if no suitable converter is found
+     * @throws ConversionException if conversion fails
      */
     public ConversionResult convert(String originalName, byte[] bytes) throws ConversionException {
         log.debug("Converting document: {} ({} bytes)", originalName, bytes.length);
         
+        String mimeType = mimeTypeDetector.detectMimeType(originalName);
         DocumentConverter converter = findConverter(originalName);
+        if (converter == null && mimeType != null) {
+            converter = findConverter(mimeType);
+        }
         if (converter == null) {
-            throw new ConversionException("No suitable converter found for: " + originalName);
+            throw new UnsupportedFormatException("No suitable converter found for: " + originalName);
         }
         
         log.debug("Using converter: {}", converter.getClass().getSimpleName());

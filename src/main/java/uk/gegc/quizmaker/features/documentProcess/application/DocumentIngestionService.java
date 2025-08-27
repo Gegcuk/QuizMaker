@@ -6,8 +6,11 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.conversion.application.DocumentConversionService;
+import uk.gegc.quizmaker.features.conversion.application.MimeTypeDetector;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionException;
+import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionResult;
+import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 
@@ -24,6 +27,7 @@ public class DocumentIngestionService {
     @Qualifier("documentProcessNormalizationService")
     private final NormalizationService normalizationService;
     private final NormalizedDocumentRepository documentRepository;
+    private final MimeTypeDetector mimeTypeDetector;
 
     /**
      * Ingests text directly without file conversion.
@@ -95,7 +99,7 @@ public class DocumentIngestionService {
             NormalizationResult normalizationResult = normalizationService.normalize(conversionResult.text());
             
             // Update document with results
-            document.setMime(determineMimeType(originalName));
+            document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setNormalizedText(normalizationResult.text());
             document.setCharCount(normalizationResult.charCount());
             document.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
@@ -104,41 +108,26 @@ public class DocumentIngestionService {
             log.info("Successfully ingested file document: {} (id={})", originalName, saved.getId());
             
             return saved;
+        } catch (UnsupportedFormatException e) {
+            log.error("Unsupported format for file document: {}", originalName, e);
+            document.setMime(mimeTypeDetector.detectMimeType(originalName));
+            document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
+            documentRepository.save(document);
+            // Re-throw to be handled by GlobalExceptionHandler with appropriate HTTP status
+            throw e;
         } catch (ConversionException e) {
             log.error("Failed to convert file document: {}", originalName, e);
-            document.setMime(determineMimeType(originalName));
+            document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
-            return documentRepository.save(document);
+            documentRepository.save(document);
+            // Convert to ConversionFailedException for proper error handling
+            throw new ConversionFailedException("Document conversion failed: " + e.getMessage(), e);
         } catch (Exception e) {
             log.error("Failed to ingest file document: {}", originalName, e);
-            document.setMime(determineMimeType(originalName));
+            document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
-            return documentRepository.save(document);
+            documentRepository.save(document);
+            throw new ConversionFailedException("Document ingestion failed: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * Simple MIME type determination based on file extension.
-     * 
-     * @param filename the filename
-     * @return the MIME type
-     */
-    private String determineMimeType(String filename) {
-        if (filename == null) {
-            return "application/octet-stream";
-        }
-        
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".txt")) {
-            return "text/plain";
-        } else if (lower.endsWith(".pdf")) {
-            return "application/pdf";
-        } else if (lower.endsWith(".html") || lower.endsWith(".htm")) {
-            return "text/html";
-        } else if (lower.endsWith(".epub")) {
-            return "application/epub+zip";
-        }
-        
-        return "application/octet-stream";
     }
 }
