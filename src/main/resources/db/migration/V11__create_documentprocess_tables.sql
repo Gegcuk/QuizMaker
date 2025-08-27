@@ -1,7 +1,7 @@
 -- DocumentProcess feature tables
 -- Phase 1: documents table for text normalization and storage
 
-CREATE TABLE documents (
+CREATE TABLE normalized_documents (
   id BINARY(16) PRIMARY KEY,
   original_name VARCHAR(255),
   mime VARCHAR(100),
