@@ -8,7 +8,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionResult;
 import uk.gegc.quizmaker.features.conversion.domain.DocumentConverter;
+import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.conversion.infra.TxtPassthroughConverter;
+import uk.gegc.quizmaker.features.conversion.application.MimeTypeDetector;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -22,6 +24,9 @@ class NormalizedDocumentConversionServiceTest {
 
     @Mock
     private DocumentConverter mockConverter;
+    
+    @Mock
+    private MimeTypeDetector mimeTypeDetector;
 
     private TxtPassthroughConverter txtConverter;
     private DocumentConversionService conversionService;
@@ -29,7 +34,7 @@ class NormalizedDocumentConversionServiceTest {
     @BeforeEach
     void setUp() {
         txtConverter = new TxtPassthroughConverter();
-        conversionService = new DocumentConversionService(List.of(txtConverter));
+        conversionService = new DocumentConversionService(List.of(txtConverter), mimeTypeDetector);
     }
 
     @Test
@@ -67,7 +72,7 @@ class NormalizedDocumentConversionServiceTest {
         byte[] bytes = "test".getBytes(StandardCharsets.UTF_8);
         
         assertThatThrownBy(() -> conversionService.convert("document.pdf", bytes))
-                .isInstanceOf(ConversionException.class)
+                .isInstanceOf(UnsupportedFormatException.class)
                 .hasMessageContaining("No suitable converter found for: document.pdf");
     }
 
@@ -76,7 +81,7 @@ class NormalizedDocumentConversionServiceTest {
         byte[] bytes = "test".getBytes(StandardCharsets.UTF_8);
         
         assertThatThrownBy(() -> conversionService.convert(null, bytes))
-                .isInstanceOf(ConversionException.class)
+                .isInstanceOf(UnsupportedFormatException.class)
                 .hasMessageContaining("No suitable converter found for: null");
     }
 
@@ -99,7 +104,7 @@ class NormalizedDocumentConversionServiceTest {
                 .thenReturn(new ConversionResult("converted text"));
         
         DocumentConversionService serviceWithMultipleConverters = 
-                new DocumentConversionService(List.of(txtConverter, mockConverter));
+                new DocumentConversionService(List.of(txtConverter, mockConverter), mimeTypeDetector);
         
         ConversionResult result = serviceWithMultipleConverters.convert("document.pdf", 
                 "test".getBytes(StandardCharsets.UTF_8));
@@ -115,7 +120,7 @@ class NormalizedDocumentConversionServiceTest {
                 .thenThrow(new ConversionException("Conversion failed"));
         
         DocumentConversionService serviceWithMockConverter = 
-                new DocumentConversionService(List.of(mockConverter));
+                new DocumentConversionService(List.of(mockConverter), mimeTypeDetector);
         
         assertThatThrownBy(() -> serviceWithMockConverter.convert("document.pdf", 
                 "test".getBytes(StandardCharsets.UTF_8)))

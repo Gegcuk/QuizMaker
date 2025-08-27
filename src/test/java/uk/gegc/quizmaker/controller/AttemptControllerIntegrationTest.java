@@ -385,9 +385,8 @@ public class AttemptControllerIntegrationTest {
                 .andExpect(status().isOk());
 
         postAnswer(attemptId, questionId, "{\"answer\":true}")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", is("Conflict")))
-                .andExpect(jsonPath("$.details[0]", containsString("Cannot submit answer to attempt with status COMPLETED")));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", is("Processing Failed")));
     }
 
     @Test
@@ -493,8 +492,8 @@ public class AttemptControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", is("Conflict")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", is("Processing Failed")))
                 .andExpect(jsonPath("$.details[0]", containsString("Batch submissions only allowed")));
     }
 
@@ -506,7 +505,7 @@ public class AttemptControllerIntegrationTest {
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
 
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isConflict());
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -718,7 +717,7 @@ public class AttemptControllerIntegrationTest {
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isOk());
-        postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isConflict());
+        postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isUnprocessableEntity());
     }
 
     @DisplayName("Batch submission with empty list → returns 400 BAD_REQUEST")

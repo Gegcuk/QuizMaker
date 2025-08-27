@@ -251,9 +251,9 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         // Act & Assert
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", testAttempt.getId())
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Processing Failed"));
     }
 
     @Test
@@ -287,8 +287,8 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         // Act & Assert
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", testAttempt.getId())
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Processing Failed"));
     }
 }

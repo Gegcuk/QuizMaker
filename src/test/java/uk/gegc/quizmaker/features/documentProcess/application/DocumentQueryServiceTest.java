@@ -6,6 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -89,8 +90,8 @@ class DocumentQueryServiceTest {
     void getTextSlice_startNegative_throwsIllegalArgument() {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         
-        IllegalArgumentException exception = assertThrows(
-            IllegalArgumentException.class,
+        ValidationErrorException exception = assertThrows(
+            ValidationErrorException.class,
             () -> queryService.getTextSlice(documentId, -1, 10)
         );
         
@@ -101,8 +102,8 @@ class DocumentQueryServiceTest {
     void getTextSlice_endBeforeStart_throwsIllegalArgument() {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         
-        IllegalArgumentException exception = assertThrows(
-            IllegalArgumentException.class,
+        ValidationErrorException exception = assertThrows(
+            ValidationErrorException.class,
             () -> queryService.getTextSlice(documentId, 20, 10)
         );
         
@@ -113,8 +114,8 @@ class DocumentQueryServiceTest {
     void getTextSlice_startBeyondLength_throwsIllegalArgument() {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         
-        IllegalArgumentException exception = assertThrows(
-            IllegalArgumentException.class,
+        ValidationErrorException exception = assertThrows(
+            ValidationErrorException.class,
             () -> queryService.getTextSlice(documentId, 100, 110)
         );
         

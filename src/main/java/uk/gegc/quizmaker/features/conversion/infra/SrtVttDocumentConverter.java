@@ -45,6 +45,7 @@ public class SrtVttDocumentConverter implements DocumentConverter {
             StringBuilder extractedText = new StringBuilder();
             
             String[] lines = content.split("\\r?\\n");
+            boolean inStyleBlock = false;
             
             for (String line : lines) {
                 String trimmedLine = line.trim();
@@ -59,6 +60,24 @@ public class SrtVttDocumentConverter implements DocumentConverter {
                     continue;
                 }
                 
+                // Handle STYLE blocks - start and end detection
+                if (trimmedLine.startsWith("STYLE")) {
+                    inStyleBlock = true;
+                    continue;
+                }
+                if (inStyleBlock && trimmedLine.equals("}")) {
+                    inStyleBlock = false;
+                    continue;
+                }
+                if (inStyleBlock) {
+                    continue; // Skip all lines within STYLE block
+                }
+                
+                // Skip NOTE blocks
+                if (trimmedLine.startsWith("NOTE")) {
+                    continue;
+                }
+                
                 // Skip sequence numbers
                 if (SEQUENCE_NUMBER_PATTERN.matcher(trimmedLine).matches()) {
                     continue;
@@ -67,11 +86,6 @@ public class SrtVttDocumentConverter implements DocumentConverter {
                 // Skip timestamp lines
                 if (SRT_TIMESTAMP_PATTERN.matcher(trimmedLine).find() || 
                     VTT_TIMESTAMP_PATTERN.matcher(trimmedLine).find()) {
-                    continue;
-                }
-                
-                // Skip NOTE/STYLE blocks
-                if (trimmedLine.startsWith("NOTE") || trimmedLine.startsWith("STYLE")) {
                     continue;
                 }
                 

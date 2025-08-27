@@ -479,7 +479,7 @@ class ShareLinkControllerWebMvcTest {
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -645,7 +645,7 @@ class ShareLinkControllerWebMvcTest {
         mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
                         .with(csrf())
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -1021,7 +1021,7 @@ class ShareLinkControllerWebMvcTest {
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 }
 
