@@ -8,10 +8,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "documents")
+@Table(name = "normalized_documents")
 @Getter
 @Setter
-public class Document {
+public class NormalizedDocument {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
