@@ -11,9 +11,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.test.util.ReflectionTestUtils;
+import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;

@@ -1,8 +1,6 @@
 package uk.gegc.quizmaker.features.documentProcess.api.dto;
 
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
-import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument.DocumentSource;
-import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument.DocumentStatus;
 
 import java.time.Instant;
 import java.util.UUID;

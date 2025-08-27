@@ -15,10 +15,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
+import uk.gegc.quizmaker.features.user.application.impl.UserProfileServiceImpl;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.user.application.impl.UserProfileServiceImpl;
 import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.time.LocalDateTime;
