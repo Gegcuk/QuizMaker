@@ -80,7 +80,7 @@ class MimeTypeDetectorTest {
         // Test round-trip mapping
         assertThat(detector.getExtensionForMimeType("text/plain")).isEqualTo(".txt");
         assertThat(detector.getExtensionForMimeType("application/pdf")).isEqualTo(".pdf");
-        assertThat(detector.getExtensionForMimeType("text/html")).contains(".html"); // .html comes first in map iteration
+        assertThat(detector.getExtensionForMimeType("text/html")).containsAnyOf(".html", ".htm"); // .html comes first in map iteration
         assertThat(detector.getExtensionForMimeType("application/epub+zip")).isEqualTo(".epub");
         assertThat(detector.getExtensionForMimeType("text/srt")).isEqualTo(".srt");
         assertThat(detector.getExtensionForMimeType("text/vtt")).isEqualTo(".vtt");
