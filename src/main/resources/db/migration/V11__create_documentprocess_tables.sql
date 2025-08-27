@@ -14,4 +14,4 @@ CREATE TABLE normalized_documents (
   updated_at TIMESTAMP NOT NULL
 );
 
-CREATE INDEX ix_doc_created ON documents(created_at);
+CREATE INDEX ix_doc_created ON normalized_documents(created_at);

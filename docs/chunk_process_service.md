@@ -148,7 +148,6 @@ Returns `NormalizationResult(text, charCount)`.
 - `IngestResponse` { id, status }
 - `DocumentView` { id, originalName, mime, source, charCount, language, status, createdAt, updatedAt }
 - `TextSliceResponse` { documentId, start, end, text }
-- `ApiError` { code, message, details }
 
 ### Acceptance checks
 

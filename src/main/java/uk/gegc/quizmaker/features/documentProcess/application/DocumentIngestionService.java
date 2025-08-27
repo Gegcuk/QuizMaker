@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.documentProcess.application;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.conversion.application.DocumentConversionService;
@@ -20,6 +21,7 @@ import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDoc
 public class DocumentIngestionService {
 
     private final DocumentConversionService conversionService;
+    @Qualifier("documentProcessNormalizationService")
     private final NormalizationService normalizationService;
     private final NormalizedDocumentRepository documentRepository;
 
