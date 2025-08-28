@@ -62,6 +62,6 @@ public class NormalizedDocument {
     }
 
     public enum DocumentStatus {
-        PENDING, NORMALIZED, FAILED
+        PENDING, NORMALIZED, FAILED, STRUCTURED
     }
 }

@@ -179,7 +179,7 @@ Returns `NormalizationResult(text, charCount)`.
 
 ### What you'll implement
 
-- Flyway V2: `document_nodes` table
+- Flyway V*: `document_nodes` table
 - DTOs and endpoints for reading structure (empty list for now)
 - Skeleton `StructureService` with no AI logic (returns empty/specimen)
 
@@ -193,7 +193,7 @@ Returns `NormalizationResult(text, charCount)`.
 
 ### Tasks
 
-#### Flyway V2__structure.sql
+#### Flyway V*__structure.sql
 
 ```sql
 CREATE TABLE document_nodes (

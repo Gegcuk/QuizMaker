@@ -12,9 +12,12 @@ import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.DocumentView;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
+import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
+import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
+import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
 
@@ -35,6 +38,7 @@ public class DocumentProcessController {
 
     private final DocumentIngestionService ingestionService;
     private final DocumentQueryService queryService;
+    private final StructureService structureService;
     private final DocumentMapper mapper;
 
     /**
@@ -135,5 +139,52 @@ public class DocumentProcessController {
         
         String sliceText = queryService.getTextSlice(id, start, end);
         return mapper.toTextSliceResponse(id, start, end, sliceText);
+    }
+
+    /**
+     * Retrieves the document structure in the specified format.
+     * Phase 2: Returns empty structure as AI functionality is not yet implemented.
+     * 
+     * @param id the document ID
+     * @param format structure format: "tree" (hierarchical) or "flat" (linear)
+     * @return structure response based on format
+     */
+    @GetMapping("/{id}/structure")
+    public ResponseEntity<?> getStructure(
+            @PathVariable UUID id,
+            @RequestParam(value = "format", defaultValue = "tree") String format) {
+        
+        log.debug("Retrieving document structure: document={}, format={}", id, format);
+        
+        return switch (format.toLowerCase()) {
+            case "tree" -> {
+                StructureTreeResponse response = structureService.getTree(id);
+                yield ResponseEntity.ok(response);
+            }
+            case "flat" -> {
+                StructureFlatResponse response = structureService.getFlat(id);
+                yield ResponseEntity.ok(response);
+            }
+            default -> {
+                log.warn("Invalid structure format requested: {}", format);
+                yield ResponseEntity.badRequest()
+                    .body("Invalid format. Use 'tree' or 'flat'");
+            }
+        };
+    }
+
+    /**
+     * Placeholder endpoint for future structure building functionality.
+     * Phase 2: Not implemented yet - will be added when AI functionality is implemented.
+     * 
+     * @param id the document ID
+     * @return response indicating structure building is not yet available
+     */
+    @PostMapping("/{id}/structure")
+    public ResponseEntity<String> buildStructure(@PathVariable UUID id) {
+        log.info("Structure building requested for document: {}", id);
+        
+        return ResponseEntity.status(501)
+            .body("Structure building will be available in Phase 3 (AI implementation)");
     }
 }

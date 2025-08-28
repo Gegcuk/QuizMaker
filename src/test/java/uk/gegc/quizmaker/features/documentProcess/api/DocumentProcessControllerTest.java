@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
+import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
@@ -67,6 +68,9 @@ class DocumentProcessControllerTest {
 
     @MockitoBean
     private NormalizationService normalizationService;
+
+    @MockitoBean
+    private StructureService structureService;
 
     private UUID documentId;
     private NormalizedDocument testDocument;
