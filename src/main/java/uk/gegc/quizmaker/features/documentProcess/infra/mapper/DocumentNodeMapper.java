@@ -60,12 +60,29 @@ public class DocumentNodeMapper {
      */
     public List<NodeView> buildTree(List<DocumentNode> nodes) {
         Map<UUID, List<DocumentNode>> byParent = nodes.stream()
-                .collect(Collectors.groupingBy(n -> n.getParent() == null ? null : n.getParent().getId()));
-        return toNodeViews(byParent, null); // null = roots
+                .filter(n -> n.getParent() != null)
+                .collect(Collectors.groupingBy(n -> n.getParent().getId()));
+        
+        List<DocumentNode> roots = nodes.stream()
+                .filter(n -> n.getParent() == null)
+                .sorted((a, b) -> Integer.compare(a.getIdx(), b.getIdx()))
+                .toList();
+        
+        return roots.stream()
+                .map(n -> new NodeView(
+                        n.getId(), n.getDocument().getId(),
+                        null, // root has no parent
+                        n.getIdx(), n.getType(), n.getTitle(),
+                        n.getStartOffset(), n.getEndOffset(),
+                        n.getDepth(), n.getAiConfidence(), n.getMetaJson(),
+                        toNodeViews(byParent, n.getId())
+                ))
+                .toList();
     }
 
     private List<NodeView> toNodeViews(Map<UUID, List<DocumentNode>> byParent, UUID parentId) {
         return byParent.getOrDefault(parentId, List.of()).stream()
+                .sorted((a, b) -> Integer.compare(a.getIdx(), b.getIdx()))
                 .map(n -> new NodeView(
                         n.getId(), n.getDocument().getId(),
                         n.getParent() != null ? n.getParent().getId() : null,

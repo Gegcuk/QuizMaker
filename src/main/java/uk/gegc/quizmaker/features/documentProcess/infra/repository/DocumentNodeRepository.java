@@ -59,4 +59,6 @@ public interface DocumentNodeRepository extends JpaRepository<DocumentNode, UUID
      */
     @Query("SELECT COUNT(n) > 0 FROM DocumentNode n WHERE n.document.id = :documentId AND n.parent IS NULL AND n.idx = :idx")
     boolean existsByDocumentAndNullParentAndIdx(@Param("documentId") UUID documentId, @Param("idx") Integer idx);
+
+    void deleteByDocument_Id(UUID documentId);
 }
