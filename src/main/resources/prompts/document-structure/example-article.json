@@ -1,0 +1,68 @@
+{
+  "nodes": [
+    {
+      "type": "SECTION",
+      "title": "The Future of AI in Education",
+      "start_anchor": "The Future of AI in Education: Artificial intelligence is rapidly transforming the educational landscape, offering new opportunities and challenges for students, teachers, and institutions.",
+      "end_anchor": "The integration of AI in education represents a fundamental shift in how we approach teaching and learning, with the potential to create more personalized and effective educational experiences.",
+      "depth": 0,
+      "confidence": 0.95
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Introduction",
+      "start_anchor": "Introduction: The rapid advancement of artificial intelligence technology has opened up new possibilities in various fields, including education.",
+      "end_anchor": "This introduction sets the stage for exploring how AI can enhance educational outcomes and transform traditional teaching methods.",
+      "depth": 1,
+      "confidence": 0.90
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Current State of AI in Education",
+      "start_anchor": "Current State of AI in Education: AI is already being used in various educational applications, from adaptive learning platforms to automated grading systems.",
+      "end_anchor": "The current state of AI in education shows promising results, but there are still significant challenges to overcome before widespread adoption.",
+      "depth": 1,
+      "confidence": 0.92
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Adaptive Learning Systems",
+      "start_anchor": "Adaptive Learning Systems: One of the most promising applications of AI in education is adaptive learning systems.",
+      "end_anchor": "Adaptive learning systems have shown significant improvements in student engagement and achievement across various subjects and grade levels.",
+      "depth": 2,
+      "confidence": 0.85
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Automated Assessment",
+      "start_anchor": "Automated Assessment: AI-powered assessment tools are revolutionizing how educators evaluate student work.",
+      "end_anchor": "Automated assessment systems are particularly effective for objective evaluations and can help ensure consistency in grading across large numbers of students.",
+      "depth": 2,
+      "confidence": 0.87
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Future Possibilities",
+      "start_anchor": "Future Possibilities: Looking ahead, AI has the potential to transform education in even more profound ways.",
+      "end_anchor": "The future of AI in education holds tremendous promise for creating more engaging, effective, and accessible learning experiences for all students.",
+      "depth": 1,
+      "confidence": 0.89
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Personalized Learning",
+      "start_anchor": "Personalized Learning: AI enables truly personalized learning experiences that adapt to each student's unique needs, learning style, and pace.",
+      "end_anchor": "Personalized learning powered by AI has the potential to close achievement gaps and ensure that every student receives the support they need to succeed.",
+      "depth": 2,
+      "confidence": 0.84
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Conclusion",
+      "start_anchor": "Conclusion: The integration of AI in education represents a fundamental shift in how we approach teaching and learning.",
+      "end_anchor": "As we move forward, it is essential to approach AI integration thoughtfully and ensure that these technologies serve the best interests of students and educators alike.",
+      "depth": 1,
+      "confidence": 0.88
+    }
+  ]
+}

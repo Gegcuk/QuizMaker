@@ -170,12 +170,15 @@ class StructureServiceTest {
     }
 
     @Test
-    @DisplayName("buildStructure_throwsUnsupportedOperation")
-    void buildStructure_throwsUnsupportedOperation() {
+    @DisplayName("buildStructure_documentMissing_throwsResourceNotFound")
+    void buildStructure_documentMissing_throwsResourceNotFound() {
+        // Given
+        when(documentRepository.findById(documentId)).thenReturn(Optional.empty());
+
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessage("Structure building will be implemented in Phase 3");
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Document not found: " + documentId);
     }
 
     @Test

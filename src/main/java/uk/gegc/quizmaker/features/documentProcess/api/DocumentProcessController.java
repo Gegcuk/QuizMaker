@@ -174,17 +174,38 @@ public class DocumentProcessController {
     }
 
     /**
-     * Placeholder endpoint for future structure building functionality.
-     * Phase 2: Not implemented yet - will be added when AI functionality is implemented.
+     * Builds the structure for a document using AI.
+     * Phase 3: Single-pass AI structure generation.
      * 
      * @param id the document ID
-     * @return response indicating structure building is not yet available
+     * @return response indicating structure building status
      */
     @PostMapping("/{id}/structure")
-    public ResponseEntity<String> buildStructure(@PathVariable UUID id) {
+    public ResponseEntity<StructureBuildResponse> buildStructure(@PathVariable UUID id) {
         log.info("Structure building requested for document: {}", id);
         
-        return ResponseEntity.status(501)
-            .body("Structure building will be available in Phase 3 (AI implementation)");
+        try {
+            structureService.buildStructure(id);
+            
+            StructureBuildResponse response = new StructureBuildResponse("STRUCTURED", "Structure built successfully");
+            return ResponseEntity.ok(response);
+            
+        } catch (IllegalStateException e) {
+            log.warn("Structure building failed for document: {} - {}", id, e.getMessage());
+            
+            StructureBuildResponse response = new StructureBuildResponse("FAILED", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+            
+        } catch (Exception e) {
+            log.error("Unexpected error building structure for document: {}", id, e);
+            
+            StructureBuildResponse response = new StructureBuildResponse("ERROR", "An unexpected error occurred");
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
+
+    /**
+     * Response DTO for structure building operations.
+     */
+    public record StructureBuildResponse(String status, String message) {}
 }

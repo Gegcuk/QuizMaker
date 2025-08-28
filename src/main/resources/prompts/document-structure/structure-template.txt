@@ -1,0 +1,75 @@
+**DOCUMENT CONTENT**
+{content}
+
+**GENERATION PARAMETERS**
+
+* Profile: {profile}
+* Granularity: {granularity}
+* Document Length: {charCount} characters
+
+**TASK**
+Produce a **DocumentStructureResponse** JSON object:
+
+```json
+{
+  "nodes": [
+    {
+      "type": "SECTION|SUBSECTION|PARAGRAPH|CHAPTER|BOOK|UTTERANCE|OTHER",
+      "title": "Descriptive title",
+      "start_anchor": "First 20–120 chars of this section, verbatim, unique, NFC",
+      "end_anchor": "Last 20–120 chars of this section, verbatim, unique, NFC",
+      "depth": 0,
+      "confidence": 0.95
+    }
+  ]
+}
+```
+
+**REQUIREMENTS**
+
+* Anchors **must be inside the section they describe**; never reference the next section's heading as `end_anchor`.
+* Anchors **≥20 chars**, unique, verbatim, NFC-normalized.
+* Nodes ordered by document position; siblings do **not** overlap; parent spans contain all children.
+* Depth typically changes by **±1** between adjacent nodes.
+* Types reflect content and the specified profile/granularity.
+* JSON only; no markdown or extra text.
+
+**EXAMPLE STRUCTURE**
+
+```json
+{
+  "nodes": [
+    {
+      "type": "SECTION",
+      "title": "Introduction to Document Processing",
+      "start_anchor": "Introduction to Document Processing — this paper explores…",
+      "end_anchor": "…in summary, this section motivates normalized text offsets.",
+      "depth": 0,
+      "confidence": 0.95
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Overview of the System",
+      "start_anchor": "Overview of the System: the pipeline consists of…",
+      "end_anchor": "…these components together enable efficient extraction.",
+      "depth": 1,
+      "confidence": 0.92
+    }
+  ]
+}
+```
+
+**PROFILE GUIDELINES**
+
+* **academic**: Focus on formal structure, chapters, sections, citations, research papers
+* **technical**: Emphasize procedures, steps, technical specifications, documentation
+* **narrative**: Look for story elements, scenes, dialogue, character development
+* **notes**: Focus on bullet points, lists, topic groupings, informal structure
+* **article**: Emphasize sections, subsections, paragraphs, journalistic structure
+* **general**: Balanced approach suitable for mixed content
+
+**GRANULARITY GUIDELINES**
+
+* **coarse**: Fewer, larger sections (major divisions only)
+* **medium**: Balanced approach with sections and key subsections
+* **detailed**: Fine-grained structure including paragraphs, bullet points, and minor divisions

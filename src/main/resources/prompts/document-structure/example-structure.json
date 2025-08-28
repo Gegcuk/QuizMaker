@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "type": "SECTION",
+      "title": "Introduction to Document Processing",
+      "start_anchor": "Introduction to Document Processing — this paper explores the challenges and solutions for automated document structure analysis.",
+      "end_anchor": "This introduction provides the foundation for understanding the document processing pipeline and its applications in modern information systems.",
+      "depth": 0,
+      "confidence": 0.95
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Overview of the System",
+      "start_anchor": "Overview of the System: the pipeline consists of several interconnected components that work together to process and analyze document content.",
+      "end_anchor": "These components together enable efficient extraction and processing of document structure information.",
+      "depth": 1,
+      "confidence": 0.90
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "System Architecture",
+      "start_anchor": "System Architecture: The core system is built around a modular design that allows for easy extension and modification.",
+      "end_anchor": "This architectural approach ensures that the system can adapt to changing requirements and scale with increasing document volumes.",
+      "depth": 2,
+      "confidence": 0.85
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Key Components",
+      "start_anchor": "Key Components: The system includes several essential modules that handle different aspects of document processing.",
+      "end_anchor": "Each component is carefully designed to work seamlessly with the others while maintaining clear separation of concerns.",
+      "depth": 2,
+      "confidence": 0.88
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Implementation Details",
+      "start_anchor": "Implementation Details: The actual implementation involves careful consideration of performance, accuracy, and usability.",
+      "end_anchor": "These implementation details provide the technical foundation for the system's capabilities and performance characteristics.",
+      "depth": 1,
+      "confidence": 0.92
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Data Processing Pipeline",
+      "start_anchor": "Data Processing Pipeline: The pipeline processes documents through several stages, each designed to extract specific types of information.",
+      "end_anchor": "This pipeline approach ensures that each stage can be optimized independently while maintaining overall system performance.",
+      "depth": 2,
+      "confidence": 0.87
+    },
+    {
+      "type": "OTHER",
+      "title": "Processing Steps",
+      "start_anchor": "Processing Steps: The document processing follows a well-defined sequence of operations.",
+      "end_anchor": "Each step builds upon the previous ones to create a comprehensive understanding of the document's structure and content.",
+      "depth": 3,
+      "confidence": 0.83
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Transformation Logic",
+      "start_anchor": "Transformation Logic: The transformation logic handles the conversion of raw document content into structured representations.",
+      "end_anchor": "The transformation logic is designed to be both accurate and efficient, ensuring that the system can process large volumes of documents quickly.",
+      "depth": 2,
+      "confidence": 0.86
+    },
+    {
+      "type": "SECTION",
+      "title": "Advanced Features",
+      "start_anchor": "Advanced Features: Beyond the basic functionality, the system includes several advanced features that enhance its capabilities and usability.",
+      "end_anchor": "These advanced features demonstrate the system's flexibility and ability to adapt to various document processing scenarios.",
+      "depth": 0,
+      "confidence": 0.94
+    },
+    {
+      "type": "SUBSECTION",
+      "title": "Performance Optimization",
+      "start_anchor": "Performance Optimization: The system includes several optimization techniques to ensure efficient processing of large document collections.",
+      "end_anchor": "These optimization techniques ensure that the system can handle real-world workloads efficiently and reliably.",
+      "depth": 1,
+      "confidence": 0.89
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Caching Strategies",
+      "start_anchor": "Caching Strategies: The system employs sophisticated caching strategies to improve performance and reduce redundant processing.",
+      "end_anchor": "The caching strategies significantly improve system performance while maintaining accuracy and reliability.",
+      "depth": 2,
+      "confidence": 0.84
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Memory Management",
+      "start_anchor": "Memory Management: Effective memory management is crucial for processing large documents and document collections.",
+      "end_anchor": "These memory management techniques ensure that the system can process documents of any size without running into memory limitations.",
+      "depth": 2,
+      "confidence": 0.82
+    }
+  ]
+}
