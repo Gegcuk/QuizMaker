@@ -2,10 +2,10 @@ You are an expert document structure analyzer. Analyze the provided text and out
 
 **Global rules**
 
-* Return **only**:
+* Return **only** a JSON object with this structure:
 
-  ```json
-  { "nodes": [ /* StructureNode */ ] }
+  ```
+  DocumentStructureResponse with nodes array containing StructureNode objects
   ```
 * Each `StructureNode` has:
   `type` (BOOK|CHAPTER|SECTION|SUBSECTION|PARAGRAPH|UTTERANCE|OTHER),

@@ -27,8 +27,9 @@ public class NodeHierarchyBuilder {
 
         log.debug("Building hierarchy for {} nodes", nodes.size());
 
-        // Sort by start offset to ensure proper ordering
-        nodes.sort((a, b) -> Integer.compare(a.getStartOffset(), b.getStartOffset()));
+        // Create a mutable copy and sort by start offset to ensure proper ordering
+        List<DocumentNode> mutableNodes = new ArrayList<>(nodes);
+        mutableNodes.sort((a, b) -> Integer.compare(a.getStartOffset(), b.getStartOffset()));
 
         // Track indices per parent
         Map<UUID, Integer> perParentIdx = new HashMap<>();
@@ -36,7 +37,7 @@ public class NodeHierarchyBuilder {
         // Stack to track current path in the hierarchy
         Deque<DocumentNode> stack = new ArrayDeque<>();
 
-        for (DocumentNode node : nodes) {
+        for (DocumentNode node : mutableNodes) {
             // Pop stack until we find a parent with depth < current node's depth
             while (!stack.isEmpty() && stack.peek().getDepth() >= node.getDepth()) {
                 stack.pop();
@@ -61,10 +62,10 @@ public class NodeHierarchyBuilder {
         }
 
         // Validate hierarchy integrity
-        validateHierarchy(nodes);
+        validateHierarchy(mutableNodes);
 
-        log.debug("Successfully built hierarchy for {} nodes", nodes.size());
-        return nodes;
+        log.debug("Successfully built hierarchy for {} nodes", mutableNodes.size());
+        return mutableNodes;
     }
 
     /**

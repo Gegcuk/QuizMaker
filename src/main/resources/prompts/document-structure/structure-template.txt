@@ -8,22 +8,14 @@
 * Document Length: {charCount} characters
 
 **TASK**
-Produce a **DocumentStructureResponse** JSON object:
+Produce a **DocumentStructureResponse** JSON object with the following structure:
 
-```json
-{
-  "nodes": [
-    {
-      "type": "SECTION|SUBSECTION|PARAGRAPH|CHAPTER|BOOK|UTTERANCE|OTHER",
-      "title": "Descriptive title",
-      "start_anchor": "First 20–120 chars of this section, verbatim, unique, NFC",
-      "end_anchor": "Last 20–120 chars of this section, verbatim, unique, NFC",
-      "depth": 0,
-      "confidence": 0.95
-    }
-  ]
-}
-```
+- Root object has "nodes" array
+- Each node has: type, title, start_anchor, end_anchor, depth, confidence
+- Types: SECTION, SUBSECTION, PARAGRAPH, CHAPTER, BOOK, UTTERANCE, OTHER
+- Anchors: verbatim text from document, 20-120 characters
+- Depth: 0 for root, 1 for child, etc.
+- Confidence: 0.0 to 1.0
 
 **REQUIREMENTS**
 
@@ -36,28 +28,11 @@ Produce a **DocumentStructureResponse** JSON object:
 
 **EXAMPLE STRUCTURE**
 
-```json
-{
-  "nodes": [
-    {
-      "type": "SECTION",
-      "title": "Introduction to Document Processing",
-      "start_anchor": "Introduction to Document Processing — this paper explores…",
-      "end_anchor": "…in summary, this section motivates normalized text offsets.",
-      "depth": 0,
-      "confidence": 0.95
-    },
-    {
-      "type": "SUBSECTION",
-      "title": "Overview of the System",
-      "start_anchor": "Overview of the System: the pipeline consists of…",
-      "end_anchor": "…these components together enable efficient extraction.",
-      "depth": 1,
-      "confidence": 0.92
-    }
-  ]
-}
-```
+Example DocumentStructureResponse:
+- nodes array with StructureNode objects
+- Each node: type=SECTION/SUBSECTION/etc, title=descriptive, start_anchor=first 20+ chars, end_anchor=last 20+ chars, depth=0/1/2/etc, confidence=0.0-1.0
+- Proper hierarchy with parent-child containment
+- No sibling overlap, anchors from same section
 
 **PROFILE GUIDELINES**
 
