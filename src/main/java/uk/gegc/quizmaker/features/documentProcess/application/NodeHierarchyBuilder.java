@@ -61,11 +61,79 @@ public class NodeHierarchyBuilder {
                     idx);
         }
 
+        // Reassign parent end offsets based on their children
+        reassignParentEndOffsets(mutableNodes);
+
         // Validate hierarchy integrity
         validateHierarchy(mutableNodes);
 
         log.debug("Successfully built hierarchy for {} nodes", mutableNodes.size());
         return mutableNodes;
+    }
+
+    /**
+     * Reassigns parent end offsets to ensure they properly contain all their children.
+     * This ensures that parent nodes span from their start to the end of their last child.
+     * 
+     * @param nodes the nodes to process
+     */
+    private void reassignParentEndOffsets(List<DocumentNode> nodes) {
+        reassignParentEndOffsetsRecursive(nodes);
+    }
+
+    /**
+     * Public method to reassign parent end offsets independently.
+     * Useful for fixing hierarchy issues after initial processing.
+     * 
+     * @param nodes the nodes to process
+     */
+    public void reassignParentEndOffsetsRecursive(List<DocumentNode> nodes) {
+        if (nodes.isEmpty()) {
+            return;
+        }
+
+        // Group nodes by parent to find all children for each parent
+        Map<UUID, List<DocumentNode>> childrenByParent = new HashMap<>();
+        
+        for (DocumentNode node : nodes) {
+            UUID parentId = node.getParent() != null ? node.getParent().getId() : null;
+            childrenByParent.computeIfAbsent(parentId, k -> new ArrayList<>()).add(node);
+        }
+
+        // Find maximum depth to process from deepest to shallowest
+        int maxDepth = nodes.stream().mapToInt(DocumentNode::getDepth).max().orElse(0);
+        
+        // Process from deepest level up to ensure proper propagation
+        for (int depth = maxDepth; depth > 0; depth--) {
+            final int currentDepth = depth;
+            List<DocumentNode> parentsAtDepth = nodes.stream()
+                    .filter(node -> node.getDepth() == currentDepth - 1)
+                    .toList();
+            
+            for (DocumentNode parent : parentsAtDepth) {
+                List<DocumentNode> children = childrenByParent.get(parent.getId());
+                if (children == null || children.isEmpty()) {
+                    continue;
+                }
+
+                // Find the maximum end offset among all children
+                int maxChildEndOffset = children.stream()
+                        .mapToInt(DocumentNode::getEndOffset)
+                        .max()
+                        .orElse(parent.getEndOffset());
+
+                // Update parent's end offset if it's smaller than the max child end offset
+                if (maxChildEndOffset > parent.getEndOffset()) {
+                    int oldEndOffset = parent.getEndOffset();
+                    parent.setEndOffset(maxChildEndOffset);
+                    log.debug("Updated parent '{}' (depth {}) end offset from {} to {} based on {} children", 
+                            parent.getTitle(), parent.getDepth(), oldEndOffset, maxChildEndOffset, children.size());
+                }
+            }
+        }
+
+        log.debug("Completed recursive parent end offset reassignment for {} nodes (max depth: {})", 
+                nodes.size(), maxDepth);
     }
 
     /**

@@ -1,42 +1,84 @@
-You are an expert document structure analyzer. Analyze the provided text and output a hierarchical structure **as a single JSON object** matching **DocumentStructureResponse**. **Do not** include explanations, comments, or markdown fences.
+You are an expert document structure analyzer. Analyze the provided text and output a hierarchical structure **as a single JSON object** matching **DocumentStructureResponse**. **Return only JSON** — no prose, comments, or markdown fences.
 
-**Global rules**
+**DOCUMENT CONTENT**
+{content}
 
-* Return **only** a JSON object with this structure:
+**GENERATION PARAMETERS**
 
-  ```
-  DocumentStructureResponse with nodes array containing StructureNode objects
-  ```
-* Each `StructureNode` has:
-  `type` (BOOK|CHAPTER|SECTION|SUBSECTION|PARAGRAPH|UTTERANCE|OTHER),
-  `title` (meaningful),
-  `start_anchor`, `end_anchor` (both verbatim strings **from the same section**),
-  `depth` (0=root, 1=child, …),
-  `confidence` (0.0–1.0).
-* **Anchors**
+* profile: {profile}
+* granularity: {granularity}  // use "coarse" unless otherwise specified
+* charCount: {charCount}
+* max_nodes: 40               // hard cap; fewer is fine
 
-  * Must be **verbatim**, NFC-normalized, and **unique** within the document.
-  * Length **≥ 20 characters** (include distinctive context/punctuation).
-  * `start_anchor` = the **first** 20–120 characters of the section.
-  * `end_anchor` = the **last** 20–120 characters **of the same section** (e.g., the final sentence). **Do not** use the next section's heading as an end anchor.
-* **Hierarchy**
+**OUTPUT SCHEMA (must match exactly)**
 
-  * Parent spans must fully contain their children.
-  * Siblings must **not overlap**; small gaps between siblings are allowed.
-  * Prefer depth changes of at most **±1** between consecutive nodes unless clearly required by the content.
-* **Structure**
+* Root object: `{ "nodes": [ StructureNode, ... ] }`
+* `StructureNode` (required fields):
 
-  * Order nodes by occurrence in the text.
-  * Choose node types based on content (see type guidance).
-  * Profiles/granularity steer how coarse/fine the breakdown is.
-* **Output hygiene**
+  * `type`: `"PART" | "CHAPTER" | "SECTION" | "OTHER"`  // major structure only
+  * `title`: string  // concise, meaningful
+  * `start_anchor`: string  // verbatim from this section, NFC, unique
+  * `end_anchor`: string    // verbatim from this section, NFC, unique, from the SAME section
+  * `depth`: integer  // 0=root, 1=child, etc.
+  * `confidence`: number  // 0.0–1.0
+* `StructureNode` (optional fallback fields):
 
-  * No markdown, no prose, no trailing commas, valid JSON only.
+  * `start_offset`: integer  // 0-based index into the provided content
+  * `end_offset`: integer    // exclusive end; must satisfy 0 ≤ start_offset < end_offset ≤ charCount
 
-**Type guidance** (short)
+**TYPE POLICY (major elements only)**
 
-* BOOK/CHAPTER for book-like long docs.
-* SECTION/SUBSECTION for major/minor parts.
-* PARAGRAPH for paragraphs/bullets/logical blocks.
-* UTTERANCE for transcripts/dialogue.
-* OTHER for lists/notes/misc.
+* Use **PART** for very large top-level divisions (multi-chapter books/volumes).
+* Use **CHAPTER** as the primary top-level division when the document is book-like but not partitioned into parts.
+* Use **SECTION** for major sections within a chapter (or for top-level sections in non-book documents).
+* Use **OTHER** sparingly for major front/back matter (e.g., Foreword, Appendix) when it doesn't fit above.
+* Do **not** use SUBSECTION/PARAGRAPH/UTTERANCE.
+
+**ANCHOR RULES (primary source of truth)**
+
+* `start_anchor` = the **first 20–120 characters** of the section (verbatim, include distinctive context/punctuation).
+* `end_anchor`   = the **last 20–120 characters** **of the same section** (e.g., final sentence).
+  **Never** use the next heading as `end_anchor`.
+  **Never** reference content that doesn't exist in the document (like "Index" if there's no index).
+* Anchors must be **NFC-normalized**, **verbatim**, and **unique** within the document.
+* Prefer longer, distinctive spans if a shorter string could appear elsewhere.
+* **CRITICAL**: Only use anchors that actually exist in the provided document text.
+
+**OFFSET RULES (fallback)**
+
+* Provide `start_offset` and `end_offset` **if you can compute them confidently** from the given content.
+* When provided, they must satisfy: `0 ≤ start_offset < end_offset ≤ charCount`.
+* Offsets are counted over the **given content** exactly as provided.
+
+**HIERARCHY/ORDERING**
+
+* Depth 0 nodes are top-level (PART or CHAPTER or SECTION depending on the document).
+* Parent spans fully contain their children; siblings **do not overlap**. Small gaps between siblings are allowed.
+* Depth changes between adjacent nodes typically stay within **±1** unless clearly required by content.
+* Order nodes strictly by their position in the document.
+* Keep total nodes ≤ `max_nodes` and focus on **major** structure only.
+
+**OUTPUT**
+Return **only** a valid JSON object like:
+{
+"nodes": [
+{
+"type": "CHAPTER",
+"title": "Getting Started with the System",
+"start_anchor": "Getting Started with the System — this chapter introduces…",
+"end_anchor": "…you are now ready to proceed to installation and basic usage.",
+"depth": 0,
+"confidence": 0.94,
+"start_offset": 1024,
+"end_offset": 6789
+},
+{
+"type": "SECTION",
+"title": "Installation",
+"start_anchor": "Installation requirements and supported platforms include…",
+"end_anchor": "…confirm the installation by running the version command.",
+"depth": 1,
+"confidence": 0.92
+}
+]
+}

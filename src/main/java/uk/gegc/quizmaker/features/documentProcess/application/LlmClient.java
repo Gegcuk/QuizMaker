@@ -29,23 +29,23 @@ public interface LlmClient {
             String granularity // e.g., "coarse", "medium", "detailed"
     ) {
         public static StructureOptions defaultOptions() {
-            return new StructureOptions("gpt-4o-mini", "general", "medium");
+            return new StructureOptions("gpt-4o-mini", "general", "coarse");
         }
         
         public static StructureOptions forNotes() {
-            return new StructureOptions("gpt-4o-mini", "notes", "detailed");
+            return new StructureOptions("gpt-4o-mini", "notes", "coarse");
         }
         
         public static StructureOptions forArticle() {
-            return new StructureOptions("gpt-4o-mini", "article", "medium");
+            return new StructureOptions("gpt-4o-mini", "article", "coarse");
         }
         
         public static StructureOptions forAcademic() {
-            return new StructureOptions("gpt-4o-mini", "academic", "detailed");
+            return new StructureOptions("gpt-4o-mini", "academic", "coarse");
         }
         
         public static StructureOptions forTechnical() {
-            return new StructureOptions("gpt-4o-mini", "technical", "detailed");
+            return new StructureOptions("gpt-4o-mini", "technical", "coarse");
         }
     }
 

@@ -61,4 +61,16 @@ public interface DocumentNodeRepository extends JpaRepository<DocumentNode, UUID
     boolean existsByDocumentAndNullParentAndIdx(@Param("documentId") UUID documentId, @Param("idx") Integer idx);
 
     void deleteByDocument_Id(UUID documentId);
+
+    /**
+     * Find nodes by document ID ordered by start offset
+     */
+    @Query("SELECT n FROM DocumentNode n WHERE n.document.id = :documentId ORDER BY n.startOffset ASC")
+    List<DocumentNode> findByDocument_IdOrderByStartOffset(@Param("documentId") UUID documentId);
+
+    /**
+     * Find nodes by document ID with depth less than specified value, ordered by start offset
+     */
+    @Query("SELECT n FROM DocumentNode n WHERE n.document.id = :documentId AND n.depth < :depth ORDER BY n.startOffset ASC")
+    List<DocumentNode> findByDocument_IdAndDepthLessThanOrderByStartOffset(@Param("documentId") UUID documentId, @Param("depth") Short depth);
 }

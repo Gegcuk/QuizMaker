@@ -20,20 +20,50 @@ public class AnchorOffsetCalculator {
 
     /**
      * Calculates offsets for a list of document nodes using their text anchors.
+     * Falls back to AI-provided offsets if anchor matching fails.
      * 
      * @param nodes the nodes with anchors to calculate offsets for
      * @param documentText the full document text to search in
      * @return the same list with calculated offsets
-     * @throws AnchorNotFoundException if any anchor cannot be found
+     * @throws AnchorNotFoundException if any anchor cannot be found and no valid fallback exists
      */
     public List<DocumentNode> calculateOffsets(List<DocumentNode> nodes, String documentText) {
         log.debug("Calculating offsets for {} nodes using anchors", nodes.size());
         
+        int anchorSuccesses = 0;
+        int offsetFallbacks = 0;
+        
         for (DocumentNode node : nodes) {
-            calculateNodeOffsets(node, documentText);
+            try {
+                calculateNodeOffsets(node, documentText);
+                anchorSuccesses++;
+            } catch (AnchorNotFoundException e) {
+                // Try to use AI-provided offsets as fallback
+                if (node.getStartOffset() != null && node.getEndOffset() != null) {
+                    log.warn("Anchor matching failed for '{}', using AI-provided offsets: [{}:{})", 
+                            node.getTitle(), node.getStartOffset(), node.getEndOffset());
+                    
+                    // Validate AI offsets are within document bounds
+                    if (node.getStartOffset() >= 0 && 
+                        node.getEndOffset() <= documentText.length() && 
+                        node.getStartOffset() < node.getEndOffset()) {
+                        
+                        offsetFallbacks++;
+                        log.debug("Successfully used AI offset fallback for '{}'", node.getTitle());
+                    } else {
+                        log.error("AI-provided offsets are invalid for '{}': [{}:{}), document length: {}", 
+                                node.getTitle(), node.getStartOffset(), node.getEndOffset(), documentText.length());
+                        throw e; // Re-throw the original anchor exception
+                    }
+                } else {
+                    log.error("No AI-provided offsets available as fallback for '{}'", node.getTitle());
+                    throw e; // Re-throw the original anchor exception
+                }
+            }
         }
         
-        log.debug("Successfully calculated offsets for {} nodes", nodes.size());
+        log.info("Offset calculation completed: {} anchor successes, {} AI offset fallbacks", 
+                anchorSuccesses, offsetFallbacks);
         return nodes;
     }
 
@@ -61,7 +91,17 @@ public class AnchorOffsetCalculator {
         // Find end offset (search from start position to avoid wrong matches)
         int endOffset = findAnchorPosition(documentText, endAnchor, node.getTitle(), "end", startOffset);
         if (endOffset == -1) {
-            throw new AnchorNotFoundException("End anchor not found: '" + endAnchor + "' for node: " + node.getTitle());
+            // Try to find a reasonable fallback end position
+            log.warn("End anchor not found: '{}' for node: {}. Attempting fallback positioning.", 
+                    endAnchor.substring(0, Math.min(50, endAnchor.length())), node.getTitle());
+            
+            // Look for the next major section or chapter after the start position
+            endOffset = findNextMajorSection(documentText, startOffset);
+            if (endOffset == -1) {
+                // If no next section found, use document end
+                endOffset = documentText.length();
+                log.warn("No next section found for node: {}. Using document end as fallback.", node.getTitle());
+            }
         }
         
         // For end anchors, we want the position after the anchor text
@@ -245,6 +285,39 @@ public class AnchorOffsetCalculator {
 
             log.debug("Validated {} siblings under {} for non-overlap", siblings.size(), parentName);
         }
+    }
+
+    /**
+     * Finds the next major section or chapter after the given position.
+     * This is used as a fallback when end anchors cannot be found.
+     * 
+     * @param documentText the full document text
+     * @param fromPosition the position to search from
+     * @return the position of the next major section, or -1 if not found
+     */
+    private int findNextMajorSection(String documentText, int fromPosition) {
+        if (fromPosition >= documentText.length()) {
+            return -1;
+        }
+        
+        // Look for common section/chapter patterns
+        String[] patterns = {
+            "CHAPTER", "Chapter", "chapter",
+            "PART", "Part", "part", 
+            "SECTION", "Section", "section",
+            "Introduction", "INTRODUCTION",
+            "About the", "ABOUT THE",
+            "Acknowledgments", "ACKNOWLEDGMENTS"
+        };
+        
+        for (String pattern : patterns) {
+            int pos = documentText.indexOf(pattern, fromPosition + 1);
+            if (pos != -1) {
+                return pos;
+            }
+        }
+        
+        return -1;
     }
 
     /**

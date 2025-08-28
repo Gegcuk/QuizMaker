@@ -37,6 +37,8 @@ public class DocumentStructureRecords {
             @JsonProperty("title") String title,
             @JsonProperty("start_anchor") String startAnchor,
             @JsonProperty("end_anchor") String endAnchor,
+            @JsonProperty("start_offset") Integer startOffset,
+            @JsonProperty("end_offset") Integer endOffset,
             @JsonProperty("depth") int depth,
             @JsonProperty("confidence") double confidence
     ) {
@@ -55,6 +57,12 @@ public class DocumentStructureRecords {
             node.setTitle(title);
             node.setStartAnchor(startAnchor);
             node.setEndAnchor(endAnchor);
+
+            // Set AI-provided offsets if available (will be overridden by anchor calculation)
+            if (startOffset != null && endOffset != null) {
+                node.setStartOffset(startOffset);
+                node.setEndOffset(endOffset);
+            }
 
             // Clamp depth to non-negative values
             int safeDepth = Math.max(0, depth);

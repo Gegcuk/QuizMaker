@@ -64,7 +64,7 @@ public class DocumentNode {
     private String metaJson;
 
     public enum NodeType {
-        BOOK, CHAPTER, SECTION, SUBSECTION, PARAGRAPH, UTTERANCE, OTHER
+        PART, BOOK, CHAPTER, SECTION, SUBSECTION, PARAGRAPH, UTTERANCE, OTHER
     }
 
     // Helper methods for bidirectional relationship
