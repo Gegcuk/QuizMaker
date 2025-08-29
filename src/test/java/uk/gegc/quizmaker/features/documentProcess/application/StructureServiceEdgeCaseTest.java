@@ -38,6 +38,9 @@ class StructureServiceEdgeCaseTest {
     @Mock
     private NodeHierarchyBuilder hierarchyBuilder;
 
+    @Mock
+    private ChunkedStructureService chunkedStructureService;
+
     @InjectMocks
     private StructureService service;
 
@@ -61,6 +64,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> lowConfidenceNodes = createLowConfidenceNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(lowConfidenceNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -91,6 +95,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> highConfidenceNodes = createHighConfidenceNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(highConfidenceNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -121,6 +126,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> longTitleNodes = createLongTitleNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(longTitleNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -146,6 +152,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> emptyTitleNodes = createEmptyTitleNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(emptyTitleNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -169,6 +176,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> whitespaceTitleNodes = createWhitespaceTitleNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(whitespaceTitleNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -192,6 +200,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> deepNestedNodes = createVeryDeepNestedNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(deepNestedNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -222,6 +231,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> mixedDepthNodes = createMixedDepthOrderingNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(mixedDepthNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -251,6 +261,7 @@ class StructureServiceEdgeCaseTest {
     void shouldHandleNodesWithOverlappingOffsets() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(createTestNodes());
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -281,6 +292,7 @@ class StructureServiceEdgeCaseTest {
     void shouldHandleNodesWithBoundaryOffsetValues() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(createTestNodes());
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -310,6 +322,7 @@ class StructureServiceEdgeCaseTest {
     void shouldHandleNodesWithMinimumOffsetValues() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(createTestNodes());
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -340,6 +353,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> nullAnchorNodes = createNullAnchorNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(nullAnchorNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -363,6 +377,7 @@ class StructureServiceEdgeCaseTest {
         // Given
         List<DocumentNode> emptyAnchorNodes = createEmptyAnchorNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(emptyAnchorNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -401,6 +416,7 @@ class StructureServiceEdgeCaseTest {
         document.setNormalizedText("A");
         document.setCharCount(1);
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(createTestNodes());
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {

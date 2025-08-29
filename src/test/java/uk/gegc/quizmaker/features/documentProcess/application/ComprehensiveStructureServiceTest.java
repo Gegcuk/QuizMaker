@@ -38,6 +38,9 @@ class ComprehensiveStructureServiceTest {
     @Mock
     private NodeHierarchyBuilder hierarchyBuilder;
 
+    @Mock
+    private ChunkedStructureService chunkedStructureService;
+
     @InjectMocks
     private StructureService service;
 
@@ -63,6 +66,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleEmptyAiResponseGracefully() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(Collections.emptyList());
 
         // When & Then
@@ -76,6 +80,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNullAiResponse() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(null);
 
         // When & Then
@@ -114,6 +119,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithInvalidOffsets() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return invalid offsets
@@ -138,6 +144,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithEndOffsetExceedingDocumentLength() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return offsets exceeding document length
@@ -162,6 +169,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithStartOffsetGreaterThanOrEqualToEndOffset() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return invalid offset ranges
@@ -187,6 +195,7 @@ class ComprehensiveStructureServiceTest {
         // Given
         document.setCharCount(null);
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -216,6 +225,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleLlmClientFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenThrow(new RuntimeException("LLM service unavailable"));
 
         // When & Then
@@ -229,6 +239,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleAnchorCalculationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenThrow(new RuntimeException("Anchor calculation failed"));
@@ -244,6 +255,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleDatabaseSaveFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -267,6 +279,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleParentRelationshipAssignmentFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -291,6 +304,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleGlobalValidationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -320,6 +334,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleSiblingOverlapValidationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -351,6 +366,7 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> singleLevelNodes = createSingleLevelStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(singleLevelNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -381,6 +397,7 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> deepNestedNodes = createDeepNestedStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(deepNestedNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -412,6 +429,7 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> invalidNodes = createInvalidNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(invalidNodes);
 
         // When & Then
@@ -425,6 +443,7 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleConcurrentModificationDuringProcessing() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -458,6 +477,7 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -488,6 +508,7 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> specialCharNodes = createNodesWithSpecialCharacters();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(specialCharNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -505,6 +526,98 @@ class ComprehensiveStructureServiceTest {
 
         // Then - Should handle special characters without issues
         verify(nodeRepository, times(1)).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("Should handle large document with chunking")
+    void shouldHandleLargeDocumentWithChunking() {
+        // Given
+        String largeText = "A".repeat(300_000); // 300KB text - needs chunking
+        document.setNormalizedText(largeText);
+        document.setCharCount(largeText.length());
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+            .thenReturn(testNodes);
+        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+            .thenAnswer(invocation -> {
+                List<DocumentNode> nodes = invocation.getArgument(0);
+                nodes.forEach(node -> {
+                    node.setStartOffset(0);
+                    node.setEndOffset(100);
+                });
+                return nodes;
+            });
+        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+            .thenReturn(Collections.emptyList());
+        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+
+        // When
+        service.buildStructure(documentId);
+
+        // Then - Should use chunked processing
+        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()));
+        verify(nodeRepository, times(3)).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("Should handle chunked processing failure")
+    void shouldHandleChunkedProcessingFailure() {
+        // Given
+        String largeText = "A".repeat(300_000); // 300KB text - needs chunking
+        document.setNormalizedText(largeText);
+        document.setCharCount(largeText.length());
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+            .thenThrow(new RuntimeException("Chunked processing failed"));
+
+        // When & Then
+        assertThatThrownBy(() -> service.buildStructure(documentId))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Unexpected error during structure building");
+    }
+
+    @Test
+    @DisplayName("Should handle small document without chunking")
+    void shouldHandleSmallDocumentWithoutChunking() {
+        // Given
+        String smallText = "Small document text";
+        document.setNormalizedText(smallText);
+        document.setCharCount(smallText.length());
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(smallText)).thenReturn(false);
+        when(llmClient.generateStructure(eq(smallText), any())).thenReturn(testNodes);
+        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+            .thenAnswer(invocation -> {
+                List<DocumentNode> nodes = invocation.getArgument(0);
+                String documentText = invocation.getArgument(1);
+                nodes.forEach(node -> {
+                    node.setStartOffset(0);
+                    node.setEndOffset(documentText.length());
+                });
+                return nodes;
+            });
+        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+            .thenReturn(Collections.emptyList());
+        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+
+        // When
+        service.buildStructure(documentId);
+
+        // Then - Should use direct processing
+        verify(llmClient).generateStructure(eq(smallText), any());
+        verify(chunkedStructureService, never()).processLargeDocument(anyString(), any(), anyString());
+        verify(nodeRepository, times(3)).saveAll(anyList());
     }
 
     private String createTestDocumentText() {

@@ -40,6 +40,9 @@ class RealAiResponseStructureTest {
     @Mock
     private NodeHierarchyBuilder hierarchyBuilder;
 
+    @Mock
+    private ChunkedStructureService chunkedStructureService;
+
     @InjectMocks
     private StructureService service;
 
@@ -67,6 +70,7 @@ class RealAiResponseStructureTest {
         // Given
         List<DocumentNode> aiNodes = createRealAiResponseNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
@@ -88,6 +92,7 @@ class RealAiResponseStructureTest {
         // Given
         List<DocumentNode> aiNodes = createRealAiResponseNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);

@@ -34,6 +34,7 @@ public class StructureService {
     private final AnchorOffsetCalculator anchorOffsetCalculator;
     private final NodeHierarchyBuilder hierarchyBuilder;
     private final DocumentQueryService queryService;
+    private final ChunkedStructureService chunkedStructureService;
 
     /**
      * Get the tree structure of a document.
@@ -116,8 +117,19 @@ public class StructureService {
         }
         
         try {
-            // 2. Generate structure using LLM (with anchors and offsets)
-            List<DocumentNode> allNodes = llmClient.generateStructure(document.getNormalizedText(), options);
+            // 2. Generate structure using LLM (with chunking for large documents)
+            List<DocumentNode> allNodes;
+            
+            if (chunkedStructureService.needsChunking(document.getNormalizedText())) {
+                log.info("Document {} is large ({} chars), using chunked processing", 
+                    documentId, document.getNormalizedText().length());
+                allNodes = chunkedStructureService.processLargeDocument(
+                    document.getNormalizedText(), options, documentId.toString());
+            } else {
+                log.info("Document {} is small ({} chars), using single-pass processing", 
+                    documentId, document.getNormalizedText().length());
+                allNodes = llmClient.generateStructure(document.getNormalizedText(), options);
+            }
             
             // Validate AI response
             if (allNodes == null || allNodes.isEmpty()) {

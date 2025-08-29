@@ -38,6 +38,9 @@ class LayerByLayerResilienceTest {
     @Mock
     private NodeHierarchyBuilder hierarchyBuilder;
 
+    @Mock
+    private ChunkedStructureService chunkedStructureService;
+
     @InjectMocks
     private StructureService service;
 
@@ -63,6 +66,7 @@ class LayerByLayerResilienceTest {
     void shouldSaveLayersIncrementallyAndHandleFailuresGracefully() {
         // Given - Setup mocks to simulate layer-by-layer processing
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
         
         // Mock anchorOffsetCalculator to work normally for depth 0 and 1, but fail for depth 2
@@ -127,6 +131,7 @@ class LayerByLayerResilienceTest {
     void shouldHandleSaveAllFailureForSpecificLayer() {
         // Given - Setup mocks
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -167,6 +172,7 @@ class LayerByLayerResilienceTest {
     void shouldHandleParentRelationshipAssignmentFailure() {
         // Given - Setup mocks
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -197,6 +203,7 @@ class LayerByLayerResilienceTest {
     void shouldProcessAllLayersSuccessfullyWhenNoFailuresOccur() {
         // Given - Setup mocks for successful processing
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
@@ -220,6 +227,64 @@ class LayerByLayerResilienceTest {
         // Then - Verify all layers were processed
         verify(nodeRepository, times(3)).saveAll(anyList()); // All 3 depth levels
         verify(nodeRepository, times(2)).findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort());
+    }
+
+    @Test
+    @DisplayName("Should handle chunked processing failure gracefully")
+    void shouldHandleChunkedProcessingFailureGracefully() {
+        // Given - Setup mocks for large document that needs chunking
+        String largeText = "A".repeat(300_000); // 300KB text - needs chunking
+        document.setNormalizedText(largeText);
+        document.setCharCount(largeText.length());
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+            .thenThrow(new RuntimeException("Chunked processing failed"));
+
+        // When & Then
+        assertThatThrownBy(() -> service.buildStructure(documentId))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Unexpected error during structure building");
+
+        // Verify that chunked processing was attempted
+        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()));
+        verify(llmClient, never()).generateStructure(any(), any());
+    }
+
+    @Test
+    @DisplayName("Should handle chunked processing success with layer-by-layer resilience")
+    void shouldHandleChunkedProcessingSuccessWithLayerByLayerResilience() {
+        // Given - Setup mocks for large document that needs chunking
+        String largeText = "A".repeat(300_000); // 300KB text - needs chunking
+        document.setNormalizedText(largeText);
+        document.setCharCount(largeText.length());
+        
+        when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
+        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+            .thenReturn(multiLevelNodes);
+        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+            .thenAnswer(invocation -> {
+                List<DocumentNode> nodes = invocation.getArgument(0);
+                nodes.forEach(node -> {
+                    node.setStartOffset(0);
+                    node.setEndOffset(100);
+                });
+                return nodes;
+            });
+        when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
+        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+            .thenReturn(Collections.emptyList());
+        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+
+        // When
+        service.buildStructure(documentId);
+
+        // Then - Verify chunked processing was used and layers were saved
+        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()));
+        verify(nodeRepository, times(3)).saveAll(anyList()); // All 3 depth levels
+        verify(llmClient, never()).generateStructure(any(), any());
     }
 
     private String createTestDocumentText() {
