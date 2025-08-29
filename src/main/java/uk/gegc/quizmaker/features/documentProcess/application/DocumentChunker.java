@@ -35,27 +35,38 @@ public class DocumentChunker {
     public List<DocumentChunk> chunkDocument(String text, String documentId) {
         log.info("Chunking document {} with {} characters", documentId, text.length());
         
-        if (text.length() <= MAX_CHUNK_SIZE) {
+        // Filter out irrelevant content like indexes, appendices, etc.
+        String filteredText = filterIrrelevantContent(text);
+        log.info("Filtered document {} from {} to {} characters", documentId, text.length(), filteredText.length());
+        
+        if (filteredText.length() <= MAX_CHUNK_SIZE) {
             // Document is small enough to process in one chunk
-            return List.of(new DocumentChunk(text, 0, text.length(), 0));
+            return List.of(new DocumentChunk(filteredText, 0, filteredText.length(), 0));
         }
         
         List<DocumentChunk> chunks = new ArrayList<>();
         int currentPosition = 0;
         int chunkIndex = 0;
         
-        while (currentPosition < text.length()) {
-            int chunkEnd = calculateChunkEnd(text, currentPosition);
+        while (currentPosition < filteredText.length()) {
+            int chunkEnd = calculateChunkEnd(filteredText, currentPosition);
             
             // Safety check: ensure we're actually advancing
             if (chunkEnd <= currentPosition) {
                 log.error("Chunking failed: chunk end ({}) <= current position ({}). Forcing advancement.", 
                     chunkEnd, currentPosition);
-                chunkEnd = Math.min(currentPosition + MAX_CHUNK_SIZE, text.length());
+                chunkEnd = Math.min(currentPosition + MAX_CHUNK_SIZE, filteredText.length());
             }
             
             // Extract chunk text
-            String chunkText = text.substring(currentPosition, chunkEnd);
+            String chunkText = filteredText.substring(currentPosition, chunkEnd);
+            
+            // Skip chunks that are too small or contain only irrelevant content
+            if (chunkText.length() < MIN_CHUNK_SIZE || isIrrelevantChunk(chunkText)) {
+                log.debug("Skipping irrelevant chunk {}: {} chars", chunkIndex, chunkText.length());
+                currentPosition = chunkEnd;
+                continue;
+            }
             
             // Create chunk with metadata
             DocumentChunk chunk = new DocumentChunk(
@@ -85,8 +96,6 @@ public class DocumentChunker {
                 log.warn("Chunking advancing too slowly: {} chars. Forcing advancement.", advancement);
                 nextPosition = currentPosition + (MAX_CHUNK_SIZE * 4) / 5; // Force 80% advancement
             }
-            
-
             
             currentPosition = nextPosition;
         }
@@ -157,6 +166,66 @@ public class DocumentChunker {
         }
         
         return -1; // No good break point found
+    }
+    
+    /**
+     * Filters out irrelevant content like indexes, appendices, etc.
+     */
+    private String filterIrrelevantContent(String text) {
+        // Find the start of irrelevant sections
+        String[] irrelevantPatterns = {
+            "\\bINDEX\\b",
+            "\\bAPPENDIX\\b",
+            "\\bAPPENDICES\\b", 
+            "\\bBIBLIOGRAPHY\\b",
+            "\\bREFERENCES\\b",
+            "\\bGLOSSARY\\b",
+            "\\bACKNOWLEDGMENTS\\b",
+            "\\bACKNOWLEDGEMENTS\\b",
+            "\\bABOUT THE AUTHOR\\b",
+            "\\bABOUT THE AUTHORS\\b"
+        };
+        
+        int earliestIrrelevantStart = text.length();
+        for (String pattern : irrelevantPatterns) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher m = p.matcher(text);
+            if (m.find() && m.start() < earliestIrrelevantStart) {
+                earliestIrrelevantStart = m.start();
+            }
+        }
+        
+        // If we found irrelevant content, truncate the text
+        if (earliestIrrelevantStart < text.length()) {
+            log.info("Filtering out irrelevant content starting at position {}", earliestIrrelevantStart);
+            return text.substring(0, earliestIrrelevantStart).trim();
+        }
+        
+        return text;
+    }
+    
+    /**
+     * Checks if a chunk contains only irrelevant content.
+     */
+    private boolean isIrrelevantChunk(String chunkText) {
+        // Check if chunk is mostly index-like content
+        String[] irrelevantKeywords = {
+            "index", "appendix", "bibliography", "references", "glossary", 
+            "acknowledgment", "about the author", "page", "chapter"
+        };
+        
+        String lowerChunk = chunkText.toLowerCase();
+        int irrelevantCount = 0;
+        int totalWords = lowerChunk.split("\\s+").length;
+        
+        for (String keyword : irrelevantKeywords) {
+            if (lowerChunk.contains(keyword)) {
+                irrelevantCount++;
+            }
+        }
+        
+        // If more than 30% of words are irrelevant keywords, consider it irrelevant
+        return irrelevantCount > 0 && (double) irrelevantCount / totalWords > 0.3;
     }
     
     /**

@@ -68,18 +68,24 @@ class ChunkedStructureServiceTest {
         // Given
         String largeText = createLargeDocument();
         List<DocumentChunker.DocumentChunk> chunks = createTestChunks();
-        List<List<DocumentNode>> chunkResults = createChunkResults();
-        List<DocumentNode> expectedMergedNodes = createTestNodes();
+        List<DocumentNode> expectedNodes = createTestNodes();
 
         when(documentChunker.chunkDocument(largeText, documentId)).thenReturn(chunks);
-        when(llmClient.generateStructure(anyString(), eq(options))).thenReturn(chunkResults.get(0), chunkResults.get(1));
-        when(nodeMerger.mergeChunkNodes(anyList(), eq(chunks))).thenReturn(expectedMergedNodes);
+        when(llmClient.generateStructureWithContext(
+            anyString(), any(LlmClient.StructureOptions.class), anyList(), eq(0), eq(2)
+        )).thenReturn(Arrays.asList(expectedNodes.get(0)));
+        when(llmClient.generateStructureWithContext(
+            anyString(), any(LlmClient.StructureOptions.class), anyList(), eq(1), eq(2)
+        )).thenReturn(Arrays.asList(expectedNodes.get(1), expectedNodes.get(2)));
 
         // When
         List<DocumentNode> result = service.processLargeDocument(largeText, options, documentId);
 
         // Then
-        assertThat(result).isEqualTo(expectedMergedNodes);
+        assertThat(result).hasSize(3);
+        assertThat(result).anyMatch(node -> node.getTitle().equals("Chapter 1"));
+        assertThat(result).anyMatch(node -> node.getTitle().equals("Section 1.1"));
+        assertThat(result).anyMatch(node -> node.getTitle().equals("Section 1.2"));
     }
 
     @Test

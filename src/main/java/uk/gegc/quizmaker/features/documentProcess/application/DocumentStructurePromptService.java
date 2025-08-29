@@ -5,9 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
+import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -30,52 +32,93 @@ public class DocumentStructurePromptService {
      * @return formatted prompt string
      */
     public String buildStructurePrompt(String content, LlmClient.StructureOptions options) {
-        try {
-            // Load system prompt
-            String systemPrompt = loadPromptTemplate("document-structure/system-prompt.txt");
+        return buildStructurePrompt(content, options, null, 0, 1);
+    }
 
-            // Load structure template
-            String structureTemplate = loadPromptTemplate("document-structure/structure-template.txt");
+    /**
+     * Builds a context-aware prompt for document structure generation with chunk information.
+     *
+     * @param content the document content to analyze
+     * @param options structure generation options
+     * @param previousNodes previously generated nodes for context
+     * @param chunkIndex current chunk index (0-based)
+     * @param totalChunks total number of chunks
+     * @return formatted prompt string
+     */
+    public String buildStructurePrompt(String content, LlmClient.StructureOptions options, 
+                                     List<DocumentNode> previousNodes, 
+                                     int chunkIndex, int totalChunks) {
+        try {
+            // Choose appropriate prompt template based on whether we have context
+            String templateName = (previousNodes != null && !previousNodes.isEmpty()) 
+                ? "document-structure/system-prompt-chunked.txt"
+                : "document-structure/system-prompt.txt";
+            
+            // Load system prompt
+            String systemPrompt = loadPromptTemplate(templateName);
 
             // Build the complete prompt
             StringBuilder prompt = new StringBuilder();
-            prompt.append(systemPrompt).append("\n\n");
-            prompt.append(structureTemplate);
+            prompt.append(systemPrompt);
 
             // Replace placeholders
-            return prompt.toString()
+            String result = prompt.toString()
                     .replace("{content}", content)
                     .replace("{profile}", options.profile())
                     .replace("{granularity}", options.granularity())
-                    .replace("{charCount}", String.valueOf(content.length()));
+                    .replace("{charCount}", String.valueOf(content.length()))
+                    .replace("{chunkIndex}", String.valueOf(chunkIndex + 1))
+                    .replace("{totalChunks}", String.valueOf(totalChunks));
+
+            // Add previous structure context if available (limit to last 10 nodes to avoid overwhelming)
+            if (previousNodes != null && !previousNodes.isEmpty()) {
+                StringBuilder previousStructure = new StringBuilder();
+                int startIndex = Math.max(0, previousNodes.size() - 10); // Show only last 10 nodes
+                for (int i = startIndex; i < previousNodes.size(); i++) {
+                    DocumentNode node = previousNodes.get(i);
+                    previousStructure.append("- ").append(node.getTitle())
+                                   .append(" (depth: ").append(node.getDepth()).append(")\n");
+                }
+                if (previousNodes.size() > 10) {
+                    previousStructure.insert(0, "... and ").insert(0, String.valueOf(previousNodes.size() - 10))
+                                   .insert(0, "(").append(" more nodes)\n");
+                }
+                result = result.replace("{previousStructure}", previousStructure.toString());
+            } else {
+                result = result.replace("{previousStructure}", "None (first chunk)");
+            }
+
+            return result;
 
         } catch (Exception e) {
             log.error("Error building structure prompt", e);
             // Fallback to simple prompt
-                               return String.format("""
-                           Analyze the following document and create a hierarchical structure.
+            return String.format("""
+                Analyze the following document chunk and create a hierarchical structure.
 
-                           Profile: %s
-                           Granularity: %s
-                           Document Length: %d characters
+                Profile: %s
+                Granularity: %s
+                Chunk Length: %d characters
+                Chunk Position: %d of %d
 
-                           Document Content:
-                           %s
+                Document Content:
+                %s
 
-                           Return a JSON object with the following structure:
-                           {
-                             "nodes": [
-                               {
-                                 "type": "SECTION|CHAPTER|PARAGRAPH|SUBSECTION|UTTERANCE|OTHER",
-                                 "title": "Descriptive title for this section",
-                                 "start_anchor": "exact text where this section starts (at least 10 characters)",
-                                 "end_anchor": "exact text where this section ends (at least 10 characters)",
-                                 "depth": 0,
-                                 "confidence": 0.95
-                               }
-                             ]
-                           }
-                           """, options.profile(), options.granularity(), content.length(), content);
+                Return a JSON object with the following structure:
+                {
+                  "nodes": [
+                    {
+                      "type": "SECTION|CHAPTER|PARAGRAPH|SUBSECTION|UTTERANCE|OTHER",
+                      "title": "Descriptive title for this section",
+                      "start_anchor": "exact text where this section starts (at least 10 characters)",
+                      "end_anchor": "exact text where this section ends (at least 10 characters)",
+                      "depth": 0,
+                      "confidence": 0.95
+                    }
+                  ]
+                }
+                """, options.profile(), options.granularity(), content.length(), 
+                     chunkIndex + 1, totalChunks, content);
         }
     }
 

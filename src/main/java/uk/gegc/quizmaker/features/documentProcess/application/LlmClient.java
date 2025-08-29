@@ -21,6 +21,25 @@ public interface LlmClient {
     List<DocumentNode> generateStructure(String text, StructureOptions options);
 
     /**
+     * Generates a document structure from the provided text with context from previous chunks.
+     * This ensures continuity and avoids generating duplicate sections.
+     * 
+     * @param text the normalized document text for the current chunk
+     * @param options optional parameters for structure generation
+     * @param previousNodes previously generated nodes for context
+     * @param chunkIndex current chunk index (0-based)
+     * @param totalChunks total number of chunks
+     * @return list of document nodes representing the structure
+     * @throws LlmException if the AI call fails or returns invalid data
+     */
+    default List<DocumentNode> generateStructureWithContext(String text, StructureOptions options, 
+                                                          List<DocumentNode> previousNodes, 
+                                                          int chunkIndex, int totalChunks) {
+        // Default implementation falls back to regular generation
+        return generateStructure(text, options);
+    }
+
+    /**
      * Configuration options for structure generation.
      */
     record StructureOptions(

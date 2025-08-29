@@ -7,10 +7,6 @@ import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Service for processing large documents by chunking them into manageable pieces,
@@ -23,11 +19,10 @@ public class ChunkedStructureService {
 
     private final DocumentChunker documentChunker;
     private final LlmClient llmClient;
-    private final NodeMerger nodeMerger;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
     /**
-     * Processes a large document by chunking it and merging the results.
+     * Processes a large document by chunking it and processing chunks sequentially with context.
+     * This ensures AI understands the continuity between chunks and avoids duplicate sections.
      * 
      * @param text the full document text
      * @param options structure generation options
@@ -41,104 +36,139 @@ public class ChunkedStructureService {
         List<DocumentChunker.DocumentChunk> chunks = documentChunker.chunkDocument(text, documentId);
         
         if (chunks.size() == 1) {
-            // Small document, process normally
+            // Small document, process normally but still apply filtering
             log.info("Document {} is small enough for single-chunk processing", documentId);
-            return llmClient.generateStructure(text, options);
+            List<DocumentNode> nodes = llmClient.generateStructure(text, options);
+            return filterQuizRelevantNodes(nodes);
         }
         
-        // Step 2: Process chunks in parallel
-        List<List<DocumentNode>> chunkResults = processChunksParallel(chunks, options, documentId);
-        
-        // Step 3: Merge results
-        List<DocumentNode> mergedNodes = nodeMerger.mergeChunkNodes(chunkResults, chunks);
+        // Step 2: Process chunks sequentially with context
+        List<DocumentNode> allNodes = processChunksSequentialWithContext(chunks, options, documentId);
         
         log.info("Successfully processed large document {}: {} chunks -> {} final nodes", 
-            documentId, chunks.size(), mergedNodes.size());
+            documentId, chunks.size(), allNodes.size());
         
-        return mergedNodes;
+        return allNodes;
     }
     
-    /**
-     * Processes document chunks in parallel for better performance.
-     */
-    private List<List<DocumentNode>> processChunksParallel(List<DocumentChunker.DocumentChunk> chunks, 
-                                                         LlmClient.StructureOptions options, 
-                                                         String documentId) {
-        List<CompletableFuture<List<DocumentNode>>> futures = new ArrayList<>();
-        
-        for (int i = 0; i < chunks.size(); i++) {
-            DocumentChunker.DocumentChunk chunk = chunks.get(i);
-            final int chunkIndex = i;
-            
-            CompletableFuture<List<DocumentNode>> future = CompletableFuture.supplyAsync(() -> {
-                try {
-                    log.debug("Processing chunk {} of document {} ({} chars)", 
-                        chunkIndex, documentId, chunk.getLength());
-                    
-                    List<DocumentNode> nodes = llmClient.generateStructure(chunk.getText(), options);
-                    
-                    log.debug("Chunk {} completed with {} nodes", chunkIndex, nodes.size());
-                    return nodes;
-                    
-                } catch (Exception e) {
-                    log.error("Failed to process chunk {} of document {}", chunkIndex, documentId, e);
-                    throw new RuntimeException("Chunk processing failed", e);
-                }
-            }, executorService);
-            
-            futures.add(future);
-        }
-        
-        // Wait for all chunks to complete
-        try {
-            CompletableFuture<Void> allFutures = CompletableFuture.allOf(
-                futures.toArray(new CompletableFuture[0])
-            );
-            
-            // Wait with timeout
-            allFutures.get(30, TimeUnit.MINUTES); // 30 minute timeout for large documents
-            
-            // Collect results
-            List<List<DocumentNode>> results = new ArrayList<>();
-            for (CompletableFuture<List<DocumentNode>> future : futures) {
-                results.add(future.get());
-            }
-            
-            return results;
-            
-        } catch (Exception e) {
-            log.error("Failed to process chunks for document {}", documentId, e);
-            throw new RuntimeException("Chunked processing failed", e);
-        }
-    }
+
     
     /**
-     * Processes document chunks sequentially (fallback for debugging).
+     * Processes document chunks sequentially with context from previous chunks.
+     * This ensures AI understands the continuity and avoids generating duplicate sections.
      */
-    private List<List<DocumentNode>> processChunksSequential(List<DocumentChunker.DocumentChunk> chunks, 
-                                                           LlmClient.StructureOptions options, 
-                                                           String documentId) {
-        List<List<DocumentNode>> results = new ArrayList<>();
+    private List<DocumentNode> processChunksSequentialWithContext(List<DocumentChunker.DocumentChunk> chunks, 
+                                                                LlmClient.StructureOptions options, 
+                                                                String documentId) {
+        List<DocumentNode> allNodes = new ArrayList<>();
+        List<DocumentNode> previousNodes = new ArrayList<>();
         
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunker.DocumentChunk chunk = chunks.get(i);
             
-            log.debug("Processing chunk {} of document {} ({} chars)", 
-                i, documentId, chunk.getLength());
+            log.info("Processing chunk {} of {} for document {} ({} chars)", 
+                i + 1, chunks.size(), documentId, chunk.getLength());
             
             try {
-                List<DocumentNode> nodes = llmClient.generateStructure(chunk.getText(), options);
-                results.add(nodes);
+                // Create context-aware options with previous structure
+                LlmClient.StructureOptions contextOptions = createContextOptions(options, previousNodes, i, chunks.size());
                 
-                log.debug("Chunk {} completed with {} nodes", i, nodes.size());
+                // Generate structure for this chunk with context
+                List<DocumentNode> chunkNodes = llmClient.generateStructureWithContext(
+                    chunk.getText(), contextOptions, previousNodes, i, chunks.size());
+                
+                // Adjust offsets to global document coordinates
+                adjustNodeOffsets(chunkNodes, chunk.getStartOffset());
+                
+                // Filter out unwanted sections (author, acknowledgments, etc.)
+                List<DocumentNode> filteredNodes = filterQuizRelevantNodes(chunkNodes);
+                
+                // Add to our collection
+                allNodes.addAll(filteredNodes);
+                previousNodes.addAll(filteredNodes);
+                
+                log.info("Chunk {} completed with {} nodes ({} after filtering)", 
+                    i + 1, chunkNodes.size(), filteredNodes.size());
                 
             } catch (Exception e) {
-                log.error("Failed to process chunk {} of document {}", i, documentId, e);
+                log.error("Failed to process chunk {} of document {}", i + 1, documentId, e);
                 throw new RuntimeException("Chunk processing failed", e);
             }
         }
         
-        return results;
+        return allNodes;
+    }
+    
+    /**
+     * Creates context-aware options that include previously generated structure.
+     */
+    private LlmClient.StructureOptions createContextOptions(LlmClient.StructureOptions originalOptions, 
+                                                          List<DocumentNode> previousNodes, 
+                                                          int chunkIndex, 
+                                                          int totalChunks) {
+        // For now, we'll use the original options
+        // TODO: Enhance LlmClient to support context from previous chunks
+        return originalOptions;
+    }
+    
+    /**
+     * Adjusts node offsets from chunk-relative to document-relative coordinates.
+     */
+    private void adjustNodeOffsets(List<DocumentNode> nodes, int chunkStartOffset) {
+        for (DocumentNode node : nodes) {
+            if (node.getStartOffset() != null) {
+                node.setStartOffset(node.getStartOffset() + chunkStartOffset);
+            }
+            if (node.getEndOffset() != null) {
+                node.setEndOffset(node.getEndOffset() + chunkStartOffset);
+            }
+        }
+    }
+    
+    /**
+     * Filters out nodes that are not relevant for quiz generation.
+     * Removes sections like author info, acknowledgments, table of contents, etc.
+     */
+    private List<DocumentNode> filterQuizRelevantNodes(List<DocumentNode> nodes) {
+        List<DocumentNode> relevantNodes = new ArrayList<>();
+        
+        for (DocumentNode node : nodes) {
+            String title = node.getTitle().toLowerCase();
+            
+            // Skip non-quiz-relevant sections
+            if (isQuizIrrelevant(title)) {
+                log.debug("Filtering out quiz-irrelevant node: {}", node.getTitle());
+                continue;
+            }
+            
+            relevantNodes.add(node);
+        }
+        
+        return relevantNodes;
+    }
+    
+    /**
+     * Determines if a node title indicates content that's not relevant for quiz generation.
+     */
+    private boolean isQuizIrrelevant(String title) {
+        // Keywords that indicate non-quiz-relevant content
+        String[] irrelevantKeywords = {
+            "author", "authors", "acknowledgment", "acknowledgments", "thanks", "thank you",
+            "table of contents", "contents", "index", "glossary", "bibliography",
+            "appendix", "appendices", "preface", "foreword", "abstract",
+            "dedication", "copyright", "license", "permission", "about the author",
+            "about the authors", "biography", "biographies", "contact", "email", "website",
+            "publisher", "publication", "edition", "isbn", "doi", "doi:", "isbn:",
+            "chapter 0", "chapter zero", "preliminary", "front matter", "back matter"
+        };
+        
+        for (String keyword : irrelevantKeywords) {
+            if (title.contains(keyword)) {
+                return true;
+            }
+        }
+        
+        return false;
     }
     
     /**

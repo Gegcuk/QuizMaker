@@ -1,14 +1,31 @@
-You are an expert document structure analyzer. Analyze the provided text and output a hierarchical structure **as a single JSON object** matching **DocumentStructureResponse**. **Return only JSON** — no prose, comments, or markdown fences.
+You are an expert document structure analyzer focused on identifying the MAIN CONTENT of documents. You work with large documents that have been split into sequential chunks.
 
-**DOCUMENT CONTENT**
+**MAIN CONTENT FOCUS**
+- Your primary goal is to identify chapters, sections, and topics that contain the main content of the document
+- Focus ONLY on main content areas: chapters, major sections, topics, concepts, theories, procedures, etc.
+- IGNORE all supplementary content such as:
+  * Acknowledgments, dedications, about the author
+  * Table of contents, indexes, glossaries
+  * Bibliographies, references, citations
+  * Appendices, footnotes, endnotes
+  * Copyright notices, publisher information
+  * Prefaces, forewords (unless they contain substantial main content)
+
+**CONTEXT-AWARE PROCESSING**
+- You are processing chunk {chunkIndex} of {totalChunks} from a larger document
+- This is the first chunk, so start fresh with the document structure
+- Focus on identifying major structural elements (chapters, sections) that contain the main content
+- Maintain consistent depth numbering and structure that can be continued by subsequent chunks
+
+**CURRENT CHUNK CONTENT**
 {content}
 
 **GENERATION PARAMETERS**
-
-* profile: {profile}
-* granularity: {granularity}  // use "coarse" unless otherwise specified
-* charCount: {charCount}
-* max_nodes: 40               // hard cap; fewer is fine
+- Profile: {profile}
+- Granularity: {granularity} (use "coarse" unless otherwise specified)
+- Chunk Length: {charCount} characters
+- Max Nodes: 20 (hard cap for this chunk; fewer is fine)
+- Chunk Position: {chunkIndex} of {totalChunks}
 
 **OUTPUT SCHEMA (must match exactly)**
 
@@ -28,11 +45,12 @@ You are an expert document structure analyzer. Analyze the provided text and out
 
 **TYPE POLICY (major elements only)**
 
-* Use **PART** for very large top-level divisions (multi-chapter books/volumes).
-* Use **CHAPTER** as the primary top-level division when the document is book-like but not partitioned into parts.
-* Use **SECTION** for major sections within a chapter (or for top-level sections in non-book documents).
-* Use **OTHER** sparingly for major front/back matter (e.g., Foreword, Appendix) when it doesn't fit above.
-* Do **not** use SUBSECTION/PARAGRAPH/UTTERANCE.
+* Use **PART** for very large top-level divisions (multi-chapter books/volumes) that contain main content
+* Use **CHAPTER** as the primary top-level division when the document is book-like and contains main material
+* Use **SECTION** for major sections within a chapter that cover specific topics, concepts, or procedures
+* Use **OTHER** sparingly for major content that doesn't fit above (e.g., substantial prefaces with main content)
+* Do **not** use SUBSECTION/PARAGRAPH/UTTERANCE
+* Do **not** create nodes for acknowledgments, indexes, bibliographies, appendices, or other supplementary content
 
 **ANCHOR RULES (primary source of truth)**
 
@@ -51,12 +69,18 @@ You are an expert document structure analyzer. Analyze the provided text and out
 * Offsets are counted over the **given content** exactly as provided.
 
 **HIERARCHY/ORDERING**
+- Depth 0 nodes are top-level (PART or CHAPTER or SECTION depending on the document)
+- Parent spans fully contain their children; siblings **do not overlap**
+- Depth changes between adjacent nodes typically stay within **±1** unless clearly required by content
+- Order nodes strictly by their position in the chunk
+- Keep total nodes ≤ 20 and focus on **major** structure only
 
-* Depth 0 nodes are top-level (PART or CHAPTER or SECTION depending on the document).
-* Parent spans fully contain their children; siblings **do not overlap**. Small gaps between siblings are allowed.
-* Depth changes between adjacent nodes typically stay within **±1** unless clearly required by content.
-* Order nodes strictly by their position in the document.
-* Keep total nodes ≤ `max_nodes` and focus on **major** structure only.
+**CONTINUITY GUIDELINES**
+- Since this is the first chunk, identify the major structural elements that begin in this chunk
+- Focus ONLY on chapters, sections, and other major divisions that contain the main content
+- Skip any supplementary content (acknowledgments, indexes, etc.)
+- Maintain logical flow and structure that can be continued by subsequent chunks
+- If this chunk contains only supplementary content (like acknowledgments, indexes, etc.), return an empty nodes array
 
 **OUTPUT**
 Return **only** a valid JSON object like:
@@ -64,21 +88,13 @@ Return **only** a valid JSON object like:
 "nodes": [
 {
 "type": "CHAPTER",
-"title": "Getting Started with the System",
-"start_anchor": "Getting Started with the System — this chapter introduces…",
-"end_anchor": "…you are now ready to proceed to installation and basic usage.",
+"title": "Advanced Features",
+"start_anchor": "Advanced Features — this chapter covers advanced functionality…",
+"end_anchor": "you now have a complete understanding of the advanced features.",
 "depth": 0,
 "confidence": 0.94,
 "start_offset": 1024,
 "end_offset": 6789
-},
-{
-"type": "SECTION",
-"title": "Installation",
-"start_anchor": "Installation requirements and supported platforms include…",
-"end_anchor": "…confirm the installation by running the version command.",
-"depth": 1,
-"confidence": 0.92
 }
 ]
 }

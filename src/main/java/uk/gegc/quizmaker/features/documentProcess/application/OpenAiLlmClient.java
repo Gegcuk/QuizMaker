@@ -37,12 +37,19 @@ public class OpenAiLlmClient implements LlmClient {
 
     @Override
     public List<DocumentNode> generateStructure(String text, StructureOptions options) {
-        log.info("Generating structure for text with {} characters using model: {}", 
-                text.length(), options.model());
+        return generateStructureWithContext(text, options, List.of(), 0, 1);
+    }
+
+    @Override
+    public List<DocumentNode> generateStructureWithContext(String text, StructureOptions options, 
+                                                         List<DocumentNode> previousNodes, 
+                                                         int chunkIndex, int totalChunks) {
+        log.info("Generating structure for chunk {} of {} with {} characters using model: {}", 
+                chunkIndex + 1, totalChunks, text.length(), options.model());
 
         try {
-            // Use the prompt service with proper template handling
-            String prompt = promptService.buildStructurePrompt(text, options);
+            // Build context-aware prompt
+            String prompt = buildContextAwarePrompt(text, options, previousNodes, chunkIndex, totalChunks);
             
             int maxRetries = rateLimitConfig.getMaxRetries();
             int retryCount = 0;
@@ -100,6 +107,16 @@ public class OpenAiLlmClient implements LlmClient {
         } catch (Exception e) {
             throw new LlmException("Unexpected error during structure generation", e);
         }
+    }
+    
+    /**
+     * Builds a context-aware prompt that includes previously generated structure.
+     */
+    private String buildContextAwarePrompt(String text, StructureOptions options, 
+                                         List<DocumentNode> previousNodes, 
+                                         int chunkIndex, int totalChunks) {
+        // Use the enhanced prompt service that handles context-aware prompts
+        return promptService.buildStructurePrompt(text, options, previousNodes, chunkIndex, totalChunks);
     }
 
     /**
