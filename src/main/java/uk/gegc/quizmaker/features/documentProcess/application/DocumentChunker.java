@@ -47,6 +47,13 @@ public class DocumentChunker {
         while (currentPosition < text.length()) {
             int chunkEnd = calculateChunkEnd(text, currentPosition);
             
+            // Safety check: ensure we're actually advancing
+            if (chunkEnd <= currentPosition) {
+                log.error("Chunking failed: chunk end ({}) <= current position ({}). Forcing advancement.", 
+                    chunkEnd, currentPosition);
+                chunkEnd = Math.min(currentPosition + MAX_CHUNK_SIZE, text.length());
+            }
+            
             // Extract chunk text
             String chunkText = text.substring(currentPosition, chunkEnd);
             
@@ -63,7 +70,25 @@ public class DocumentChunker {
                 chunkIndex, currentPosition, chunkEnd, chunkText.length());
             
             // Move to next chunk position (with overlap)
-            currentPosition = Math.max(currentPosition + 1, chunkEnd - OVERLAP_SIZE);
+            int nextPosition = Math.max(currentPosition + 1, chunkEnd - OVERLAP_SIZE);
+            
+            // CRITICAL FIX: Ensure we're advancing by at least a reasonable amount
+            if (nextPosition <= currentPosition) {
+                log.error("Chunking failed: next position ({}) <= current position ({}). Forcing advancement.", 
+                    nextPosition, currentPosition);
+                nextPosition = currentPosition + MAX_CHUNK_SIZE / 2; // Force significant advancement
+            }
+            
+            // ADDITIONAL SAFETY: If we're advancing by less than 10% of the chunk size, force more advancement
+            int advancement = nextPosition - currentPosition;
+            if (advancement < MAX_CHUNK_SIZE / 10) {
+                log.warn("Chunking advancing too slowly: {} chars. Forcing advancement.", advancement);
+                nextPosition = currentPosition + (MAX_CHUNK_SIZE * 4) / 5; // Force 80% advancement
+            }
+            
+
+            
+            currentPosition = nextPosition;
         }
         
         log.info("Document {} chunked into {} pieces", documentId, chunks.size());
@@ -145,7 +170,17 @@ public class DocumentChunker {
                 return i;
             }
         }
-        return position;
+        // If no word boundary found, force a significant advancement
+        // This prevents the 1-character advancement bug
+        // Force at least 50% advancement to prevent infinite loops
+        int forcedPosition = Math.max(position - 1000, position / 2);
+        
+        // Additional safety: if we're still too close to the original position, force more advancement
+        if (forcedPosition > position * 0.8) {
+            forcedPosition = position / 2;
+        }
+        
+        return forcedPosition;
     }
     
     /**
