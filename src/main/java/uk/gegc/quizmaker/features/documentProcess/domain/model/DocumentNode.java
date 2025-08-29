@@ -48,10 +48,10 @@ public class DocumentNode {
     @Column(name = "end_offset", nullable = false)
     private Integer endOffset;
 
-    @Column(name = "start_anchor", length = 1000)
+    @Column(name = "start_anchor", columnDefinition = "TEXT")
     private String startAnchor;
 
-    @Column(name = "end_anchor", length = 1000)
+    @Column(name = "end_anchor", columnDefinition = "TEXT")
     private String endAnchor;
 
     @Column(name = "depth", nullable = false)
