@@ -17,9 +17,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
+import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
-import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;

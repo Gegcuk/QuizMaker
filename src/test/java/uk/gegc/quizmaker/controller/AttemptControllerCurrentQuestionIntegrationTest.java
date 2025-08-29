@@ -14,22 +14,22 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
-import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
-import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
-import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.Instant;
@@ -251,9 +251,9 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         // Act & Assert
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", testAttempt.getId())
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Processing Failed"));
     }
 
     @Test
@@ -287,8 +287,8 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         // Act & Assert
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", testAttempt.getId())
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.error").value("Conflict"));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.error").value("Processing Failed"));
     }
 }

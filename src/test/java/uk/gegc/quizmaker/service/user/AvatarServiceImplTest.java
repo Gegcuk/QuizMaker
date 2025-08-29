@@ -5,12 +5,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
-import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
+import uk.gegc.quizmaker.features.user.application.impl.AvatarServiceImpl;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.user.application.impl.AvatarServiceImpl;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 import uk.gegc.quizmaker.util.TestImageFactory;
 
 import java.io.IOException;

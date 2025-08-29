@@ -1,0 +1,75 @@
+**DOCUMENT CONTENT**
+{content}
+
+**GENERATION PARAMETERS**
+
+* Profile: {profile}
+* Granularity: {granularity} (use "coarse" unless otherwise specified)
+* Document Length: {charCount} characters
+* Max Nodes: 40 (hard cap; fewer is fine)
+
+**TASK**
+Produce a **DocumentStructureResponse** JSON object with the following structure:
+
+- Root object has "nodes" array
+- Each node has: type, title, start_anchor, end_anchor, depth, confidence
+- Optional: start_offset, end_offset (if you can compute them confidently)
+- Types: PART, CHAPTER, SECTION, OTHER (major structure only)
+- Anchors: verbatim text from document, 20-120 characters
+- Depth: 0 for root, 1 for child, etc.
+- Confidence: 0.0 to 1.0
+
+**TYPE POLICY (major elements only)**
+
+* Use **PART** for very large top-level divisions (multi-chapter books/volumes).
+* Use **CHAPTER** as the primary top-level division when the document is book-like but not partitioned into parts.
+* Use **SECTION** for major sections within a chapter (or for top-level sections in non-book documents).
+* Use **OTHER** sparingly for major front/back matter (e.g., Foreword, Appendix) when it doesn't fit above.
+* Do **not** use SUBSECTION/PARAGRAPH/UTTERANCE.
+
+**ANCHOR RULES (primary source of truth)**
+
+* `start_anchor` = the **first 20–120 characters** of the section (verbatim, include distinctive context/punctuation).
+* `end_anchor` = the **last 20–120 characters** **of the same section** (e.g., final sentence). **Never** use the next heading as `end_anchor`.
+* **CRITICAL**: Only use anchors that actually exist in the provided document text.
+* **Never** reference content that doesn't exist in the document (like "Index" if there's no index).
+* Anchors must be **NFC-normalized**, **verbatim**, and **unique** within the document.
+* Prefer longer, distinctive spans if a shorter string could appear elsewhere.
+
+**OFFSET RULES (fallback)**
+
+* Provide `start_offset` and `end_offset` **if you can compute them confidently** from the given content.
+* When provided, they must satisfy: `0 ≤ start_offset < end_offset ≤ charCount`.
+* Offsets are counted over the **given content** exactly as provided.
+
+**HIERARCHY/ORDERING**
+
+* Depth 0 nodes are top-level (PART or CHAPTER or SECTION depending on the document).
+* Parent spans fully contain their children; siblings **do not overlap**. Small gaps between siblings are allowed.
+* Depth changes between adjacent nodes typically stay within **±1** unless clearly required by content.
+* Order nodes strictly by their position in the document.
+* Keep total nodes ≤ 40 and focus on **major** structure only.
+
+**REQUIREMENTS**
+
+* Anchors **must be inside the section they describe**; never reference the next section's heading as `end_anchor`.
+* Anchors **≥20 chars**, unique, verbatim, NFC-normalized.
+* Nodes ordered by document position; siblings do **not** overlap; parent spans contain all children.
+* JSON only; no markdown or extra text.
+
+**PROFILE GUIDELINES**
+
+* **academic**: Focus on formal structure, chapters, sections, citations, research papers
+* **technical**: Emphasize procedures, steps, technical specifications, documentation
+* **narrative**: Look for story elements, scenes, dialogue, character development
+* **notes**: Focus on bullet points, lists, topic groupings, informal structure
+* **article**: Emphasize sections, subsections, paragraphs, journalistic structure
+* **general**: Balanced approach suitable for mixed content
+
+**GRANULARITY GUIDELINES**
+
+* **coarse**: Major divisions only - Parts, Chapters, main Sections (RECOMMENDED)
+* **medium**: Balanced approach with chapters and key sections
+* **detailed**: More granular but still focused on meaningful structural divisions
+
+**CURRENT FOCUS**: Use coarse granularity to identify only the most important structural elements. Avoid breaking down into small subsections, paragraphs, or minor details.

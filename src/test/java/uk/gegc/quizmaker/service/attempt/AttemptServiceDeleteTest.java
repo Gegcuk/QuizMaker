@@ -7,14 +7,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
-import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
-import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.Optional;

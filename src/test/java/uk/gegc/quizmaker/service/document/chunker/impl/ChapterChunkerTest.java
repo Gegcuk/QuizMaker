@@ -8,11 +8,11 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.infra.converter.ChapterChunker;
 import uk.gegc.quizmaker.features.document.infra.converter.UniversalChunker;
-import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
-import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
+import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 
 import java.util.List;
 

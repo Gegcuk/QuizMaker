@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "type": "PART",
+      "title": "Part I: Fundamentals",
+      "start_anchor": "Part I: Fundamentals — This section covers the essential concepts and principles that form the foundation of document processing systems.",
+      "end_anchor": "This concludes Part I, which has established the fundamental concepts necessary for understanding advanced document processing techniques.",
+      "start_offset": 0,
+      "end_offset": 8500,
+      "depth": 0,
+      "confidence": 0.95
+    },
+    {
+      "type": "CHAPTER",
+      "title": "Introduction to Document Processing",
+      "start_anchor": "Chapter 1: Introduction to Document Processing — this paper explores the challenges and solutions for automated document structure analysis.",
+      "end_anchor": "This introduction chapter provides the foundation for understanding the document processing pipeline and its applications in modern information systems.",
+      "start_offset": 0,
+      "end_offset": 5200,
+      "depth": 1,
+      "confidence": 0.94
+    },
+    {
+      "type": "SECTION",
+      "title": "System Overview",
+      "start_anchor": "System Overview: the pipeline consists of several interconnected components that work together to process and analyze document content.",
+      "end_anchor": "This system overview section concludes with the architectural principles that guide the entire document processing approach.",
+      "start_offset": 1250,
+      "end_offset": 3100,
+      "depth": 2,
+      "confidence": 0.90
+    },
+    {
+      "type": "SECTION",
+      "title": "Implementation Details",
+      "start_anchor": "Implementation Details: The actual implementation involves careful consideration of performance, accuracy, and usability requirements.",
+      "end_anchor": "These implementation details provide the technical foundation for the system's capabilities and performance characteristics.",
+      "start_offset": 3100,
+      "end_offset": 5200,
+      "depth": 2,
+      "confidence": 0.92
+    },
+    {
+      "type": "CHAPTER",
+      "title": "Advanced Features",
+      "start_anchor": "Chapter 2: Advanced Features — Beyond the basic functionality, the system includes several advanced features that enhance its capabilities.",
+      "end_anchor": "This chapter on advanced features demonstrates the system's flexibility and ability to adapt to various document processing scenarios.",
+      "start_offset": 5200,
+      "end_offset": 8500,
+      "depth": 1,
+      "confidence": 0.93
+    },
+    {
+      "type": "SECTION",
+      "title": "Performance Optimization",
+      "start_anchor": "Performance Optimization: The system includes several optimization techniques to ensure efficient processing of large document collections.",
+      "end_anchor": "These optimization techniques ensure that the system can handle real-world workloads efficiently and reliably.",
+      "start_offset": 5800,
+      "end_offset": 8500,
+      "depth": 2,
+      "confidence": 0.89
+    }
+  ]
+}

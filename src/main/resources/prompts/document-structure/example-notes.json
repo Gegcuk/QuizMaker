@@ -1,0 +1,44 @@
+{
+  "nodes": [
+    {
+      "type": "SECTION",
+      "title": "Meeting Notes - Project Planning",
+      "start_anchor": "Meeting Notes - Project Planning: This meeting focused on planning the upcoming project phases and allocating resources.",
+      "end_anchor": "The meeting concluded with a clear action plan and assigned responsibilities for the next phase of the project.",
+      "depth": 0,
+      "confidence": 0.95
+    },
+    {
+      "type": "OTHER",
+      "title": "Agenda Items",
+      "start_anchor": "Agenda Items: The meeting agenda included several key topics that needed to be addressed.",
+      "end_anchor": "All agenda items were successfully addressed during the meeting with clear outcomes and next steps identified.",
+      "depth": 1,
+      "confidence": 0.90
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Budget Discussion",
+      "start_anchor": "Budget Discussion: The team reviewed the current budget allocation and identified areas where additional funding might be required.",
+      "end_anchor": "The budget discussion resulted in a revised allocation that better reflects the project's current needs and constraints.",
+      "depth": 2,
+      "confidence": 0.85
+    },
+    {
+      "type": "OTHER",
+      "title": "Action Items",
+      "start_anchor": "Action Items: Several action items were identified during the meeting that require immediate attention.",
+      "end_anchor": "All action items have been documented and will be tracked through the project management system.",
+      "depth": 1,
+      "confidence": 0.88
+    },
+    {
+      "type": "PARAGRAPH",
+      "title": "Next Steps",
+      "start_anchor": "Next Steps: The team outlined the immediate next steps that need to be taken to move the project forward.",
+      "end_anchor": "The next steps have been prioritized and scheduled to ensure timely completion of all project milestones.",
+      "depth": 2,
+      "confidence": 0.82
+    }
+  ]
+}

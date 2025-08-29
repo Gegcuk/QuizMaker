@@ -2,8 +2,8 @@ package uk.gegc.quizmaker.features.quiz.domain.event;
 
 import lombok.Getter;
 import org.springframework.context.ApplicationEvent;
-import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 
 import java.util.List;
 import java.util.Map;

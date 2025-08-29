@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
-import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 import uk.gegc.quizmaker.features.document.infra.text.SentenceBoundaryDetector;
+import uk.gegc.quizmaker.features.document.infra.util.ChunkTitleGenerator;
 
 import java.util.ArrayList;
 import java.util.List;

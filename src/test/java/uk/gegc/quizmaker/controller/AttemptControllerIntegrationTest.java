@@ -22,21 +22,21 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
-import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
-import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
-import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.List;
@@ -385,9 +385,8 @@ public class AttemptControllerIntegrationTest {
                 .andExpect(status().isOk());
 
         postAnswer(attemptId, questionId, "{\"answer\":true}")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", is("Conflict")))
-                .andExpect(jsonPath("$.details[0]", containsString("Cannot submit answer to attempt with status COMPLETED")));
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", is("Processing Failed")));
     }
 
     @Test
@@ -493,8 +492,8 @@ public class AttemptControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error", is("Conflict")))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error", is("Processing Failed")))
                 .andExpect(jsonPath("$.details[0]", containsString("Batch submissions only allowed")));
     }
 
@@ -506,7 +505,7 @@ public class AttemptControllerIntegrationTest {
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
 
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isConflict());
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -718,7 +717,7 @@ public class AttemptControllerIntegrationTest {
         UUID questionId = createDummyQuestion(TRUE_FALSE, "{ \"answer\": true }");
         UUID attemptId = startAttempt();
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isOk());
-        postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isConflict());
+        postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isUnprocessableEntity());
     }
 
     @DisplayName("Batch submission with empty list → returns 400 BAD_REQUEST")

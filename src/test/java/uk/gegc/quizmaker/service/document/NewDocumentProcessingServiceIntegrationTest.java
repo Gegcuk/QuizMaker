@@ -7,11 +7,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
-import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.document.application.impl.DocumentProcessingServiceImpl;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.document.application.impl.DocumentProcessingServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
 

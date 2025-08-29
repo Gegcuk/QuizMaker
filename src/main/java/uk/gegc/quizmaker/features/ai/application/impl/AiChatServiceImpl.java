@@ -5,10 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.stereotype.Service;
-import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.features.ai.api.dto.ChatResponseDto;
-import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.features.ai.application.AiChatService;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import java.time.Duration;
 import java.time.Instant;

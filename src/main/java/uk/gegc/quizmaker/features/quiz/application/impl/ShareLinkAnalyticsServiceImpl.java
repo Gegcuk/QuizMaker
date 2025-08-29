@@ -7,11 +7,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkAnalyticsSummaryDto;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkAnalyticsService;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkAnalytics;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkEventType;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkAnalyticsRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
-import uk.gegc.quizmaker.features.quiz.application.ShareLinkAnalyticsService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

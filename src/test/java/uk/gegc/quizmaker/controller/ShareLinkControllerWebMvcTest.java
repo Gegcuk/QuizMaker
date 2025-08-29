@@ -17,18 +17,18 @@ import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptResultDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.AttemptStatsDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
+import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.quiz.api.ShareLinkController;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
+import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
+import uk.gegc.quizmaker.features.quiz.infra.web.ShareLinkCookieManager;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ShareLinkAlreadyUsedException;
-import uk.gegc.quizmaker.features.quiz.api.ShareLinkController;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
-import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
-import uk.gegc.quizmaker.features.attempt.application.AttemptService;
-import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
-import uk.gegc.quizmaker.features.quiz.infra.web.ShareLinkCookieManager;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.Instant;
@@ -479,7 +479,7 @@ class ShareLinkControllerWebMvcTest {
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -645,7 +645,7 @@ class ShareLinkControllerWebMvcTest {
         mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/complete", attemptId)
                         .with(csrf())
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
@@ -1021,7 +1021,7 @@ class ShareLinkControllerWebMvcTest {
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isUnprocessableEntity());
     }
 }
 

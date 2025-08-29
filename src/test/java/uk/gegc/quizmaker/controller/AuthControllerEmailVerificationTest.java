@@ -13,12 +13,12 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
+import uk.gegc.quizmaker.features.auth.api.AuthController;
 import uk.gegc.quizmaker.features.auth.api.dto.ResendVerificationRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.VerifyEmailRequest;
-import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.features.auth.api.AuthController;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;

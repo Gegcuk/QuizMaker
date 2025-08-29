@@ -1,0 +1,29 @@
+-- DocumentProcess feature: Phase 2
+-- Structure table for AI-generated document structure
+
+CREATE TABLE document_nodes (
+  id BINARY(16) PRIMARY KEY,
+  document_id BINARY(16) NOT NULL,
+  parent_id BINARY(16),
+  idx INT NOT NULL,
+  type ENUM('BOOK','CHAPTER','SECTION','SUBSECTION','PARAGRAPH','UTTERANCE','OTHER') NOT NULL,
+  title VARCHAR(512),
+  start_offset INT NOT NULL,
+  end_offset INT NOT NULL,
+  depth SMALLINT NOT NULL,
+  ai_confidence DECIMAL(4,3),
+  meta_json JSON,
+  parent_key BINARY(16) GENERATED ALWAYS AS (IFNULL(parent_id, 0x00000000000000000000000000000000)) STORED,
+  FOREIGN KEY (document_id) REFERENCES normalized_documents(id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_id) REFERENCES document_nodes(id) ON DELETE CASCADE,
+  KEY ix_doc_start (document_id, start_offset),
+  KEY ix_parent_idx (document_id, parent_id, idx),
+  CONSTRAINT uq_doc_parentkey_idx UNIQUE (document_id, parent_key, idx),
+  CONSTRAINT chk_offsets CHECK (start_offset >= 0 AND end_offset > start_offset),
+  CONSTRAINT chk_depth CHECK (depth >= 0),
+  CONSTRAINT chk_confidence CHECK (ai_confidence IS NULL OR (ai_confidence >= 0 AND ai_confidence <= 1))
+);
+
+-- Update documents table to support STRUCTURED status
+ALTER TABLE normalized_documents 
+MODIFY COLUMN status ENUM('PENDING','NORMALIZED','FAILED','STRUCTURED') NOT NULL;
