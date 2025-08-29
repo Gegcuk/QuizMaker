@@ -10,6 +10,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.DocumentView;
+import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
@@ -202,6 +203,24 @@ public class DocumentProcessController {
             StructureBuildResponse response = new StructureBuildResponse("ERROR", "An unexpected error occurred");
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    /**
+     * Extracts text content for a specific node.
+     * This endpoint provides precise node-based extraction using pre-calculated offsets.
+     * 
+     * @param id the document ID
+     * @param nodeId the node ID to extract (required)
+     * @return extracted content with node metadata
+     */
+    @GetMapping("/{id}/extract")
+    public ExtractResponse extractByNode(
+            @PathVariable UUID id,
+            @RequestParam("nodeId") UUID nodeId) {
+        
+        log.debug("Extracting content by node: document={}, node={}", id, nodeId);
+        
+        return structureService.extractByNode(id, nodeId);
     }
 
     /**

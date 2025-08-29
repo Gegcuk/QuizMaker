@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
@@ -32,6 +33,7 @@ public class StructureService {
     private final LlmClient llmClient;
     private final AnchorOffsetCalculator anchorOffsetCalculator;
     private final NodeHierarchyBuilder hierarchyBuilder;
+    private final DocumentQueryService queryService;
 
     /**
      * Get the tree structure of a document.
@@ -150,6 +152,51 @@ public class StructureService {
     }
 
     /**
+     * Extracts text content for a specific node.
+     * This is the main extraction method that provides precise node-based content retrieval.
+     * 
+     * @param documentId the document ID
+     * @param nodeId the node ID to extract
+     * @return ExtractResponse with node metadata and extracted text
+     * @throws ResourceNotFoundException if document or node not found
+     * @throws IllegalArgumentException if node doesn't belong to document
+     */
+    @Transactional(readOnly = true)
+    public ExtractResponse extractByNode(UUID documentId, UUID nodeId) {
+        log.debug("Extracting text by node: document={}, node={}", documentId, nodeId);
+        
+        // Verify document exists
+        if (!documentRepository.existsById(documentId)) {
+            throw new ResourceNotFoundException("Document not found: " + documentId);
+        }
+        
+        // Find the node and verify it belongs to the document
+        DocumentNode node = nodeRepository.findById(nodeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Node not found: " + nodeId));
+        
+        if (!node.getDocument().getId().equals(documentId)) {
+            throw new IllegalArgumentException("Node " + nodeId + " does not belong to document " + documentId);
+        }
+        
+        // Validate node has valid offsets
+        if (node.getStartOffset() == null || node.getEndOffset() == null) {
+            throw new IllegalStateException("Node has invalid offsets: " + nodeId);
+        }
+        
+        // Extract text using the existing query service
+        String text = queryService.getTextSlice(documentId, node.getStartOffset(), node.getEndOffset());
+        
+        return new ExtractResponse(
+                documentId,
+                nodeId,
+                node.getTitle(),
+                node.getStartOffset(),
+                node.getEndOffset(),
+                text
+        );
+    }
+
+    /**
      * Process nodes level by level, ensuring each level is saved before processing the next.
      * This provides resilience: if a later level fails, previous levels are already persisted.
      */
@@ -210,7 +257,6 @@ public class StructureService {
         
         // After all levels are saved, perform global validations
         log.info("Performing global validation for all {} processed nodes", totalProcessed);
-        List<DocumentNode> allSavedNodes = nodeRepository.findByDocument_IdOrderByStartOffset(documentId);
         
         // Perform global validation in a separate transaction to avoid rolling back saved nodes
         performGlobalValidation(documentId, totalProcessed);

@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.DocumentView;
+import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
@@ -36,7 +37,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -463,5 +464,107 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
                 .andExpect(jsonPath("$.details[0]").value("End offset must be greater than or equal to start: end=5, start=10"));
+    }
+
+    @Test
+    @DisplayName("Extract by node ID - Success")
+    @WithMockUser
+    void extractByNodeId_Success() throws Exception {
+        // Given
+        UUID documentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+        ExtractResponse expectedResponse = new ExtractResponse(
+                documentId,
+                nodeId,
+                "Chapter 1",
+                0,
+                50,
+                "This is the content of chapter 1."
+        );
+
+        when(structureService.extractByNode(documentId, nodeId)).thenReturn(expectedResponse);
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentId").value(documentId.toString()))
+                .andExpect(jsonPath("$.nodeId").value(nodeId.toString()))
+                .andExpect(jsonPath("$.title").value("Chapter 1"))
+                .andExpect(jsonPath("$.start").value(0))
+                .andExpect(jsonPath("$.end").value(50))
+                .andExpect(jsonPath("$.text").value("This is the content of chapter 1."));
+    }
+
+    @Test
+    @DisplayName("Extract by node ID - Missing nodeId parameter")
+    @WithMockUser
+    void extractByNodeId_MissingNodeIdParameter() throws Exception {
+        // Given
+        UUID documentId = UUID.randomUUID();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Extract by node ID - Document not found")
+    @WithMockUser
+    void extractByNodeId_DocumentNotFound() throws Exception {
+        // Given
+        UUID documentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+
+        when(structureService.extractByNode(documentId, nodeId))
+                .thenThrow(new ResourceNotFoundException("Document not found: " + documentId));
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+    }
+
+    @Test
+    @DisplayName("Extract by node ID - Node not found")
+    @WithMockUser
+    void extractByNodeId_NodeNotFound() throws Exception {
+        // Given
+        UUID documentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+
+        when(structureService.extractByNode(documentId, nodeId))
+                .thenThrow(new ResourceNotFoundException("Node not found: " + nodeId));
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.details[0]").value("Node not found: " + nodeId));
+    }
+
+    @Test
+    @DisplayName("Extract by node ID - Node doesn't belong to document")
+    @WithMockUser
+    void extractByNodeId_NodeDoesNotBelongToDocument() throws Exception {
+        // Given
+        UUID documentId = UUID.randomUUID();
+        UUID nodeId = UUID.randomUUID();
+
+        when(structureService.extractByNode(documentId, nodeId))
+                .thenThrow(new IllegalArgumentException("Node " + nodeId + " does not belong to document " + documentId));
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad request"))
+                .andExpect(jsonPath("$.details[0]").value("Node " + nodeId + " does not belong to document " + documentId));
     }
 }

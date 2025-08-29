@@ -79,7 +79,7 @@ class RealAiResponseStructureTest {
 
         // Then
         verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level (1, 2, 3)
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test

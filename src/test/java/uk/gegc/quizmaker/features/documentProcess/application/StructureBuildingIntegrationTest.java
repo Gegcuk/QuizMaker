@@ -78,7 +78,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -99,7 +99,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -165,7 +165,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(4)).saveAll(anyList()); // One for each depth level
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -186,7 +186,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(2)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -205,7 +205,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -224,7 +224,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -243,7 +243,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     @Test
@@ -262,7 +262,7 @@ class StructureBuildingIntegrationTest {
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(2)).findByDocument_IdOrderByStartOffset(documentId); // Called in processNodesByLevel and performGlobalValidation
+        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
     }
 
     // Helper methods to create test data
