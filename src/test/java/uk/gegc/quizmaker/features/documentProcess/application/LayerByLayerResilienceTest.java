@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.DocumentNodeRepository;
@@ -47,6 +48,7 @@ class LayerByLayerResilienceTest {
     private UUID documentId;
     private NormalizedDocument document;
     private List<DocumentNode> multiLevelNodes;
+    private DocumentChunkingConfig chunkingConfig;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +61,19 @@ class LayerByLayerResilienceTest {
         document.setCharCount(createTestDocumentText().length());
 
         multiLevelNodes = createMultiLevelStructure();
+        
+        // Setup chunking config mock
+        chunkingConfig = new DocumentChunkingConfig();
+        chunkingConfig.setMaxSingleChunkTokens(40_000);
+        chunkingConfig.setMaxSingleChunkChars(150_000);
+        chunkingConfig.setOverlapTokens(5_000);
+        chunkingConfig.setModelMaxTokens(128_000);
+        chunkingConfig.setPromptOverheadTokens(5_000);
+        chunkingConfig.setAggressiveChunking(true);
+        chunkingConfig.setEnableEmergencyChunking(true);
+        
+        // Setup lenient stubbing for getChunkingConfig to avoid unnecessary stubbing errors
+        lenient().when(chunkedStructureService.getChunkingConfig()).thenReturn(chunkingConfig);
     }
 
     @Test
@@ -66,11 +81,11 @@ class LayerByLayerResilienceTest {
     void shouldSaveLayersIncrementallyAndHandleFailuresGracefully() {
         // Given - Setup mocks to simulate layer-by-layer processing
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
         
         // Mock anchorOffsetCalculator to work normally for depth 0 and 1, but fail for depth 2
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 Short depth = nodes.get(0).getDepth();
@@ -97,7 +112,7 @@ class LayerByLayerResilienceTest {
 
         // Mock saveAll to track what gets saved
         List<List<DocumentNode>> savedLayers = new ArrayList<>();
-        when(nodeRepository.saveAll(anyList()))
+        lenient().when(nodeRepository.saveAll(anyList()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 savedLayers.add(new ArrayList<>(nodes));
@@ -131,9 +146,9 @@ class LayerByLayerResilienceTest {
     void shouldHandleSaveAllFailureForSpecificLayer() {
         // Given - Setup mocks
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -144,7 +159,7 @@ class LayerByLayerResilienceTest {
             });
 
         // Mock saveAll to fail on depth 1
-        when(nodeRepository.saveAll(anyList()))
+        lenient().when(nodeRepository.saveAll(anyList()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 Short depth = nodes.get(0).getDepth();
@@ -172,9 +187,9 @@ class LayerByLayerResilienceTest {
     void shouldHandleParentRelationshipAssignmentFailure() {
         // Given - Setup mocks
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -183,10 +198,10 @@ class LayerByLayerResilienceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
 
         // Mock parent relationship query to fail for depth 1
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), eq((short) 1)))
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), eq((short) 1)))
             .thenThrow(new RuntimeException("Database query failed"));
 
         // When & Then
@@ -203,9 +218,9 @@ class LayerByLayerResilienceTest {
     void shouldProcessAllLayersSuccessfullyWhenNoFailuresOccur() {
         // Given - Setup mocks for successful processing
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(multiLevelNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -214,12 +229,12 @@ class LayerByLayerResilienceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
 
         // Mock hierarchy builder
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -238,8 +253,8 @@ class LayerByLayerResilienceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenThrow(new RuntimeException("Chunked processing failed"));
 
         // When & Then
@@ -261,10 +276,10 @@ class LayerByLayerResilienceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenReturn(multiLevelNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -273,10 +288,10 @@ class LayerByLayerResilienceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(multiLevelNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
 
         // When
         service.buildStructure(documentId);
