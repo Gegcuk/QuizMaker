@@ -120,15 +120,71 @@ public class StructureService {
             // 2. Generate structure using LLM (with chunking for large documents)
             List<DocumentNode> allNodes;
             
-            if (chunkedStructureService.needsChunking(document.getNormalizedText())) {
-                log.info("Document {} is large ({} chars), using chunked processing", 
-                    documentId, document.getNormalizedText().length());
+            String normalizedText = document.getNormalizedText();
+            
+            // Use configuration-based chunking decision
+            // Get the configured character limit from DocumentChunkingConfig
+            int maxSingleChunkChars = chunkedStructureService.getChunkingConfig().getMaxSingleChunkChars();
+            
+            // CRITICAL: Log the actual configuration value to debug
+            log.warn("CRITICAL DEBUG: Document {} has {} characters", documentId, normalizedText.length());
+            log.warn("CRITICAL DEBUG: maxSingleChunkChars from config = {}", maxSingleChunkChars);
+            log.warn("CRITICAL DEBUG: Will chunk if document length > maxSingleChunkChars: {} > {} = {}", 
+                normalizedText.length(), maxSingleChunkChars, normalizedText.length() > maxSingleChunkChars);
+            
+            // SAFETY: If config returns 0 or very high value, use a reasonable default
+            // Use 3x the configured limit as reasonable maximum
+            int reasonableMax = Math.max(150_000 * 3, chunkedStructureService.getChunkingConfig().getMaxSingleChunkChars() * 3);
+            if (maxSingleChunkChars <= 0 || maxSingleChunkChars > reasonableMax) {
+                log.error("CRITICAL: Invalid maxSingleChunkChars: {}, using reasonable default", maxSingleChunkChars);
+                // Use the configured default value (150,000 from DocumentChunkingConfig)
+                maxSingleChunkChars = 150_000;
+            }
+            
+            boolean needsChunking = normalizedText.length() > maxSingleChunkChars;
+            
+            log.info("Document {} processing decision: {} characters, max chars: {}, needs chunking: {}", 
+                    documentId, normalizedText.length(), maxSingleChunkChars, needsChunking);
+            
+            // CRITICAL: Log the final decision
+            log.warn("CRITICAL FINAL DECISION: Document {} - needsChunking = {}", documentId, needsChunking);
+            
+            // CRITICAL SAFETY CHECK: Force chunking for documents that would fail in OpenAiLlmClient
+            // OpenAiLlmClient rejects documents over its configured limit
+            int openAiMaxChars = chunkedStructureService.getChunkingConfig().getMaxSingleChunkChars();
+            if (normalizedText.length() > openAiMaxChars) {
+                log.warn("CRITICAL: Document {} has {} characters - FORCING CHUNKED PROCESSING to prevent OpenAiLlmClient rejection! (max: {})", 
+                    documentId, normalizedText.length(), openAiMaxChars);
+                needsChunking = true;
+            }
+            
+                        // CRITICAL EMERGENCY FIX: Force chunking for any document over 1M characters (2.5x the previous 400k limit)
+            // This ensures we never send large documents to OpenAiLlmClient
+            if (normalizedText.length() > 1_000_000) {
+                log.error("CRITICAL EMERGENCY: Document {} has {} characters - FORCING CHUNKING regardless of config!", 
+                    documentId, normalizedText.length());
+                needsChunking = true;
+            }
+            
+            // CRITICAL: Log the final decision before the if statement
+            log.error("CRITICAL FINAL DECISION BEFORE IF: Document {} - needsChunking = {}, document length = {}", 
+                documentId, needsChunking, normalizedText.length());
+            
+            // ABSOLUTE FINAL DECISION: Any document over 1M MUST be chunked (2.5x the previous 400k limit)
+            if (normalizedText.length() > 1_000_000) {
+                log.error("CRITICAL ABSOLUTE FINAL: Document {} has {} characters - FORCING CHUNKED PROCESSING!", 
+                    documentId, normalizedText.length());
                 allNodes = chunkedStructureService.processLargeDocument(
-                    document.getNormalizedText(), options, documentId.toString());
+                    normalizedText, options, documentId.toString());
+            } else if (needsChunking) {
+                log.error("CRITICAL: Document {} is large, using chunked processing for {} characters", 
+                    documentId, normalizedText.length());
+                allNodes = chunkedStructureService.processLargeDocument(
+                    normalizedText, options, documentId.toString());
             } else {
-                log.info("Document {} is small ({} chars), using single-pass processing", 
-                    documentId, document.getNormalizedText().length());
-                allNodes = llmClient.generateStructure(document.getNormalizedText(), options);
+                log.error("CRITICAL: Document {} with {} characters is being processed in single pass", 
+                    documentId, normalizedText.length());
+                allNodes = llmClient.generateStructure(normalizedText, options);
             }
             
             // Validate AI response

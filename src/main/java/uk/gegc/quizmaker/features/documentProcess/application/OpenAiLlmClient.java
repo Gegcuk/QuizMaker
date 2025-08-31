@@ -11,6 +11,7 @@ import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,18 +35,46 @@ public class OpenAiLlmClient implements LlmClient {
     private final ChatModel chatModel;
     private final AiRateLimitConfig rateLimitConfig;
     private final DocumentStructurePromptService promptService;
-
-    @Override
-    public List<DocumentNode> generateStructure(String text, StructureOptions options) {
-        return generateStructureWithContext(text, options, List.of(), 0, 1);
+    private final DocumentChunkingConfig chunkingConfig;
+    
+    // Safety limit to prevent sending huge documents to the API
+    // Now configurable via DocumentChunkingConfig
+    private int getMaxSafeChars() {
+        return chunkingConfig.getMaxSingleChunkChars();
     }
 
     @Override
+    public List<DocumentNode> generateStructure(String text, StructureOptions options) {
+        // Safety check: prevent sending huge documents
+        if (text != null && text.length() > getMaxSafeChars()) {
+            log.error("CRITICAL: Attempting to send {} characters to AI without chunking! This will likely fail!", 
+                    text.length());
+            log.error("CRITICAL: This should NEVER happen! The chunking system should have split this document!");
+            log.error("CRITICAL: Check if chunking configuration is loaded correctly!");
+            throw new LlmException(String.format(
+                    "Document too large for single API call: %d characters (max: %d). " +
+                    "Document must be chunked before processing. " +
+                    "This indicates a bug in the chunking system - it should have split this document!",
+                    text.length(), getMaxSafeChars()));
+        }
+        
+        return generateStructureWithContext(text, options, List.of(), 0, 1);
+    }
+
+        @Override
     public List<DocumentNode> generateStructureWithContext(String text, StructureOptions options, 
                                                          List<DocumentNode> previousNodes, 
                                                          int chunkIndex, int totalChunks) {
+        // Safety check for chunk size as well
+        if (text != null && text.length() > getMaxSafeChars() * 2) {
+            log.error("CRITICAL: Chunk {} is too large: {} characters", chunkIndex + 1, text.length());
+            throw new LlmException(String.format(
+                    "Chunk %d too large: %d characters. Chunking strategy needs adjustment.",
+                    chunkIndex + 1, text.length()));
+        }
+        
         log.info("Generating structure for chunk {} of {} with {} characters using model: {}", 
-                chunkIndex + 1, totalChunks, text.length(), options.model());
+            chunkIndex + 1, totalChunks, text != null ? text.length() : 0, options.model());
 
         try {
             // Build context-aware prompt
@@ -124,6 +153,7 @@ public class OpenAiLlmClient implements LlmClient {
      */
     private List<DocumentNode> convertToDocumentNodes(List<DocumentStructureRecords.StructureNode> structureNodes) {
         if (structureNodes.isEmpty()) {
+            log.warn("AI returned empty nodes array - this may indicate the chunk contains only supplementary content or unclear structure");
             throw new LlmException("No nodes generated");
         }
 
