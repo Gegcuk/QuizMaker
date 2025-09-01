@@ -236,6 +236,29 @@ public class QuizServiceImpl implements QuizService {
         }
     }
 
+    @Override
+    public QuizGenerationResponse generateQuizFromText(String username, GenerateQuizFromTextRequest request) {
+        try {
+            log.info("Starting quiz generation from text for user: {}, text length: {}", username, request.text().length());
+            
+            // Step 1: Process text as document completely first
+            DocumentDto document = processTextAsDocument(username, request);
+            
+            // Step 2: Verify chunks are available and sufficient
+            verifyDocumentChunks(document.getId(), request);
+            
+            // Step 3: Generate quiz from the processed document
+            GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
+            
+            // Step 4: Start generation and return job ID immediately
+            return startQuizGeneration(username, quizRequest);
+            
+        } catch (Exception e) {
+            log.error("Failed to start quiz generation from text for user: {}", username, e);
+            throw new RuntimeException("Failed to generate quiz from text: " + e.getMessage(), e);
+        }
+    }
+
     @Transactional
     public DocumentDto processDocumentCompletely(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
         try {
@@ -269,6 +292,45 @@ public class QuizServiceImpl implements QuizService {
         }
         
         log.info("Document verification successful: {} chunks available", totalChunks);
+    }
+
+    @Transactional(readOnly = true)
+    public void verifyDocumentChunks(UUID documentId, GenerateQuizFromTextRequest request) {
+        log.info("Verifying document chunks for document: {}", documentId);
+        
+        // Calculate total chunks to verify they are available
+        int totalChunks = aiQuizGenerationService.calculateTotalChunks(documentId, request.toGenerateQuizFromDocumentRequest(documentId));
+        
+        if (totalChunks <= 0) {
+            throw new RuntimeException("Document has no chunks available for quiz generation. Please try processing the document again.");
+        }
+        
+        log.info("Document verification successful: {} chunks available", totalChunks);
+    }
+
+    @Transactional
+    public DocumentDto processTextAsDocument(String username, GenerateQuizFromTextRequest request) {
+        try {
+            log.info("Starting text processing for user: {}", username);
+            
+            // Convert text to UTF-8 bytes and use synthetic filename
+            byte[] textBytes = request.text().getBytes("UTF-8");
+            String filename = "text-input.txt";
+            
+            // Process text as document in its own transaction
+            DocumentDto document = documentProcessingService.uploadAndProcessDocument(
+                    username, 
+                    textBytes, 
+                    filename, 
+                    request.toProcessDocumentRequest()
+            );
+            
+            log.info("Text processed successfully: {} with {} chunks", document.getId(), document.getTotalChunks());
+            
+            return document;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to process text as document: " + e.getMessage(), e);
+        }
     }
 
     @Override

@@ -638,6 +638,60 @@ public class QuizController {
     }
 
     @Operation(
+            summary = "Generate quiz from plain text (Async)",
+            description = "ADMIN only. Generate a quiz from plain text content in a single operation. This endpoint processes the text, chunks it, and starts quiz generation. Returns a job ID for tracking progress.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(schema = @Schema(implementation = GenerateQuizFromTextRequest.class))
+            ),
+            responses = {
+                    @ApiResponse(
+                            responseCode = "202",
+                            description = "Text processed and quiz generation started",
+                            content = @Content(
+                                    mediaType = "application/json",
+                                    schema = @Schema(implementation = QuizGenerationResponse.class)
+                            )
+                    ),
+                    @ApiResponse(
+                            responseCode = "400",
+                            description = "Validation failure or invalid request",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "401",
+                            description = "Unauthenticated – JWT missing/expired",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "403",
+                            description = "Authenticated but not an ADMIN",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "User already has an active generation job",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "422",
+                            description = "Text processing failed",
+                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                    )
+            }
+    )
+    @PostMapping("/generate-from-text")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<QuizGenerationResponse> generateQuizFromText(
+            @RequestBody @Valid GenerateQuizFromTextRequest request,
+            Authentication authentication
+    ) {
+        QuizGenerationResponse response = quizService.generateQuizFromText(authentication.getName(), request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
+    }
+
+    @Operation(
             summary = "Get quiz generation job status",
             description = "Get the current status and progress of a quiz generation job. Returns detailed information about the generation progress including processed chunks, estimated completion time, and any errors.",
             security = @SecurityRequirement(name = "bearerAuth"),
