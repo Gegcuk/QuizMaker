@@ -10,24 +10,35 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +67,12 @@ class QuizServiceImplTest {
     private QuestionHandlerFactory questionHandlerFactory;
     @Mock
     private QuestionHandler questionHandler;
+    @Mock
+    private DocumentProcessingService documentProcessingService;
+    @Mock
+    private AiQuizGenerationService aiQuizGenerationService;
+    @Mock
+    private QuizGenerationJobService jobService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -351,5 +368,91 @@ class QuizServiceImplTest {
                 Instant.now(), // createdAt
                 null // updatedAt
         );
+    }
+
+    @Test
+    @DisplayName("generateQuizFromText: Should process text and start quiz generation successfully")
+    void generateQuizFromText_shouldProcessTextAndStartGeneration() {
+        // Given
+        String username = "testuser";
+        String sampleText = "This is a sample text for quiz generation. It contains enough content to be processed.";
+        UUID documentId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        
+        GenerateQuizFromTextRequest request = new GenerateQuizFromTextRequest(
+                sampleText,
+                "en",
+                null, // chunkingStrategy - will use default
+                null, // maxChunkSize - will use default
+                null, // quizScope - will use default
+                null, // chunkIndices
+                null, // chapterTitle
+                null, // chapterNumber
+                "Test Quiz", // quizTitle
+                "Test Description", // quizDescription
+                Map.of(QuestionType.MCQ_SINGLE, 3), // questionsPerType
+                Difficulty.MEDIUM, // difficulty
+                2, // estimatedTimePerQuestion
+                null, // categoryId
+                null  // tagIds
+        );
+
+        DocumentDto documentDto = new DocumentDto();
+        documentDto.setId(documentId);
+        documentDto.setOriginalFilename("text-input.txt");
+        documentDto.setContentType("text/plain");
+        documentDto.setFileSize(1024L);
+        documentDto.setStatus(Document.DocumentStatus.PROCESSED);
+        documentDto.setUploadedAt(LocalDateTime.now());
+        documentDto.setProcessedAt(LocalDateTime.now());
+        documentDto.setTotalChunks(3);
+
+        QuizGenerationResponse expectedResponse = QuizGenerationResponse.started(jobId, 60L);
+
+        // Mock document processing
+        when(documentProcessingService.uploadAndProcessDocument(
+                eq(username), 
+                any(byte[].class), 
+                eq("text-input.txt"), 
+                any()
+        )).thenReturn(documentDto);
+
+        // Mock user repository
+        User testUser = createTestUser();
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+
+        // Mock chunk verification and generation start
+        when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class)))
+                .thenReturn(3);
+        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), anyMap()))
+                .thenReturn(60);
+
+        // Mock job service
+        QuizGenerationJob mockJob = new QuizGenerationJob();
+        mockJob.setId(jobId);
+        when(jobService.createJob(eq(testUser), eq(documentId), anyString(), eq(3), eq(60)))
+                .thenReturn(mockJob);
+
+        // Mock active jobs check
+        when(jobService.getActiveJobs()).thenReturn(List.of());
+
+        // When
+        QuizGenerationResponse result = quizService.generateQuizFromText(username, request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.jobId()).isEqualTo(jobId);
+        assertThat(result.estimatedTimeSeconds()).isEqualTo(60L);
+        
+        // Verify document processing was called
+        verify(documentProcessingService).uploadAndProcessDocument(
+                eq(username), 
+                any(byte[].class), 
+                eq("text-input.txt"), 
+                any()
+        );
+        
+        // Verify chunk verification was called
+        verify(aiQuizGenerationService, times(2)).calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class));
     }
 } 

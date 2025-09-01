@@ -64,6 +64,15 @@ public interface QuizService {
     QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request);
 
     /**
+     * Generate quiz from plain text in one operation
+     *
+     * @param username The username of the user requesting quiz generation
+     * @param request  The text-based quiz generation request
+     * @return QuizGenerationResponse with job ID for tracking
+     */
+    QuizGenerationResponse generateQuizFromText(String username, GenerateQuizFromTextRequest request);
+
+    /**
      * Start an asynchronous quiz generation job
      *
      * @param username The username of the user requesting quiz generation
