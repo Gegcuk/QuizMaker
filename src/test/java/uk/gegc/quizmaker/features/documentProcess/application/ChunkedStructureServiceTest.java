@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 
 import java.math.BigDecimal;
@@ -15,6 +16,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +32,12 @@ class ChunkedStructureServiceTest {
     @Mock
     private NodeMerger nodeMerger;
 
+    @Mock
+    private TokenCounter tokenCounter;
+
+    @Mock
+    private DocumentChunkingConfig chunkingConfig;
+
     @InjectMocks
     private ChunkedStructureService service;
 
@@ -40,6 +48,18 @@ class ChunkedStructureServiceTest {
     void setUp() {
         options = LlmClient.StructureOptions.defaultOptions();
         documentId = "test-doc-123";
+        
+        // Setup chunking config mock
+        lenient().when(chunkingConfig.getMaxSingleChunkTokens()).thenReturn(40_000);
+        lenient().when(chunkingConfig.getMaxSingleChunkChars()).thenReturn(150_000);
+        lenient().when(chunkingConfig.getOverlapTokens()).thenReturn(200);
+        lenient().when(chunkingConfig.isAggressiveChunking()).thenReturn(false);
+        
+        // Setup token counter mock
+        lenient().when(tokenCounter.estimateTokens(anyString())).thenAnswer(invocation -> {
+            String text = invocation.getArgument(0);
+            return text.length() / 4; // Rough estimate: 1 token ≈ 4 characters
+        });
     }
 
     @Test

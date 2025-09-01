@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.DocumentNodeRepository;
@@ -50,6 +51,7 @@ class StructureBuildingIntegrationTest {
     private UUID documentId;
     private NormalizedDocument document;
     private ObjectMapper objectMapper;
+    private DocumentChunkingConfig chunkingConfig;
 
     @BeforeEach
     void setUp() {
@@ -63,6 +65,19 @@ class StructureBuildingIntegrationTest {
         document.setCharCount(createTestDocumentText().length());
         
         objectMapper = new ObjectMapper();
+        
+        // Setup chunking config mock
+        chunkingConfig = new DocumentChunkingConfig();
+        chunkingConfig.setMaxSingleChunkTokens(40_000);
+        chunkingConfig.setMaxSingleChunkChars(150_000);
+        chunkingConfig.setOverlapTokens(5_000);
+        chunkingConfig.setModelMaxTokens(128_000);
+        chunkingConfig.setPromptOverheadTokens(5_000);
+        chunkingConfig.setAggressiveChunking(true);
+        chunkingConfig.setEnableEmergencyChunking(true);
+        
+        // Setup lenient stubbing for getChunkingConfig to avoid unnecessary stubbing errors
+        lenient().when(chunkedStructureService.getChunkingConfig()).thenReturn(chunkingConfig);
     }
 
     @Test
@@ -71,11 +86,11 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createSingleRootNode();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -91,13 +106,13 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createMultiLevelStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -113,8 +128,8 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithMissingAnchors();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenThrow(new RuntimeException("Anchor not found"));
 
@@ -130,9 +145,9 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithInvalidOffsets();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -146,8 +161,8 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = Collections.emptyList();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -161,13 +176,13 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithAllTypes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -183,13 +198,13 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithOverlappingContent();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -205,11 +220,11 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithLongContent();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -225,11 +240,11 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithSpecialCharacters();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -245,11 +260,11 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithNullConfidence();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -265,11 +280,11 @@ class StructureBuildingIntegrationTest {
         // Given
         List<DocumentNode> aiNodes = createNodesWithMetaJson();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -289,14 +304,14 @@ class StructureBuildingIntegrationTest {
         
         List<DocumentNode> aiNodes = createMultiLevelStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -317,8 +332,8 @@ class StructureBuildingIntegrationTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenThrow(new RuntimeException("Chunked processing failed"));
 
         // When & Then
@@ -340,9 +355,9 @@ class StructureBuildingIntegrationTest {
         
         List<DocumentNode> aiNodes = createSingleRootNode();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(smallText)).thenReturn(false);
-        when(llmClient.generateStructure(eq(smallText), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(smallText)).thenReturn(false);
+        lenient().when(llmClient.generateStructure(eq(smallText), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 String documentText = invocation.getArgument(1);
@@ -352,8 +367,8 @@ class StructureBuildingIntegrationTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);

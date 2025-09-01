@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.DocumentNodeRepository;
@@ -47,6 +48,7 @@ class ComprehensiveStructureServiceTest {
     private UUID documentId;
     private NormalizedDocument document;
     private List<DocumentNode> testNodes;
+    private DocumentChunkingConfig chunkingConfig;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +61,19 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(createTestDocumentText().length());
 
         testNodes = createTestStructure();
+        
+        // Setup chunking config mock
+        chunkingConfig = new DocumentChunkingConfig();
+        chunkingConfig.setMaxSingleChunkTokens(40_000);
+        chunkingConfig.setMaxSingleChunkChars(150_000);
+        chunkingConfig.setOverlapTokens(5_000);
+        chunkingConfig.setModelMaxTokens(128_000);
+        chunkingConfig.setPromptOverheadTokens(5_000);
+        chunkingConfig.setAggressiveChunking(true);
+        chunkingConfig.setEnableEmergencyChunking(true);
+        
+        // Setup lenient stubbing for getChunkingConfig to avoid unnecessary stubbing errors
+        lenient().when(chunkedStructureService.getChunkingConfig()).thenReturn(chunkingConfig);
     }
 
     @Test
@@ -66,8 +81,8 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleEmptyAiResponseGracefully() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(Collections.emptyList());
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(Collections.emptyList());
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -80,8 +95,8 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNullAiResponse() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(null);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(null);
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -119,11 +134,11 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithInvalidOffsets() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return invalid offsets
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -144,11 +159,11 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithEndOffsetExceedingDocumentLength() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return offsets exceeding document length
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -169,11 +184,11 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleNodesWithStartOffsetGreaterThanOrEqualToEndOffset() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
         
         // Mock anchorOffsetCalculator to return invalid offset ranges
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -195,9 +210,9 @@ class ComprehensiveStructureServiceTest {
         // Given
         document.setCharCount(null);
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -206,12 +221,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -225,8 +240,8 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleLlmClientFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenThrow(new RuntimeException("LLM service unavailable"));
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenThrow(new RuntimeException("LLM service unavailable"));
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -239,9 +254,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleAnchorCalculationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenThrow(new RuntimeException("Anchor calculation failed"));
 
         // When & Then
@@ -255,9 +270,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleDatabaseSaveFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -266,7 +281,7 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenThrow(new RuntimeException("Database connection failed"));
+        lenient().when(nodeRepository.saveAll(anyList())).thenThrow(new RuntimeException("Database connection failed"));
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -279,9 +294,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleParentRelationshipAssignmentFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -290,7 +305,7 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenThrow(new RuntimeException("Database query failed"));
 
         // When & Then
@@ -304,9 +319,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleGlobalValidationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -315,11 +330,11 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doThrow(new RuntimeException("Global validation failed")).when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doThrow(new RuntimeException("Global validation failed")).when(hierarchyBuilder).validateParentChildContainment(anyList());
 
         // When - Should not throw exception due to resilient validation
         service.buildStructure(documentId);
@@ -334,9 +349,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleSiblingOverlapValidationFailure() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -345,12 +360,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doThrow(new RuntimeException("Sibling overlap detected")).when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doThrow(new RuntimeException("Sibling overlap detected")).when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When - Should not throw exception due to resilient validation
         service.buildStructure(documentId);
@@ -366,9 +381,9 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> singleLevelNodes = createSingleLevelStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(singleLevelNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(singleLevelNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -377,10 +392,10 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(singleLevelNodes);
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(singleLevelNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(singleLevelNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(singleLevelNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -397,9 +412,9 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> deepNestedNodes = createDeepNestedStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(deepNestedNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(deepNestedNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -408,12 +423,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(deepNestedNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(deepNestedNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(deepNestedNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(deepNestedNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -429,8 +444,8 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> invalidNodes = createInvalidNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(invalidNodes);
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(invalidNodes);
 
         // When & Then
         assertThatThrownBy(() -> service.buildStructure(documentId))
@@ -443,9 +458,9 @@ class ComprehensiveStructureServiceTest {
     void shouldHandleConcurrentModificationDuringProcessing() {
         // Given
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -454,12 +469,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -477,9 +492,9 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -488,12 +503,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -508,9 +523,9 @@ class ComprehensiveStructureServiceTest {
         // Given
         List<DocumentNode> specialCharNodes = createNodesWithSpecialCharacters();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(specialCharNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(specialCharNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -519,7 +534,7 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(specialCharNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(specialCharNodes);
 
         // When
         service.buildStructure(documentId);
@@ -537,10 +552,10 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 nodes.forEach(node -> {
@@ -549,12 +564,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);
@@ -573,8 +588,8 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(largeText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
             .thenThrow(new RuntimeException("Chunked processing failed"));
 
         // When & Then
@@ -592,9 +607,9 @@ class ComprehensiveStructureServiceTest {
         document.setCharCount(smallText.length());
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(smallText)).thenReturn(false);
-        when(llmClient.generateStructure(eq(smallText), any())).thenReturn(testNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
+        lenient().when(chunkedStructureService.needsChunking(smallText)).thenReturn(false);
+        lenient().when(llmClient.generateStructure(eq(smallText), any())).thenReturn(testNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString()))
             .thenAnswer(invocation -> {
                 List<DocumentNode> nodes = invocation.getArgument(0);
                 String documentText = invocation.getArgument(1);
@@ -604,12 +619,12 @@ class ComprehensiveStructureServiceTest {
                 });
                 return nodes;
             });
-        when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(testNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
-        doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
-        doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(testNodes);
+        lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
+        lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
         // When
         service.buildStructure(documentId);

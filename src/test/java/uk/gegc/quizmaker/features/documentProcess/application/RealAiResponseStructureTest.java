@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.DocumentNodeRepository;
@@ -49,6 +50,7 @@ class RealAiResponseStructureTest {
     private UUID documentId;
     private NormalizedDocument document;
     private ObjectMapper objectMapper;
+    private DocumentChunkingConfig chunkingConfig;
 
     @BeforeEach
     void setUp() {
@@ -62,6 +64,19 @@ class RealAiResponseStructureTest {
         document.setCharCount(createRealDocumentText().length());
         
         objectMapper = new ObjectMapper();
+        
+        // Setup chunking config mock
+        chunkingConfig = new DocumentChunkingConfig();
+        chunkingConfig.setMaxSingleChunkTokens(40_000);
+        chunkingConfig.setMaxSingleChunkChars(150_000);
+        chunkingConfig.setOverlapTokens(5_000);
+        chunkingConfig.setModelMaxTokens(128_000);
+        chunkingConfig.setPromptOverheadTokens(5_000);
+        chunkingConfig.setAggressiveChunking(true);
+        chunkingConfig.setEnableEmergencyChunking(true);
+        
+        // Setup lenient stubbing for getChunkingConfig to avoid unnecessary stubbing errors
+        lenient().when(chunkedStructureService.getChunkingConfig()).thenReturn(chunkingConfig);
     }
 
     @Test
@@ -70,13 +85,13 @@ class RealAiResponseStructureTest {
         // Given
         List<DocumentNode> aiNodes = createRealAiResponseNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
@@ -92,13 +107,13 @@ class RealAiResponseStructureTest {
         // Given
         List<DocumentNode> aiNodes = createRealAiResponseNodes();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
-        when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
-        when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
+        lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
+        lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
+        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
 
         // When
         service.buildStructure(documentId);
