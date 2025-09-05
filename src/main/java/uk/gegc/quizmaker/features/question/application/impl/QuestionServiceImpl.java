@@ -74,11 +74,16 @@ public class QuestionServiceImpl implements QuestionService {
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
 
-        List<Quiz> quizzes = loadQuizzesByIds(request.getQuizIds());
-        List<Tag> tags = loadTagsByIds(request.getTagIds());
+        List<Quiz> quizzes = (request.getQuizIds() == null)
+                ? null
+                : loadQuizzesByIds(request.getQuizIds());
+        List<Tag> tags = (request.getTagIds() == null)
+                ? null
+                : loadTagsByIds(request.getTagIds());
 
         QuestionMapper.updateEntity(question, request, quizzes, tags);
-        Question updatedQuestion = questionRepository.save(question);
+
+        Question updatedQuestion = questionRepository.saveAndFlush(question);
 
         return QuestionMapper.toDto(updatedQuestion);
     }

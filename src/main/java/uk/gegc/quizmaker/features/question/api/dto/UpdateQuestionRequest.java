@@ -10,7 +10,6 @@ import lombok.Setter;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -66,13 +65,11 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
             description = "List of quiz IDs to re-associate this question with",
             example = "[\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"]"
     )
-    private List<UUID> quizIds = new ArrayList<>();
+    private List<UUID> quizIds;
 
     @Schema(
             description = "List of tag IDs to re-associate this question with",
             example = "[\"3fa85f64-5717-4562-b3fc-2c963f66afb7\"]"
     )
-    private List<UUID> tagIds = new ArrayList<>();
-
-    // getters/setters...
+    private List<UUID> tagIds;
 }

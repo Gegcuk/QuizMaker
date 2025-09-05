@@ -147,13 +147,13 @@ class QuestionServiceImplTest {
         updateQuestionRequest.setContent(objectMapper.createObjectNode().put("answer", false));
 
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(questionRepository.save(any(Question.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(questionRepository.saveAndFlush(any(Question.class))).thenAnswer(inv -> inv.getArgument(0));
 
         QuestionDto dto = questionService.updateQuestion(DUMMY_USER, id, updateQuestionRequest);
 
         assertThat(dto.getId()).isEqualTo(id);
         verify(handler).validateContent(updateQuestionRequest);
-        verify(questionRepository).save(existing);
+        verify(questionRepository).saveAndFlush(existing);
     }
 
     @Test
@@ -238,7 +238,7 @@ class QuestionServiceImplTest {
         Tag tag = new Tag();
         tag.setId(tagId);
         when(tagRepository.findAllById(List.of(tagId))).thenReturn(List.of(tag));
-        when(questionRepository.save(existing)).thenReturn(existing);
+        when(questionRepository.saveAndFlush(existing)).thenReturn(existing);
 
         var req = new UpdateQuestionRequest();
         req.setType(QuestionType.TRUE_FALSE);
@@ -251,7 +251,7 @@ class QuestionServiceImplTest {
 
         assertThat(dto.getId()).isEqualTo(id);
         verify(tagRepository).findAllById(List.of(tagId));
-        verify(questionRepository).save(existing);
+        verify(questionRepository).saveAndFlush(existing);
     }
 
     @Test
