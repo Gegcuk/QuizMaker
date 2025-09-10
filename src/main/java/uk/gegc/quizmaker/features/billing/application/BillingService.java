@@ -31,4 +31,16 @@ public interface BillingService {
     CommitResultDto commit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey);
 
     ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey);
+
+    /**
+     * Credit purchased tokens to the user's balance and append a PURCHASE ledger entry.
+     * Idempotent by {@code idempotencyKey} (e.g., Stripe Checkout Session ID).
+     *
+     * @param userId          purchaser user ID
+     * @param tokens          number of billing tokens to credit
+     * @param idempotencyKey  unique key to dedupe (Stripe session id)
+     * @param ref             reference (e.g., packId or session id)
+     * @param metaJson        optional metadata JSON to store with the ledger
+     */
+    void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson);
 }

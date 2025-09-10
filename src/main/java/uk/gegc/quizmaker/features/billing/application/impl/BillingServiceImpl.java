@@ -366,6 +366,75 @@ public class BillingServiceImpl implements BillingService {
         }
     }
 
+    @Override
+    @Transactional
+    public void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
+        if (tokens <= 0) {
+            throw new IllegalArgumentException("tokens must be > 0");
+        }
+
+        // Idempotency: if a PURCHASE with this key already exists, noop
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                var tx = existing.get();
+                if (tx.getType() != TokenTransactionType.PURCHASE) {
+                    throw new IdempotencyConflictException("Idempotency key already used for a different operation");
+                }
+                return; // already credited
+            }
+        }
+
+        int attempts = 0;
+        while (true) {
+            attempts++;
+            try {
+                Balance balance = balanceRepository.findByUserId(userId).orElseGet(() -> {
+                    Balance b = new Balance();
+                    b.setUserId(userId);
+                    b.setAvailableTokens(0L);
+                    b.setReservedTokens(0L);
+                    return balanceRepository.save(b);
+                });
+
+                // Credit tokens to available
+                balance.setAvailableTokens(balance.getAvailableTokens() + tokens);
+                balanceRepository.save(balance);
+
+                // Append PURCHASE transaction with snapshots
+                TokenTransaction tx = new TokenTransaction();
+                tx.setUserId(userId);
+                tx.setType(TokenTransactionType.PURCHASE);
+                tx.setSource(TokenTransactionSource.STRIPE);
+                tx.setAmountTokens(tokens);
+                tx.setRefId(ref);
+                tx.setIdempotencyKey(idempotencyKey);
+                tx.setMetaJson(metaJson);
+                tx.setBalanceAfterAvailable(balance.getAvailableTokens());
+                tx.setBalanceAfterReserved(balance.getReservedTokens());
+                transactionRepository.save(tx);
+
+                entityManager.flush();
+                return;
+            } catch (OptimisticLockingFailureException ex) {
+                if (attempts >= 2) {
+                    log.warn("creditPurchase() optimistic lock failed after {} attempts for user {}", attempts, userId);
+                    throw ex;
+                }
+                try { Thread.sleep(20L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            } catch (DataIntegrityViolationException ex) {
+                // handle race on idempotency key
+                if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                    var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+                    if (existing.isPresent() && existing.get().getType() == TokenTransactionType.PURCHASE) {
+                        return; // already credited by concurrent request
+                    }
+                }
+                throw ex;
+            }
+        }
+    }
+
     private String buildMetaJson(String ref, String reason, Long released) {
         try {
             java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
