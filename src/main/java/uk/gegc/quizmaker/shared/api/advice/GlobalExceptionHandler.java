@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedExce
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 
 import java.time.LocalDateTime;
+import java.net.URI;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -221,6 +222,77 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setTitle("Conflict");
         problem.setProperty("errorCode", "QUIZ_VERSION_CONFLICT");
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
+    // ===================== Billing-specific errors (ProblemDetail) =====================
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientTokens(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Insufficient tokens");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/insufficient-tokens"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException.class)
+    public ResponseEntity<ProblemDetail> handleReservationNotActive(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Reservation not active");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/reservation-not-active"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException.class)
+    public ResponseEntity<ProblemDetail> handleCommitExceedsReserved(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Commit exceeds reserved");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/commit-exceeds-reserved"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.PackNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handlePackNotFound(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        pd.setTitle("Pack not found");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/pack-not-found"));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
+        pd.setTitle("Invalid checkout session");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/invalid-checkout-session"));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException.class)
+    public ResponseEntity<ProblemDetail> handleStripeInvalidSignature(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setTitle("Stripe webhook invalid signature");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/stripe-webhook-invalid-signature"));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException.class)
+    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Idempotency conflict");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/idempotency-conflict"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

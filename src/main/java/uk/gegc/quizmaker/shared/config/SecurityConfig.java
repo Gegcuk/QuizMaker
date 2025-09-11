@@ -47,6 +47,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/2fa/setup",
                                 "/api/v1/auth/2fa/verify"
                         ).permitAll()
+                        // Stripe webhook must be callable by Stripe without authentication
+                        .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
+                        // Billing config endpoint should be public for frontend integration
+                        .requestMatchers(HttpMethod.GET, "/api/v1/billing/config").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/**").permitAll()
