@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.TransactionDto;
 import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.model.*;
@@ -57,6 +58,7 @@ class BillingServiceTest {
         balanceMapper = mock(BalanceMapper.class);
         txMapper = mock(TokenTransactionMapper.class);
         reservationMapper = mock(ReservationMapper.class);
+        BillingMetricsService metricsService = mock(BillingMetricsService.class);
 
         service = new BillingServiceImpl(
                 billingProperties,
@@ -66,7 +68,8 @@ class BillingServiceTest {
                 balanceMapper,
                 txMapper,
                 reservationMapper,
-                new ObjectMapper()
+                new ObjectMapper(),
+                metricsService
         );
         // Inject a mock EntityManager to avoid NPE on flush() in service
         var mockEm = mock(jakarta.persistence.EntityManager.class);
