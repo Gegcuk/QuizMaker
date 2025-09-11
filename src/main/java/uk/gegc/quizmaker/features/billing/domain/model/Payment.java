@@ -43,6 +43,9 @@ public class Payment {
     @Column(name = "credited_tokens", nullable = false)
     private long creditedTokens;
 
+    @Column(name = "refunded_amount_cents", nullable = false)
+    private long refundedAmountCents = 0L;
+
     @Column(name = "stripe_customer_id", length = 255)
     private String stripeCustomerId;
 

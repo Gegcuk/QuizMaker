@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
+import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 
 @Slf4j
 @RestController
@@ -28,9 +29,12 @@ public class StripeWebhookController {
             return ResponseEntity.ok(switch (res) {
                 case OK, DUPLICATE, IGNORED -> "";
             });
+        } catch (StripeWebhookInvalidSignatureException e) {
+            log.warn("Invalid Stripe signature: {}", e.getMessage());
+            return ResponseEntity.status(401).body("");
         } catch (Exception e) {
             log.error("Error processing Stripe webhook: {}", e.getMessage(), e);
-            return ResponseEntity.status(400).body("");
+            return ResponseEntity.status(500).body("");
         }
     }
 }

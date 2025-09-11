@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.billing.api.dto.RefundCalculationDto;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicy;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
@@ -21,7 +21,7 @@ import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepos
 @RequiredArgsConstructor
 public class RefundPolicyServiceImpl implements RefundPolicyService {
 
-    private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
     private final PaymentRepository paymentRepository;
     private final TokenTransactionRepository transactionRepository;
     
@@ -104,14 +104,14 @@ public class RefundPolicyServiceImpl implements RefundPolicyService {
             return;
         }
 
-        // Create idempotency key
-        String idempotencyKey = String.format("refund:%s:%s", refundId, eventId);
+        // Create stable idempotency key (no eventId to prevent double-deduction across webhook deliveries)
+        String idempotencyKey = String.format("refund:%s", refundId);
         
         // Build metadata
         String metaJson = buildRefundMetaJson(payment, calculation, refundId);
         
         // Deduct tokens using ADJUSTMENT transaction
-        billingService.deductTokens(
+        internalBillingService.deductTokens(
             payment.getUserId(), 
             calculation.tokensToDeduct(), 
             idempotencyKey, 
@@ -119,8 +119,12 @@ public class RefundPolicyServiceImpl implements RefundPolicyService {
             metaJson
         );
         
-        // Update payment status
-        payment.setStatus(PaymentStatus.REFUNDED);
+        // Update cumulative refunded amount and payment status
+        long newRefunded = payment.getRefundedAmountCents() + calculation.refundAmountCents();
+        payment.setRefundedAmountCents(newRefunded);
+        payment.setStatus(newRefunded >= payment.getAmountCents() 
+            ? PaymentStatus.REFUNDED 
+            : PaymentStatus.PARTIALLY_REFUNDED);
         paymentRepository.save(payment);
         
         log.info("Processed refund for payment {}: deducted {} tokens, amount: {} cents", 

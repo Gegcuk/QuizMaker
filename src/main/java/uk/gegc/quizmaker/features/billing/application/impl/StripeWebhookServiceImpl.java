@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
@@ -46,7 +46,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
 
     private final StripeProperties stripeProperties;
     private final StripeService stripeService;
-    private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
     private final RefundPolicyService refundPolicyService;
     private final CheckoutValidationService checkoutValidationService;
     private final BillingMetricsService metricsService;
@@ -56,7 +56,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public Result process(String payload, String signatureHeader) {
+    public Result process(String payload, String signatureHeader) throws StripeException {
         String webhookSecret = stripeProperties.getWebhookSecret();
         if (!StringUtils.hasText(webhookSecret)) {
             log.warn("Stripe webhook secret not configured; rejecting request");
@@ -101,13 +101,13 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             // Emit failure metric
             metricsService.incrementWebhookFailed(type);
             loggingContext.logError(log, "Failed to process webhook event: id={} type={}", eventId, type, e);
-            throw e; // Re-throw to trigger 4xx response (NACK)
+            throw e; // Re-throw so controller returns 500 and Stripe retries
         } finally {
             WebhookLoggingContext.clearMDC();
         }
     }
     
-    private Result routeEvent(Event event, String eventId, WebhookLoggingContext loggingContext) {
+    private Result routeEvent(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         String type = event.getType();
         
         switch (type) {
@@ -119,8 +119,10 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                 return handleInvoicePaymentFailed(event, eventId, loggingContext);
             case "customer.subscription.deleted":
                 return handleSubscriptionDeleted(event, eventId, loggingContext);
-            case "charge.refunded":
-                return handleChargeRefunded(event, eventId, loggingContext);
+            case "refund.created":
+                return handleRefundCreated(event, eventId, loggingContext);
+            case "refund.updated":
+                return handleRefundUpdated(event, eventId, loggingContext);
             case "charge.dispute.created":
                 return handleChargeDisputeCreated(event, eventId, loggingContext);
             case "charge.dispute.funds_withdrawn":
@@ -174,29 +176,37 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         return Result.OK;
     }
 
-    private Result handleInvoicePaymentSucceeded(Event event, String eventId, WebhookLoggingContext loggingContext) {
+    private Result handleInvoicePaymentSucceeded(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         loggingContext.logInfo(log, "Payment succeeded for invoice: {}", eventId);
         
-        // Deserialize the nested object inside the event like in the Stripe example
-        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        if (dataObjectDeserializer.getObject().isPresent()) {
-            StripeObject stripeObject = dataObjectDeserializer.getObject().get();
-            log.debug("Successfully deserialized Stripe object: {}", stripeObject.getClass().getSimpleName());
-            
-            if (stripeObject instanceof Invoice invoice) {
-                // Update logging context with subscription ID
-                loggingContext.setSubscriptionId(invoice.getSubscription());
-                handleInvoicePaymentSucceeded(invoice, eventId, loggingContext);
+        try {
+            // Deserialize the nested object inside the event like in the Stripe example
+            EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+            if (dataObjectDeserializer.getObject().isPresent()) {
+                StripeObject stripeObject = dataObjectDeserializer.getObject().get();
+                log.debug("Successfully deserialized Stripe object: {}", stripeObject.getClass().getSimpleName());
+                
+                if (stripeObject instanceof Invoice invoice) {
+                    // Update logging context with subscription ID
+                    loggingContext.setSubscriptionId(invoice.getSubscription());
+                    handleInvoicePaymentSucceeded(invoice, eventId, loggingContext);
+                }
+            } else {
+                // Deserialization failed, probably due to an API version mismatch
+                loggingContext.logWarn(log, "Failed to deserialize invoice object for event: {}", eventId);
+                return Result.IGNORED;
             }
-        } else {
-            // Deserialization failed, probably due to an API version mismatch
-            loggingContext.logWarn(log, "Failed to deserialize invoice object for event: {}", eventId);
-            return Result.IGNORED;
+            return Result.OK;
+        } catch (StripeException e) {
+            loggingContext.logError(log, "Stripe API error in invoice payment succeeded processing: {}", e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
+        } catch (Exception e) {
+            loggingContext.logError(log, "Error processing invoice payment succeeded: {}", e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         }
-        return Result.OK;
     }
     
-    private void handleInvoicePaymentSucceeded(Invoice invoice, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleInvoicePaymentSucceeded(Invoice invoice, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         String subscriptionId = invoice.getSubscription();
         
         if (StringUtils.hasText(subscriptionId)) {
@@ -208,10 +218,10 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         }
     }
     
-    private void handleSubscriptionInvoicePayment(Invoice invoice, String subscriptionId, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleSubscriptionInvoicePayment(Invoice invoice, String subscriptionId, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         try {
             // Retrieve subscription to get customer and billing period info
-            Subscription subscription = Subscription.retrieve(subscriptionId);
+            Subscription subscription = stripeService.retrieveSubscription(subscriptionId);
             String customerId = subscription.getCustomer();
             
             // Extract user ID from customer metadata
@@ -230,23 +240,29 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             
             // Get tokens per period from subscription service
             String priceId = getPriceIdFromSubscription(subscription);
+            if (!StringUtils.hasText(priceId)) {
+                loggingContext.logWarn(log, "No price on subscription {}; skipping credit", subscriptionId);
+                return;
+            }
             long tokensPerPeriod = subscriptionService.getTokensPerPeriod(subscriptionId, priceId);
             
             // Handle subscription payment success using the subscription service
             boolean credited = subscriptionService.handleSubscriptionPaymentSuccess(
                 userId, subscriptionId, periodStart, tokensPerPeriod, eventId);
             
-            if (credited) {
-                loggingContext.logInfo(log, "Successfully credited {} tokens to user {} for subscription {} (period: {})", 
-                        tokensPerPeriod, userId, subscriptionId, periodStart);
-            } else {
-                loggingContext.logWarn(log, "Failed to credit tokens for subscription {} - may have been already processed", 
-                        subscriptionId);
+            if (!credited) {
+                throw new IllegalStateException("Subscription credit returned false (likely already processed or transient failure)");
             }
+            
+            loggingContext.logInfo(log, "Successfully credited {} tokens to user {} for subscription {} (period: {})", 
+                    tokensPerPeriod, userId, subscriptionId, periodStart);
                     
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in sub invoice processing for {}: {}", subscriptionId, e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         } catch (Exception e) {
-            loggingContext.logError(log, "Failed to process subscription invoice payment for subscription {}: {}", 
-                    subscriptionId, e.getMessage(), e);
+            loggingContext.logError(log, "Sub invoice processing failed for {}: {}", subscriptionId, e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         }
     }
     
@@ -254,7 +270,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         try {
             // In a real implementation, you'd store the user ID in customer metadata
             // For now, we'll try to find it in the customer object
-            com.stripe.model.Customer customer = com.stripe.model.Customer.retrieve(customerId);
+            com.stripe.model.Customer customer = stripeService.retrieveCustomerRaw(customerId);
             String userIdStr = customer.getMetadata().get("userId");
             if (StringUtils.hasText(userIdStr)) {
                 return UUID.fromString(userIdStr);
@@ -266,10 +282,10 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     }
     
     
-    private void handleSubscriptionPaymentFailure(Invoice invoice, String subscriptionId, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleSubscriptionPaymentFailure(Invoice invoice, String subscriptionId, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         try {
             // Retrieve subscription to get customer info
-            Subscription subscription = Subscription.retrieve(subscriptionId);
+            Subscription subscription = stripeService.retrieveSubscription(subscriptionId);
             String customerId = subscription.getCustomer();
             
             // Extract user ID from customer metadata
@@ -289,9 +305,13 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             
             loggingContext.logWarn(log, "Subscription payment failed for user {} subscription {} - subscription blocked", userId, subscriptionId);
             
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in subscription payment failure for {}: {}", subscriptionId, e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         } catch (Exception e) {
             loggingContext.logError(log, "Failed to handle subscription payment failure for subscription {}: {}", 
                     subscriptionId, e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         }
     }
     
@@ -304,29 +324,37 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         return null;
     }
 
-    private Result handleInvoicePaymentFailed(Event event, String eventId, WebhookLoggingContext loggingContext) {
+    private Result handleInvoicePaymentFailed(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         loggingContext.logWarn(log, "Payment failed for invoice: {}", eventId);
         
-        // Deserialize the invoice object
-        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        if (dataObjectDeserializer.getObject().isPresent()) {
-            StripeObject stripeObject = dataObjectDeserializer.getObject().get();
-            
-            if (stripeObject instanceof Invoice invoice) {
-                String subscriptionId = invoice.getSubscription();
-                if (StringUtils.hasText(subscriptionId)) {
-                    // This is a subscription payment failure
-                    handleSubscriptionPaymentFailure(invoice, subscriptionId, eventId, loggingContext);
-                } else {
-                    // This is a one-time payment failure
-                    loggingContext.logInfo(log, "One-time payment failed for invoice: {}", invoice.getId());
+        try {
+            // Deserialize the invoice object
+            EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+            if (dataObjectDeserializer.getObject().isPresent()) {
+                StripeObject stripeObject = dataObjectDeserializer.getObject().get();
+                
+                if (stripeObject instanceof Invoice invoice) {
+                    String subscriptionId = invoice.getSubscription();
+                    if (StringUtils.hasText(subscriptionId)) {
+                        // This is a subscription payment failure
+                        handleSubscriptionPaymentFailure(invoice, subscriptionId, eventId, loggingContext);
+                    } else {
+                        // This is a one-time payment failure
+                        loggingContext.logInfo(log, "One-time payment failed for invoice: {}", invoice.getId());
+                    }
                 }
+            } else {
+                loggingContext.logWarn(log, "Failed to deserialize invoice object for payment failure event: {}", eventId);
             }
-        } else {
-            loggingContext.logWarn(log, "Failed to deserialize invoice object for payment failure event: {}", eventId);
+            
+            return Result.OK;
+        } catch (StripeException e) {
+            loggingContext.logError(log, "Stripe API error in invoice payment failed processing: {}", e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
+        } catch (Exception e) {
+            loggingContext.logError(log, "Error processing invoice payment failed: {}", e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         }
-        
-        return Result.OK;
     }
 
     private Result handleSubscriptionDeleted(Event event, String eventId, WebhookLoggingContext loggingContext) {
@@ -366,77 +394,196 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             String reason = "subscription_deleted";
             subscriptionService.handleSubscriptionDeleted(userId, subscription.getId(), reason);
             
-            loggingContext.logInfo(log, "Subscription {} cancelled for user {}. Access continues until period end: {}", 
-                    subscription.getId(), userId, subscription.getCurrentPeriodEnd());
+            loggingContext.logInfo(log, "Subscription {} cancelled for user {}. Subscription blocked immediately.", 
+                    subscription.getId(), userId);
                     
         } catch (Exception e) {
             loggingContext.logError(log, "Failed to process subscription deletion for subscription {}: {}", 
                     subscription.getId(), e.getMessage(), e);
+            throw e; // important: 500 → Stripe retries
         }
     }
 
-    private Result handleChargeRefunded(Event event, String eventId, WebhookLoggingContext loggingContext) {
-        loggingContext.logInfo(log, "Charge refunded: {}", eventId);
+    private Result handleRefundCreated(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
+        loggingContext.logInfo(log, "Refund created: {}", eventId);
         
-        // Deserialize the charge object
-        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        if (dataObjectDeserializer.getObject().isPresent()) {
-            StripeObject stripeObject = dataObjectDeserializer.getObject().get();
-            
-            if (stripeObject instanceof Charge charge) {
-                loggingContext.setChargeId(charge.getId());
-                handleChargeRefunded(charge, eventId, loggingContext);
-            }
-        } else {
-            loggingContext.logWarn(log, "Failed to deserialize charge object for event: {}", eventId);
+        // Check for duplicate event
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            loggingContext.logInfo(log, "Duplicate refund event received; id={}", eventId);
+            return Result.DUPLICATE;
         }
         
-        return Result.OK;
+        // Deserialize the refund object
+        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        if (dataObjectDeserializer.getObject().isEmpty() || 
+            !(dataObjectDeserializer.getObject().get() instanceof com.stripe.model.Refund refund)) {
+            loggingContext.logWarn(log, "Failed to deserialize Refund for event {}", eventId);
+            return Result.IGNORED;
+        }
+        
+        try {
+            // Only process succeeded refunds
+            if (!"succeeded".equalsIgnoreCase(refund.getStatus())) {
+                loggingContext.logInfo(log, "Skipping refund {} with status {}", refund.getId(), refund.getStatus());
+                return Result.OK;
+            }
+            
+            return processSucceededRefund(refund, eventId, loggingContext);
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in refund processing for {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
+        } catch (Exception e) {
+            loggingContext.logError(log, "Failed processing refund.created {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
+        }
     }
     
-    private void handleChargeRefunded(Charge charge, String eventId, WebhookLoggingContext loggingContext) {
+    private Result handleRefundUpdated(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
+        loggingContext.logInfo(log, "Refund updated: {}", eventId);
+        
+        // Check for duplicate event
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            loggingContext.logInfo(log, "Duplicate refund update event received; id={}", eventId);
+            return Result.DUPLICATE;
+        }
+        
+        // Deserialize the refund object
+        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        if (dataObjectDeserializer.getObject().isEmpty() || 
+            !(dataObjectDeserializer.getObject().get() instanceof com.stripe.model.Refund refund)) {
+            loggingContext.logWarn(log, "Failed to deserialize Refund for event {}", eventId);
+            return Result.IGNORED;
+        }
+        
         try {
-            String customerId = charge.getCustomer();
-            if (!StringUtils.hasText(customerId)) {
-                loggingContext.logWarn(log, "Charge {} has no customer ID, cannot process refund", charge.getId());
-                return;
+            String refundStatus = refund.getStatus();
+            
+            // If refund succeeded, process it (same logic as refund.created)
+            if ("succeeded".equalsIgnoreCase(refundStatus)) {
+                return processSucceededRefund(refund, eventId, loggingContext);
+            }
+            // If refund was canceled, we need to restore tokens that were previously deducted
+            else if ("canceled".equalsIgnoreCase(refundStatus)) {
+                String chargeId = refund.getCharge();
+                Charge charge = stripeService.retrieveCharge(chargeId);
+                String paymentIntentId = charge.getPaymentIntent();
+
+                var payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId);
+                if (payment.isEmpty()) {
+                    loggingContext.logWarn(log, "No payment for canceled refund {} (pi:{})", refund.getId(), paymentIntentId);
+                    return Result.OK;
+                }
+
+                // Update logging context
+                loggingContext.setUserId(payment.get().getUserId());
+                loggingContext.setChargeId(chargeId);
+
+                long refundAmountCents = refund.getAmount();
+                long originalTokens = payment.get().getCreditedTokens();
+                long originalAmountCents = payment.get().getAmountCents();
+                
+                // Calculate proportional tokens to restore (guard against zero-division)
+                long tokensToRestore = 0;
+                if (originalAmountCents > 0) {
+                    tokensToRestore = (originalTokens * refundAmountCents) / originalAmountCents;
+                } else {
+                    loggingContext.logWarn(log, "Cannot restore tokens for refund {} - original payment amount is zero", refund.getId());
+                }
+                
+                if (tokensToRestore > 0) {
+                    // Stable idempotency key for the restoration
+                    String idempotencyKey = String.format("refund-canceled:%s", refund.getId());
+                    
+                    // Build metadata
+                    String metaJson = buildRefundCanceledMetaJson(refund, tokensToRestore);
+                    
+                    // Restore tokens using PURCHASE transaction (positive amount)
+                    internalBillingService.creditPurchase(
+                        payment.get().getUserId(), 
+                        tokensToRestore, 
+                        idempotencyKey, 
+                        refund.getId(), 
+                        metaJson
+                    );
+                    
+                    loggingContext.logInfo(log, "Restored {} tokens to user {} after refund {} was canceled with idempotency key: {}", 
+                            tokensToRestore, payment.get().getUserId(), refund.getId(), idempotencyKey);
+                    
+                    // Record processed event for observability
+                    ProcessedStripeEvent processed = new ProcessedStripeEvent();
+                    processed.setEventId(eventId);
+                    processedStripeEventRepository.save(processed);
+                }
+            } else {
+                loggingContext.logInfo(log, "Refund {} status changed to {} - no action needed", refund.getId(), refundStatus);
             }
             
-            UUID userId = extractUserIdFromCustomer(customerId);
-            if (userId == null) {
-                loggingContext.logWarn(log, "Could not extract user ID from customer {} for refunded charge {}", customerId, charge.getId());
-                return;
-            }
-            
-            // Update logging context
-            loggingContext.setUserId(userId);
-            loggingContext.setCustomerId(customerId);
-            
-            // Find the original payment for this charge
-            var payment = paymentRepository.findByStripePaymentIntentId(charge.getPaymentIntent());
+            return Result.OK;
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in refund update processing for {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
+        } catch (Exception e) {
+            loggingContext.logError(log, "Failed processing refund.updated {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
+        }
+    }
+    
+    private Result processSucceededRefund(com.stripe.model.Refund refund, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
+        try {
+            String chargeId = refund.getCharge();
+            Charge charge = stripeService.retrieveCharge(chargeId); // to get PI
+            String paymentIntentId = charge.getPaymentIntent();
+
+            var payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId);
             if (payment.isEmpty()) {
-                loggingContext.logWarn(log, "Could not find original payment for charge {}", charge.getId());
-                return;
+                loggingContext.logWarn(log, "No payment for refund {} (pi:{})", refund.getId(), paymentIntentId);
+                return Result.OK;
             }
-            
-            long refundAmountCents = charge.getAmountRefunded();
-            
-            // Calculate refund using the policy service
+
+            // Update logging context
+            loggingContext.setUserId(payment.get().getUserId());
+            loggingContext.setChargeId(chargeId);
+
+            long refundAmountCents = refund.getAmount(); // <-- delta for this refund
             var calculation = refundPolicyService.calculateRefund(payment.get(), refundAmountCents);
+
+            // Use stable refund id for idempotency (no eventId)
+            refundPolicyService.processRefund(payment.get(), calculation, refund.getId(), eventId);
             
-            // Process the refund according to the policy
-            refundPolicyService.processRefund(payment.get(), calculation, charge.getId(), eventId);
-            
-            loggingContext.logInfo(log, "Processed refund for charge {}: {} tokens deducted, amount: {} cents, policy: {}", 
-                    charge.getId(), calculation.tokensToDeduct(), calculation.refundAmountCents(), 
+            loggingContext.logInfo(log, "Processed refund {} for charge {}: {} tokens deducted, amount: {} cents, policy: {}", 
+                    refund.getId(), chargeId, calculation.tokensToDeduct(), calculation.refundAmountCents(), 
                     calculation.policyApplied());
             
+            // Record processed event for observability
+            ProcessedStripeEvent processed = new ProcessedStripeEvent();
+            processed.setEventId(eventId);
+            processedStripeEventRepository.save(processed);
+            
+            return Result.OK;
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in succeeded refund processing for {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
         } catch (Exception e) {
-            loggingContext.logError(log, "Failed to process charge refund for charge {}: {}", 
-                    charge.getId(), e.getMessage(), e);
+            loggingContext.logError(log, "Failed processing succeeded refund {}: {}", eventId, e.getMessage(), e);
+            throw e; // 500 → Stripe retries
         }
     }
     
+    private String buildRefundCanceledMetaJson(com.stripe.model.Refund refund, long tokensRestored) {
+        try {
+            java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+            meta.put("refundId", refund.getId());
+            meta.put("chargeId", refund.getCharge());
+            meta.put("refundAmountCents", refund.getAmount());
+            meta.put("tokensRestored", tokensRestored);
+            meta.put("reason", "refund_canceled");
+            meta.put("refundStatus", refund.getStatus());
+            return objectMapper.writeValueAsString(meta);
+        } catch (Exception e) {
+            log.warn("Failed to build refund canceled metadata JSON: {}", e.getMessage());
+            return null;
+        }
+    }
 
     private Result handleChargeDisputeCreated(Event event, String eventId, WebhookLoggingContext loggingContext) {
         loggingContext.logInfo(log, "Charge dispute created: {}", eventId);
@@ -475,8 +622,14 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         }
     }
 
-    private Result handleChargeDisputeFundsWithdrawn(Event event, String eventId, WebhookLoggingContext loggingContext) {
+    private Result handleChargeDisputeFundsWithdrawn(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         loggingContext.logWarn(log, "Charge dispute funds withdrawn: {}", eventId);
+        
+        // Check for duplicate event
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            loggingContext.logInfo(log, "Duplicate dispute funds withdrawn event received; id={}", eventId);
+            return Result.DUPLICATE;
+        }
         
         // Deserialize the dispute object
         EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
@@ -494,14 +647,18 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         return Result.OK;
     }
     
-    private void handleChargeDisputeFundsWithdrawn(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleChargeDisputeFundsWithdrawn(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         try {
             String chargeId = dispute.getCharge();
             
-            // Find the original payment for this charge
-            var payment = paymentRepository.findByStripePaymentIntentId(chargeId);
+            // Retrieve the charge to get the payment intent ID
+            Charge charge = stripeService.retrieveCharge(chargeId);
+            String paymentIntentId = charge.getPaymentIntent();
+            
+            // Find the original payment for this payment intent
+            var payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId);
             if (payment.isEmpty()) {
-                loggingContext.logWarn(log, "Could not find original payment for disputed charge {}", chargeId);
+                loggingContext.logWarn(log, "Could not find original payment for disputed charge {} (payment intent: {})", chargeId, paymentIntentId);
                 return;
             }
             
@@ -521,14 +678,26 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                     chargeId, calculation.tokensToDeduct(), calculation.refundAmountCents(), 
                     calculation.policyApplied());
             
+            // Record processed event for observability
+            ProcessedStripeEvent processed = new ProcessedStripeEvent();
+            processed.setEventId(eventId);
+            processedStripeEventRepository.save(processed);
+            
         } catch (Exception e) {
             loggingContext.logError(log, "Failed to process dispute funds withdrawal for dispute {}: {}", 
                     dispute.getId(), e.getMessage(), e);
+            throw e; // 500 → Stripe retries
         }
     }
 
-    private Result handleChargeDisputeClosed(Event event, String eventId, WebhookLoggingContext loggingContext) {
+    private Result handleChargeDisputeClosed(Event event, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         loggingContext.logInfo(log, "Charge dispute closed: {}", eventId);
+        
+        // Check for duplicate event
+        if (processedStripeEventRepository.existsByEventId(eventId)) {
+            loggingContext.logInfo(log, "Duplicate dispute closed event; id={}", eventId);
+            return Result.DUPLICATE;
+        }
         
         // Deserialize the dispute object
         EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
@@ -546,7 +715,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         return Result.OK;
     }
     
-    private void handleChargeDisputeClosed(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleChargeDisputeClosed(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         try {
             String chargeId = dispute.getCharge();
             String status = dispute.getStatus();
@@ -554,27 +723,40 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             loggingContext.logInfo(log, "Dispute closed for charge {}: status={}, amount={}", chargeId, status, dispute.getAmount());
             
             // If we won the dispute, we might want to restore tokens
-            if ("won".equals(status)) {
+            if ("won".equalsIgnoreCase(status)) {
                 handleDisputeWon(dispute, eventId, loggingContext);
-            } else if ("lost".equals(status)) {
+            } else if ("lost".equalsIgnoreCase(status)) {
                 // Dispute lost - tokens already deducted when funds were withdrawn
                 loggingContext.logInfo(log, "Dispute lost for charge {} - tokens already deducted", chargeId);
+            } else {
+                // Other dispute statuses (e.g., warning_needs_response, warning_under_review, etc.)
+                loggingContext.logInfo(log, "Dispute closed for charge {} with status: {} - no action needed", chargeId, status);
             }
+            
+            // Record processed event for all dispute closure outcomes (won/lost/other)
+            ProcessedStripeEvent processed = new ProcessedStripeEvent();
+            processed.setEventId(eventId);
+            processedStripeEventRepository.save(processed);
             
         } catch (Exception e) {
             loggingContext.logError(log, "Failed to process dispute closure for dispute {}: {}", 
                     dispute.getId(), e.getMessage(), e);
+            throw e; // 500 → Stripe retries
         }
     }
     
-    private void handleDisputeWon(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) {
+    private void handleDisputeWon(Dispute dispute, String eventId, WebhookLoggingContext loggingContext) throws StripeException {
         try {
             String chargeId = dispute.getCharge();
             
-            // Find the original payment for this charge
-            var payment = paymentRepository.findByStripePaymentIntentId(chargeId);
+            // Retrieve the charge to get the payment intent ID
+            Charge charge = stripeService.retrieveCharge(chargeId);
+            String paymentIntentId = charge.getPaymentIntent();
+            
+            // Find the original payment for this payment intent
+            var payment = paymentRepository.findByStripePaymentIntentId(paymentIntentId);
             if (payment.isEmpty()) {
-                loggingContext.logWarn(log, "Could not find original payment for won dispute charge {}", chargeId);
+                loggingContext.logWarn(log, "No payment for charge {} (pi: {})", chargeId, paymentIntentId);
                 return;
             }
             
@@ -587,18 +769,23 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             long originalTokens = payment.get().getCreditedTokens();
             long originalAmountCents = payment.get().getAmountCents();
             
-            // Calculate proportional tokens to restore
-            long tokensToRestore = (originalTokens * disputeAmountCents) / originalAmountCents;
+            // Calculate proportional tokens to restore (guard against zero-division)
+            long tokensToRestore = 0;
+            if (originalAmountCents > 0) {
+                tokensToRestore = (originalTokens * disputeAmountCents) / originalAmountCents;
+            } else {
+                loggingContext.logWarn(log, "Cannot restore tokens for dispute {} - original payment amount is zero", dispute.getId());
+            }
             
             if (tokensToRestore > 0) {
-                // Enhanced idempotency key for the restoration
-                String idempotencyKey = String.format("dispute-won:%s:%s:%s", eventId, dispute.getId(), chargeId);
+                // Stable idempotency key for the restoration
+                String idempotencyKey = String.format("dispute-won:%s", dispute.getId());
                 
                 // Build metadata
                 String metaJson = buildDisputeWonMetaJson(dispute, tokensToRestore);
                 
                 // Restore tokens using PURCHASE transaction (positive amount)
-                billingService.creditPurchase(
+                internalBillingService.creditPurchase(
                     payment.get().getUserId(), 
                     tokensToRestore, 
                     idempotencyKey, 
@@ -610,9 +797,13 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                         tokensToRestore, payment.get().getUserId(), chargeId, idempotencyKey);
             }
             
+        } catch (com.stripe.exception.StripeException e) {
+            loggingContext.logError(log, "Stripe API error in dispute win processing for {}: {}", dispute.getId(), e.getMessage(), e);
+            throw e; // let webhook 500 so Stripe retries
         } catch (Exception e) {
             loggingContext.logError(log, "Failed to process dispute win for dispute {}: {}", 
                     dispute.getId(), e.getMessage(), e);
+            throw e; // let webhook 500 so Stripe retries
         }
     }
     
@@ -665,7 +856,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                 validationResult.totalTokens(), userId, session.getId(), idempotencyKey, validationResult.getPackCount());
         
         // Credit total tokens from all packs
-        billingService.creditPurchase(userId, validationResult.totalTokens(), idempotencyKey, 
+        internalBillingService.creditPurchase(userId, validationResult.totalTokens(), idempotencyKey, 
                 validationResult.primaryPack().getId().toString(), enhancedMetadata);
 
         // Mark event processed after successful credit (DB work committed)
@@ -727,7 +918,22 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     private String extractPaymentIntentId(Session session) {
         try {
             Object pi = session.getPaymentIntent();
-            return pi != null ? pi.toString() : null;
+            if (pi instanceof String id) return id;
+            if (pi instanceof com.stripe.model.PaymentIntent p) return p.getId();
+            // For expandable fields, try to extract ID safely
+            if (pi != null) {
+                try {
+                    // Try common methods that expandable fields might have
+                    var getIdMethod = pi.getClass().getMethod("getId");
+                    Object result = getIdMethod.invoke(pi);
+                    if (result instanceof String) return (String) result;
+                } catch (Exception ignored) {
+                    // Fall back to toString if it looks like an ID
+                    String str = pi.toString();
+                    if (str.startsWith("pi_")) return str;
+                }
+            }
+            return null;
         } catch (Throwable e) {
             return null;
         }
@@ -736,7 +942,22 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     private String extractCustomerId(Session session) {
         try {
             Object c = session.getCustomer();
-            return c != null ? c.toString() : null;
+            if (c instanceof String id) return id;
+            if (c instanceof com.stripe.model.Customer cust) return cust.getId();
+            // For expandable fields, try to extract ID safely
+            if (c != null) {
+                try {
+                    // Try common methods that expandable fields might have
+                    var getIdMethod = c.getClass().getMethod("getId");
+                    Object result = getIdMethod.invoke(c);
+                    if (result instanceof String) return (String) result;
+                } catch (Exception ignored) {
+                    // Fall back to toString if it looks like an ID
+                    String str = c.toString();
+                    if (str.startsWith("cus_")) return str;
+                }
+            }
+            return null;
         } catch (Throwable e) {
             return null;
         }
@@ -747,7 +968,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         try {
             java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
             meta.put("sessionId", session.getId());
-            meta.put("customerId", session.getCustomer());
+            meta.put("customerId", extractCustomerId(session));
             meta.put("paymentIntentId", extractPaymentIntentId(session));
             meta.put("sessionMetadata", session.getMetadata());
             

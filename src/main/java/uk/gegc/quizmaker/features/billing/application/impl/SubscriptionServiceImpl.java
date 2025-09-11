@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
@@ -20,7 +20,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SubscriptionServiceImpl implements SubscriptionService {
 
-    private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
     private final BillingMetricsService metricsService;
     private final SubscriptionStatusRepository subscriptionStatusRepository;
 
@@ -41,6 +41,10 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     @Transactional
     public boolean handleSubscriptionPaymentSuccess(UUID userId, String subscriptionId, long periodStart, 
                                                   long tokensPerPeriod, String eventId) {
+        if (tokensPerPeriod <= 0) {
+            throw new IllegalArgumentException("tokensPerPeriod must be > 0, got: " + tokensPerPeriod);
+        }
+        
         try {
             // Build composite idempotency key to prevent double-crediting on retries
             String idempotencyKey = String.format("sub:%s:%d", subscriptionId, periodStart);
@@ -48,8 +52,8 @@ public class SubscriptionServiceImpl implements SubscriptionService {
             // Build metadata for the subscription credit
             String metaJson = buildSubscriptionMetaJson(subscriptionId, periodStart, tokensPerPeriod);
             
-            // Credit tokens using the billing service
-            billingService.creditPurchase(userId, tokensPerPeriod, idempotencyKey, subscriptionId, metaJson);
+            // Credit tokens using the internal billing service
+            internalBillingService.creditPurchase(userId, tokensPerPeriod, idempotencyKey, subscriptionId, metaJson);
             
             // Update subscription status
             updateSubscriptionStatus(userId, subscriptionId, true, "payment_succeeded");

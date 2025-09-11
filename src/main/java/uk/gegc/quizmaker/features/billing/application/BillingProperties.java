@@ -37,4 +37,18 @@ public class BillingProperties {
      * Single MVP currency code (e.g., usd).
      */
     private String currency = "usd";
+
+    /**
+     * Whether to enforce strict amount validation in checkout sessions.
+     * When true, amount mismatches will throw exceptions.
+     * When false, amount mismatches will only log warnings.
+     */
+    private boolean strictAmountValidation = true;
+
+    /**
+     * Whether to allow negative token balances.
+     * When true, users can have negative balances (e.g., from refunds).
+     * When false, balances are clamped to zero.
+     */
+    private boolean allowNegativeBalance = true;
 }

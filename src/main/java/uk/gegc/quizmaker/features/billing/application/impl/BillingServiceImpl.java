@@ -94,7 +94,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAuthority('billing:write')")
     public ReservationDto reserve(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
         if (estimatedBillingTokens <= 0) {
             throw new IllegalArgumentException("estimatedBillingTokens must be > 0");
@@ -210,7 +210,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAuthority('billing:write')")
     public CommitResultDto commit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
         if (actualBillingTokens <= 0) {
             throw new IllegalArgumentException("actualBillingTokens must be > 0");
@@ -314,7 +314,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAuthority('billing:write')")
     public ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
@@ -395,7 +395,6 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:system')")
     public void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
         if (tokens <= 0) {
             throw new IllegalArgumentException("tokens must be > 0");

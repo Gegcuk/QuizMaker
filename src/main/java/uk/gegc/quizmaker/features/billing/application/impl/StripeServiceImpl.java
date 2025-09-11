@@ -4,6 +4,7 @@ import com.stripe.StripeClient;
 import com.stripe.exception.StripeException;
 import com.stripe.model.Customer;
 import com.stripe.model.Subscription;
+import com.stripe.model.Charge;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.SubscriptionCreateParams;
@@ -229,5 +230,56 @@ public class StripeServiceImpl implements StripeService {
 
         log.info("Cancelled Stripe subscription id={}", subscriptionId);
         return deletedSubscription;
+    }
+
+    @Override
+    public Subscription retrieveSubscription(String subscriptionId) throws StripeException {
+        if (!StringUtils.hasText(subscriptionId)) {
+            throw new IllegalArgumentException("Subscription ID must be provided");
+        }
+
+        Subscription subscription;
+        if (stripeClient != null) {
+            subscription = stripeClient.subscriptions().retrieve(subscriptionId);
+        } else {
+            subscription = Subscription.retrieve(subscriptionId);
+        }
+
+        log.debug("Retrieved Stripe subscription id={}", subscriptionId);
+        return subscription;
+    }
+
+    @Override
+    public Charge retrieveCharge(String chargeId) throws StripeException {
+        if (!StringUtils.hasText(chargeId)) {
+            throw new IllegalArgumentException("Charge ID must be provided");
+        }
+
+        Charge charge;
+        if (stripeClient != null) {
+            charge = stripeClient.charges().retrieve(chargeId);
+        } else {
+            charge = Charge.retrieve(chargeId);
+        }
+
+        log.debug("Retrieved Stripe charge id={}", chargeId);
+        return charge;
+    }
+
+    @Override
+    public Customer retrieveCustomerRaw(String customerId) throws StripeException {
+        if (!StringUtils.hasText(customerId)) {
+            throw new IllegalArgumentException("Customer ID must be provided");
+        }
+
+        Customer customer;
+        if (stripeClient != null) {
+            customer = stripeClient.customers().retrieve(customerId);
+        } else {
+            customer = Customer.retrieve(customerId);
+        }
+
+        log.debug("Retrieved raw Stripe customer id={}", customerId);
+        return customer;
     }
 }

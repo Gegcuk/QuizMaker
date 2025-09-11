@@ -68,4 +68,28 @@ public interface StripeService {
      * @return cancelled subscription information
      */
     com.stripe.model.Subscription cancelSubscription(String subscriptionId) throws com.stripe.exception.StripeException;
+
+    /**
+     * Retrieve a Stripe Subscription by ID.
+     *
+     * @param subscriptionId Stripe subscription ID
+     * @return subscription information
+     */
+    com.stripe.model.Subscription retrieveSubscription(String subscriptionId) throws com.stripe.exception.StripeException;
+
+    /**
+     * Retrieve a Stripe Charge by ID.
+     *
+     * @param chargeId Stripe charge ID
+     * @return charge information
+     */
+    com.stripe.model.Charge retrieveCharge(String chargeId) throws com.stripe.exception.StripeException;
+
+    /**
+     * Retrieve a raw Stripe Customer object by ID (for internal use).
+     *
+     * @param customerId Stripe customer ID
+     * @return raw customer object
+     */
+    com.stripe.model.Customer retrieveCustomerRaw(String customerId) throws com.stripe.exception.StripeException;
 }

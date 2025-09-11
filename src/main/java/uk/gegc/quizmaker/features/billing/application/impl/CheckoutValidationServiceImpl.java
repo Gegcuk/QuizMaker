@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
+import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
@@ -21,6 +22,7 @@ import java.util.UUID;
 public class CheckoutValidationServiceImpl implements CheckoutValidationService {
 
     private final ProductPackRepository productPackRepository;
+    private final BillingProperties billingProperties;
 
     @Override
     public CheckoutValidationResult validateAndResolvePack(Session session, UUID packIdFromMetadata) {
@@ -235,14 +237,13 @@ public class CheckoutValidationServiceImpl implements CheckoutValidationService 
         try {
             Long sessionTotal = session.getAmountTotal();
             if (sessionTotal != null && sessionTotal != calculatedTotal) {
-                log.warn("Amount mismatch for session {}: session total {} cents, calculated {} cents", 
+                if (billingProperties.isStrictAmountValidation()) {
+                    throw new InvalidCheckoutSessionException(
+                            String.format("Amount mismatch: session total %d cents vs calculated %d cents", 
+                                    sessionTotal, calculatedTotal));
+                }
+                log.warn("Amount mismatch (non-strict) for session {}: session total {} cents, calculated {} cents", 
                         session.getId(), sessionTotal, calculatedTotal);
-                
-                // For now, we'll log a warning but continue
-                // In production, you might want to reject this
-                // throw new InvalidCheckoutSessionException(
-                //         String.format("Amount mismatch: session total %d cents, calculated %d cents", 
-                //                 sessionTotal, calculatedTotal));
             }
         } catch (Exception e) {
             log.warn("Failed to validate total amount for session {}: {}", session.getId(), e.getMessage());
