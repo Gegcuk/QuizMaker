@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionSource;
 import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public interface TokenTransactionRepository extends JpaRepository<TokenTransaction, UUID> {
@@ -33,4 +34,10 @@ public interface TokenTransactionRepository extends JpaRepository<TokenTransacti
     );
 
     java.util.Optional<TokenTransaction> findByIdempotencyKey(String idempotencyKey);
+    
+    List<TokenTransaction> findByUserIdAndTypeAndRefIdContaining(UUID userId, TokenTransactionType type, String refId);
+    
+    List<TokenTransaction> findByUserIdAndTypeAndCreatedAtAfter(UUID userId, TokenTransactionType type, LocalDateTime createdAt);
+    
+    List<TokenTransaction> findByUserId(UUID userId);
 }

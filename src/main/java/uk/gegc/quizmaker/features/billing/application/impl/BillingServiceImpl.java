@@ -10,6 +10,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,8 @@ import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.TransactionDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.BillingStructuredLogger;
+import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException;
@@ -59,6 +62,7 @@ public class BillingServiceImpl implements BillingService {
     private EntityManager entityManager;
 
     private final ObjectMapper objectMapper;
+    private final BillingMetricsService metricsService;
 
     @Override
     @Transactional
@@ -266,6 +270,17 @@ public class BillingServiceImpl implements BillingService {
                 commitTx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(commitTx);
 
+                // Emit structured logging and metrics for commit
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Committed {} tokens from reservation {} for user {}", 
+                        res.getUserId(), "COMMIT", "QUIZ_GENERATION", actualBillingTokens, idempotencyKey, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), reservationId.toString());
+                
+                metricsService.incrementTokensCommitted(res.getUserId(), actualBillingTokens, "QUIZ_GENERATION");
+                metricsService.incrementReservationCommitted(res.getUserId(), actualBillingTokens);
+                metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
+
                 // Then: if remainder exists, move reserved -> available for the difference and record RELEASE tx with amount 0
                 if (remainder > 0) {
                     balance.setReservedTokens(balance.getReservedTokens() - remainder);
@@ -341,18 +356,30 @@ public class BillingServiceImpl implements BillingService {
                 res.setState(ReservationState.RELEASED);
                 reservationRepository.save(res);
 
-                // Emit RELEASE transaction with amount 0 and idempotency
+                // Emit RELEASE transaction with actual release amount and idempotency
                 TokenTransaction tx = new TokenTransaction();
                 tx.setUserId(res.getUserId());
                 tx.setType(TokenTransactionType.RELEASE);
                 tx.setSource(TokenTransactionSource.QUIZ_GENERATION);
-                tx.setAmountTokens(0L);
+                tx.setAmountTokens(releaseAmount); // Use actual release amount instead of 0
                 tx.setRefId(reservationId.toString());
                 tx.setIdempotencyKey(idempotencyKey);
                 tx.setMetaJson(buildMetaJson(ref, reason, null));
                 tx.setBalanceAfterAvailable(balance.getAvailableTokens());
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
+
+                // Emit structured logging and metrics
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Released {} tokens from reservation {} for user {}", 
+                        res.getUserId(), "RELEASE", "QUIZ_GENERATION", releaseAmount, idempotencyKey, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), reservationId.toString());
+                
+                metricsService.incrementTokensReleased(res.getUserId(), releaseAmount, "QUIZ_GENERATION");
+                metricsService.incrementReservationReleased(res.getUserId(), releaseAmount);
+                metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
+
                 // Flush to detect optimistic lock issues early within the loop
                 entityManager.flush();
                 return new ReleaseResultDto(reservationId, releaseAmount);
@@ -368,6 +395,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
+    @PreAuthorize("hasAuthority('billing:system')")
     public void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
         if (tokens <= 0) {
             throw new IllegalArgumentException("tokens must be > 0");
@@ -414,6 +442,17 @@ public class BillingServiceImpl implements BillingService {
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
 
+                // Emit structured logging and metrics
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Credited {} tokens to user {} via purchase", 
+                        userId, "PURCHASE", "STRIPE", tokens, idempotencyKey, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), ref);
+                
+                metricsService.incrementTokensPurchased(userId, tokens, "STRIPE");
+                metricsService.incrementTokensCredited(userId, tokens, "STRIPE");
+                metricsService.recordBalanceAvailable(userId, balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(userId, balance.getReservedTokens());
+
                 entityManager.flush();
                 return;
             } catch (OptimisticLockingFailureException ex) {
@@ -428,6 +467,173 @@ public class BillingServiceImpl implements BillingService {
                     var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
                     if (existing.isPresent() && existing.get().getType() == TokenTransactionType.PURCHASE) {
                         return; // already credited by concurrent request
+                    }
+                }
+                throw ex;
+            }
+        }
+    }
+
+    @Override
+    @Scheduled(fixedDelayString = "${billing.reservation-sweeper-ms:60000}")
+    @Transactional
+    public void expireReservations() {
+        var cutoff = LocalDateTime.now();
+        var expired = reservationRepository.findByStateAndExpiresAtBefore(ReservationState.ACTIVE, cutoff);
+        
+        if (expired.isEmpty()) {
+            return; // No expired reservations to process
+        }
+        
+        log.info("Processing {} expired reservations", expired.size());
+        
+        for (var res : expired) {
+            try {
+                // Move reserved → available
+                Balance balance = balanceRepository.findByUserId(res.getUserId())
+                        .orElseThrow(() -> new IllegalStateException("Balance not found for user " + res.getUserId()));
+                
+                long releaseAmount = res.getEstimatedTokens();
+                
+                // Move reserved → available
+                balance.setReservedTokens(balance.getReservedTokens() - releaseAmount);
+                balance.setAvailableTokens(balance.getAvailableTokens() + releaseAmount);
+                balanceRepository.save(balance);
+                
+                // Update reservation state
+                res.setState(ReservationState.RELEASED);
+                reservationRepository.save(res);
+                
+                // Write RELEASE transaction with actual release amount
+                TokenTransaction tx = new TokenTransaction();
+                tx.setUserId(res.getUserId());
+                tx.setType(TokenTransactionType.RELEASE);
+                tx.setSource(TokenTransactionSource.QUIZ_GENERATION);
+                tx.setAmountTokens(releaseAmount); // Use actual release amount instead of 0
+                tx.setRefId(res.getId().toString());
+                tx.setIdempotencyKey(null); // No idempotency for expired reservations
+                tx.setMetaJson(buildMetaJson(null, "expired", releaseAmount));
+                tx.setBalanceAfterAvailable(balance.getAvailableTokens());
+                tx.setBalanceAfterReserved(balance.getReservedTokens());
+                transactionRepository.save(tx);
+
+                // Emit structured logging and metrics
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Expired reservation {} for user {}, released {} tokens", 
+                        res.getUserId(), "RELEASE", "QUIZ_GENERATION", releaseAmount, null, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), res.getId().toString());
+                
+                metricsService.incrementTokensReleased(res.getUserId(), releaseAmount, "QUIZ_GENERATION");
+                metricsService.incrementReservationReleased(res.getUserId(), releaseAmount);
+                metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
+                
+                log.debug("Expired reservation {} for user {}, released {} tokens", 
+                        res.getId(), res.getUserId(), releaseAmount);
+                        
+            } catch (Exception e) {
+                log.error("Failed to expire reservation {} for user {}: {}", 
+                        res.getId(), res.getUserId(), e.getMessage(), e);
+                // Continue processing other reservations even if one fails
+            }
+        }
+        
+        // Record sweeper backlog metric
+        metricsService.recordSweeperBacklog(expired.size());
+        
+        log.info("Completed processing {} expired reservations", expired.size());
+    }
+
+    @Override
+    @Transactional
+    public void deductTokens(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
+        if (tokens <= 0) {
+            throw new IllegalArgumentException("tokens must be > 0");
+        }
+
+        // Idempotency: if a REFUND with this key already exists, noop
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                var tx = existing.get();
+                if (tx.getType() != TokenTransactionType.REFUND) {
+                    throw new IdempotencyConflictException("Idempotency key already used for a different operation");
+                }
+                return; // already deducted
+            }
+        }
+
+        int attempts = 0;
+        while (true) {
+            attempts++;
+            try {
+                Balance balance = balanceRepository.findByUserId(userId).orElseGet(() -> {
+                    Balance b = new Balance();
+                    b.setUserId(userId);
+                    b.setAvailableTokens(0L);
+                    b.setReservedTokens(0L);
+                    return balanceRepository.save(b);
+                });
+
+                long available = balance.getAvailableTokens();
+                
+                // Check if user has enough tokens to deduct
+                if (available < tokens) {
+                    // Option 1: Allow negative balance (tracked debt)
+                    // Option 2: Deduct what's available and log the shortfall
+                    // Option 3: Throw exception
+                    
+                    // For now, we'll allow negative balance but log a warning
+                    log.warn("Deducting {} tokens from user {} with only {} available (will result in negative balance)", 
+                            tokens, userId, available);
+                }
+
+                // Deduct tokens from available
+                balance.setAvailableTokens(available - tokens);
+                balanceRepository.save(balance);
+
+                // Append REFUND transaction with snapshots
+                TokenTransaction tx = new TokenTransaction();
+                tx.setUserId(userId);
+                tx.setType(TokenTransactionType.REFUND);
+                tx.setSource(TokenTransactionSource.STRIPE);
+                tx.setAmountTokens(-tokens); // Negative amount for deduction
+                tx.setRefId(ref);
+                tx.setIdempotencyKey(idempotencyKey);
+                tx.setMetaJson(metaJson);
+                tx.setBalanceAfterAvailable(balance.getAvailableTokens());
+                tx.setBalanceAfterReserved(balance.getReservedTokens());
+                transactionRepository.save(tx);
+
+                // Emit structured logging and metrics
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Deducted {} tokens from user {} via refund", 
+                        userId, "REFUND", "STRIPE", tokens, idempotencyKey, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), ref);
+                
+                metricsService.incrementTokensAdjusted(userId, tokens, "STRIPE");
+                metricsService.recordBalanceAvailable(userId, balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(userId, balance.getReservedTokens());
+                
+                // Record negative balance alert if applicable
+                if (balance.getAvailableTokens() < 0) {
+                    metricsService.recordNegativeBalanceAlert(userId, Math.abs(balance.getAvailableTokens()));
+                }
+
+                entityManager.flush();
+                return;
+            } catch (OptimisticLockingFailureException ex) {
+                if (attempts >= 2) {
+                    log.warn("deductTokens() optimistic lock failed after {} attempts for user {}", attempts, userId);
+                    throw ex;
+                }
+                try { Thread.sleep(20L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            } catch (DataIntegrityViolationException ex) {
+                // handle race on idempotency key
+                if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                    var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+                    if (existing.isPresent() && existing.get().getType() == TokenTransactionType.REFUND) {
+                        return; // already deducted by concurrent request
                     }
                 }
                 throw ex;

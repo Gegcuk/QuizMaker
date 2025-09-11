@@ -14,6 +14,9 @@ public class StripeProperties {
     /** Secret API key (server-side). */
     private String secretKey;
 
+    /** Publishable API key (client-side). */
+    private String publishableKey;
+
     /** Webhook signing secret for signature verification. */
     private String webhookSecret;
 
