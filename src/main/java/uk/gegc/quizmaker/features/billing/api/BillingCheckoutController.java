@@ -9,7 +9,10 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.validation.Valid;
 import uk.gegc.quizmaker.features.billing.api.dto.*;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
+import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import com.stripe.model.StripeObject;
 import com.stripe.exception.CardException;
 import com.stripe.exception.StripeException;
@@ -25,6 +28,8 @@ public class BillingCheckoutController {
 
     private final CheckoutReadService checkoutReadService;
     private final StripeService stripeService;
+    private final EstimationService estimationService;
+    private final RateLimitService rateLimitService;
 
     @GetMapping("/checkout-sessions/{sessionId}")
     @PreAuthorize("hasAuthority('billing:read')")
@@ -47,6 +52,28 @@ public class BillingCheckoutController {
         } catch (Exception e) {
             log.error("Error retrieving billing config: {}", e.getMessage());
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/estimate/quiz-generation")
+    @PreAuthorize("hasAuthority('billing:read')")
+    public ResponseEntity<EstimationDto> estimateQuizGeneration(@Valid @RequestBody GenerateQuizFromDocumentRequest request) {
+        try {
+            // Rate limiting: 10 requests per minute per user
+            UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
+            rateLimitService.checkRateLimit("quiz-estimation", currentUserId.toString(), 10);
+            
+            log.info("Estimating quiz generation for document: {} by user: {}", request.documentId(), currentUserId);
+            
+            EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
+            
+            log.info("Estimation completed: {} billing tokens ({} LLM tokens) for user: {}", 
+                    estimation.estimatedBillingTokens(), estimation.estimatedLlmTokens(), currentUserId);
+            
+            return ResponseEntity.ok(estimation);
+        } catch (Exception e) {
+            log.error("Error estimating quiz generation for document {}: {}", request.documentId(), e.getMessage());
+            return ResponseEntity.badRequest().build();
         }
     }
 

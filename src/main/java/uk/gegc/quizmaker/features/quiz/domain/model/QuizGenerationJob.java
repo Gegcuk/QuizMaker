@@ -65,6 +65,35 @@ public class QuizGenerationJob {
     @Column(name = "generation_time_seconds")
     private Long generationTimeSeconds;
 
+    // Billing fields for token consumption tracking
+    @Column(name = "billing_reservation_id")
+    private UUID billingReservationId;
+
+    @Column(name = "reservation_expires_at")
+    private LocalDateTime reservationExpiresAt;
+
+    @Column(name = "billing_estimated_tokens", nullable = false)
+    private Long billingEstimatedTokens = 0L;
+
+    @Column(name = "billing_committed_tokens", nullable = false)
+    private Long billingCommittedTokens = 0L;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_state", nullable = false)
+    private BillingState billingState = BillingState.NONE;
+
+    @Column(name = "billing_idempotency_keys", columnDefinition = "JSON")
+    private String billingIdempotencyKeys;
+
+    @Column(name = "last_billing_error", columnDefinition = "JSON")
+    private String lastBillingError;
+
+    @Column(name = "input_prompt_tokens")
+    private Long inputPromptTokens;
+
+    @Column(name = "estimation_version")
+    private String estimationVersion;
+
     @PrePersist
     protected void onCreate() {
         if (startedAt == null) {
@@ -81,6 +110,15 @@ public class QuizGenerationJob {
         }
         if (totalQuestionsGenerated == null) {
             totalQuestionsGenerated = 0;
+        }
+        if (billingEstimatedTokens == null) {
+            billingEstimatedTokens = 0L;
+        }
+        if (billingCommittedTokens == null) {
+            billingCommittedTokens = 0L;
+        }
+        if (billingState == null) {
+            billingState = BillingState.NONE;
         }
     }
 
@@ -174,5 +212,47 @@ public class QuizGenerationJob {
 
         long totalEstimatedSeconds = (long) (elapsedSeconds / progress);
         return totalEstimatedSeconds - elapsedSeconds;
+    }
+
+    /**
+     * Check if the job has billing activity
+     */
+    public boolean hasBillingActivity() {
+        return billingState != null && !billingState.isNone();
+    }
+
+    /**
+     * Check if tokens are currently reserved for this job
+     */
+    public boolean hasReservedTokens() {
+        return billingState != null && billingState.isReserved();
+    }
+
+    /**
+     * Check if tokens have been committed for this job
+     */
+    public boolean hasCommittedTokens() {
+        return billingState != null && billingState.isCommitted();
+    }
+
+    /**
+     * Check if the reservation has expired
+     */
+    public boolean isReservationExpired() {
+        return reservationExpiresAt != null && LocalDateTime.now().isAfter(reservationExpiresAt);
+    }
+
+    /**
+     * Get the remaining time until reservation expires (in seconds)
+     */
+    public Long getReservationTimeRemainingSeconds() {
+        if (reservationExpiresAt == null) {
+            return null;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isAfter(reservationExpiresAt)) {
+            return 0L;
+        }
+        return java.time.Duration.between(now, reservationExpiresAt).getSeconds();
     }
 } 

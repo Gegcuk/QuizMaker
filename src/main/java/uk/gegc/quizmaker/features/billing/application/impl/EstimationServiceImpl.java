@@ -60,7 +60,9 @@ public class EstimationServiceImpl implements EstimationService {
             log.debug("No chunks matched scope for document {}. Returning zeroed estimate.", documentId);
             long llmZero = 0L;
             long billingZero = llmTokensToBillingTokens(llmZero);
-            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true);
+            UUID estimationId = UUID.randomUUID();
+            String humanizedEstimate = EstimationDto.createHumanizedEstimate(llmZero, billingZero, billingProperties.getCurrency());
+            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
         }
 
         // Pre-compute prompt overhead tokens (system + context)
@@ -101,12 +103,17 @@ public class EstimationServiceImpl implements EstimationService {
 
         long billingTokens = llmTokensToBillingTokens(adjustedLlm);
 
+        UUID estimationId = UUID.randomUUID();
+        String humanizedEstimate = EstimationDto.createHumanizedEstimate(adjustedLlm, billingTokens, billingProperties.getCurrency());
+        
         return new EstimationDto(
                 adjustedLlm,
                 billingTokens,
                 null, // approxCostCents not implemented in MVP
                 billingProperties.getCurrency(),
-                true // explicitly an estimate, not a quote
+                true, // explicitly an estimate, not a quote
+                humanizedEstimate,
+                estimationId
         );
     }
 

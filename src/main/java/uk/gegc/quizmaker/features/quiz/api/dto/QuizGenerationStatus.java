@@ -48,7 +48,29 @@ public record QuizGenerationStatus(
         LocalDateTime startedAt,
 
         @Schema(description = "Job completion time (only available when completed/failed)", example = "2024-01-15T14:30:00")
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+
+        // Billing fields (internal use only, not exposed in public API yet)
+        @Schema(description = "Billing reservation ID", example = "d290f1ee-6c54-4b01-90e6-d701748f0851", accessMode = Schema.AccessMode.READ_ONLY)
+        String billingReservationId,
+
+        @Schema(description = "Reservation expiry time", example = "2024-01-15T16:30:00", accessMode = Schema.AccessMode.READ_ONLY)
+        LocalDateTime reservationExpiresAt,
+
+        @Schema(description = "Estimated billing tokens", example = "1500", accessMode = Schema.AccessMode.READ_ONLY)
+        Long billingEstimatedTokens,
+
+        @Schema(description = "Committed billing tokens", example = "1200", accessMode = Schema.AccessMode.READ_ONLY)
+        Long billingCommittedTokens,
+
+        @Schema(description = "Billing state", example = "RESERVED", accessMode = Schema.AccessMode.READ_ONLY)
+        String billingState,
+
+        @Schema(description = "Input prompt tokens", example = "800", accessMode = Schema.AccessMode.READ_ONLY)
+        Long inputPromptTokens,
+
+        @Schema(description = "Estimation version", example = "v1.0", accessMode = Schema.AccessMode.READ_ONLY)
+        String estimationVersion
 ) {
 
     /**
@@ -69,7 +91,14 @@ public record QuizGenerationStatus(
                 job.getEstimatedTimeRemainingSeconds(),
                 job.getGeneratedQuizId() != null ? job.getGeneratedQuizId().toString() : null,
                 job.getStartedAt(),
-                job.getCompletedAt()
+                job.getCompletedAt(),
+                job.getBillingReservationId() != null ? job.getBillingReservationId().toString() : null,
+                job.getReservationExpiresAt(),
+                job.getBillingEstimatedTokens(),
+                job.getBillingCommittedTokens(),
+                job.getBillingState() != null ? job.getBillingState().name() : null,
+                job.getInputPromptTokens(),
+                job.getEstimationVersion()
         );
     }
 
