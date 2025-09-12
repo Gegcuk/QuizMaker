@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventR
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -63,5 +64,47 @@ class BillingIntegrationTest {
         // Given & When & Then
         assertThat(paymentRepository.count()).isEqualTo(0);
         assertThat(processedStripeEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Should reject GET requests to webhook endpoint")
+    void shouldRejectGetRequestsToWebhookEndpoint() throws Exception {
+        // When & Then
+        mockMvc.perform(get("/api/v1/billing/stripe/webhook")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden()); // 403 Forbidden (Spring Security intercepts)
+    }
+
+    @Test
+    @DisplayName("Should reject unsupported content type (text/plain)")
+    void shouldRejectUnsupportedContentType() throws Exception {
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/stripe/webhook")
+                .contentType(MediaType.TEXT_PLAIN)
+                .content("test payload")
+                .header("Stripe-Signature", "t=1234567890,v1=test_signature"))
+                .andExpect(status().isUnauthorized()); // 401 Unauthorized (webhook secret validation first)
+    }
+
+    @Test
+    @DisplayName("Should reject requests with missing body")
+    void shouldRejectRequestsWithMissingBody() throws Exception {
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/stripe/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Stripe-Signature", "t=1234567890,v1=test_signature"))
+                .andExpect(status().isInternalServerError()); // 500 Internal Server Error (handled by error handler)
+    }
+
+    @Test
+    @DisplayName("Should reject requests with duplicate Stripe-Signature headers")
+    void shouldRejectRequestsWithDuplicateStripeSignatureHeaders() throws Exception {
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/stripe/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"test\": \"payload\"}")
+                .header("Stripe-Signature", "t=1234567890,v1=test_signature_1")
+                .header("Stripe-Signature", "t=1234567890,v1=test_signature_2"))
+                .andExpect(status().isUnauthorized()); // 401 Unauthorized (webhook secret validation first)
     }
 }

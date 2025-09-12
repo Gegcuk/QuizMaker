@@ -134,6 +134,15 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- WireMock for Stripe API stubbing -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.1</version>
+            <scope>test</scope>
+        </dependency>
+
+
 
         <!-- https://mvnrepository.com/artifact/org.springframework.security/spring-security-core -->
         <dependency>
