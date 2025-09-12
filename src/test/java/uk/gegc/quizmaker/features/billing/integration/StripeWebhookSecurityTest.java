@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -29,9 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-    "spring.jpa.hibernate.ddl-auto=create",
-    "stripe.webhook-secret=whsec_test_secret_123456789",
-    "stripe.secret-key=sk_test_mock_key_for_testing"
+    "spring.jpa.hibernate.ddl-auto=create"
+    // Note: Uses real Stripe configuration from environment variables (.env file)
 })
 @DisplayName("Stripe Webhook Security Tests")
 class StripeWebhookSecurityTest {
@@ -48,13 +48,14 @@ class StripeWebhookSecurityTest {
     @Autowired
     private PaymentRepository paymentRepository;
 
+    @Value("${stripe.webhook-secret}")
     private String webhookSecret;
+
     private String testUserId;
     private String testPackId;
 
     @BeforeEach
     void setUp() {
-        webhookSecret = "whsec_test_secret_123456789";
         testUserId = UUID.randomUUID().toString();
         testPackId = UUID.randomUUID().toString();
         
