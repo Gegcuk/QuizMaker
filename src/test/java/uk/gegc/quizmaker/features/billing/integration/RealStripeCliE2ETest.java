@@ -13,20 +13,21 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * E2E tests using real Stripe CLI with actual Stripe sandbox configuration.
- * Tests full webhook processing with real Stripe event payloads.
- * 
- * Requirements:
- * 1. Stripe CLI must be running and forwarding webhooks to localhost:8080
- * 2. Real Stripe sandbox account with configured Price IDs in .env file
- * 3. Application running with real Stripe configuration
+ * Real E2E tests using actual Stripe CLI with real Stripe sandbox configuration.
+ * These tests require:
+ * 1. Stripe CLI to be running and forwarding webhooks to localhost:8080
+ * 2. Real Stripe sandbox account with configured Price IDs
+ * 3. Application running with real Stripe configuration from .env file
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
@@ -36,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     // Note: Uses real Stripe configuration from .env file, not test properties
 })
 @DisplayName("Real Stripe CLI E2E Tests")
-class StripeCliE2ETest {
+class RealStripeCliE2ETest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -72,10 +73,10 @@ class StripeCliE2ETest {
         try {
             ProcessBuilder pb = new ProcessBuilder("where", "stripe");
             Process process = pb.start();
-            int exitCode = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+            int exitCode = process.waitFor(5, TimeUnit.SECONDS) ? process.exitValue() : -1;
             
             if (exitCode == 0) {
-                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 String path = reader.readLine();
                 if (path != null && !path.trim().isEmpty()) {
                     return path.trim();
@@ -90,16 +91,16 @@ class StripeCliE2ETest {
         System.out.println("Stripe CLI not found in PATH, using fallback: " + fallbackPath);
         return fallbackPath;
     }
-    
+
     private void verifyStripeCliAvailable() throws Exception {
         try {
             ProcessBuilder pb = new ProcessBuilder(stripeCliPath, "--version");
             Process process = pb.start();
-            int exitCode = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+            int exitCode = process.waitFor(10, TimeUnit.SECONDS) ? process.exitValue() : -1;
             
             // Read both stdout and stderr for debugging
-            java.io.BufferedReader stdoutReader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
-            java.io.BufferedReader stderrReader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getErrorStream()));
+            BufferedReader stdoutReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            BufferedReader stderrReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
             
             StringBuilder stdout = new StringBuilder();
             StringBuilder stderr = new StringBuilder();
@@ -125,8 +126,8 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: stripe trigger checkout.session.completed with metadata for userId/packId")
-    void shouldProcessCheckoutSessionCompletedWithMetadata() throws Exception {
+    @DisplayName("Real E2E: stripe trigger checkout.session.completed with metadata for userId/packId")
+    void shouldProcessRealCheckoutSessionCompletedWithMetadata() throws Exception {
         // Given - Trigger real Stripe CLI event
         
         // When - Trigger real Stripe CLI event
@@ -139,11 +140,11 @@ class StripeCliE2ETest {
         );
         
         Process process = pb.start();
-        int exitCode = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+        int exitCode = process.waitFor(30, TimeUnit.SECONDS) ? process.exitValue() : -1;
         
         // Read both stdout and stderr for debugging
-        java.io.BufferedReader stdoutReader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
-        java.io.BufferedReader stderrReader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getErrorStream()));
+        BufferedReader stdoutReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        BufferedReader stderrReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
         
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
@@ -179,8 +180,8 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: stripe trigger invoice.payment_succeeded on a test subscription")
-    void shouldProcessInvoicePaymentSucceededOnSubscription() throws Exception {
+    @DisplayName("Real E2E: stripe trigger invoice.payment_succeeded on a test subscription")
+    void shouldProcessRealInvoicePaymentSucceededOnSubscription() throws Exception {
         // Given - Trigger real Stripe CLI event for subscription payment
         
         // When - Trigger real Stripe CLI event
@@ -191,10 +192,10 @@ class StripeCliE2ETest {
         );
         
         Process process = pb.start();
-        int exitCode = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+        int exitCode = process.waitFor(30, TimeUnit.SECONDS) ? process.exitValue() : -1;
         
         // Read output for debugging
-        java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         StringBuilder output = new StringBuilder();
         String line;
         while ((line = reader.readLine()) != null) {
@@ -212,8 +213,8 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: stripe trigger charge.dispute.created flow")
-    void shouldProcessChargeDisputeCreated() throws Exception {
+    @DisplayName("Real E2E: stripe trigger charge.dispute.created flow")
+    void shouldProcessRealChargeDisputeCreated() throws Exception {
         // Given - Trigger real Stripe CLI event for dispute
         
         // When - Trigger real Stripe CLI event
@@ -224,10 +225,10 @@ class StripeCliE2ETest {
         );
         
         Process process = pb.start();
-        int exitCode = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+        int exitCode = process.waitFor(30, TimeUnit.SECONDS) ? process.exitValue() : -1;
         
         // Read output for debugging
-        java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         StringBuilder output = new StringBuilder();
         String line;
         while ((line = reader.readLine()) != null) {
@@ -245,8 +246,8 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: stripe trigger charge.refunded flow")
-    void shouldProcessChargeRefunded() throws Exception {
+    @DisplayName("Real E2E: stripe trigger charge.refunded flow")
+    void shouldProcessRealChargeRefunded() throws Exception {
         // Given - Trigger real Stripe CLI event for refund
         
         // When - Trigger real Stripe CLI event
@@ -257,10 +258,10 @@ class StripeCliE2ETest {
         );
         
         Process process = pb.start();
-        int exitCode = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+        int exitCode = process.waitFor(30, TimeUnit.SECONDS) ? process.exitValue() : -1;
         
         // Read output for debugging
-        java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         StringBuilder output = new StringBuilder();
         String line;
         while ((line = reader.readLine()) != null) {
@@ -278,8 +279,8 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: Validate account balance (tokens) and payment rows reflect the scenario")
-    void shouldValidateAccountBalanceAndPaymentRows() throws Exception {
+    @DisplayName("Real E2E: Validate account balance (tokens) and payment rows reflect the scenario")
+    void shouldValidateRealAccountBalanceAndPaymentRows() throws Exception {
         // Given - Multiple real Stripe CLI events to test comprehensive scenario
         
         // 1. First, trigger a checkout session completed event
@@ -292,7 +293,7 @@ class StripeCliE2ETest {
         );
         
         Process checkoutProcess = checkoutPb.start();
-        int checkoutExitCode = checkoutProcess.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? checkoutProcess.exitValue() : -1;
+        int checkoutExitCode = checkoutProcess.waitFor(30, TimeUnit.SECONDS) ? checkoutProcess.exitValue() : -1;
         assertThat(checkoutExitCode).isEqualTo(0);
         
         // Wait for processing
@@ -306,7 +307,7 @@ class StripeCliE2ETest {
         );
         
         Process refundProcess = refundPb.start();
-        int refundExitCode = refundProcess.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? refundProcess.exitValue() : -1;
+        int refundExitCode = refundProcess.waitFor(30, TimeUnit.SECONDS) ? refundProcess.exitValue() : -1;
         assertThat(refundExitCode).isEqualTo(0);
         
         // Wait for processing
@@ -320,7 +321,7 @@ class StripeCliE2ETest {
         );
         
         Process disputeProcess = disputePb.start();
-        int disputeExitCode = disputeProcess.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) ? disputeProcess.exitValue() : -1;
+        int disputeExitCode = disputeProcess.waitFor(30, TimeUnit.SECONDS) ? disputeProcess.exitValue() : -1;
         assertThat(disputeExitCode).isEqualTo(0);
         
         // Wait for processing
@@ -336,7 +337,7 @@ class StripeCliE2ETest {
     }
 
     @Test
-    @DisplayName("E2E: Test webhook endpoint connectivity")
+    @DisplayName("Real E2E: Test webhook endpoint connectivity")
     void shouldTestWebhookEndpointConnectivity() throws Exception {
         // Given - Simple test payload to verify webhook endpoint is accessible
         
