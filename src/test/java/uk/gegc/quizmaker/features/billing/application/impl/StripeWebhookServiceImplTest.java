@@ -560,4 +560,107 @@ class StripeWebhookServiceImplTest {
         }
     }
 
+    @Nested
+    @DisplayName("Data Hygiene Tests")
+    class DataHygieneTests {
+
+        @Test
+        @DisplayName("extractUserId should throw when metadata is empty and client_reference_id is missing")
+        void extractUserIdShouldThrowWhenMetadataIsEmptyAndClientReferenceIdIsMissing() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn(null);
+            when(mockSession.getMetadata()).thenReturn(new HashMap<>());
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("userId metadata missing");
+        }
+
+        @Test
+        @DisplayName("extractUserId should throw when metadata is null and client_reference_id is missing")
+        void extractUserIdShouldThrowWhenMetadataIsNullAndClientReferenceIdIsMissing() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn(null);
+            when(mockSession.getMetadata()).thenReturn(null);
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("userId metadata missing");
+        }
+
+        @Test
+        @DisplayName("extractUserId should throw when client_reference_id is empty and metadata is empty")
+        void extractUserIdShouldThrowWhenClientReferenceIdIsEmptyAndMetadataIsEmpty() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn("");
+            when(mockSession.getMetadata()).thenReturn(new HashMap<>());
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("userId metadata missing");
+        }
+
+        @Test
+        @DisplayName("extractUserId should throw when client_reference_id is blank and metadata is empty")
+        void extractUserIdShouldThrowWhenClientReferenceIdIsBlankAndMetadataIsEmpty() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn("   ");
+            when(mockSession.getMetadata()).thenReturn(new HashMap<>());
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("userId metadata missing");
+        }
+
+        @Test
+        @DisplayName("extractUserId should throw when userId in metadata is not a valid UUID")
+        void extractUserIdShouldThrowWhenUserIdInMetadataIsNotAValidUuid() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn(null);
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("userId", "not-a-uuid");
+            when(mockSession.getMetadata()).thenReturn(metadata);
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("Invalid userId in metadata");
+        }
+
+        @Test
+        @DisplayName("extractUserId should throw when client_reference_id is not a valid UUID")
+        void extractUserIdShouldThrowWhenClientReferenceIdIsNotAValidUuid() throws Exception {
+            // Given
+            Session mockSession = mock(Session.class);
+            when(mockSession.getClientReferenceId()).thenReturn("not-a-uuid");
+            when(mockSession.getMetadata()).thenReturn(new HashMap<>());
+
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractUserId", Session.class);
+            method.setAccessible(true);
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                .hasRootCauseMessage("Invalid userId in metadata");
+        }
+    }
+
 }
