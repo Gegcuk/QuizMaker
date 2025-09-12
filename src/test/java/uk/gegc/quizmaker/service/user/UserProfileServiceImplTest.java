@@ -50,6 +50,7 @@ class UserProfileServiceImplTest {
     private User testUser;
     private UUID userId;
     private LocalDateTime createdAt;
+    private String testRoleName;
 
     @BeforeEach
     void setUp() {
@@ -72,7 +73,8 @@ class UserProfileServiceImplTest {
 
         Set<Role> roles = new HashSet<>();
         Role userRole = new Role();
-        userRole.setRoleName("ROLE_USER");
+        testRoleName = "ROLE_USER_" + System.currentTimeMillis();
+        userRole.setRoleName(testRoleName);
         roles.add(userRole);
         testUser.setRoles(roles);
     }
@@ -101,7 +103,7 @@ class UserProfileServiceImplTest {
         assertEquals(Map.of("theme", "dark"), result.preferences());
         assertEquals(createdAt, result.joinedAt());
         assertTrue(result.verified());
-        assertEquals(List.of("USER"), result.roles());
+        assertEquals(List.of(testRoleName.replaceFirst("^ROLE_", "").toUpperCase()), result.roles());
 
         verify(userRepository).findByUsernameWithRoles("testuser");
         verify(userRepository, never()).findByEmailWithRoles(any());

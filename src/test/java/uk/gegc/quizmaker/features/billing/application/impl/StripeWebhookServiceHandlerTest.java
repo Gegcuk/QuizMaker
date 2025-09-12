@@ -7,9 +7,7 @@ import com.stripe.model.Dispute;
 import com.stripe.model.Event;
 import com.stripe.model.EventDataObjectDeserializer;
 import com.stripe.model.Invoice;
-import com.stripe.model.PaymentIntent;
 import com.stripe.model.Refund;
-import com.stripe.model.StripeObject;
 import com.stripe.model.Subscription;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
@@ -56,6 +54,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -339,6 +338,9 @@ class StripeWebhookServiceHandlerTest {
                 // Verify metrics
                 verify(metricsService).incrementWebhookReceived("checkout.session.completed");
                 verify(metricsService).incrementWebhookFailed("checkout.session.completed");
+                
+                // Verify no ProcessedStripeEvent saved
+                verify(processedStripeEventRepository, never()).save(any(ProcessedStripeEvent.class));
             }
         }
 
@@ -384,6 +386,10 @@ class StripeWebhookServiceHandlerTest {
                 // Verify metrics
                 verify(metricsService).incrementWebhookReceived("checkout.session.completed");
                 verify(metricsService).incrementWebhookFailed("checkout.session.completed");
+                
+                // Verify no credit, no processed event
+                verify(internalBillingService, never()).creditPurchase(any(), anyLong(), anyString(), anyString(), anyString());
+                verify(processedStripeEventRepository, never()).save(any(ProcessedStripeEvent.class));
             }
         }
 
@@ -1873,6 +1879,117 @@ class StripeWebhookServiceHandlerTest {
                 // Verify metrics
                 verify(metricsService).incrementWebhookReceived("checkout.session.completed");
                 verify(metricsService).incrementWebhookOk("checkout.session.completed");
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Retry Semantics Tests")
+    class RetrySemanticsTests {
+
+        @Test
+        @DisplayName("Simulate transient Stripe error - First attempt 500, second attempt OK - Only one credit & one processed record")
+        void shouldHandleTransientStripeErrorWithRetry() throws Exception {
+            // Given
+            when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
+            String sessionId = "cs_test_session_123";
+            
+            String payload = String.format("{\"id\":\"%s\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"%s\",\"payment_intent\":\"pi_test_123\",\"client_reference_id\":\"%s\",\"metadata\":{\"pack_id\":\"%s\"}}}}", 
+                TEST_EVENT_ID, sessionId, TEST_USER_ID, TEST_PACK_ID);
+            String signature = "t=1234567890,v1=signature";
+
+            Event mockEvent = mock(Event.class);
+            when(mockEvent.getId()).thenReturn(TEST_EVENT_ID);
+            when(mockEvent.getType()).thenReturn("checkout.session.completed");
+            when(mockEvent.toJson()).thenReturn(payload);
+
+            // Mock session
+            Session mockSession = mock(Session.class);
+            when(mockSession.getId()).thenReturn(sessionId);
+            when(mockSession.getPaymentIntent()).thenReturn("pi_test_123");
+            when(mockSession.getClientReferenceId()).thenReturn(TEST_USER_ID.toString());
+            when(mockSession.getMetadata()).thenReturn(Map.of("pack_id", TEST_PACK_ID.toString()));
+
+            // Mock line items
+            com.stripe.model.LineItem mockLineItem = mock(com.stripe.model.LineItem.class);
+            when(mockLineItem.getQuantity()).thenReturn(1L);
+            when(mockLineItem.getPrice()).thenReturn(mock(com.stripe.model.Price.class));
+            when(mockLineItem.getPrice().getId()).thenReturn("price_test_123");
+            
+            com.stripe.model.LineItemCollection mockLineItemCollection = mock(com.stripe.model.LineItemCollection.class);
+            when(mockLineItemCollection.getData()).thenReturn(List.of(mockLineItem));
+            when(mockSession.getLineItems()).thenReturn(mockLineItemCollection);
+
+            // Mock event deserialization
+            EventDataObjectDeserializer mockDeserializer = mock(EventDataObjectDeserializer.class);
+            when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
+            when(mockDeserializer.getObject()).thenReturn(java.util.Optional.of(mockSession));
+
+            // Mock validation result
+            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            ProductPack mockPack = mock(ProductPack.class);
+            
+            when(mockPack.getId()).thenReturn(TEST_PACK_ID);
+            when(mockPack.getTokens()).thenReturn(500L);
+            when(mockPack.getPriceCents()).thenReturn(1000L);
+            
+            when(mockValidationResult.primaryPack()).thenReturn(mockPack);
+            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
+            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
+            when(mockValidationResult.totalTokens()).thenReturn(500L);
+            when(mockValidationResult.currency()).thenReturn("usd");
+            when(mockValidationResult.getPackCount()).thenReturn(1);
+            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+
+            // Mock processed event check - both calls return false (not processed yet)
+            when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID))
+                .thenReturn(false)  // First attempt: not processed yet
+                .thenReturn(false); // Second attempt: still not processed (retry scenario)
+
+            // Mock Stripe service to fail on first call, succeed on second call
+            when(stripeService.retrieveSession(sessionId, true))
+                .thenThrow(new InvalidRequestException("Temporary Stripe API error", null, null, null, 500, null))  // First attempt: 500 error
+                .thenReturn(mockSession);  // Second attempt: success
+
+            try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
+                webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
+                    .thenReturn(mockEvent);
+
+                // When - First attempt (should fail with 500 error)
+                assertThatThrownBy(() -> webhookService.process(payload, signature))
+                    .isInstanceOf(InvalidCheckoutSessionException.class)
+                    .hasMessageContaining("Stripe session retrieval failed");
+                
+                // Verify first attempt metrics
+                verify(metricsService).incrementWebhookReceived("checkout.session.completed");
+                verify(metricsService).incrementWebhookFailed("checkout.session.completed");
+
+                // When - Second attempt (should succeed)
+                StripeWebhookService.Result result = webhookService.process(payload, signature);
+
+                // Then - Second attempt should return OK (successful retry)
+                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+
+                // Verify second attempt metrics
+                verify(metricsService, times(2)).incrementWebhookReceived("checkout.session.completed");
+                verify(metricsService).incrementWebhookOk("checkout.session.completed");
+
+                // Verify idempotency: Credit should be issued on second attempt (successful retry)
+                verify(internalBillingService).creditPurchase(
+                    eq(TEST_USER_ID),
+                    eq(500L), // totalTokens
+                    eq(String.format("checkout:%s:%s", TEST_EVENT_ID, sessionId)),
+                    eq(TEST_PACK_ID.toString()),
+                    eq(null) // enhancedMetadata (null due to metadata build failure)
+                );
+                
+                // Verify ProcessedStripeEvent was saved on successful retry
+                verify(processedStripeEventRepository).save(any(ProcessedStripeEvent.class));
+                
+                // Verify Stripe service was called twice (first failed, second succeeded)
+                verify(stripeService, times(2)).retrieveSession(sessionId, true);
             }
         }
     }
