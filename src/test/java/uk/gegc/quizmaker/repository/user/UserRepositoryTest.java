@@ -33,9 +33,9 @@ class UserRepositoryTest {
     @Test
     @DisplayName("findByUsernameWithRoles returns user with roles")
     void findByUsernameWithRoles_ReturnsUser() {
-        // Create a role first
+        // Create a role first with unique name to avoid conflicts in test suite
         Role role = new Role();
-        role.setRoleName("ROLE_USER");
+        role.setRoleName("ROLE_USER_" + System.currentTimeMillis());
         role.setDescription("User role");
         role.setDefault(true);
         entityManager.persist(role);
