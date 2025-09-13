@@ -18,10 +18,10 @@ ALTER TABLE quiz_generation_jobs
 ADD CONSTRAINT chk_billing_state 
 CHECK (billing_state IN ('NONE', 'RESERVED', 'COMMITTED', 'RELEASED'));
 
--- Add unique index on billing_reservation_id (where not null) for safety
+-- Add unique index on billing_reservation_id for safety
+-- Note: MySQL allows multiple NULLs and enforces uniqueness for non-NULL values
 CREATE UNIQUE INDEX idx_quiz_generation_jobs_billing_reservation_id 
-ON quiz_generation_jobs (billing_reservation_id) 
-WHERE billing_reservation_id IS NOT NULL;
+ON quiz_generation_jobs (billing_reservation_id);
 
 -- Add index for billing state queries
 CREATE INDEX idx_quiz_generation_jobs_billing_state 
@@ -29,5 +29,4 @@ ON quiz_generation_jobs (billing_state);
 
 -- Add index for reservation expiry queries (for sweeper)
 CREATE INDEX idx_quiz_generation_jobs_reservation_expires_at 
-ON quiz_generation_jobs (reservation_expires_at) 
-WHERE reservation_expires_at IS NOT NULL;
+ON quiz_generation_jobs (reservation_expires_at);

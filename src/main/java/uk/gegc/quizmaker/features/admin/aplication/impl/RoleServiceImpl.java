@@ -215,7 +215,9 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.BOOKMARK_DELETE.name(),
                 PermissionName.FOLLOW_CREATE.name(),
                 PermissionName.FOLLOW_DELETE.name(),
-                PermissionName.NOTIFICATION_READ.name()
+                PermissionName.NOTIFICATION_READ.name(),
+                PermissionName.BILLING_READ.name(),
+                PermissionName.BILLING_WRITE.name()
         );
     }
 

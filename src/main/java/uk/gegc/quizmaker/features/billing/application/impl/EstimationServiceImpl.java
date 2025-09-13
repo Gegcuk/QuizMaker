@@ -57,7 +57,20 @@ public class EstimationServiceImpl implements EstimationService {
 
         List<DocumentChunk> chunks = selectChunks(document, request);
         if (chunks.isEmpty()) {
-            log.debug("No chunks matched scope for document {}. Returning zeroed estimate.", documentId);
+            // If ENTIRE_DOCUMENT requested but chunks are empty, align with AI service fallback
+            // and return a minimal non-zero estimate to keep the flow moving.
+            if (request.quizScope() == null || request.quizScope() == QuizScope.ENTIRE_DOCUMENT) {
+                log.warn("No chunks matched ENTIRE_DOCUMENT for {}. Returning minimal non-zero estimate.", documentId);
+                long minimalLlmTokens = 1L;
+                long minimalBillingTokens = Math.max(1L, llmTokensToBillingTokens(minimalLlmTokens));
+                UUID estimationId = UUID.randomUUID();
+                String humanizedEstimate = EstimationDto.createHumanizedEstimate(minimalLlmTokens, minimalBillingTokens, billingProperties.getCurrency());
+                return new EstimationDto(minimalLlmTokens, minimalBillingTokens, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
+            }
+
+            // For scopes that explicitly select nothing (e.g., SPECIFIC_CHUNKS with empty indices),
+            // keep returning a zeroed estimate as before.
+            log.debug("No chunks matched scope {} for document {}. Returning zeroed estimate.", request.quizScope(), documentId);
             long llmZero = 0L;
             long billingZero = llmTokensToBillingTokens(llmZero);
             UUID estimationId = UUID.randomUUID();

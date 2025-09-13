@@ -2,12 +2,19 @@ package uk.gegc.quizmaker.features.billing.api;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionSource;
+import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType;
 import jakarta.validation.Valid;
 import uk.gegc.quizmaker.features.billing.api.dto.*;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
@@ -17,6 +24,7 @@ import com.stripe.model.StripeObject;
 import com.stripe.exception.CardException;
 import com.stripe.exception.StripeException;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Slf4j
@@ -26,13 +34,14 @@ import java.util.UUID;
 @Validated
 public class BillingCheckoutController {
 
+    private final BillingService billingService;
     private final CheckoutReadService checkoutReadService;
     private final StripeService stripeService;
     private final EstimationService estimationService;
     private final RateLimitService rateLimitService;
 
     @GetMapping("/checkout-sessions/{sessionId}")
-    @PreAuthorize("hasAuthority('billing:read')")
+    @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CheckoutSessionStatus> getCheckoutSessionStatus(@PathVariable String sessionId) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
@@ -55,8 +64,68 @@ public class BillingCheckoutController {
         }
     }
 
+    @GetMapping("/balance")
+    @RequirePermission(PermissionName.BILLING_READ)
+    public ResponseEntity<BalanceDto> getBalance() {
+        try {
+            UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
+            
+            // Rate limiting: 60 requests per minute per user
+            rateLimitService.checkRateLimit("billing-balance", currentUserId.toString(), 60);
+            
+            log.debug("Retrieving balance for user: {}", currentUserId);
+            
+            BalanceDto balance = billingService.getBalance(currentUserId);
+            
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "private, max-age=30")
+                    .body(balance);
+        } catch (Exception e) {
+            log.error("Error retrieving balance for user: {}", BillingSecurityUtils.getCurrentUserId(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/transactions")
+    @RequirePermission(PermissionName.BILLING_READ)
+    public ResponseEntity<Page<TransactionDto>> getTransactions(
+            @PageableDefault(size = 20) Pageable pageable,
+            @RequestParam(required = false) TokenTransactionType type,
+            @RequestParam(required = false) TokenTransactionSource source,
+            @RequestParam(required = false) LocalDateTime dateFrom,
+            @RequestParam(required = false) LocalDateTime dateTo) {
+        try {
+            UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
+            
+            // Rate limiting: 30 requests per minute per user
+            rateLimitService.checkRateLimit("billing-transactions", currentUserId.toString(), 30);
+            
+            log.debug("Retrieving transactions for user: {} with filters - type: {}, source: {}, dateFrom: {}, dateTo: {}", 
+                    currentUserId, type, source, dateFrom, dateTo);
+            
+            Page<TransactionDto> transactions = billingService.listTransactions(
+                    currentUserId, pageable, type, source, dateFrom, dateTo);
+            
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "private, max-age=60")
+                    .body(transactions);
+        } catch (Exception e) {
+            log.error("Error retrieving transactions for user: {}", BillingSecurityUtils.getCurrentUserId(), e);
+            
+            // Handle parameter validation errors as 400 Bad Request
+            if (e instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ||
+                e instanceof org.springframework.web.bind.MethodArgumentNotValidException ||
+                e instanceof org.springframework.validation.BindException ||
+                e instanceof org.springframework.web.bind.ServletRequestBindingException) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     @PostMapping("/estimate/quiz-generation")
-    @PreAuthorize("hasAuthority('billing:read')")
+    @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<EstimationDto> estimateQuizGeneration(@Valid @RequestBody GenerateQuizFromDocumentRequest request) {
         try {
             // Rate limiting: 10 requests per minute per user
@@ -78,7 +147,7 @@ public class BillingCheckoutController {
     }
 
     @PostMapping("/create-customer")
-    @PreAuthorize("hasAuthority('billing:write')")
+    @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
@@ -100,7 +169,7 @@ public class BillingCheckoutController {
     }
 
     @GetMapping("/customers/{customerId}")
-    @PreAuthorize("hasAuthority('billing:read')")
+    @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CustomerResponse> getCustomer(@PathVariable String customerId) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
@@ -118,7 +187,7 @@ public class BillingCheckoutController {
     }
 
     @PostMapping("/create-subscription")
-    @PreAuthorize("hasAuthority('billing:write')")
+    @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<SubscriptionResponse> createSubscription(@Valid @RequestBody CreateSubscriptionRequest request) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
@@ -145,7 +214,7 @@ public class BillingCheckoutController {
     }
 
     @PostMapping("/update-subscription")
-    @PreAuthorize("hasAuthority('billing:write')")
+    @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> updateSubscription(@Valid @RequestBody UpdateSubscriptionRequest request) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
@@ -166,7 +235,7 @@ public class BillingCheckoutController {
     }
 
     @PostMapping("/cancel-subscription")
-    @PreAuthorize("hasAuthority('billing:write')")
+    @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> cancelSubscription(@Valid @RequestBody CancelSubscriptionRequest request) {
         try {
             UUID currentUserId = BillingSecurityUtils.getCurrentUserId();

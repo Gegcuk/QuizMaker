@@ -71,6 +71,10 @@ public enum PermissionName {
     PERMISSION_UPDATE("permission", "update", "Update permissions"),
     PERMISSION_DELETE("permission", "delete", "Delete permissions"),
 
+    // Billing Permissions
+    BILLING_READ("billing", "read", "View billing information and balance"),
+    BILLING_WRITE("billing", "write", "Manage billing operations and purchases"),
+
     // System Permissions
     AUDIT_READ("audit", "read", "View audit logs"),
     SYSTEM_ADMIN("system", "admin", "Full system administration"),

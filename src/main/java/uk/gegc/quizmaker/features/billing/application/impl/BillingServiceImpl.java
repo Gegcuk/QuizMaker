@@ -66,7 +66,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:read')")
+    @PreAuthorize("hasAuthority('BILLING_READ')")
     public BalanceDto getBalance(UUID userId) {
         var balance = balanceRepository.findByUserId(userId).orElseGet(() -> {
             var b = new Balance();
@@ -80,7 +80,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional(readOnly = true)
-    @PreAuthorize("hasAuthority('billing:read')")
+    @PreAuthorize("hasAuthority('BILLING_READ')")
     public Page<TransactionDto> listTransactions(UUID userId,
                                                  Pageable pageable,
                                                  TokenTransactionType type,
@@ -94,7 +94,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReservationDto reserve(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
         if (estimatedBillingTokens <= 0) {
             throw new IllegalArgumentException("estimatedBillingTokens must be > 0");
@@ -143,7 +143,15 @@ public class BillingServiceImpl implements BillingService {
                 long reserved = balance.getReservedTokens();
 
                 if (available < estimatedBillingTokens) {
-                    throw new InsufficientTokensException("Not enough tokens to reserve: required=" + estimatedBillingTokens + ", available=" + available);
+                    long shortfall = estimatedBillingTokens - available;
+                    LocalDateTime reservationTtl = LocalDateTime.now().plusMinutes(billingProperties.getReservationTtlMinutes());
+                    throw new InsufficientTokensException(
+                        "Not enough tokens to reserve: required=" + estimatedBillingTokens + ", available=" + available,
+                        estimatedBillingTokens,
+                        available,
+                        shortfall,
+                        reservationTtl
+                    );
                 }
 
                 // Move available -> reserved
@@ -210,7 +218,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public CommitResultDto commit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
         if (actualBillingTokens <= 0) {
             throw new IllegalArgumentException("actualBillingTokens must be > 0");
@@ -314,7 +322,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {

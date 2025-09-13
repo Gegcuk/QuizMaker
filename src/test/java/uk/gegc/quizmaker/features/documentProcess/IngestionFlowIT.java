@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test-mysql")
+@ActiveProfiles("test")
 @DirtiesContext(classMode = AFTER_CLASS)
 @WithMockUser(username = "defaultUser", roles = "ADMIN")
 @DisplayName("Document Process Integration Tests")

@@ -77,6 +77,13 @@ public record QuizGenerationStatus(
      * Create a status DTO from a QuizGenerationJob entity
      */
     public static QuizGenerationStatus fromEntity(QuizGenerationJob job) {
+        return fromEntity(job, false);
+    }
+
+    /**
+     * Create a status DTO from a QuizGenerationJob entity with billing fields conditionally exposed
+     */
+    public static QuizGenerationStatus fromEntity(QuizGenerationJob job, boolean includeBillingFields) {
         return new QuizGenerationStatus(
                 job.getId().toString(),
                 job.getStatus(),
@@ -92,13 +99,14 @@ public record QuizGenerationStatus(
                 job.getGeneratedQuizId() != null ? job.getGeneratedQuizId().toString() : null,
                 job.getStartedAt(),
                 job.getCompletedAt(),
-                job.getBillingReservationId() != null ? job.getBillingReservationId().toString() : null,
-                job.getReservationExpiresAt(),
-                job.getBillingEstimatedTokens(),
-                job.getBillingCommittedTokens(),
-                job.getBillingState() != null ? job.getBillingState().name() : null,
-                job.getInputPromptTokens(),
-                job.getEstimationVersion()
+                // Conditionally expose billing fields
+                includeBillingFields && job.getBillingReservationId() != null ? job.getBillingReservationId().toString() : null,
+                includeBillingFields ? job.getReservationExpiresAt() : null,
+                includeBillingFields ? job.getBillingEstimatedTokens() : null,
+                includeBillingFields ? job.getBillingCommittedTokens() : null,
+                includeBillingFields && job.getBillingState() != null ? job.getBillingState().name() : null,
+                includeBillingFields ? job.getInputPromptTokens() : null,
+                includeBillingFields ? job.getEstimationVersion() : null
         );
     }
 

@@ -21,7 +21,7 @@ public interface TokenTransactionRepository extends JpaRepository<TokenTransacti
           and (:type is null or t.type = :type)
           and (:source is null or t.source = :source)
           and (:dateFrom is null or t.createdAt >= :dateFrom)
-          and (:dateTo is null or t.createdAt < :dateTo)
+          and (:dateTo is null or t.createdAt <= :dateTo)
         order by t.createdAt desc
     """)
     Page<TokenTransaction> findByFilters(

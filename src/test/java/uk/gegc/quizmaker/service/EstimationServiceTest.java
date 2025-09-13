@@ -325,9 +325,9 @@ class EstimationServiceTest {
 
         EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
 
-        assertEquals("No tokens required", result.humanizedEstimate());
-        assertEquals(0, result.estimatedLlmTokens());
-        assertEquals(0, result.estimatedBillingTokens());
+        assertEquals("~1 billing token (1 LLM token)", result.humanizedEstimate());
+        assertEquals(1, result.estimatedLlmTokens());
+        assertEquals(1, result.estimatedBillingTokens());
     }
 
     @Test

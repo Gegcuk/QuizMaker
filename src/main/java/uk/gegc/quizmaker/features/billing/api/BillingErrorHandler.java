@@ -6,6 +6,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
@@ -13,6 +14,7 @@ import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensExc
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -106,6 +108,23 @@ public class BillingErrorHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        log.warn("Type mismatch error: {}", ex.getMessage());
+        
+        String param = ex.getName();
+        Class<?> type = ex.getRequiredType();
+        String requiredType = (type != null ? type.getSimpleName() : "unknown");
+        String detail = "Invalid value for parameter '" + param + "'. Expected type: " + requiredType + ".";
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, detail);
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/type-mismatch"));
+        problemDetail.setTitle("Type Mismatch Error");
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException ex) {
         log.warn("Illegal argument: {}", ex.getMessage());
@@ -116,6 +135,18 @@ public class BillingErrorHandler {
         problemDetail.setTitle("Invalid Argument");
         
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ProblemDetail> handleForbidden(ForbiddenException ex) {
+        log.warn("Forbidden access: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.FORBIDDEN, ex.getMessage());
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/forbidden"));
+        problemDetail.setTitle("Forbidden");
+        
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail);
     }
 
     @ExceptionHandler(IllegalStateException.class)

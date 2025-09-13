@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.billing.domain.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.springframework.data.annotation.CreatedDate;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -47,6 +48,14 @@ public class TokenTransaction {
     @Column(name = "balance_after_reserved")
     private Long balanceAfterReserved;
 
-    @Column(name = "created_at", updatable = false, insertable = false)
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @PrePersist
+    void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
+    }
 }

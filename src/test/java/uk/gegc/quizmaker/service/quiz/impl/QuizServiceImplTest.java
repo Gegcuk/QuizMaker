@@ -28,12 +28,19 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
+import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
+import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
@@ -73,6 +80,14 @@ class QuizServiceImplTest {
     private AiQuizGenerationService aiQuizGenerationService;
     @Mock
     private QuizGenerationJobService jobService;
+    @Mock
+    private QuizGenerationJobRepository jobRepository;
+    @Mock
+    private EstimationService estimationService;
+    @Mock
+    private BillingService billingService;
+    @Mock
+    private FeatureFlags featureFlags;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -407,7 +422,6 @@ class QuizServiceImplTest {
         documentDto.setProcessedAt(LocalDateTime.now());
         documentDto.setTotalChunks(3);
 
-        QuizGenerationResponse expectedResponse = QuizGenerationResponse.started(jobId, 60L);
 
         // Mock document processing
         when(documentProcessingService.uploadAndProcessDocument(
@@ -421,6 +435,34 @@ class QuizServiceImplTest {
         User testUser = createTestUser();
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
 
+        // Mock estimation service
+        EstimationDto mockEstimation = new EstimationDto(
+                1000L, // estimatedLlmTokens
+                100L,  // estimatedBillingTokens
+                null,  // approxCostCents
+                "USD", // currency
+                true,  // estimate
+                "~100 billing tokens (1,000 LLM tokens)", // humanizedEstimate
+                UUID.randomUUID() // estimationId
+        );
+        when(estimationService.estimateQuizGeneration(eq(documentId), any(GenerateQuizFromDocumentRequest.class)))
+                .thenReturn(mockEstimation);
+
+        // Mock billing service
+        ReservationDto mockReservation = new ReservationDto(
+                UUID.randomUUID(), // id
+                testUser.getId(),   // userId
+                ReservationState.ACTIVE, // state
+                100L,              // estimatedTokens
+                100L,              // committedTokens
+                LocalDateTime.now().plusMinutes(30), // expiresAt
+                null,              // jobId
+                LocalDateTime.now(), // createdAt
+                LocalDateTime.now()  // updatedAt
+        );
+        when(billingService.reserve(eq(testUser.getId()), eq(100L), eq("quiz-generation"), anyString()))
+                .thenReturn(mockReservation);
+
         // Mock chunk verification and generation start
         when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class)))
                 .thenReturn(3);
@@ -433,8 +475,8 @@ class QuizServiceImplTest {
         when(jobService.createJob(eq(testUser), eq(documentId), anyString(), eq(3), eq(60)))
                 .thenReturn(mockJob);
 
-        // Mock active jobs check
-        when(jobService.getActiveJobs()).thenReturn(List.of());
+        // Mock job repository save
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(mockJob);
 
         // When
         QuizGenerationResponse result = quizService.generateQuizFromText(username, request);

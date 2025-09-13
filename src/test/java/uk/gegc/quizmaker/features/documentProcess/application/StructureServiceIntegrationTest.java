@@ -28,11 +28,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
-@ActiveProfiles("test-mysql")
+@ActiveProfiles("test")
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create",
-        "spring.flyway.enabled=false"
+        "spring.jpa.hibernate.ddl-auto=create"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class StructureServiceIntegrationTest {
 
     @Autowired
