@@ -14,4 +14,11 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     Page<Question> findAllByQuizId_Id(UUID quizId, Pageable page);
     
     Page<Question> findAllByQuizId_IdIn(List<UUID> quizIds, Pageable page);
+    
+    // Methods for validating question-quiz membership from Question side
+    boolean existsByIdAndQuizId_Id(UUID questionId, UUID quizId);
+    
+    long countByQuizId_Id(UUID quizId);
+    
+    List<Question> findAllByQuizId_IdOrderById(UUID quizId);
 }

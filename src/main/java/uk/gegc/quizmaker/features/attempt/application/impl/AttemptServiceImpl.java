@@ -80,7 +80,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         Attempt saved = attemptRepository.saveAndFlush(attempt);
 
-        int totalQuestions = quiz.getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(quiz.getId());
         Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
                 ? quiz.getTimerDuration()
                 : null;
@@ -124,7 +124,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         Attempt saved = attemptRepository.saveAndFlush(attempt);
 
-        int totalQuestions = quiz.getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(quiz.getId());
         Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
                 ? quiz.getTimerDuration()
                 : null;
@@ -196,10 +196,8 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Can only get current question for attempts that are in progress");
         }
 
-        // Get all questions for the quiz and convert to sorted list for consistent ordering
-        List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                .sorted(Comparator.comparing(Question::getId))
-                .collect(Collectors.toList());
+        // Get all questions for the quiz from Question side
+        List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
         int totalQuestions = allQuestions.size();
         
         if (totalQuestions == 0) {
@@ -252,10 +250,8 @@ public class AttemptServiceImpl implements AttemptService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Question " + request.questionId() + " not found"));
 
-        // ensure question belongs to quiz
-        boolean belongs = attempt.getQuiz().getQuestions().stream()
-                .map(Question::getId)
-                .anyMatch(id -> id.equals(question.getId()));
+        // ensure question belongs to quiz - check from Question side
+        boolean belongs = questionRepository.existsByIdAndQuizId_Id(question.getId(), attempt.getQuiz().getId());
         if (!belongs) {
             throw new ResourceNotFoundException(
                     "Question " + question.getId() + " is not part of Quiz " +
@@ -264,10 +260,8 @@ public class AttemptServiceImpl implements AttemptService {
 
         // For ONE_BY_ONE mode, enforce sequential question submission
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            // Get all questions for the quiz and convert to sorted list for consistent ordering
-            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                    .sorted(Comparator.comparing(Question::getId))
-                    .collect(Collectors.toList());
+            // Get all questions for the quiz from Question side
+            List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
@@ -304,10 +298,8 @@ public class AttemptServiceImpl implements AttemptService {
         var baseDto = answerMapper.toDto(answer);
         QuestionForAttemptDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            // Get all questions for the quiz and convert to sorted list for consistent ordering
-            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                    .sorted(Comparator.comparing(Question::getId))
-                    .collect(Collectors.toList());
+            // Get all questions for the quiz from Question side
+            List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
@@ -363,7 +355,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         double totalScore = scoringService.computeAndPersistScore(attempt);
         long correctCount = scoringService.countCorrect(attempt);
-        int totalQ = attempt.getQuiz().getQuestions().size();
+        int totalQ = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         attempt.setStatus(AttemptStatus.COMPLETED);
         attempt.setCompletedAt(Instant.now());
@@ -399,7 +391,7 @@ public class AttemptServiceImpl implements AttemptService {
                     long correct = a.getAnswers().stream()
                             .filter(ans -> Boolean.TRUE.equals(ans.getIsCorrect()))
                             .count();
-                    int totalQ = quiz.getQuestions().size();
+                    int totalQ = (int) questionRepository.countByQuizId_Id(quiz.getId());
                     return totalQ > 0 && ((double) correct / totalQ) >= 0.5;
                 })
                 .count();
@@ -407,7 +399,7 @@ public class AttemptServiceImpl implements AttemptService {
                 ? ((double) passing / attemptsCount) * 100.0
                 : 0.0;
 
-        List<QuestionStatsDto> questionStats = quiz.getQuestions().stream()
+        List<QuestionStatsDto> questionStats = questionRepository.findAllByQuizId_IdOrderById(quiz.getId()).stream()
                 .map(q -> {
                     UUID qid = q.getId();
                     long asked = completed.stream()
@@ -465,7 +457,7 @@ public class AttemptServiceImpl implements AttemptService {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        List<Question> questions = new ArrayList<>(quiz.getQuestions());
+        List<Question> questions = questionRepository.findAllByQuizId_IdOrderById(quizId);
         Collections.shuffle(questions);
 
         return safeQuestionMapper.toSafeDtoList(questions);
@@ -482,7 +474,7 @@ public class AttemptServiceImpl implements AttemptService {
                 : Duration.ZERO;
 
         int questionsAnswered = attempt.getAnswers().size();
-        int totalQuestions = attempt.getQuiz().getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
         long correctAnswers = attempt.getAnswers().stream()
                 .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
                 .count();
