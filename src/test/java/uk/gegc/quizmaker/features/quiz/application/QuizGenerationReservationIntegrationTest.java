@@ -12,6 +12,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.quiz.api.QuizController;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
@@ -19,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobReposi
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
@@ -65,6 +67,12 @@ class QuizGenerationReservationIntegrationTest {
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
+
+    @MockitoBean
+    private ModerationService moderationService;
+
+    @MockitoBean
+    private UserRepository userRepository;
 
     private GenerateQuizFromDocumentRequest testRequest;
     private UUID documentId;
