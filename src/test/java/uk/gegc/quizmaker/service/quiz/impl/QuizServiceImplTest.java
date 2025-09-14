@@ -33,7 +33,11 @@ import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
@@ -47,6 +51,7 @@ import uk.gegc.quizmaker.shared.exception.ValidationException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.HashSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -88,9 +93,79 @@ class QuizServiceImplTest {
     private BillingService billingService;
     @Mock
     private FeatureFlags featureFlags;
+    @Mock
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks
     private QuizServiceImpl quizService;
+
+    private User adminUser;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        adminUser = createAdminUser();
+        setupUserRepositoryMock();
+        setupPermissionEvaluatorMock();
+    }
+
+    private User createAdminUser() {
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setUsername("admin");
+        user.setEmail("admin@example.com");
+        user.setActive(true);
+        user.setDeleted(false);
+        user.setEmailVerified(true);
+        
+        // Create an admin role with full permissions
+        Role role = new Role();
+        role.setRoleId(1L);
+        role.setRoleName("ROLE_ADMIN");
+        role.setDescription("Administrator role");
+        
+        // Create permissions for the admin role
+        Set<Permission> permissions = new HashSet<>();
+        
+        Permission quizModerate = new Permission();
+        quizModerate.setPermissionId(1L);
+        quizModerate.setPermissionName("QUIZ_MODERATE");
+        quizModerate.setResource("quiz");
+        quizModerate.setAction("moderate");
+        permissions.add(quizModerate);
+        
+        Permission quizAdmin = new Permission();
+        quizAdmin.setPermissionId(2L);
+        quizAdmin.setPermissionName("QUIZ_ADMIN");
+        quizAdmin.setResource("quiz");
+        quizAdmin.setAction("admin");
+        permissions.add(quizAdmin);
+        
+        role.setPermissions(permissions);
+        
+        Set<Role> roles = new HashSet<>();
+        roles.add(role);
+        user.setRoles(roles);
+        
+        return user;
+    }
+
+    private void setupUserRepositoryMock() {
+        lenient().when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        lenient().when(userRepository.findByEmail("admin")).thenReturn(Optional.empty());
+        lenient().when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(createTestUser()));
+        lenient().when(userRepository.findByEmail("testuser")).thenReturn(Optional.empty());
+    }
+
+    private void setupPermissionEvaluatorMock() {
+        // By default, admin user has all permissions
+        lenient().when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class)))
+                .thenReturn(true);
+        
+        // For testuser, provide basic permissions
+        User testUser = createTestUser();
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), any(PermissionName.class)))
+                .thenReturn(false);
+    }
 
     @Test
     @DisplayName("setStatus: Publishing quiz without questions should throw IllegalArgumentException")
@@ -355,6 +430,23 @@ class QuizServiceImplTest {
         user.setId(UUID.randomUUID());
         user.setUsername("testuser");
         user.setEmail("test@example.com");
+        user.setActive(true);
+        user.setDeleted(false);
+        user.setEmailVerified(true);
+        
+        // Create a basic role with minimal permissions
+        Role role = new Role();
+        role.setRoleId(2L);
+        role.setRoleName("ROLE_USER");
+        role.setDescription("Basic user role");
+        
+        Set<Permission> permissions = new HashSet<>();
+        role.setPermissions(permissions);
+        
+        Set<Role> roles = new HashSet<>();
+        roles.add(role);
+        user.setRoles(roles);
+        
         return user;
     }
 

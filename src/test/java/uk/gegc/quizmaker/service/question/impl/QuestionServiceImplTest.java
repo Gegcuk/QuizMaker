@@ -26,14 +26,25 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.HashSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,16 +68,107 @@ class QuestionServiceImplTest {
     private QuestionHandlerFactory factory;
     @Mock
     private QuestionHandler handler;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks
     private QuestionServiceImpl questionService;
 
     private ObjectMapper objectMapper;
+    private User testUser;
 
     @BeforeEach
     void setUp() {
         lenient().when(factory.getHandler(any())).thenReturn(handler);
         objectMapper = new ObjectMapper();
+        testUser = createTestUser();
+        setupUserRepositoryMock();
+        setupPermissionEvaluatorMock();
+    }
+
+    private User createTestUser() {
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setUsername(DUMMY_USER);
+        user.setEmail("test@example.com");
+        user.setActive(true);
+        user.setDeleted(false);
+        user.setEmailVerified(true);
+        
+        // Create a basic role with minimal permissions
+        Role role = new Role();
+        role.setRoleId(1L);
+        role.setRoleName("ROLE_USER");
+        role.setDescription("Basic user role");
+        
+        // Create permissions for the role
+        Permission permission1 = new Permission();
+        permission1.setPermissionId(1L);
+        permission1.setPermissionName("QUESTION_CREATE");
+        permission1.setResource("question");
+        permission1.setAction("create");
+        
+        Permission permission2 = new Permission();
+        permission2.setPermissionId(2L);
+        permission2.setPermissionName("QUESTION_UPDATE");
+        permission2.setResource("question");
+        permission2.setAction("update");
+        
+        Permission permission3 = new Permission();
+        permission3.setPermissionId(3L);
+        permission3.setPermissionName("QUESTION_DELETE");
+        permission3.setResource("question");
+        permission3.setAction("delete");
+        
+        Set<Permission> permissions = new HashSet<>();
+        permissions.add(permission1);
+        permissions.add(permission2);
+        permissions.add(permission3);
+        
+        role.setPermissions(permissions);
+        
+        Set<Role> roles = new HashSet<>();
+        roles.add(role);
+        user.setRoles(roles);
+        
+        return user;
+    }
+
+    private void setupUserRepositoryMock() {
+        lenient().when(userRepository.findByUsername(DUMMY_USER)).thenReturn(Optional.of(testUser));
+        lenient().when(userRepository.findByEmail(DUMMY_USER)).thenReturn(Optional.empty());
+    }
+
+    private void setupPermissionEvaluatorMock() {
+        // By default, user has basic permissions
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), any(PermissionName.class)))
+                .thenReturn(false);
+        
+        // Allow basic question operations
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), eq(PermissionName.QUESTION_CREATE)))
+                .thenReturn(true);
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), eq(PermissionName.QUESTION_UPDATE)))
+                .thenReturn(true);
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), eq(PermissionName.QUESTION_DELETE)))
+                .thenReturn(true);
+    }
+
+    private Quiz createTestQuiz(UUID quizId, User creator) {
+        Quiz quiz = new Quiz();
+        quiz.setId(quizId);
+        quiz.setCreator(creator);
+        quiz.setTitle("Test Quiz");
+        quiz.setDescription("Test Description");
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        quiz.setDifficulty(Difficulty.EASY);
+        quiz.setEstimatedTime(30);
+        quiz.setIsRepetitionEnabled(false);
+        quiz.setIsTimerEnabled(false);
+        quiz.setIsDeleted(false);
+        return quiz;
     }
 
     @Test
@@ -103,7 +205,7 @@ class QuestionServiceImplTest {
         req.setContent(objectMapper.createObjectNode().put("answer", true));
         req.setQuizIds(List.of(badQuiz));
 
-        when(quizRepository.findAllById(List.of(badQuiz))).thenReturn(Collections.emptyList());
+        lenient().when(quizRepository.findAllById(List.of(badQuiz))).thenReturn(Collections.emptyList());
 
         assertThatThrownBy(() -> questionService.createQuestion(DUMMY_USER, req))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -116,7 +218,11 @@ class QuestionServiceImplTest {
     void listQuestions_withQuizId_delegatesToRepo() {
         UUID quizId = UUID.randomUUID();
         Pageable page = PageRequest.of(0, 10);
-
+        
+        // Create a test quiz owned by the test user
+        Quiz testQuiz = createTestQuiz(quizId, testUser);
+        
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(testQuiz));
         when(questionRepository.findAllByQuizId_Id(eq(quizId), eq(page)))
                 .thenReturn(new PageImpl<>(List.of(new Question())));
 
@@ -142,6 +248,11 @@ class QuestionServiceImplTest {
         Question existing = new Question();
         existing.setId(id);
 
+        // Create a test quiz owned by the test user and associate it with the question
+        UUID quizId = UUID.randomUUID();
+        Quiz testQuiz = createTestQuiz(quizId, testUser);
+        existing.setQuizId(List.of(testQuiz));
+
         UpdateQuestionRequest updateQuestionRequest = new UpdateQuestionRequest();
         updateQuestionRequest.setType(QuestionType.TRUE_FALSE);
         updateQuestionRequest.setDifficulty(Difficulty.EASY);
@@ -164,6 +275,12 @@ class QuestionServiceImplTest {
         UUID id = UUID.randomUUID();
         var q = new Question();
         q.setId(id);
+
+        // Create a test quiz owned by the test user and associate it with the question
+        UUID quizId = UUID.randomUUID();
+        Quiz testQuiz = createTestQuiz(quizId, testUser);
+        q.setQuizId(List.of(testQuiz));
+
         when(questionRepository.findById(id)).thenReturn(Optional.of(q));
 
         questionService.deleteQuestion(DUMMY_USER, id);
@@ -175,7 +292,7 @@ class QuestionServiceImplTest {
     @DisplayName("deleteQuestion: missing should throw ResourceNotFoundException")
     void deleteQuestion_notFound_throws404() {
         UUID id = UUID.randomUUID();
-        when(questionRepository.findById(id)).thenReturn(Optional.empty());
+        lenient().when(questionRepository.findById(id)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> questionService.deleteQuestion(DUMMY_USER, id))
                 .isInstanceOf(ResourceNotFoundException.class);
@@ -236,6 +353,11 @@ class QuestionServiceImplTest {
         var existing = new Question();
         existing.setId(id);
 
+        // Create a test quiz owned by the test user and associate it with the question
+        UUID quizId = UUID.randomUUID();
+        Quiz testQuiz = createTestQuiz(quizId, testUser);
+        existing.setQuizId(List.of(testQuiz));
+
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
         Tag tag = new Tag();
         tag.setId(tagId);
@@ -262,6 +384,11 @@ class QuestionServiceImplTest {
         UUID id = UUID.randomUUID(), badTag = UUID.randomUUID();
         var existing = new Question();
         existing.setId(id);
+
+        // Create a test quiz owned by the test user and associate it with the question
+        UUID quizId = UUID.randomUUID();
+        Quiz testQuiz = createTestQuiz(quizId, testUser);
+        existing.setQuizId(List.of(testQuiz));
 
         when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
         when(tagRepository.findAllById(List.of(badTag))).thenReturn(Collections.emptyList());
