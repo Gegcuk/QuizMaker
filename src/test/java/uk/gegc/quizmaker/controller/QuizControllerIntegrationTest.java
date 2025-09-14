@@ -10,7 +10,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
@@ -34,11 +33,19 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,6 +56,9 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,7 +67,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=create"
 })
-@WithMockUser(username = "defaultUser", roles = "ADMIN")
 @DisplayName("Integration Tests QuizController")
 class QuizControllerIntegrationTest {
 
@@ -79,45 +88,132 @@ class QuizControllerIntegrationTest {
     AttemptRepository attemptRepository;
     @Autowired
     JdbcTemplate jdbcTemplate;
+    @Autowired
+    PermissionRepository permissionRepository;
+    @Autowired
+    RoleRepository roleRepository;
 
     private UUID categoryId;
     private UUID tagId;
     private UUID questionId;
+    private UserDetails adminUserDetails;
+    private UserDetails regularUserDetails;
+    private User adminUser;
+    private User regularUser;
 
     @BeforeEach
     void setUp() {
+        // Clean up database
         jdbcTemplate.execute("DELETE FROM answers");
         jdbcTemplate.execute("DELETE FROM attempts");
         jdbcTemplate.execute("DELETE FROM quiz_questions");
         jdbcTemplate.execute("DELETE FROM quiz_tags");
         jdbcTemplate.execute("DELETE FROM question_tags");
         jdbcTemplate.execute("DELETE FROM quizzes");
+        jdbcTemplate.execute("DELETE FROM user_roles");
+        jdbcTemplate.execute("DELETE FROM users");
+        jdbcTemplate.execute("DELETE FROM categories");
+        jdbcTemplate.execute("DELETE FROM role_permissions");
+        jdbcTemplate.execute("DELETE FROM roles");
+        jdbcTemplate.execute("DELETE FROM permissions");
 
         questionRepository.deleteAllInBatch();
         tagRepository.deleteAllInBatch();
         categoryRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
+        roleRepository.deleteAllInBatch();
+        permissionRepository.deleteAllInBatch();
 
-        User defaultUser = new User();
-        defaultUser.setUsername("defaultUser");
-        defaultUser.setEmail("def@ex.com");
-        defaultUser.setHashedPassword("pw");
-        defaultUser.setActive(true);
-        defaultUser.setDeleted(false);
-        userRepository.save(defaultUser);
+        // Create permissions
+        Permission quizCreatePermission = new Permission();
+        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
+        quizCreatePermission = permissionRepository.save(quizCreatePermission);
 
+        Permission quizReadPermission = new Permission();
+        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
+        quizReadPermission = permissionRepository.save(quizReadPermission);
+
+        Permission quizUpdatePermission = new Permission();
+        quizUpdatePermission.setPermissionName(PermissionName.QUIZ_UPDATE.name());
+        quizUpdatePermission = permissionRepository.save(quizUpdatePermission);
+
+        Permission quizDeletePermission = new Permission();
+        quizDeletePermission.setPermissionName(PermissionName.QUIZ_DELETE.name());
+        quizDeletePermission = permissionRepository.save(quizDeletePermission);
+
+        Permission quizModeratePermission = new Permission();
+        quizModeratePermission.setPermissionName(PermissionName.QUIZ_MODERATE.name());
+        quizModeratePermission = permissionRepository.save(quizModeratePermission);
+
+        Permission quizAdminPermission = new Permission();
+        quizAdminPermission.setPermissionName(PermissionName.QUIZ_ADMIN.name());
+        quizAdminPermission = permissionRepository.save(quizAdminPermission);
+
+        Permission questionCreatePermission = new Permission();
+        questionCreatePermission.setPermissionName(PermissionName.QUESTION_CREATE.name());
+        questionCreatePermission = permissionRepository.save(questionCreatePermission);
+
+        Permission questionReadPermission = new Permission();
+        questionReadPermission.setPermissionName(PermissionName.QUESTION_READ.name());
+        questionReadPermission = permissionRepository.save(questionReadPermission);
+
+        Permission categoryReadPermission = new Permission();
+        categoryReadPermission.setPermissionName(PermissionName.CATEGORY_READ.name());
+        categoryReadPermission = permissionRepository.save(categoryReadPermission);
+
+        Permission tagReadPermission = new Permission();
+        tagReadPermission.setPermissionName(PermissionName.TAG_READ.name());
+        tagReadPermission = permissionRepository.save(tagReadPermission);
+
+        // Create roles
+        Role adminRole = new Role();
+        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
+        adminRole.setPermissions(Set.of(
+                quizCreatePermission, quizReadPermission, quizUpdatePermission, 
+                quizDeletePermission, quizModeratePermission, quizAdminPermission,
+                questionCreatePermission, questionReadPermission, categoryReadPermission, tagReadPermission
+        ));
+        adminRole = roleRepository.save(adminRole);
+
+        Role userRole = new Role();
+        userRole.setRoleName(RoleName.ROLE_USER.name());
+        userRole.setPermissions(Set.of(quizReadPermission, questionReadPermission, categoryReadPermission, tagReadPermission));
+        userRole = roleRepository.save(userRole);
+
+        // Create test users with roles
+        adminUser = new User();
+        adminUser.setUsername("admin");
+        adminUser.setEmail("admin@example.com");
+        adminUser.setHashedPassword("password");
+        adminUser.setActive(true);
+        adminUser.setDeleted(false);
+        adminUser.setRoles(Set.of(adminRole));
+        adminUser = userRepository.save(adminUser);
+
+        regularUser = new User();
+        regularUser.setUsername("user");
+        regularUser.setEmail("user@example.com");
+        regularUser.setHashedPassword("password");
+        regularUser.setActive(true);
+        regularUser.setDeleted(false);
+        regularUser.setRoles(Set.of(userRole));
+        regularUser = userRepository.save(regularUser);
+
+        // Create default category
         Category c = new Category();
         c.setName("General");
         c.setDescription("Default");
         categoryRepository.save(c);
         categoryId = c.getId();
 
+        // Create default tag
         Tag t = new Tag();
         t.setName("tag-one");
         t.setDescription("desc");
         tagRepository.save(t);
         tagId = t.getId();
 
+        // Create default question
         Question q = new Question();
         q.setType(QuestionType.MCQ_SINGLE);
         q.setDifficulty(Difficulty.EASY);
@@ -127,6 +223,38 @@ class QuizControllerIntegrationTest {
         q.setExplanation("explanation");
         questionRepository.save(q);
         questionId = q.getId();
+
+        // Create UserDetails objects with proper authorities
+        adminUserDetails = createUserDetails(adminUser);
+        regularUserDetails = createUserDetails(regularUser);
+    }
+
+    private UserDetails createUserDetails(User user) {
+        List<GrantedAuthority> authorities = user.getRoles()
+                .stream()
+                .flatMap(role -> {
+                    // Add role authority
+                    var roleAuthority = new SimpleGrantedAuthority(role.getRoleName());
+                    // Add permission authorities
+                    var permissionAuthorities = role.getPermissions().stream()
+                            .map(permission -> new SimpleGrantedAuthority(permission.getPermissionName()));
+                    return Stream.concat(
+                            Stream.of(roleAuthority),
+                            permissionAuthorities
+                    );
+                })
+                .map(authority -> (GrantedAuthority) authority)
+                .toList();
+        
+        return new org.springframework.security.core.userdetails.User(
+                user.getUsername(),
+                user.getHashedPassword(),
+                user.isActive(),
+                true,
+                true,
+                true,
+                authorities
+        );
     }
 
     @Test
@@ -145,7 +273,8 @@ class QuizControllerIntegrationTest {
 
         String body = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson))
+                        .content(createJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.quizId").exists())
                 .andReturn().getResponse().getContentAsString();
@@ -154,12 +283,15 @@ class QuizControllerIntegrationTest {
 
         // --- 2) GET list, should contain 1 ---
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("page", "0").param("size", "20"))
+                        .param("page", "0").param("size", "20")
+                        .param("scope", "me")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)));
 
         // --- 3) GET by id ---
-        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is(quizId.toString())))
                 .andExpect(jsonPath("$.title", is("My Quiz")))
@@ -175,22 +307,27 @@ class QuizControllerIntegrationTest {
         );
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(update)))
+                        .content(objectMapper.writeValueAsString(update))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title", is("New Title")))
                 .andExpect(jsonPath("$.estimatedTime", is(15)))
                 .andExpect(jsonPath("$.timerDuration", is(3)));
 
         // --- 5) Add and remove question ---
-        mockMvc.perform(post("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(delete("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId))
+        mockMvc.perform(delete("/api/v1/quizzes/{q}/questions/{ques}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         // --- 6) Add and remove tag ---
-        mockMvc.perform(post("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId))
+        mockMvc.perform(post("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(delete("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId))
+        mockMvc.perform(delete("/api/v1/quizzes/{q}/tags/{t}", quizId, tagId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         // --- 7) Change category ---
@@ -199,15 +336,19 @@ class QuizControllerIntegrationTest {
         c2.setDescription("other");
         categoryRepository.save(c2);
 
-        mockMvc.perform(patch("/api/v1/quizzes/{q}/category/{c}", quizId, c2.getId()))
+        mockMvc.perform(patch("/api/v1/quizzes/{q}/category/{c}", quizId, c2.getId())
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(jsonPath("$.categoryId", is(c2.getId().toString())));
 
         // --- 8) Delete quiz ---
-        mockMvc.perform(delete("/api/v1/quizzes/{id}", quizId))
+        mockMvc.perform(delete("/api/v1/quizzes/{id}", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{id}", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -227,7 +368,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.quizId").exists());
     }
@@ -247,7 +389,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Title must not be blank"))));
     }
@@ -268,7 +411,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
     }
@@ -290,7 +434,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
     }
@@ -313,7 +458,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Description must be at most 1000 characters long"
@@ -336,7 +482,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Estimated time can't be less than 1 minute"
@@ -359,7 +506,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Estimated time can't be more than 180 minutes"
@@ -382,7 +530,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Timer duration must be at least 1 minute"
@@ -405,7 +554,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Timer duration must be at most 180 minutes"
@@ -430,7 +580,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details", hasItem(containsString(
                         "Tag " + badTag + " not found"
@@ -463,7 +614,9 @@ class QuizControllerIntegrationTest {
     void listQuizzes_emptyDb_returnsEmptyPage() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("page", "0")
-                        .param("size", "20"))
+                        .param("size", "20")
+                        .param("scope", "public")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(0)))
                 .andExpect(jsonPath("$.content", hasSize(0)));
@@ -484,13 +637,16 @@ class QuizControllerIntegrationTest {
             );
             mockMvc.perform(post("/api/v1/quizzes")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(req)))
+                            .content(objectMapper.writeValueAsString(req))
+                            .with(user(adminUserDetails)))
                     .andExpect(status().isCreated());
         }
 
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("page", "1")
-                        .param("size", "5"))
+                        .param("size", "5")
+                        .param("scope", "me")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(12)))
                 .andExpect(jsonPath("$.size", is(5)))
@@ -502,7 +658,9 @@ class QuizControllerIntegrationTest {
     void listQuizzes_negativePage_returns200() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("page", "-1")
-                        .param("size", "5"))
+                        .param("size", "5")
+                        .param("scope", "public")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(0)))
                 .andExpect(jsonPath("$.size", is(5)))
@@ -516,7 +674,8 @@ class QuizControllerIntegrationTest {
     void getNonexistingQuiz_returns404() throws Exception {
         UUID dummyId = UUID.randomUUID();
 
-        mockMvc.perform(get("/api/v1/quizzes/{id}", dummyId))
+        mockMvc.perform(get("/api/v1/quizzes/{id}", dummyId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -534,7 +693,8 @@ class QuizControllerIntegrationTest {
         String createJson = objectMapper.writeValueAsString(create);
         String body = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson))
+                        .content(createJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(body).get("quizId").asText());
@@ -551,7 +711,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(updateJson))
+                        .content(updateJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title", is("New Title")))
                 .andExpect(jsonPath("$.description", is("New description")))
@@ -579,7 +740,8 @@ class QuizControllerIntegrationTest {
         String createJson = objectMapper.writeValueAsString(create);
         String body = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson))
+                        .content(createJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(body).get("quizId").asText());
@@ -593,7 +755,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(partialJson))
+                        .content(partialJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title", is("Updated Title")))
                 .andExpect(jsonPath("$.estimatedTime", is(15)))
@@ -616,7 +779,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
     }
@@ -631,7 +795,8 @@ class QuizControllerIntegrationTest {
                 """.formatted(longTitle);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
     }
@@ -646,7 +811,8 @@ class QuizControllerIntegrationTest {
                 """.formatted(longDesc);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Description must be at most 1000 characters long"))));
     }
@@ -660,7 +826,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Estimated time must be at least 1 minute"))));
     }
@@ -674,7 +841,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Estimated time must be at most 180 minutes"))));
     }
@@ -688,7 +856,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Timer duration must be at least 1 minute"))));
     }
@@ -702,7 +871,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Timer duration must be at most 180 minutes"))));
     }
@@ -716,7 +886,8 @@ class QuizControllerIntegrationTest {
                 """;
         mockMvc.perform(patch("/api/v1/quizzes/{id}", missing)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Quiz " + missing + " not found"))));
     }
@@ -731,7 +902,8 @@ class QuizControllerIntegrationTest {
                 """.formatted(badTag);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Tag " + badTag + " not found"))));
     }
@@ -746,7 +918,8 @@ class QuizControllerIntegrationTest {
                 """.formatted(badCat);
         mockMvc.perform(patch("/api/v1/quizzes/{id}", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json))
+                        .content(json)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details", hasItem(containsString("Category " + badCat + " not found"))));
     }
@@ -754,7 +927,8 @@ class QuizControllerIntegrationTest {
     @Test
     @DisplayName("DELETE /api/v1/quizzes/{id} with non-existent ID -> returns 404 NOT_FOUND")
     void deleteQuiz_nonexistentId_returns404() throws Exception {
-        mockMvc.perform(delete("/api/v1/quizzes/{id}", UUID.randomUUID()))
+        mockMvc.perform(delete("/api/v1/quizzes/{id}", UUID.randomUUID())
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -762,7 +936,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("POST /api/v1/quizzes/{quizId}/questions/{questionId} with non-existent quiz -> returns 404 NOT_FOUND")
     void addQuestion_nonexistentQuiz_returns404() throws Exception {
         UUID badQuiz = UUID.randomUUID();
-        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", badQuiz, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", badQuiz, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuiz + " not found")));
     }
@@ -781,13 +956,15 @@ class QuizControllerIntegrationTest {
         String quizJson = objectMapper.writeValueAsString(create);
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(quizJson))
+                        .content(quizJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID validQuiz = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
 
         UUID badQuestion = UUID.randomUUID();
-        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", validQuiz, badQuestion))
+        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", validQuiz, badQuestion)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Question " + badQuestion + " not found")));
     }
@@ -796,7 +973,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("DELETE /api/v1/quizzes/{quizId}/tags/{tagId} with non-existent quizId returns 404 NOT_FOUND")
     void removeTagFromQuiz_nonexistentQuiz_returns404() throws Exception {
         UUID badQuizId = UUID.randomUUID();
-        mockMvc.perform(delete("/api/v1/quizzes/{quizId}/tags/{tagId}", badQuizId, tagId))
+        mockMvc.perform(delete("/api/v1/quizzes/{quizId}/tags/{tagId}", badQuizId, tagId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
     }
@@ -815,13 +993,15 @@ class QuizControllerIntegrationTest {
         String quizJson = objectMapper.writeValueAsString(create);
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(quizJson))
+                        .content(quizJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
 
         UUID badTagId = UUID.randomUUID();
-        mockMvc.perform(delete("/api/v1/quizzes/{quizId}/tags/{tagId}", quizId, badTagId))
+        mockMvc.perform(delete("/api/v1/quizzes/{quizId}/tags/{tagId}", quizId, badTagId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
     }
 
@@ -829,7 +1009,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/quizzes/{quizId}/category/{categoryId} with non-existent quizId -> returns 404 NOT_FOUND")
     void changeCategory_nonexistentQuiz_returns404() throws Exception {
         UUID badQuizId = UUID.randomUUID();
-        mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", badQuizId, categoryId))
+        mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", badQuizId, categoryId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
     }
@@ -841,13 +1022,15 @@ class QuizControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new CreateQuizRequest("Quiz2", null, null, null, false, false, 5, 2, categoryId, List.of())
-                        )))
+                        ))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(body).get("quizId").asText());
 
         UUID badCategoryId = UUID.randomUUID();
-        mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", quizId, badCategoryId))
+        mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", quizId, badCategoryId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Category " + badCategoryId + " not found")));
     }
@@ -859,7 +1042,8 @@ class QuizControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new CreateQuizRequest("ResultsQuiz", "desc", null, null, false, false, 5, 2, categoryId, List.of())
-                        )))
+                        ))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(quizBody).get("quizId").asText());
@@ -878,15 +1062,18 @@ class QuizControllerIntegrationTest {
                                         List.of(quizId),
                                         List.of()
                                 )
-                        )))
+                        ))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(qBody).get("questionId").asText());
 
-        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{ques}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{ques}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
-        String atBody = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+        String atBody = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(atBody).get("attemptId").asText());
@@ -894,13 +1081,16 @@ class QuizControllerIntegrationTest {
         AnswerSubmissionRequest sub = new AnswerSubmissionRequest(questionId, content);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(sub)))
+                        .content(objectMapper.writeValueAsString(sub))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId))
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quizId", is(quizId.toString())))
                 .andExpect(jsonPath("$.attemptsCount", is(1)))
@@ -915,7 +1105,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("GET /api/v1/quizzes/{quizId}/results with non-existent quizId returns 404 NOT_FOUND")
     void getQuizResults_nonexistentQuiz_returns404() throws Exception {
         UUID badQuizId = UUID.randomUUID();
-        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", badQuizId))
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", badQuizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
     }
@@ -935,13 +1126,15 @@ class QuizControllerIntegrationTest {
         String createJson = objectMapper.writeValueAsString(create);
         String body = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson))
+                        .content(createJson)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(body).get("quizId").asText());
 
         // --- now call the results endpoint ---
-        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.quizId", is(quizId.toString())))
                 .andExpect(jsonPath("$.attemptsCount", is(0)))
@@ -963,7 +1156,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id", is(quizId.toString())))
                 .andExpect(jsonPath("$.visibility", is("PUBLIC")));
@@ -979,7 +1173,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", missing)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
     }
@@ -989,7 +1184,7 @@ class QuizControllerIntegrationTest {
     void changeVisibility_withoutAdminRole_returns403() throws Exception {
         UUID quizId = createSampleQuiz();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
-                        .with(user("user").roles("USER"))
+                        .with(user(regularUserDetails))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"isPublic\": true }"))
                 .andExpect(status().isForbidden());
@@ -1001,7 +1196,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/visibility", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{}")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details",
                         hasItem(containsString("isPublic: must not be null"))));
@@ -1011,14 +1207,16 @@ class QuizControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/quizzes/{id}/status publish with question → 200 OK")
     void changeStatus_publishWithQuestion_returns200() throws Exception {
         UUID quizId = createSampleQuiz();
-        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         String body = "{ \"status\": \"PUBLISHED\" }";
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("PUBLISHED")));
     }
@@ -1029,7 +1227,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"PUBLISHED\" }"))
+                        .content("{ \"status\": \"PUBLISHED\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz: Cannot publish quiz without questions")));
     }
@@ -1048,13 +1247,15 @@ class QuizControllerIntegrationTest {
         );
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(req))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
 
         // Add a question to the quiz
-        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         // Directly update the quiz entity to have 0 estimated time (bypassing DTO validation)
@@ -1065,7 +1266,8 @@ class QuizControllerIntegrationTest {
         // Try to publish - should fail due to insufficient estimated time
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"PUBLISHED\" }"))
+                        .content("{ \"status\": \"PUBLISHED\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
     }
@@ -1084,7 +1286,8 @@ class QuizControllerIntegrationTest {
         );
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(req))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
@@ -1097,7 +1300,8 @@ class QuizControllerIntegrationTest {
         // Try to publish - should fail with multiple errors (no questions + invalid estimated time)
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"PUBLISHED\" }"))
+                        .content("{ \"status\": \"PUBLISHED\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz without questions")))
                 .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
@@ -1117,13 +1321,15 @@ class QuizControllerIntegrationTest {
         );
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(req))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
 
         // Add the valid question to the quiz
-        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         // Directly corrupt the question content to make it invalid (MCQ with no correct answers)
@@ -1134,7 +1340,8 @@ class QuizControllerIntegrationTest {
         // Try to publish - should fail due to invalid question content
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"PUBLISHED\" }"))
+                        .content("{ \"status\": \"PUBLISHED\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.details[0]", containsString("Question 'What?' is invalid: MCQ_SINGLE must have exactly one correct answer")));
     }
@@ -1143,16 +1350,19 @@ class QuizControllerIntegrationTest {
     @DisplayName("PATCH /api/v1/quizzes/{id}/status revert to draft → 200 OK")
     void changeStatus_revertToDraft_returns200() throws Exception {
         UUID quizId = createSampleQuiz();
-        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{id}/questions/{qId}", quizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"PUBLISHED\" }"))
+                        .content("{ \"status\": \"PUBLISHED\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"DRAFT\" }"))
+                        .content("{ \"status\": \"DRAFT\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("DRAFT")));
     }
@@ -1163,7 +1373,8 @@ class QuizControllerIntegrationTest {
         UUID missing = UUID.randomUUID();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", missing)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{ \"status\": \"DRAFT\" }"))
+                        .content("{ \"status\": \"DRAFT\" }")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -1172,7 +1383,7 @@ class QuizControllerIntegrationTest {
     void changeStatus_withoutAdminRole_returns403() throws Exception {
         UUID quizId = createSampleQuiz();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
-                        .with(user("user").roles("USER"))
+                        .with(user(regularUserDetails))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ \"status\": \"DRAFT\" }"))
                 .andExpect(status().isForbidden());
@@ -1184,7 +1395,8 @@ class QuizControllerIntegrationTest {
         UUID quizId = createSampleQuiz();
         mockMvc.perform(patch("/api/v1/quizzes/{id}/status", quizId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
+                        .content("{}")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest());
     }
 
@@ -1193,9 +1405,11 @@ class QuizControllerIntegrationTest {
     void listOnlyPublic() throws Exception {
         CreateQuizRequest pub = new CreateQuizRequest("Pub", null, Visibility.PUBLIC, null, false, false, 5, 1, categoryId, List.of());
         CreateQuizRequest priv = new CreateQuizRequest("Priv", null, Visibility.PRIVATE, null, false, false, 5, 1, categoryId, List.of());
-        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(pub)))
+        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(pub))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated());
-        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(priv)))
+        mockMvc.perform(post("/api/v1/quizzes").contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(priv))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated());
 
         mockMvc.perform(get("/api/v1/quizzes/public"))
@@ -1213,7 +1427,8 @@ class QuizControllerIntegrationTest {
             CreateQuizRequest req = new CreateQuizRequest(title, null, Visibility.PUBLIC, null, false, false, 5, 1, categoryId, List.of());
             mockMvc.perform(post("/api/v1/quizzes")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(req)))
+                            .content(objectMapper.writeValueAsString(req))
+                            .with(user(adminUserDetails)))
                     .andExpect(status().isCreated());
         }
 
@@ -1236,7 +1451,8 @@ class QuizControllerIntegrationTest {
         UUID missing = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/quizzes")
-                        .param("ids", first + "," + second + "," + missing))
+                        .param("ids", first + "," + second + "," + missing)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         assertFalse(quizRepository.existsById(first));
@@ -1249,7 +1465,7 @@ class QuizControllerIntegrationTest {
         UUID id = createSampleQuiz();
         mockMvc.perform(delete("/api/v1/quizzes")
                         .param("ids", id.toString())
-                        .with(user("user").roles("USER")))
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isForbidden());
     }
 
@@ -1266,7 +1482,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/bulk-update")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successfulIds", hasSize(2)))
                 .andExpect(jsonPath("$.failures", aMapWithSize(0)));
@@ -1288,7 +1505,8 @@ class QuizControllerIntegrationTest {
 
         mockMvc.perform(patch("/api/v1/quizzes/bulk-update")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content(body)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.successfulIds", hasItem(valid.toString())))
                 .andExpect(jsonPath("$.failures['" + missing + "']", containsString("not found")));
@@ -1353,7 +1571,8 @@ class QuizControllerIntegrationTest {
         attemptRepository.save(a3);
 
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
-                        .param("top", "2"))
+                        .param("top", "2")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].userId", is(alice.getId().toString())))
@@ -1402,7 +1621,8 @@ class QuizControllerIntegrationTest {
         attemptRepository.save(t2);
 
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
-                        .param("top", "5"))
+                        .param("top", "5")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[*].bestScore", everyItem(is(50.0))))
@@ -1414,7 +1634,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard when no attempts -> returns empty list")
     void getQuizLeaderboard_noAttempts_returnsEmpty() throws Exception {
         UUID quizId = createSampleQuiz();
-        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId))
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)));
     }
@@ -1423,7 +1644,7 @@ class QuizControllerIntegrationTest {
     @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard with top<=0 returns empty list")
     void getQuizLeaderboard_negativeTop_returnsEmpty() throws Exception {
         UUID quizId = createSampleQuiz();
-        User def = userRepository.findByUsername("defaultUser").get();
+        User def = userRepository.findByUsername("admin").get();
         var quiz = quizRepository.findById(quizId).get();
 
         Attempt att = new Attempt();
@@ -1435,7 +1656,8 @@ class QuizControllerIntegrationTest {
         attemptRepository.save(att);
 
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", quizId)
-                        .param("top", "0"))
+                        .param("top", "0")
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)));
     }
@@ -1444,7 +1666,8 @@ class QuizControllerIntegrationTest {
     @DisplayName("GET /api/v1/quizzes/{quizId}/leaderboard with non-existent quiz -> returns 404")
     void getQuizLeaderboard_nonexistentQuiz_returns404() throws Exception {
         UUID missing = UUID.randomUUID();
-        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", missing))
+        mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", missing)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
     }
@@ -1460,7 +1683,8 @@ class QuizControllerIntegrationTest {
         );
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(req))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
@@ -1477,7 +1701,8 @@ class QuizControllerIntegrationTest {
         );
         String resp = mockMvc.perform(post("/api/v1/quizzes")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(req)))
+                        .content(objectMapper.writeValueAsString(req))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
