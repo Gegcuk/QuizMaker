@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.attempt.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
@@ -24,9 +25,9 @@ public interface AttemptService {
 
     AttemptResultDto completeAttempt(String username, UUID attemptId);
 
-    QuizResultSummaryDto getQuizResultSummary(UUID quizId);
+    QuizResultSummaryDto getQuizResultSummary(UUID quizId, Authentication authentication);
 
-    List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top);
+    List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top, Authentication authentication);
 
     // 🔒 Security & Safety Methods
     List<QuestionForAttemptDto> getShuffledQuestions(UUID quizId, String username);

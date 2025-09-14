@@ -99,7 +99,9 @@ public class AuthServiceImpl implements AuthService {
 
         Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
                 .orElseThrow(() -> new IllegalStateException("ROLE_USER not found"));
-        user.setRoles(Set.of(userRole));
+        Role quizCreatorRole = roleRepository.findByRoleName(RoleName.ROLE_QUIZ_CREATOR.name())
+                .orElseThrow(() -> new IllegalStateException("ROLE_QUIZ_CREATOR not found"));
+        user.setRoles(Set.of(userRole, quizCreatorRole));
 
         User saved = userRepository.save(user);
         

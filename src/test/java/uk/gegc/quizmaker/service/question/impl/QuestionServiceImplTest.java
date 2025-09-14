@@ -10,6 +10,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -36,6 +37,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.*;
 
 @Execution(ExecutionMode.CONCURRENT)
@@ -118,7 +120,7 @@ class QuestionServiceImplTest {
         when(questionRepository.findAllByQuizId_Id(eq(quizId), eq(page)))
                 .thenReturn(new PageImpl<>(List.of(new Question())));
 
-        Page<QuestionDto> result = questionService.listQuestions(quizId, page);
+        Page<QuestionDto> result = questionService.listQuestions(quizId, page, mock(Authentication.class));
 
         assertThat(result.getContent()).hasSize(1);
     }
@@ -129,7 +131,7 @@ class QuestionServiceImplTest {
         UUID id = UUID.randomUUID();
         when(questionRepository.findById(id)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> questionService.getQuestion(id))
+        assertThatThrownBy(() -> questionService.getQuestion(id, mock(Authentication.class)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 

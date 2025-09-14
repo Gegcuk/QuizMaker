@@ -106,6 +106,9 @@ public class PermissionServiceImpl implements PermissionService {
     public void initializePermissions() {
         log.info("Initializing permissions from PermissionName enum");
 
+        int createdCount = 0;
+        int existingCount = 0;
+        
         for (PermissionName permissionName : PermissionName.values()) {
             if (!permissionExists(permissionName.name())) {
                 createPermission(
@@ -114,10 +117,15 @@ public class PermissionServiceImpl implements PermissionService {
                         permissionName.getResource(),
                         permissionName.getAction()
                 );
+                createdCount++;
+                log.debug("Created permission: {}", permissionName.name());
+            } else {
+                existingCount++;
+                log.debug("Permission already exists: {}", permissionName.name());
             }
         }
 
-        log.info("Permissions initialization completed");
+        log.info("Permissions initialization completed - Created: {}, Already existed: {}", createdCount, existingCount);
     }
 
     @Override

@@ -2,7 +2,8 @@ package uk.gegc.quizmaker.features.quiz.api;
 
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.quiz.api.dto.PendingReviewQuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizModerationAuditDto;
@@ -22,7 +23,7 @@ public class ModerationController {
     }
 
     @PostMapping("/{quizId}/approve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> approveQuiz(@PathVariable UUID quizId,
                                             @RequestParam @NotNull UUID moderatorId,
                                             @RequestParam(required = false) String reason) {
@@ -31,7 +32,7 @@ public class ModerationController {
     }
 
     @PostMapping("/{quizId}/reject")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> rejectQuiz(@PathVariable UUID quizId,
                                            @RequestParam @NotNull UUID moderatorId,
                                            @RequestParam String reason) {
@@ -40,7 +41,7 @@ public class ModerationController {
     }
 
     @PostMapping("/{quizId}/unpublish")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> unpublishQuiz(@PathVariable UUID quizId,
                                               @RequestParam @NotNull UUID moderatorId,
                                               @RequestParam(required = false) String reason) {
@@ -49,13 +50,13 @@ public class ModerationController {
     }
 
     @GetMapping("/pending-review")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<List<PendingReviewQuizDto>> getPendingReview(@RequestParam UUID orgId) {
         return ResponseEntity.ok(moderationService.getPendingReviewQuizzes(orgId));
     }
 
     @GetMapping("/{quizId}/audits")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<List<QuizModerationAuditDto>> getAuditTrail(@PathVariable UUID quizId) {
         return ResponseEntity.ok(moderationService.getQuizAuditTrail(quizId));
     }

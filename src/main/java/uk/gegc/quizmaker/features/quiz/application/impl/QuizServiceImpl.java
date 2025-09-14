@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -44,11 +45,13 @@ import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -72,6 +75,7 @@ public class QuizServiceImpl implements QuizService {
     private final BillingService billingService;
     private final EstimationService estimationService;
     private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -98,27 +102,102 @@ public class QuizServiceImpl implements QuizService {
                 .collect(Collectors.toSet());
 
         Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
-        // Enforce visibility invariant on creation: PUBLIC quizzes are published
-        if (quiz.getVisibility() == Visibility.PUBLIC) {
-            quiz.setStatus(QuizStatus.PUBLISHED);
+        
+        // Harden quiz creation: non-moderators cannot create PUBLIC/PUBLISHED quizzes directly
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN);
+        
+        if (!hasModerationPermissions) {
+            // Force visibility to PRIVATE and status to DRAFT for non-moderators
+            quiz.setVisibility(Visibility.PRIVATE);
+            quiz.setStatus(QuizStatus.DRAFT);
+        } else {
+            // Moderators can set visibility, but enforce invariant: PUBLIC quizzes are published
+            if (quiz.getVisibility() == Visibility.PUBLIC) {
+                quiz.setStatus(QuizStatus.PUBLISHED);
+            }
         }
+        
         return quizRepository.save(quiz).getId();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<QuizDto> getQuizzes(Pageable pageable,
-                                    QuizSearchCriteria criteria) {
+    public Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria criteria, String scope, Authentication authentication) {
+        final User user;
+        if (authentication != null && authentication.isAuthenticated()) {
+            user = userRepository.findByUsername(authentication.getName())
+                    .or(() -> userRepository.findByEmail(authentication.getName()))
+                    .orElse(null);
+        } else {
+            user = null;
+        }
+
         Specification<Quiz> spec = QuizSpecifications.build(criteria);
+        
+        // Apply scoping based on the scope parameter
+        switch (scope.toLowerCase()) {
+            case "me":
+                if (user == null) {
+                    throw new ForbiddenException("Authentication required for scope=me");
+                }
+                // Only return quizzes owned by the user
+                spec = spec.and((root, query, cb) -> 
+                    cb.equal(root.get("creator").get("id"), user.getId()));
+                break;
+                
+            case "all":
+                if (user == null || !(appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE) 
+                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+                    throw new ForbiddenException("Moderator/Admin permissions required for scope=all");
+                }
+                // Return all quizzes (no additional filtering)
+                break;
+                
+            case "public":
+            default:
+                // Only return public, published quizzes
+                spec = spec.and((root, query, cb) -> 
+                    cb.and(
+                        cb.equal(root.get("visibility"), Visibility.PUBLIC),
+                        cb.equal(root.get("status"), QuizStatus.PUBLISHED)
+                    ));
+                break;
+        }
+
         return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public QuizDto getQuizById(UUID id) {
-        var quiz = quizRepository.findByIdWithTags(id)
+    public QuizDto getQuizById(UUID id, Authentication authentication) {
+        Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        // If user is authenticated, check if they're the owner
+        if (authentication != null && authentication.isAuthenticated()) {
+            User user = userRepository.findByUsername(authentication.getName())
+                    .or(() -> userRepository.findByEmail(authentication.getName()))
+                    .orElse(null);
+            
+            if (user != null) {
+                boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+                boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+                
+                // Allow access if user is owner or has moderation permissions
+                if (isOwner || hasModerationPermissions) {
+                    return quizMapper.toDto(quiz);
+                }
+            }
+        }
+
+        // For anonymous users or non-owners: only allow access to public quizzes
+        if (quiz.getVisibility() != Visibility.PUBLIC || quiz.getStatus() != QuizStatus.PUBLISHED) {
+            throw new ForbiddenException("Access denied: quiz is not public");
+        }
+
         return quizMapper.toDto(quiz);
     }
 
@@ -128,6 +207,17 @@ public class QuizServiceImpl implements QuizService {
         Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to update this quiz");
+        }
 
         // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
         if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
@@ -180,9 +270,19 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void deleteQuizById(String username, UUID id) {
-        if (!quizRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Quiz " + id + " not found");
+        Quiz quiz = quizRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to delete this quiz");
         }
+
         quizRepository.deleteById(id);
     }
 
@@ -192,9 +292,27 @@ public class QuizServiceImpl implements QuizService {
         if (quizIds == null || quizIds.isEmpty()) {
             return;
         }
+        
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+        
+        boolean hasAdminPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
         var existing = quizRepository.findAllById(quizIds);
-        if (!existing.isEmpty()) {
-            quizRepository.deleteAll(existing);
+        List<Quiz> quizzesToDelete = new ArrayList<>();
+        
+        for (Quiz quiz : existing) {
+            // Check ownership or admin permissions for each quiz
+            boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+            if (isOwner || hasAdminPermissions) {
+                quizzesToDelete.add(quiz);
+            }
+            // Silently ignore quizzes the user doesn't have permission to delete
+        }
+        
+        if (!quizzesToDelete.isEmpty()) {
+            quizRepository.deleteAll(quizzesToDelete);
         }
     }
 
@@ -453,7 +571,7 @@ public class QuizServiceImpl implements QuizService {
             throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
         }
 
-        return getQuizById(job.getGeneratedQuizId());
+        return getQuizById(job.getGeneratedQuizId(), null);
     }
 
     @Override
@@ -718,12 +836,24 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var question = questionRepository.findById(questionId)
+        Question question = questionRepository.findById(questionId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Question " + questionId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getQuestions().add(question);
         quizRepository.save(quiz);
     }
@@ -731,9 +861,21 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getQuestions().removeIf(q -> q.getId().equals(questionId));
         quizRepository.save(quiz);
     }
@@ -741,12 +883,24 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var tag = tagRepository.findById(tagId)
+        Tag tag = tagRepository.findById(tagId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Tag " + tagId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getTags().add(tag);
         quizRepository.save(quiz);
     }
@@ -754,9 +908,21 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getTags().removeIf(t -> t.getId().equals(tagId));
         quizRepository.save(quiz);
     }
@@ -764,23 +930,52 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void changeCategory(String username, UUID quizId, UUID categoryId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var cat = categoryRepository.findById(categoryId)
+        Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Category " + categoryId + " not found"));
-        quiz.setCategory(cat);
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
+        quiz.setCategory(category);
         quizRepository.save(quiz);
     }
 
     @Override
     @Transactional
     public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
-
         Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        quiz.setVisibility(visibility);
 
+        User user = userRepository.findByUsername(name)
+                .or(() -> userRepository.findByEmail(name))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + name + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
+        if (!(isOwner || hasModerationPermissions)) {
+            throw new ForbiddenException("Not allowed to change quiz visibility");
+        }
+        
+        // Additional restriction: only moderators/admins can set visibility to PUBLIC
+        if (visibility == Visibility.PUBLIC && !hasModerationPermissions) {
+            throw new ForbiddenException("Only moderators can set quiz visibility to PUBLIC");
+        }
+
+        quiz.setVisibility(visibility);
         return quizMapper.toDto(quizRepository.save(quiz));
     }
 
@@ -789,6 +984,24 @@ public class QuizServiceImpl implements QuizService {
     public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
+        if (!(isOwner || hasModerationPermissions)) {
+            throw new ForbiddenException("Not allowed to change quiz status");
+        }
+        
+        // Additional restriction: only moderators/admins can set status to PUBLISHED
+        if (status == QuizStatus.PUBLISHED && !hasModerationPermissions) {
+            throw new ForbiddenException("Only moderators can publish quizzes");
+        }
 
         if (status == QuizStatus.PUBLISHED) {
             validateQuizForPublishing(quiz);

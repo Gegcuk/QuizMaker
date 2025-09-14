@@ -15,12 +15,15 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
@@ -34,12 +37,19 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -48,6 +58,7 @@ import static org.junit.jupiter.params.provider.Arguments.of;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -58,13 +69,13 @@ import static uk.gegc.quizmaker.features.question.domain.model.QuestionType.TRUE
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@DirtiesContext(classMode = AFTER_CLASS)
+@Transactional
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false"
 })
-
 @DisplayName("Integration Tests AttemptController")
-@WithMockUser(username = "defaultUser", roles = "ADMIN")
 public class AttemptControllerIntegrationTest {
 
     @Autowired
@@ -78,14 +89,22 @@ public class AttemptControllerIntegrationTest {
     @Autowired
     UserRepository userRepository;
     @Autowired
-    JdbcTemplate jdbc;
-
+    RoleRepository roleRepository;
+    @Autowired
+    PermissionRepository permissionRepository;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
     @Autowired
     EntityManager entityManager;
-
-    private UUID quizId;
     @Autowired
     private AttemptRepository attemptRepository;
+
+    private UserDetails adminUserDetails;
+    private UserDetails regularUserDetails;
+    private User adminUser;
+    private User regularUser;
+    private Category defaultCategory;
+    private UUID quizId;
 
     /**
      * Parameterized happy‐paths for every QuestionType
@@ -174,33 +193,155 @@ public class AttemptControllerIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        quizRepository.deleteAll();
-        categoryRepository.deleteAll();
+        // Clean up database
+        jdbcTemplate.execute("DELETE FROM quiz_questions");
+        jdbcTemplate.execute("DELETE FROM quiz_tags");
+        jdbcTemplate.execute("DELETE FROM quizzes");
+        jdbcTemplate.execute("DELETE FROM user_roles");
+        jdbcTemplate.execute("DELETE FROM users");
+        jdbcTemplate.execute("DELETE FROM categories");
+        jdbcTemplate.execute("DELETE FROM role_permissions");
+        jdbcTemplate.execute("DELETE FROM roles");
+        jdbcTemplate.execute("DELETE FROM permissions");
 
-        User defaultUser = new User();
-        defaultUser.setUsername("defaultUser");
-        defaultUser.setEmail("def@ex.com");
-        defaultUser.setHashedPassword("pw");
-        defaultUser.setActive(true);
-        defaultUser.setDeleted(false);
-        userRepository.save(defaultUser);
+        attemptRepository.deleteAllInBatch();
+        quizRepository.deleteAllInBatch();
+        userRepository.deleteAllInBatch();
+        categoryRepository.deleteAllInBatch();
+        roleRepository.deleteAllInBatch();
+        permissionRepository.deleteAllInBatch();
 
-        Category cat = new Category();
-        cat.setName("General");
-        categoryRepository.save(cat);
+        // Create permissions
+        Permission attemptCreatePermission = new Permission();
+        attemptCreatePermission.setPermissionName(PermissionName.ATTEMPT_CREATE.name());
+        attemptCreatePermission = permissionRepository.save(attemptCreatePermission);
 
+        Permission attemptReadPermission = new Permission();
+        attemptReadPermission.setPermissionName(PermissionName.ATTEMPT_READ.name());
+        attemptReadPermission = permissionRepository.save(attemptReadPermission);
+
+        Permission attemptReadAllPermission = new Permission();
+        attemptReadAllPermission.setPermissionName(PermissionName.ATTEMPT_READ_ALL.name());
+        attemptReadAllPermission = permissionRepository.save(attemptReadAllPermission);
+
+        Permission attemptDeletePermission = new Permission();
+        attemptDeletePermission.setPermissionName(PermissionName.ATTEMPT_DELETE.name());
+        attemptDeletePermission = permissionRepository.save(attemptDeletePermission);
+
+        Permission quizReadPermission = new Permission();
+        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
+        quizReadPermission = permissionRepository.save(quizReadPermission);
+
+        Permission quizCreatePermission = new Permission();
+        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
+        quizCreatePermission = permissionRepository.save(quizCreatePermission);
+
+        Permission quizUpdatePermission = new Permission();
+        quizUpdatePermission.setPermissionName(PermissionName.QUIZ_UPDATE.name());
+        quizUpdatePermission = permissionRepository.save(quizUpdatePermission);
+
+        Permission questionCreatePermission = new Permission();
+        questionCreatePermission.setPermissionName(PermissionName.QUESTION_CREATE.name());
+        questionCreatePermission = permissionRepository.save(questionCreatePermission);
+
+        Permission questionReadPermission = new Permission();
+        questionReadPermission.setPermissionName(PermissionName.QUESTION_READ.name());
+        questionReadPermission = permissionRepository.save(questionReadPermission);
+
+        Permission categoryReadPermission = new Permission();
+        categoryReadPermission.setPermissionName(PermissionName.CATEGORY_READ.name());
+        categoryReadPermission = permissionRepository.save(categoryReadPermission);
+
+        Permission tagReadPermission = new Permission();
+        tagReadPermission.setPermissionName(PermissionName.TAG_READ.name());
+        tagReadPermission = permissionRepository.save(tagReadPermission);
+
+        // Create roles
+        Role adminRole = new Role();
+        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
+        adminRole.setPermissions(Set.of(
+                attemptCreatePermission, attemptReadPermission, attemptReadAllPermission, 
+                attemptDeletePermission, quizReadPermission, quizCreatePermission, quizUpdatePermission,
+                questionCreatePermission, questionReadPermission, categoryReadPermission, tagReadPermission
+        ));
+        adminRole = roleRepository.save(adminRole);
+
+        Role userRole = new Role();
+        userRole.setRoleName(RoleName.ROLE_USER.name());
+        userRole.setPermissions(Set.of(attemptCreatePermission, attemptReadPermission, quizReadPermission, categoryReadPermission, tagReadPermission));
+        userRole = roleRepository.save(userRole);
+
+        // Create test users with roles
+        adminUser = new User();
+        adminUser.setUsername("admin");
+        adminUser.setEmail("admin@example.com");
+        adminUser.setHashedPassword("password");
+        adminUser.setActive(true);
+        adminUser.setDeleted(false);
+        adminUser.setRoles(Set.of(adminRole));
+        adminUser = userRepository.save(adminUser);
+
+        regularUser = new User();
+        regularUser.setUsername("user");
+        regularUser.setEmail("user@example.com");
+        regularUser.setHashedPassword("password");
+        regularUser.setActive(true);
+        regularUser.setDeleted(false);
+        regularUser.setRoles(Set.of(userRole));
+        regularUser = userRepository.save(regularUser);
+        
+        // Create default category
+        defaultCategory = new Category();
+        defaultCategory.setName("General");
+        defaultCategory.setDescription("Default");
+        defaultCategory = categoryRepository.save(defaultCategory);
+        
+        // Create UserDetails objects with proper authorities
+        adminUserDetails = createUserDetails(adminUser);
+        regularUserDetails = createUserDetails(regularUser);
+
+        // Create quiz for testing
         CreateQuizRequest cq = new CreateQuizRequest(
                 "Integration Quiz", "desc",
                 Visibility.PRIVATE, Difficulty.MEDIUM,
                 false, false, 10, 5,
-                cat.getId(), List.of()
+                defaultCategory.getId(), List.of()
         );
         String body = objectMapper.writeValueAsString(cq);
         String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andReturn()
                 .getResponse().getContentAsString();
         quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+    }
+    
+    private UserDetails createUserDetails(User user) {
+        List<GrantedAuthority> authorities = user.getRoles()
+                .stream()
+                .flatMap(role -> {
+                    // Add role authority
+                    var roleAuthority = new SimpleGrantedAuthority(role.getRoleName());
+                    // Add permission authorities
+                    var permissionAuthorities = role.getPermissions().stream()
+                            .map(permission -> new SimpleGrantedAuthority(permission.getPermissionName()));
+                    return java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of(roleAuthority),
+                            permissionAuthorities
+                    );
+                })
+                .map(authority -> (GrantedAuthority) authority)
+                .toList();
+        
+        return new org.springframework.security.core.userdetails.User(
+                user.getUsername(),
+                user.getHashedPassword(),
+                user.isActive(),
+                true,
+                true,
+                true,
+                authorities
+        );
     }
 
     @DisplayName("[HAPPY] Parameterized: submit + complete for each QuestionType")
@@ -222,6 +363,7 @@ public class AttemptControllerIntegrationTest {
         String qreqJson = objectMapper.writeValueAsString(qr);
 
         String qresp = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(qreqJson))
                 .andExpect(status().isCreated())
@@ -230,7 +372,11 @@ public class AttemptControllerIntegrationTest {
                 .getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(qresp).get("questionId").asText());
 
-        String startResp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+        // Flush to ensure the question-quiz association is persisted
+        entityManager.flush();
+
+        String startResp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(startResp).get("attemptId").asText());
@@ -241,13 +387,15 @@ public class AttemptControllerIntegrationTest {
         );
         String sJson = objectMapper.writeValueAsString(submission);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(sJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.questionId", is(questionId.toString())))
                 .andExpect(jsonPath("$.isCorrect", is(expectedCorrect)));
 
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId))
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.correctCount", is(expectedCorrect ? 1 : 0)));
     }
@@ -258,6 +406,7 @@ public class AttemptControllerIntegrationTest {
         UUID fakeId = UUID.randomUUID();
         var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode());
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", fakeId)
+                        .with(user(regularUserDetails))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNotFound());
@@ -283,18 +432,21 @@ public class AttemptControllerIntegrationTest {
         createQuestionRequest.setTagIds(List.of());
         String questionRequestJson = objectMapper.writeValueAsString(createQuestionRequest);
         String questionResponse = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(questionRequestJson))
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(questionResponse).get("questionId").asText());
 
-        String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)).andReturn().getResponse().getContentAsString();
+        String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails))).andReturn().getResponse().getContentAsString();
 
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
 
         String badJson = "{\"questionId\":\"" + questionId + "\"}";
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(badJson))
                 .andExpect(status().isBadRequest());
@@ -319,13 +471,25 @@ public class AttemptControllerIntegrationTest {
     @Test
     @DisplayName("GET /api/v1/attempts/{id} as non-owner → returns 403 FORBIDDEN")
     void getAttempt_nonOwner_returns403() throws Exception {
-        String resp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+        String resp = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(resp).get("attemptId").asText());
 
+        // Create another user to test non-owner access
+        User otherUser = new User();
+        otherUser.setUsername("otherUser");
+        otherUser.setEmail("other@example.com");
+        otherUser.setHashedPassword("password");
+        otherUser.setActive(true);
+        otherUser.setDeleted(false);
+        otherUser.setRoles(Set.of(roleRepository.findByRoleName(RoleName.ROLE_USER.name()).orElseThrow()));
+        otherUser = userRepository.save(otherUser);
+        UserDetails otherUserDetails = createUserDetails(otherUser);
+
         mockMvc.perform(get("/api/v1/attempts/{id}", attemptId)
-                        .with(user("admin").roles("ADMIN")))
+                        .with(user(otherUserDetails)))
                 .andExpect(status().isForbidden());
     }
 
@@ -349,10 +513,9 @@ public class AttemptControllerIntegrationTest {
     @Test
     @DisplayName("POST /api/v1/attempts/{id}/answers as non-owner → returns 403 FORBIDDEN")
     void submitAnswer_nonOwner_returns403() throws Exception {
-        var defaultUser = userRepository.findByUsername("defaultUser").get();
         var quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
         Attempt attempt = new Attempt();
-        attempt.setUser(defaultUser);
+        attempt.setUser(regularUser);
         attempt.setQuiz(quiz);
         attempt.setMode(AttemptMode.ALL_AT_ONCE);
         attempt.setStatus(AttemptStatus.IN_PROGRESS);
@@ -368,7 +531,7 @@ public class AttemptControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
-                        .with(user("admin").roles("ADMIN")))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isForbidden());
     }
 
@@ -381,7 +544,8 @@ public class AttemptControllerIntegrationTest {
         postAnswer(attemptId, questionId, "{\"answer\":true}")
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId))
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isOk());
 
         postAnswer(attemptId, questionId, "{\"answer\":true}")
@@ -410,12 +574,14 @@ public class AttemptControllerIntegrationTest {
         other.setHashedPassword("pw");
         other.setActive(true);
         other.setDeleted(false);
-        userRepository.save(other);
+        other.setRoles(Set.of(roleRepository.findByRoleName(RoleName.ROLE_USER.name()).orElseThrow()));
+        other = userRepository.save(other);
+        UserDetails otherUserDetails = createUserDetails(other);
 
         UUID attemptId = startAttempt();
         String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
-                        .with(user("otherUser").roles("ADMIN"))
+                        .with(user(otherUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
                 .andExpect(status().isForbidden());
@@ -427,6 +593,7 @@ public class AttemptControllerIntegrationTest {
         UUID fakeId = UUID.randomUUID();
         String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", fakeId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
                 .andExpect(status().isNotFound());
@@ -451,18 +618,21 @@ public class AttemptControllerIntegrationTest {
         other.setHashedPassword("password");
         other.setActive(true);
         other.setDeleted(false);
-        userRepository.save(other);
+        other.setRoles(Set.of(roleRepository.findByRoleName(RoleName.ROLE_USER.name()).orElseThrow()));
+        other = userRepository.save(other);
+        UserDetails otherUserDetails = createUserDetails(other);
 
         UUID attemptId = startAttempt();
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
-                        .with(user("otherUser").roles("ADMIN")))
+                        .with(user(otherUserDetails)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("POST /api/v1/attempts/{id}/complete with nonexistent ID → returns 404 NOT_FOUND")
     void completeAttempt_invalidAttemptId_returns404() throws Exception {
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", UUID.randomUUID()))
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", UUID.randomUUID())
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -471,6 +641,7 @@ public class AttemptControllerIntegrationTest {
     void batchInOneByOneMode() throws Exception {
         String startJson = "{\"mode\":\"ONE_BY_ONE\"}";
         String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(startJson))
                 .andExpect(status().isCreated())
@@ -490,6 +661,7 @@ public class AttemptControllerIntegrationTest {
                 """;
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
                 .andExpect(status().isUnprocessableEntity())
@@ -501,22 +673,27 @@ public class AttemptControllerIntegrationTest {
     @DisplayName("Completing an already completed attempt → returns 409 CONFLICT")
     void completeTwice() throws Exception {
 
-        String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)).andReturn().getResponse().getContentAsString();
+        String start = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails))).andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(start).get("attemptId").asText());
 
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)).andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user(regularUserDetails))).andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
+                        .with(user(regularUserDetails))).andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     @DisplayName("GET /api/v1/attempts → returns paginated and sorted attempts")
     void paginationAndSorting() throws Exception {
         for (int i = 0; i < 3; i++) {
-            mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+            mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                            .with(user(regularUserDetails)))
                     .andExpect(status().isCreated());
         }
 
         mockMvc.perform(get("/api/v1/attempts")
+                        .with(user(regularUserDetails))
                         .param("page", "0")
                         .param("size", "2")
                         .param("sort", "startedAt,desc"))
@@ -530,15 +707,19 @@ public class AttemptControllerIntegrationTest {
     @DisplayName("GET /api/v1/attempts?quizId={quizId}&userId={userId} → returns filtered attempts by quizId and userId")
     void filteringByQuizIdAndUserId() throws Exception {
 
-        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId));
-        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId));
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails)));
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails)));
 
         mockMvc.perform(get("/api/v1/attempts")
+                        .with(user(regularUserDetails))
                         .param("quizId", quizId.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(2)));
 
         mockMvc.perform(get("/api/v1/attempts")
+                        .with(user(regularUserDetails))
                         .param("userId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(0)));
@@ -562,6 +743,7 @@ public class AttemptControllerIntegrationTest {
 
         String timedJson = objectMapper.writeValueAsString(timedQuiz);
         String timedResponse = mockMvc.perform(post("/api/v1/quizzes")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(timedJson))
                 .andExpect(status().isCreated())
@@ -581,18 +763,21 @@ public class AttemptControllerIntegrationTest {
                 List.of());
         String questionJson = objectMapper.writeValueAsString(createQuestionRequest);
         String questionResponse = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(questionJson))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(questionResponse).get("questionId").asText());
 
-        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", timedQuizId, questionId))
+        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", timedQuizId, questionId)
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isNoContent());
 
         // Create attempt normally first
         String startJson = "{\"mode\":\"TIMED\"}";
         String attemptResponse = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", timedQuizId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(startJson))
                 .andExpect(status().isCreated())
@@ -610,13 +795,15 @@ public class AttemptControllerIntegrationTest {
         );
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(validSubmit))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isCorrect", is(true)));
         
         // Verify that the attempt is still in progress (not timed out)
-        mockMvc.perform(get("/api/v1/attempts/{id}", attemptId))
+        mockMvc.perform(get("/api/v1/attempts/{id}", attemptId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("IN_PROGRESS")));
     }
@@ -630,6 +817,7 @@ public class AttemptControllerIntegrationTest {
 
         String startJson = "{\"mode\":\"ALL_AT_ONCE\"}";
         String startRequest = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(startJson))
                 .andExpect(status().isCreated())
@@ -647,6 +835,7 @@ public class AttemptControllerIntegrationTest {
         String batchJson = objectMapper.writeValueAsString(batchRequest);
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
                 .andExpect(status().isOk())
@@ -656,6 +845,7 @@ public class AttemptControllerIntegrationTest {
 
         String badBatch = "{\"answers\":[{\"questionId\":\"" + question1 + "\"}]}";
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(badBatch))
                 .andExpect(status().isBadRequest());
@@ -666,7 +856,8 @@ public class AttemptControllerIntegrationTest {
     @Test
     @DisplayName("GET /api/v1/attempts/{id} when ID not found → returns 404 NOT_FOUND")
     void getAttemptNotFound() throws Exception {
-        mockMvc.perform(get("/api/v1/attempts/{id}", UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/attempts/{id}", UUID.randomUUID())
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -678,7 +869,8 @@ public class AttemptControllerIntegrationTest {
 
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/attempts/{id}", attemptId))
+        mockMvc.perform(get("/api/v1/attempts/{id}", attemptId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.attemptId", is(attemptId.toString())))
                 .andExpect(jsonPath("$.answers", hasSize(1)))
@@ -688,7 +880,8 @@ public class AttemptControllerIntegrationTest {
     @Test
     @DisplayName("Start attempt for non-existent quiz → returns 404 NOT_FOUND")
     void startAttemptBadQuiz() throws Exception {
-        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", UUID.randomUUID()))
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", UUID.randomUUID())
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isNotFound());
     }
 
@@ -696,6 +889,7 @@ public class AttemptControllerIntegrationTest {
     @DisplayName("GET /api/v1/attempts with negative paging params → returns 400 BAD_REQUEST")
     void badPagingParams() throws Exception {
         mockMvc.perform(get("/api/v1/attempts")
+                        .with(user(regularUserDetails))
                         .param("page", "-1")
                         .param("size", "-5"))
                 .andExpect(status().isBadRequest());
@@ -720,11 +914,13 @@ public class AttemptControllerIntegrationTest {
         postAnswer(attemptId, questionId, "{ \"answer\": true }").andExpect(status().isUnprocessableEntity());
     }
 
+    @Test
     @DisplayName("Batch submission with empty list → returns 400 BAD_REQUEST")
     void batchEmptyList() throws Exception {
         UUID attemptId = startAttempt();
         String bad = "{\"answers\":[]}";
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON).content(bad))
                 .andExpect(status().isBadRequest());
     }
@@ -734,7 +930,8 @@ public class AttemptControllerIntegrationTest {
     void startAttempt_returnsMetadata() throws Exception {
         createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
 
-        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
                 .andExpect(jsonPath("$.quizId", is(quizId.toString())))
@@ -748,7 +945,8 @@ public class AttemptControllerIntegrationTest {
     @Test
     @DisplayName("startAttempt with no time limit returns null timeLimitMinutes")
     void startAttempt_noTimeLimit_returnsNullTimeLimit() throws Exception {
-        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
+        mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
                 .andExpect(jsonPath("$.timeLimitMinutes").isEmpty());
@@ -761,7 +959,8 @@ public class AttemptControllerIntegrationTest {
         createDummyQuestion(TRUE_FALSE, "{\"answer\": true }");
 
         // Start attempt
-        String startResult = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId))
+        String startResult = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
                 .andExpect(jsonPath("$.firstQuestion").doesNotExist())
@@ -773,7 +972,8 @@ public class AttemptControllerIntegrationTest {
         UUID attemptId = UUID.fromString(startNode.get("attemptId").asText());
 
         // Get current question
-        String questionResult = mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", attemptId))
+        String questionResult = mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", attemptId)
+                        .with(user(regularUserDetails)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.question.id").exists())
                 .andReturn()
@@ -786,6 +986,7 @@ public class AttemptControllerIntegrationTest {
         // Submit answer for the returned current question
         var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"));
         mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
+                        .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(answerRequest)))
                 .andExpect(status().isOk())
@@ -795,16 +996,16 @@ public class AttemptControllerIntegrationTest {
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {
         var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson));
         return mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt)
+                .with(user(regularUserDetails))
                 .contentType(APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)));
     }
 
     private UUID startAttempt() throws Exception {
-
-        String startRequest = mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId))
+        String startRequest = mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId)
+                        .with(user(regularUserDetails)))
                 .andReturn().getResponse().getContentAsString();
         return UUID.fromString(objectMapper.readTree(startRequest).get("attemptId").asText());
-
     }
 
     private UUID createAnotherQuiz() throws Exception {
@@ -825,6 +1026,7 @@ public class AttemptControllerIntegrationTest {
 
         String body = objectMapper.writeValueAsString(req);
         String resp = mockMvc.perform(post("/api/v1/quizzes")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -836,7 +1038,6 @@ public class AttemptControllerIntegrationTest {
     }
 
     private UUID createDummyQuestion(QuestionType type, String contentJson) throws Exception {
-
         CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest();
         createQuestionRequest.setType(type);
         createQuestionRequest.setDifficulty(Difficulty.EASY);
@@ -847,12 +1048,17 @@ public class AttemptControllerIntegrationTest {
         String createQuestionRequestString = objectMapper.writeValueAsString(createQuestionRequest);
 
         String response = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(createQuestionRequestString))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
 
         UUID questionId = UUID.fromString(objectMapper.readTree(response).get("questionId").asText());
+        
+        // Flush to ensure the question-quiz association is persisted
+        entityManager.flush();
+        
         return questionId;
     }
 
@@ -867,6 +1073,7 @@ public class AttemptControllerIntegrationTest {
 
         String qbody = objectMapper.writeValueAsString(qr);
         String qresp = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
                         .contentType(APPLICATION_JSON)
                         .content(qbody))
                 .andExpect(status().isCreated())
@@ -874,7 +1081,12 @@ public class AttemptControllerIntegrationTest {
                 .getResponse()
                 .getContentAsString();
 
-        return UUID.fromString(objectMapper.readTree(qresp).get("questionId").asText());
+        UUID questionId = UUID.fromString(objectMapper.readTree(qresp).get("questionId").asText());
+        
+        // Flush to ensure the question-quiz association is persisted
+        entityManager.flush();
+        
+        return questionId;
     }
 
 

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.Authentication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
@@ -24,6 +25,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -86,7 +88,7 @@ class QuizServiceSearchTest {
     @Test
     @DisplayName("applies search criteria across fields and returns page of QuizDto")
     void serviceAppliesCriteria() {
-        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null));
+        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null), "public", mock(Authentication.class));
         assertThat(page.getTotalElements()).isGreaterThanOrEqualTo(1);
         assertThat(page.getContent()).anyMatch(dto -> dto.title().toLowerCase().contains("java"));
     }

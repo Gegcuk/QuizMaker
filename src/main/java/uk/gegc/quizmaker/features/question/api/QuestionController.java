@@ -17,7 +17,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
@@ -41,7 +42,7 @@ public class QuestionController {
 
     @Operation(
             summary = "Create a question",
-            description = "Add a new question (ADMIN only)",
+            description = "Add a new question. Requires QUESTION_CREATE permission and ownership of referenced quizzes.",
             tags = {"Questions"}
     )
     @ApiResponses({
@@ -57,7 +58,7 @@ public class QuestionController {
             content = @Content(schema = @Schema(implementation = CreateQuestionRequest.class))
     )
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUESTION_CREATE)
     public ResponseEntity<Map<String, UUID>> createQuestion(
             Authentication authentication,
             @RequestBody @Valid CreateQuestionRequest request
@@ -95,10 +96,12 @@ public class QuestionController {
                     description = "Page size",
                     example = "20"
             )
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            
+            Authentication authentication
     ) {
         Pageable page = PageRequest.of(pageNumber, size, Sort.by("createdAt").descending());
-        return ResponseEntity.ok(questionService.listQuestions(quizId, page));
+        return ResponseEntity.ok(questionService.listQuestions(quizId, page, authentication));
     }
 
     @Operation(
@@ -113,14 +116,15 @@ public class QuestionController {
     @GetMapping("/{id}")
     public ResponseEntity<QuestionDto> getQuestion(
             @Parameter(description = "UUID of the question", required = true)
-            @PathVariable UUID id
+            @PathVariable UUID id,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(questionService.getQuestion(id));
+        return ResponseEntity.ok(questionService.getQuestion(id, authentication));
     }
 
     @Operation(
             summary = "Update a question",
-            description = "Modify an existing question (ADMIN only)",
+            description = "Modify an existing question. Requires QUESTION_UPDATE permission and ownership of associated quizzes.",
             tags = {"Questions"}
     )
     @ApiResponses({
@@ -137,7 +141,7 @@ public class QuestionController {
             content = @Content(schema = @Schema(implementation = UpdateQuestionRequest.class))
     )
     @PatchMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUESTION_UPDATE)
     public ResponseEntity<QuestionDto> updateQuestion(
             @Parameter(description = "UUID of the question", required = true)
             @PathVariable UUID id,
@@ -151,7 +155,7 @@ public class QuestionController {
 
     @Operation(
             summary = "Delete a question",
-            description = "Remove a question by its UUID (ADMIN only)",
+            description = "Remove a question by its UUID. Requires QUESTION_DELETE permission and ownership of associated quizzes.",
             tags = {"Questions"}
     )
     @ApiResponses({
@@ -163,7 +167,7 @@ public class QuestionController {
     @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUESTION_DELETE)
     public void deleteQuestion(
             @Parameter(description = "UUID of the question", required = true)
             @PathVariable UUID id,

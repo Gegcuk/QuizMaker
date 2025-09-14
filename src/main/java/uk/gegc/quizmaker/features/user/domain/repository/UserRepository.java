@@ -48,6 +48,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByUsernameWithRolesAndPermissions(@Param("username") String username);
 
     /**
+     * Find user by email with roles and permissions eagerly fetched to avoid N+1 queries
+     */
+    @Query("SELECT DISTINCT u FROM User u " +
+           "LEFT JOIN FETCH u.roles r " +
+           "LEFT JOIN FETCH r.permissions " +
+           "WHERE LOWER(u.email) = LOWER(:email)")
+    Optional<User> findByEmailWithRolesAndPermissions(@Param("email") String email);
+
+    /**
      * Find user by ID with roles and permissions eagerly fetched to avoid N+1 queries
      */
     @Query("SELECT DISTINCT u FROM User u " +

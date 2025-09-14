@@ -8,6 +8,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
@@ -33,6 +34,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -79,7 +81,7 @@ class AttemptServiceImplTest {
         );
         when(attemptRepository.getLeaderboardData(quizId)).thenReturn(rows);
 
-        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 2);
+        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 2, mock(Authentication.class));
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).userId()).isEqualTo(u1);
@@ -100,7 +102,7 @@ class AttemptServiceImplTest {
         );
         when(attemptRepository.getLeaderboardData(quizId)).thenReturn(rows);
 
-        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 5);
+        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 5, mock(Authentication.class));
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).bestScore()).isEqualTo(50.0);
@@ -113,7 +115,7 @@ class AttemptServiceImplTest {
         UUID quizId = UUID.randomUUID();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3))
+        assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3, mock(Authentication.class)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 

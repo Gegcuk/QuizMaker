@@ -39,4 +39,6 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificat
     Page<Quiz> findAllByVisibilityAndStatus(Visibility visibility, QuizStatus status, Pageable pageable);
 
     List<Quiz> findAllByStatusOrderByCreatedAtDesc(QuizStatus status);
+
+    List<Quiz> findByCreatorId(UUID creatorId);
 }

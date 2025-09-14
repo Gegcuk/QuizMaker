@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.quiz.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
@@ -16,9 +17,9 @@ public interface QuizService {
 
     UUID createQuiz(String username, CreateQuizRequest request);
 
-    Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria quizSearchCriteria);
+    Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria quizSearchCriteria, String scope, Authentication authentication);
 
-    QuizDto getQuizById(UUID id);
+    QuizDto getQuizById(UUID id, Authentication authentication);
 
     QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest updateQuizRequest);
 
