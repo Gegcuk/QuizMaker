@@ -22,6 +22,8 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -70,7 +72,10 @@ class AttemptServiceImplTest {
     @DisplayName("getLeaderboard returns top N ordered by score")
     void getLeaderboard_basic() {
         UUID quizId = UUID.randomUUID();
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(new Quiz()));
+        Quiz quiz = new Quiz();
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         UUID u1 = UUID.randomUUID();
         UUID u2 = UUID.randomUUID();
         UUID u3 = UUID.randomUUID();
@@ -93,7 +98,10 @@ class AttemptServiceImplTest {
     @DisplayName("getLeaderboard handles ties and insufficient participants")
     void getLeaderboard_tiesAndShortList() {
         UUID quizId = UUID.randomUUID();
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(new Quiz()));
+        Quiz quiz = new Quiz();
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         UUID u1 = UUID.randomUUID();
         UUID u2 = UUID.randomUUID();
         List<Object[]> rows = List.of(

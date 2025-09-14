@@ -21,6 +21,8 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
 import java.util.List;
 
@@ -48,6 +50,8 @@ class QuizControllerSearchIntegrationTest {
     private TagRepository tagRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private RoleService roleService;
 
     private Category catGeneral;
     private Category catScience;
@@ -58,6 +62,7 @@ class QuizControllerSearchIntegrationTest {
     void setup() throws Exception {
         jdbcTemplate.execute("DELETE FROM quiz_tags");
         jdbcTemplate.execute("DELETE FROM quizzes");
+        jdbcTemplate.execute("DELETE FROM user_roles");
         jdbcTemplate.execute("DELETE FROM users");
         jdbcTemplate.execute("DELETE FROM categories");
         jdbcTemplate.execute("DELETE FROM tags");
@@ -68,7 +73,11 @@ class QuizControllerSearchIntegrationTest {
         user.setHashedPassword("pw");
         user.setActive(true);
         user.setDeleted(false);
-        userRepository.save(user);
+        user.setEmailVerified(true);
+        User savedUser = userRepository.save(user);
+        
+        // Assign ADMIN role to the user
+        roleService.assignRoleToUser(savedUser.getId(), roleService.getRoleByName(RoleName.ROLE_ADMIN).getRoleId());
 
         catGeneral = new Category();
         catGeneral.setName("General");
@@ -103,7 +112,8 @@ class QuizControllerSearchIntegrationTest {
     @DisplayName("GET /api/v1/quizzes filters by category names")
     void filterByCategoryNames() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("category", "Science"))
+                        .param("category", "Science")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)))
                 .andExpect(jsonPath("$.content[0].title", is("Advanced Math")));
@@ -113,7 +123,8 @@ class QuizControllerSearchIntegrationTest {
     @DisplayName("GET /api/v1/quizzes filters by tag names")
     void filterByTagNames() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("tag", "Java"))
+                        .param("tag", "Java")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].title", everyItem(anyOf(containsString("Java"), is("Mixed Bag")))));
     }
@@ -122,7 +133,8 @@ class QuizControllerSearchIntegrationTest {
     @DisplayName("GET /api/v1/quizzes filters by author username")
     void filterByAuthorName() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("authorName", "admin"))
+                        .param("authorName", "admin")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(3)));
     }
@@ -131,7 +143,8 @@ class QuizControllerSearchIntegrationTest {
     @DisplayName("GET /api/v1/quizzes full-text search across title/description")
     void fullTextSearch() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("search", "java"))
+                        .param("search", "java")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].title", everyItem(anyOf(containsString("Java"), is("Mixed Bag")))));
     }
@@ -140,7 +153,8 @@ class QuizControllerSearchIntegrationTest {
     @DisplayName("GET /api/v1/quizzes difficulty exact match")
     void difficultyMatch() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
-                        .param("difficulty", "HARD"))
+                        .param("difficulty", "HARD")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[*].title", everyItem(is("Advanced Math"))));
     }
@@ -153,7 +167,8 @@ class QuizControllerSearchIntegrationTest {
                         .param("tag", "Math")
                         .param("search", "java")
                         .param("authorName", "admin")
-                        .param("difficulty", "MEDIUM"))
+                        .param("difficulty", "MEDIUM")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(1)))
                 .andExpect(jsonPath("$.content[0].title", is("Mixed Bag")));
@@ -164,7 +179,8 @@ class QuizControllerSearchIntegrationTest {
     void multipleValues_categoryAndTag() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("category", "General", "Science")
-                        .param("tag", "Java", "Math"))
+                        .param("tag", "Java", "Math")
+                        .param("scope", "me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements", is(3)));
     }

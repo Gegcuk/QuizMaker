@@ -21,6 +21,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -49,6 +51,8 @@ class QuizControllerCachingAndRateLimitTest {
     private UserRepository userRepository;
     @Autowired
     private CategoryRepository categoryRepository;
+    @Autowired
+    private RoleService roleService;
 
     private Category category;
 
@@ -66,7 +70,10 @@ class QuizControllerCachingAndRateLimitTest {
         admin.setHashedPassword("pw");
         admin.setActive(true);
         admin.setDeleted(false);
-        userRepository.save(admin);
+        User savedUser = userRepository.save(admin);
+        
+        // Assign ADMIN role to the user
+        roleService.assignRoleToUser(savedUser.getId(), roleService.getRoleByName(RoleName.ROLE_ADMIN).getRoleId());
 
         category = new Category();
         category.setName("General");
@@ -122,15 +129,15 @@ class QuizControllerCachingAndRateLimitTest {
     }
 
     @Test
-    @DisplayName("Rate limit: list quizzes 120/min per IP → 429 on overflow")
+    @DisplayName("Rate limit: public quizzes 120/min per IP → 429 on overflow")
     void rateLimit_ListQuizzes() throws Exception {
         // Hit the endpoint 121 times with the same client IP
         for (int i = 0; i < 120; i++) {
-            mockMvc.perform(get("/api/v1/quizzes").param("page", "0").param("size", "1")
+            mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
                             .header("X-Forwarded-For", "203.0.113.10"))
                     .andExpect(status().isOk());
         }
-        mockMvc.perform(get("/api/v1/quizzes").param("page", "0").param("size", "1")
+        mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
                         .header("X-Forwarded-For", "203.0.113.10"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));

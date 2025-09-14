@@ -170,7 +170,7 @@ class EstimationServiceImplTest {
             EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
 
             // Then
-            assertThat(result.estimatedLlmTokens()).isEqualTo(1L);
+            assertThat(result.estimatedLlmTokens()).isEqualTo(1000L);
             assertThat(result.estimatedBillingTokens()).isEqualTo(1L);
             assertThat(result.estimate()).isTrue();
             assertThat(result.humanizedEstimate()).isNotEmpty();

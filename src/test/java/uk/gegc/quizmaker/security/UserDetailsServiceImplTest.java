@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -41,6 +42,7 @@ public class UserDetailsServiceImplTest {
         Role role = Role.builder()
                 .roleId(1L)
                 .roleName("ROLE_USER")
+                .permissions(new HashSet<>())
                 .build();
         user.setRoles(Set.of(role));
 
@@ -70,6 +72,7 @@ public class UserDetailsServiceImplTest {
         Role admin = Role.builder()
                 .roleId(2L)
                 .roleName("ROLE_ADMIN")
+                .permissions(new HashSet<>())
                 .build();
         user.setRoles(Set.of(admin));
 

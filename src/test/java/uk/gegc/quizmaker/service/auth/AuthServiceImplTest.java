@@ -95,8 +95,15 @@ class AuthServiceImplTest {
                 .roleId(1L)
                 .roleName(RoleName.ROLE_USER.name())
                 .build();
+        Role quizCreatorRole = Role.builder()
+                .roleId(2L)
+                .roleName(RoleName.ROLE_QUIZ_CREATOR.name())
+                .build();
+        
         when(roleRepository.findByRoleName(RoleName.ROLE_USER.name()))
                 .thenReturn(Optional.of(userRole));
+        when(roleRepository.findByRoleName(RoleName.ROLE_QUIZ_CREATOR.name()))
+                .thenReturn(Optional.of(quizCreatorRole));
 
         when(passwordEncoder.encode("secret123")).thenReturn("hashedPwd");
 
@@ -106,7 +113,7 @@ class AuthServiceImplTest {
         saved.setUsername("john");
         saved.setEmail("john@example.com");
         saved.setActive(true);
-        saved.setRoles(Set.of(userRole));
+        saved.setRoles(Set.of(userRole, quizCreatorRole));
         saved.setCreatedAt(LocalDateTime.now());
         saved.setLastLoginDate(null);
         saved.setUpdatedAt(null);
@@ -118,7 +125,7 @@ class AuthServiceImplTest {
                 "john",
                 "john@example.com",
                 true,
-                Set.of(RoleName.ROLE_USER),
+                Set.of(RoleName.ROLE_USER, RoleName.ROLE_QUIZ_CREATOR),
                 saved.getCreatedAt(),
                 saved.getLastLoginDate(),
                 saved.getUpdatedAt()
@@ -134,6 +141,7 @@ class AuthServiceImplTest {
         assertEquals("hashedPwd", passed.getHashedPassword());
         assertTrue(passed.isActive());
         assertTrue(passed.getRoles().contains(userRole));
+        assertTrue(passed.getRoles().contains(quizCreatorRole));
     }
 
     @Test

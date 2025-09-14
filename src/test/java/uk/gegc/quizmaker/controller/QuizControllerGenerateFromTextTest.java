@@ -109,6 +109,12 @@ class QuizControllerGenerateFromTextTest {
         adminRole.setPermissions(Set.of(billingReadPermission, billingWritePermission, quizCreatePermission));
         adminRole = roleRepository.save(adminRole);
 
+        // Create regular user role without QUIZ_CREATE permission
+        Role userRole = new Role();
+        userRole.setRoleName(RoleName.ROLE_USER.name());
+        userRole.setPermissions(Set.of(billingReadPermission)); // Only billing read, no quiz create
+        userRole = roleRepository.save(userRole);
+
         // Create the test user with admin role
         User testUser = new User();
         testUser.setUsername("testuser");
@@ -119,13 +125,31 @@ class QuizControllerGenerateFromTextTest {
         testUser.setRoles(Set.of(adminRole));
         testUser = userRepository.save(testUser);
 
-        // Create balance with sufficient tokens for the test
-        Balance balance = new Balance();
-        balance.setUserId(testUser.getId());
-        balance.setAvailableTokens(100000L); // Enough tokens for quiz generation
-        balance.setReservedTokens(0L);
-        balance.setUpdatedAt(LocalDateTime.now());
-        balanceRepository.save(balance);
+        // Create the regular user without admin privileges
+        User regularUser = new User();
+        regularUser.setUsername("regularuser");
+        regularUser.setEmail("regularuser@example.com");
+        regularUser.setHashedPassword("hashedPassword");
+        regularUser.setActive(true);
+        regularUser.setDeleted(false);
+        regularUser.setRoles(Set.of(userRole));
+        regularUser = userRepository.save(regularUser);
+
+        // Create balance with sufficient tokens for the admin test user
+        Balance adminBalance = new Balance();
+        adminBalance.setUserId(testUser.getId());
+        adminBalance.setAvailableTokens(100000L); // Enough tokens for quiz generation
+        adminBalance.setReservedTokens(0L);
+        adminBalance.setUpdatedAt(LocalDateTime.now());
+        balanceRepository.save(adminBalance);
+
+        // Create balance for regular user (they'll still get 403 due to missing permission)
+        Balance regularBalance = new Balance();
+        regularBalance.setUserId(regularUser.getId());
+        regularBalance.setAvailableTokens(100000L);
+        regularBalance.setReservedTokens(0L);
+        regularBalance.setUpdatedAt(LocalDateTime.now());
+        balanceRepository.save(regularBalance);
 
         // Set up security context with the real user and proper authorities
         List<SimpleGrantedAuthority> authorities = List.of(
@@ -313,14 +337,14 @@ class QuizControllerGenerateFromTextTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/quizzes/generate-from-text should return 403 for non-admin user")
+    @DisplayName("POST /api/v1/quizzes/generate-from-text should return 202 for user with QUIZ_CREATE permission")
     @WithMockUser(username = "regularuser", roles = "USER")
-    void generateFromText_NonAdminUser_Returns403Forbidden() throws Exception {
+    void generateFromText_UserWithQuizCreatePermission_Returns202Accepted() throws Exception {
         // When & Then
         mockMvc.perform(post("/api/v1/quizzes/generate-from-text")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isAccepted());
     }
 
     @Test
