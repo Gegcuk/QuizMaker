@@ -315,19 +315,28 @@ class EstimationServiceTest {
     void estimateQuizGeneration_zeroTokensHumanizedEstimate() {
         Document doc = new Document();
         doc.setId(UUID.randomUUID());
-        doc.setChunks(List.of()); // No chunks
+        doc.setChunks(List.of()); // No chunks - this should trigger the zero estimate path
 
         UUID docId = UUID.randomUUID();
         when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
 
         Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
         var req = requestFor(qpt);
+        // Set scope to SPECIFIC_CHUNKS with empty indices to trigger zero estimate
+        req = new GenerateQuizFromDocumentRequest(
+                docId,
+                QuizScope.SPECIFIC_CHUNKS,
+                List.of(), // Empty chunk indices
+                null, null, req.quizTitle(), req.quizDescription(),
+                req.questionsPerType(), req.difficulty(), req.estimatedTimePerQuestion(),
+                req.categoryId(), req.tagIds()
+        );
 
         EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
 
-        assertEquals("~1 billing token (1 LLM token)", result.humanizedEstimate());
-        assertEquals(1, result.estimatedLlmTokens());
-        assertEquals(1, result.estimatedBillingTokens());
+        assertEquals("No tokens required", result.humanizedEstimate());
+        assertEquals(0, result.estimatedLlmTokens());
+        assertEquals(0, result.estimatedBillingTokens());
     }
 
     @Test

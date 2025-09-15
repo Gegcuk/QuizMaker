@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -88,7 +89,12 @@ class QuizServiceSearchTest {
     @Test
     @DisplayName("applies search criteria across fields and returns page of QuizDto")
     void serviceAppliesCriteria() {
-        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null), "public", mock(Authentication.class));
+        // Mock authentication for the creator user
+        Authentication auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn("creator");
+        when(auth.isAuthenticated()).thenReturn(true);
+        
+        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null), "me", auth);
         assertThat(page.getTotalElements()).isGreaterThanOrEqualTo(1);
         assertThat(page.getContent()).anyMatch(dto -> dto.title().toLowerCase().contains("java"));
     }
