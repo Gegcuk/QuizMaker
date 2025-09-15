@@ -10,8 +10,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -21,10 +24,15 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -35,6 +43,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Transactional
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false"
+})
 @WithMockUser(username = "admin", roles = {"ADMIN"})
 class QuizControllerSearchIntegrationTest {
 
@@ -51,7 +65,9 @@ class QuizControllerSearchIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
-    private RoleService roleService;
+    private PermissionRepository permissionRepository;
+    @Autowired
+    private RoleRepository roleRepository;
 
     private Category catGeneral;
     private Category catScience;
@@ -60,13 +76,50 @@ class QuizControllerSearchIntegrationTest {
 
     @BeforeEach
     void setup() throws Exception {
+        // Clean up in dependency order to avoid foreign key constraint violations
+        jdbcTemplate.execute("DELETE FROM answers");
+        jdbcTemplate.execute("DELETE FROM attempts");
+        jdbcTemplate.execute("DELETE FROM quiz_questions");
         jdbcTemplate.execute("DELETE FROM quiz_tags");
+        jdbcTemplate.execute("DELETE FROM question_tags");
+        jdbcTemplate.execute("DELETE FROM questions");
         jdbcTemplate.execute("DELETE FROM quizzes");
         jdbcTemplate.execute("DELETE FROM user_roles");
         jdbcTemplate.execute("DELETE FROM users");
         jdbcTemplate.execute("DELETE FROM categories");
         jdbcTemplate.execute("DELETE FROM tags");
+        jdbcTemplate.execute("DELETE FROM role_permissions");
+        jdbcTemplate.execute("DELETE FROM roles");
+        jdbcTemplate.execute("DELETE FROM permissions");
 
+        // Create permissions first
+        Permission quizCreatePermission = new Permission();
+        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
+        quizCreatePermission = permissionRepository.save(quizCreatePermission);
+
+        Permission quizReadPermission = new Permission();
+        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
+        quizReadPermission = permissionRepository.save(quizReadPermission);
+
+        Permission quizUpdatePermission = new Permission();
+        quizUpdatePermission.setPermissionName(PermissionName.QUIZ_UPDATE.name());
+        quizUpdatePermission = permissionRepository.save(quizUpdatePermission);
+
+        Permission categoryReadPermission = new Permission();
+        categoryReadPermission.setPermissionName(PermissionName.CATEGORY_READ.name());
+        categoryReadPermission = permissionRepository.save(categoryReadPermission);
+
+        Permission tagReadPermission = new Permission();
+        tagReadPermission.setPermissionName(PermissionName.TAG_READ.name());
+        tagReadPermission = permissionRepository.save(tagReadPermission);
+
+        // Create roles
+        Role adminRole = new Role();
+        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
+        adminRole.setPermissions(Set.of(quizCreatePermission, quizReadPermission, quizUpdatePermission, categoryReadPermission, tagReadPermission));
+        adminRole = roleRepository.save(adminRole);
+
+        // Create user with role
         User user = new User();
         user.setUsername("admin");
         user.setEmail("admin@example.com");
@@ -74,10 +127,8 @@ class QuizControllerSearchIntegrationTest {
         user.setActive(true);
         user.setDeleted(false);
         user.setEmailVerified(true);
+        user.setRoles(Set.of(adminRole));
         User savedUser = userRepository.save(user);
-        
-        // Assign ADMIN role to the user
-        roleService.assignRoleToUser(savedUser.getId(), roleService.getRoleByName(RoleName.ROLE_ADMIN).getRoleId());
 
         catGeneral = new Category();
         catGeneral.setName("General");

@@ -193,13 +193,18 @@ public class AttemptControllerIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Clean up database
+        // Clean up database in dependency order to avoid foreign key constraint violations
+        jdbcTemplate.execute("DELETE FROM answers");
+        jdbcTemplate.execute("DELETE FROM attempts");
         jdbcTemplate.execute("DELETE FROM quiz_questions");
         jdbcTemplate.execute("DELETE FROM quiz_tags");
+        jdbcTemplate.execute("DELETE FROM question_tags");
+        jdbcTemplate.execute("DELETE FROM questions");
         jdbcTemplate.execute("DELETE FROM quizzes");
         jdbcTemplate.execute("DELETE FROM user_roles");
         jdbcTemplate.execute("DELETE FROM users");
         jdbcTemplate.execute("DELETE FROM categories");
+        jdbcTemplate.execute("DELETE FROM tags");
         jdbcTemplate.execute("DELETE FROM role_permissions");
         jdbcTemplate.execute("DELETE FROM roles");
         jdbcTemplate.execute("DELETE FROM permissions");

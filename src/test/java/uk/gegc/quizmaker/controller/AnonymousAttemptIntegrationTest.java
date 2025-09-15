@@ -14,6 +14,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MvcResult;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
@@ -47,8 +48,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DirtiesContext(classMode = AFTER_CLASS)
+@Transactional
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create",
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false",
         "quizmaker.share-links.token-pepper=test-pepper-for-integration-tests"
 })
 @DisplayName("Anonymous Attempt Integration Tests")
@@ -76,6 +79,7 @@ class AnonymousAttemptIntegrationTest {
 
     @BeforeEach
     void setup() {
+        // Clean up in dependency order to avoid foreign key constraint violations
         jdbcTemplate.execute("DELETE FROM answers");
         jdbcTemplate.execute("DELETE FROM attempts");
         jdbcTemplate.execute("DELETE FROM share_link_analytics");
@@ -83,9 +87,16 @@ class AnonymousAttemptIntegrationTest {
         jdbcTemplate.execute("DELETE FROM share_links");
         jdbcTemplate.execute("DELETE FROM quiz_questions");
         jdbcTemplate.execute("DELETE FROM quiz_tags");
+        jdbcTemplate.execute("DELETE FROM question_tags");
+        jdbcTemplate.execute("DELETE FROM questions");
         jdbcTemplate.execute("DELETE FROM quizzes");
+        jdbcTemplate.execute("DELETE FROM user_roles");
         jdbcTemplate.execute("DELETE FROM users");
         jdbcTemplate.execute("DELETE FROM categories");
+        jdbcTemplate.execute("DELETE FROM tags");
+        jdbcTemplate.execute("DELETE FROM role_permissions");
+        jdbcTemplate.execute("DELETE FROM roles");
+        jdbcTemplate.execute("DELETE FROM permissions");
 
         User owner = new User();
         owner.setUsername("owner");

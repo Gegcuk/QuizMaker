@@ -13,6 +13,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
@@ -31,6 +32,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @DirtiesContext(classMode = AFTER_CLASS)
+@Transactional
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false"
+})
 @WithMockUser(username = "defaultUser", roles = "ADMIN")
 @DisplayName("Document Process Integration Tests")
 class IngestionFlowIT {
