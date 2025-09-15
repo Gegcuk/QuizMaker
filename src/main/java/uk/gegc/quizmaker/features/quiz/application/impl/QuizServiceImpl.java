@@ -602,6 +602,30 @@ public class QuizServiceImpl implements QuizService {
 
         // Refresh job from database
         job = jobRepository.findById(jobId).orElseThrow();
+        
+        // Release billing reservation if it exists
+        if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+            try {
+                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                billingService.release(
+                    job.getBillingReservationId(),
+                    "Job cancelled by user",
+                    jobId.toString(),
+                    releaseIdempotencyKey
+                );
+                job.setBillingState(BillingState.RELEASED);
+                // Store release idempotency key for audit trail
+                job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                jobRepository.save(job);
+                log.info("Released billing reservation {} for cancelled job {}", job.getBillingReservationId(), jobId);
+            } catch (Exception billingError) {
+                log.error("Failed to release billing reservation for cancelled job {}", jobId, billingError);
+                // Store billing error but don't fail the cancellation
+                job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                jobRepository.save(job);
+            }
+        }
+        
         return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
     }
 
@@ -635,6 +659,28 @@ public class QuizServiceImpl implements QuizService {
                 QuizGenerationJob job = jobRepository.findById(event.getJobId()).orElse(null);
                 if (job != null) {
                     job.markFailed("Quiz creation failed: " + e.getMessage());
+                    
+                            // Release billing reservation if it exists
+                            if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+                                try {
+                                    String releaseIdempotencyKey = "quiz:" + event.getJobId() + ":release";
+                                    billingService.release(
+                                        job.getBillingReservationId(),
+                                        "Quiz creation failed: " + e.getMessage(),
+                                        event.getJobId().toString(),
+                                        releaseIdempotencyKey
+                                    );
+                                    job.setBillingState(BillingState.RELEASED);
+                                    // Store release idempotency key for audit trail
+                                    job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                    log.info("Released billing reservation {} for failed quiz creation job {}", job.getBillingReservationId(), event.getJobId());
+                                } catch (Exception billingError) {
+                                    log.error("Failed to release billing reservation for quiz creation failure job {}", event.getJobId(), billingError);
+                                    // Store billing error but don't fail the job update
+                                    job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                                }
+                            }
+                    
                     jobRepository.save(job);
                 }
             } catch (Exception saveError) {

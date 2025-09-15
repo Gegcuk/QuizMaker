@@ -28,6 +28,8 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
@@ -58,6 +60,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final AiRateLimitConfig rateLimitConfig;
+    private final BillingService billingService;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -241,6 +244,28 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
                 if (failedJob != null) {
                     failedJob.markFailed("Generation failed: " + e.getMessage());
+                    
+                        // Release billing reservation if it exists
+                        if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
+                            try {
+                                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                                billingService.release(
+                                    failedJob.getBillingReservationId(),
+                                    "Generation failed: " + e.getMessage(),
+                                    jobId.toString(),
+                                    releaseIdempotencyKey
+                                );
+                                failedJob.setBillingState(BillingState.RELEASED);
+                                // Store release idempotency key for audit trail
+                                failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
+                            } catch (Exception billingError) {
+                                log.error("Failed to release billing reservation for job {}", jobId, billingError);
+                                // Store billing error but don't fail the job update
+                                failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                            }
+                        }
+                    
                     jobRepository.save(failedJob);
                 }
             } catch (Exception saveError) {

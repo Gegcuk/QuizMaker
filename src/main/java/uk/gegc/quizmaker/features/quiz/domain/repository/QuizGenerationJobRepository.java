@@ -116,4 +116,9 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT j FROM QuizGenerationJob j WHERE j.id = :id")
     Optional<QuizGenerationJob> findByIdForUpdate(@Param("id") UUID id);
+
+    /**
+     * Find job by billing reservation ID
+     */
+    Optional<QuizGenerationJob> findByBillingReservationId(UUID billingReservationId);
 } 

@@ -1,11 +1,15 @@
 package uk.gegc.quizmaker.features.quiz.domain.model;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -135,7 +139,7 @@ public class QuizGenerationJob {
                 completedAt = LocalDateTime.now();
             }
             if (generationTimeSeconds == null && startedAt != null) {
-                generationTimeSeconds = java.time.Duration.between(startedAt, completedAt).getSeconds();
+                generationTimeSeconds = Duration.between(startedAt, completedAt).getSeconds();
             }
         }
 
@@ -198,7 +202,7 @@ public class QuizGenerationJob {
             return 0L;
         }
         LocalDateTime endTime = completedAt != null ? completedAt : LocalDateTime.now();
-        return java.time.Duration.between(startedAt, endTime).getSeconds();
+        return Duration.between(startedAt, endTime).getSeconds();
     }
 
     /**
@@ -259,6 +263,51 @@ public class QuizGenerationJob {
         if (now.isAfter(reservationExpiresAt)) {
             return 0L;
         }
-        return java.time.Duration.between(now, reservationExpiresAt).getSeconds();
+        return Duration.between(now, reservationExpiresAt).getSeconds();
+    }
+
+    /**
+     * Add a billing idempotency key to the job's audit trail
+     */
+    public void addBillingIdempotencyKey(String operation, String key) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> keys = new HashMap<>();
+            
+            // Parse existing keys if present
+            if (billingIdempotencyKeys != null && !billingIdempotencyKeys.isBlank()) {
+                keys = mapper.readValue(billingIdempotencyKeys, Map.class);
+            }
+            
+            // Add new key
+            keys.put(operation, key);
+            
+            // Serialize back to JSON
+            billingIdempotencyKeys = mapper.writeValueAsString(keys);
+        } catch (Exception e) {
+            // If JSON parsing fails, create a simple map with the new key
+            billingIdempotencyKeys = "{\"" + operation + "\":\"" + key + "\"}";
+        }
+    }
+
+    /**
+     * Get a billing idempotency key by operation
+     */
+    public String getBillingIdempotencyKey(String operation) {
+        if (billingIdempotencyKeys == null || billingIdempotencyKeys.isBlank()) {
+            return null;
+        }
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> keys = mapper.readValue(billingIdempotencyKeys, Map.class);
+            return keys.get(operation);
+        } catch (Exception e) {
+            return null;
+        }
     }
 } 
