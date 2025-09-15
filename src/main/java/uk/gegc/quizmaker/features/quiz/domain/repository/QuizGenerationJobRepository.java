@@ -2,7 +2,10 @@ package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -97,6 +100,7 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
     /**
      * Delete old completed jobs (cleanup)
      */
+    @Modifying
     @Query("DELETE FROM QuizGenerationJob j WHERE j.status = 'COMPLETED' AND j.completedAt < :cutoffTime")
     void deleteOldCompletedJobs(@Param("cutoffTime") LocalDateTime cutoffTime);
 
@@ -105,4 +109,11 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      */
     @Query("SELECT j FROM QuizGenerationJob j WHERE j.status IN ('FAILED', 'CANCELLED') AND j.completedAt < :cutoffTime")
     List<QuizGenerationJob> findJobsForCleanup(@Param("cutoffTime") LocalDateTime cutoffTime);
+
+    /**
+     * Find job by ID with pessimistic lock for concurrent commit protection
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT j FROM QuizGenerationJob j WHERE j.id = :id")
+    Optional<QuizGenerationJob> findByIdForUpdate(@Param("id") UUID id);
 } 

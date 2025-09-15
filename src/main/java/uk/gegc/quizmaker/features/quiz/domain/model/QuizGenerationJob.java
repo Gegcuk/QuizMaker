@@ -94,6 +94,12 @@ public class QuizGenerationJob {
     @Column(name = "estimation_version")
     private String estimationVersion;
 
+    @Column(name = "actual_tokens")
+    private Long actualTokens;
+
+    @Column(name = "was_capped")
+    private Boolean wasCappedAtReserved = false;
+
     @PrePersist
     protected void onCreate() {
         if (startedAt == null) {

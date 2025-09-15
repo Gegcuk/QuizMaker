@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -604,5 +605,296 @@ class EstimationServiceImplTest {
         chunk2.setSectionNumber(1);
 
         return List.of(chunk1, chunk2);
+    }
+
+    @Nested
+    @DisplayName("computeActualBillingTokens Tests")
+    class ComputeActualBillingTokensTests {
+
+        @Test
+        @DisplayName("Should compute actual billing tokens for mixed question types")
+        void shouldComputeActualBillingTokensForMixedQuestionTypes() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE),
+                    createMockQuestion(QuestionType.MCQ_SINGLE),
+                    createMockQuestion(QuestionType.TRUE_FALSE),
+                    createMockQuestion(QuestionType.OPEN)
+            );
+            
+            long inputPromptTokens = 1000L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (1000) + outputTokens
+            // MCQ_SINGLE: 2 * 120 = 240
+            // TRUE_FALSE: 1 * 60 = 60  
+            // OPEN: 1 * 180 = 180
+            // Total output: 240 + 60 + 180 = 480
+            // Total LLM: 1000 + 480 = 1480
+            // Billing: 1480 * 1.0 = 1480
+            assertThat(actualBillingTokens).isEqualTo(1480L);
+        }
+
+        @Test
+        @DisplayName("Should apply difficulty multiplier correctly")
+        void shouldApplyDifficultyMultiplierCorrectly() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+            Difficulty difficulty = Difficulty.HARD; // 1.15 multiplier
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (100) + outputTokens
+            // MCQ_SINGLE: 1 * 120 * 1.15 = 138
+            // Total LLM: 100 + 138 = 238
+            // Billing: 238 * 1.0 = 238
+            assertThat(actualBillingTokens).isEqualTo(238L);
+        }
+
+        @Test
+        @DisplayName("Should handle empty questions list")
+        void shouldHandleEmptyQuestionsList() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of();
+            long inputPromptTokens = 500L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Should return only input prompt tokens converted to billing tokens
+            assertThat(actualBillingTokens).isEqualTo(500L);
+        }
+
+        @Test
+        @DisplayName("Should handle null questions list")
+        void shouldHandleNullQuestionsList() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            long inputPromptTokens = 300L;
+            Difficulty difficulty = Difficulty.EASY;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(null, difficulty, inputPromptTokens);
+
+            // Then
+            // Should return only input prompt tokens converted to billing tokens
+            assertThat(actualBillingTokens).isEqualTo(300L);
+        }
+
+        @Test
+        @DisplayName("Should apply billing ratio correctly")
+        void shouldApplyBillingRatioCorrectly() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L); // 1:1 ratio (1 LLM token = 1 billing token)
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (100) + outputTokens
+            // MCQ_SINGLE: 1 * 120 = 120
+            // Total LLM: 100 + 120 = 220
+            // Billing: ceil(220 / 1) = 220
+            assertThat(actualBillingTokens).isEqualTo(220L);
+        }
+
+        @Test
+        @DisplayName("Should handle all question types correctly")
+        void shouldHandleAllQuestionTypesCorrectly() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE),
+                    createMockQuestion(QuestionType.MCQ_MULTI),
+                    createMockQuestion(QuestionType.TRUE_FALSE),
+                    createMockQuestion(QuestionType.OPEN),
+                    createMockQuestion(QuestionType.FILL_GAP),
+                    createMockQuestion(QuestionType.ORDERING),
+                    createMockQuestion(QuestionType.COMPLIANCE),
+                    createMockQuestion(QuestionType.HOTSPOT),
+                    createMockQuestion(QuestionType.MATCHING)
+            );
+            
+            long inputPromptTokens = 500L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (500) + outputTokens
+            // MCQ_SINGLE: 1 * 120 = 120
+            // MCQ_MULTI: 1 * 140 = 140
+            // TRUE_FALSE: 1 * 60 = 60
+            // OPEN: 1 * 180 = 180
+            // FILL_GAP: 1 * 120 = 120
+            // ORDERING: 1 * 140 = 140
+            // COMPLIANCE: 1 * 160 = 160
+            // HOTSPOT: 1 * 160 = 160
+            // MATCHING: 1 * 160 = 160
+            // Total output: 120 + 140 + 60 + 180 + 120 + 140 + 160 + 160 + 160 = 1240
+            // Total LLM: 500 + 1240 = 1740
+            // Billing: ceil(1740 / 1) = 1740
+            assertThat(actualBillingTokens).isEqualTo(1740L);
+        }
+
+        private uk.gegc.quizmaker.features.question.domain.model.Question createMockQuestion(QuestionType type) {
+            uk.gegc.quizmaker.features.question.domain.model.Question question = 
+                    new uk.gegc.quizmaker.features.question.domain.model.Question();
+            question.setType(type);
+            return question;
+        }
+    }
+
+    @Nested
+    @DisplayName("Commit Edge Cases Tests")
+    class CommitEdgeCasesTests {
+
+        @Test
+        @DisplayName("Should handle rounding edge cases around epsilon boundaries")
+        void shouldHandleRoundingEdgeCasesAroundEpsilonBoundaries() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (100) + outputTokens (120) = 220
+            // This tests the boundary case where actual tokens exactly match reserved tokens
+            assertThat(actualBillingTokens).isEqualTo(220L);
+        }
+
+        @Test
+        @DisplayName("Should handle epsilon boundary calculations correctly")
+        void shouldHandleEpsilonBoundaryCalculationsCorrectly() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE),
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (100) + outputTokens (2 * 120 = 240) = 340
+            // This tests a case where we have multiple questions to ensure proper aggregation
+            assertThat(actualBillingTokens).isEqualTo(340L);
+        }
+
+        @Test
+        @DisplayName("Should handle difficulty multiplier edge cases")
+        void shouldHandleDifficultyMultiplierEdgeCases() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+
+            // Test EASY difficulty (0.9 multiplier)
+            long easyTokens = estimationService.computeActualBillingTokens(questions, Difficulty.EASY, inputPromptTokens);
+            // Expected: 100 + (120 * 0.9) = 100 + 108 = 208
+            assertThat(easyTokens).isEqualTo(208L);
+
+            // Test HARD difficulty (1.15 multiplier)
+            long hardTokens = estimationService.computeActualBillingTokens(questions, Difficulty.HARD, inputPromptTokens);
+            // Expected: 100 + (120 * 1.15) = 100 + 138 = 238
+            assertThat(hardTokens).isEqualTo(238L);
+        }
+
+        @Test
+        @DisplayName("Should handle token ratio edge cases")
+        void shouldHandleTokenRatioEdgeCases() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(2L); // 2:1 ratio
+            
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
+                    createMockQuestion(QuestionType.MCQ_SINGLE)
+            );
+            
+            long inputPromptTokens = 100L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (100) + outputTokens (120) = 220 LLM tokens
+            // Billing: ceil(220 / 2) = ceil(110) = 110
+            assertThat(actualBillingTokens).isEqualTo(110L);
+        }
+
+        @Test
+        @DisplayName("Should handle large token counts without overflow")
+        void shouldHandleLargeTokenCountsWithoutOverflow() {
+            // Given
+            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            
+            // Create a large number of questions to test overflow handling
+            List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = new ArrayList<>();
+            for (int i = 0; i < 1000; i++) {
+                questions.add(createMockQuestion(QuestionType.MCQ_SINGLE));
+            }
+            
+            long inputPromptTokens = 10000L;
+            Difficulty difficulty = Difficulty.MEDIUM;
+
+            // When
+            long actualBillingTokens = estimationService.computeActualBillingTokens(questions, difficulty, inputPromptTokens);
+
+            // Then
+            // Expected: inputPromptTokens (10000) + outputTokens (1000 * 120 = 120000) = 130000
+            assertThat(actualBillingTokens).isEqualTo(130000L);
+        }
+
+        private uk.gegc.quizmaker.features.question.domain.model.Question createMockQuestion(QuestionType type) {
+            uk.gegc.quizmaker.features.question.domain.model.Question question = 
+                    new uk.gegc.quizmaker.features.question.domain.model.Question();
+            question.setType(type);
+            return question;
+        }
     }
 }

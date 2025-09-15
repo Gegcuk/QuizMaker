@@ -307,6 +307,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        pd.setTitle("Invalid Job State for Commit");
+        pd.setType(URI.create("https://api.quizmaker.com/problems/invalid-job-state-for-commit"));
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setProperty("timestamp", java.time.Instant.now());
+        pd.setProperty("jobId", ex.getJobId());
+        pd.setProperty("currentState", ex.getCurrentState().name());
+        pd.setProperty("expectedState", "RESERVED");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleDataIntegrity(DataIntegrityViolationException ex) {

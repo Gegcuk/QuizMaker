@@ -1,8 +1,11 @@
 package uk.gegc.quizmaker.features.billing.application;
 
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -23,5 +26,16 @@ public interface EstimationService {
      * Convert LLM tokens to billing tokens per configured ratio with ceil rounding.
      */
     long llmTokensToBillingTokens(long llmTokens);
+
+    /**
+     * Compute actual billing tokens from generated questions for commit.
+     * Uses the same EOT table and tokenizer input as estimation.
+     *
+     * @param questions Generated questions to compute tokens for
+     * @param difficulty Difficulty level used for generation
+     * @param inputPromptTokens Input prompt tokens used (from estimation)
+     * @return Actual billing tokens to commit
+     */
+    long computeActualBillingTokens(List<Question> questions, Difficulty difficulty, long inputPromptTokens);
 }
 

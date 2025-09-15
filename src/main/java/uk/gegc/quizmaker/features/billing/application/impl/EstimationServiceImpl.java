@@ -14,11 +14,13 @@ import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Validated
@@ -311,5 +313,55 @@ public class EstimationServiceImpl implements EstimationService {
         log.info("Safety factor: {}", safetyFactor);
         log.info("Calculated estimate from document content: {} LLM tokens", adjustedLlm);
         return adjustedLlm;
+    }
+
+    @Override
+    public long computeActualBillingTokens(List<Question> questions, Difficulty difficulty, long inputPromptTokens) {
+        if (questions == null || questions.isEmpty()) {
+            log.warn("No questions provided for actual token computation, returning input prompt tokens only");
+            return llmTokensToBillingTokens(inputPromptTokens);
+        }
+
+        log.info("Computing actual billing tokens for {} questions with difficulty {}", questions.size(), difficulty);
+
+        // Group questions by type to compute EOT (Expected Output Tokens)
+        Map<QuestionType, Long> questionsByType = questions.stream()
+                .collect(Collectors.groupingBy(
+                        Question::getType,
+                        Collectors.counting()
+                ));
+
+        double difficultyMultiplier = getDifficultyMultiplier(difficulty);
+        long totalOutputTokens = 0L;
+
+        // Compute output tokens using the same EOT table as estimation
+        for (Map.Entry<QuestionType, Long> entry : questionsByType.entrySet()) {
+            QuestionType type = entry.getKey();
+            long count = entry.getValue();
+            
+            // Get base completion tokens for this question type
+            int baseCompletionTokens = COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120);
+            
+            // Apply difficulty multiplier
+            long adjustedCompletionTokens = (long) Math.ceil(baseCompletionTokens * difficultyMultiplier);
+            
+            // Total output tokens for this type
+            long typeOutputTokens = count * adjustedCompletionTokens;
+            totalOutputTokens += typeOutputTokens;
+            
+            log.debug("Question type {}: count={}, baseCompletionTokens={}, adjustedCompletionTokens={}, typeOutputTokens={}", 
+                    type, count, baseCompletionTokens, adjustedCompletionTokens, typeOutputTokens);
+        }
+
+        // Total LLM tokens = input prompt tokens + output tokens
+        long totalLlmTokens = inputPromptTokens + totalOutputTokens;
+        
+        // Convert to billing tokens (no safety factor for actual usage)
+        long actualBillingTokens = llmTokensToBillingTokens(totalLlmTokens);
+        
+        log.info("Actual token computation: inputPromptTokens={}, outputTokens={}, totalLlmTokens={}, actualBillingTokens={}", 
+                inputPromptTokens, totalOutputTokens, totalLlmTokens, actualBillingTokens);
+        
+        return actualBillingTokens;
     }
 }

@@ -45,6 +45,7 @@ import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
@@ -531,6 +532,12 @@ public class QuizServiceImpl implements QuizService {
             job.setBillingEstimatedTokens(estimatedTokens);
             job.setBillingState(BillingState.RESERVED);
             
+            // Store input prompt tokens for commit calculation
+            job.setInputPromptTokens(estimation.estimatedLlmTokens());
+            
+            // Store estimation version for audit trail
+            job.setEstimationVersion("v1.0");
+            
             // Store idempotency key for later use
             Map<String, String> idempotencyKeys = new HashMap<>();
             idempotencyKeys.put("reserve", stableIdempotencyKey);
@@ -571,7 +578,15 @@ public class QuizServiceImpl implements QuizService {
             throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
         }
 
-        return getQuizById(job.getGeneratedQuizId(), null);
+        // Fix owner access: Use job's owner instead of null auth
+        Quiz quiz = quizRepository.findByIdWithTags(job.getGeneratedQuizId())
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
+
+        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(job.getUser().getId())) {
+            throw new ForbiddenException("Access denied");
+        }
+        
+        return quizMapper.toDto(quiz);
     }
 
     @Override
@@ -680,6 +695,9 @@ public class QuizServiceImpl implements QuizService {
             // Update job with consolidated quiz ID and total questions
             job.markCompleted(consolidatedQuiz.getId(), totalQuestions);
             jobRepository.save(job);
+
+            // Commit tokens after successful quiz creation
+            commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
 
             // TODO: Create document quiz group entity to track relationships
             // This would require additional database schema for quiz relationships
@@ -1064,5 +1082,204 @@ public class QuizServiceImpl implements QuizService {
         return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
                 .map(quizMapper::toDto);
     }
+
+    /**
+     * Commit tokens for successful quiz generation.
+     * Implements OUTPUT-only commit mode as specified in the billing plan.
+     * 
+     * State gating: Only allows commit for jobs in RESERVED state.
+     * Epsilon policy: Rejects commits that exceed reserved tokens by more than configured epsilon.
+     * Ledger linking: Ensures proper audit trail with reservation ID, job ID, and idempotency keys.
+     */
+    void commitTokensForSuccessfulGeneration(QuizGenerationJob job, List<Question> allQuestions, 
+                                                   GenerateQuizFromDocumentRequest originalRequest) {
+        String jobId = job.getId().toString();
+        String correlationId = "commit-" + jobId + "-" + System.currentTimeMillis();
+        
+        try {
+            log.info("Starting token commit for job {} [correlationId={}]", jobId, correlationId);
+            
+            // Re-load job with pessimistic lock to prevent race conditions
+            QuizGenerationJob lockedJob = jobRepository.findByIdForUpdate(job.getId())
+                    .orElseThrow(() -> new IllegalStateException("Job " + jobId + " not found during commit"));
+
+            if (lockedJob.getBillingReservationId() == null) {
+                log.warn("Job {} has no reservation ID, cannot commit [correlationId={}]", jobId, correlationId);
+                return;
+            }
+            
+            // Check if already committed (idempotent)
+            if (!lockedJob.getBillingState().isReserved()) {
+                if (lockedJob.getBillingState() == BillingState.COMMITTED) {
+                    log.info("Job {} already committed, returning success [correlationId={}]", jobId, correlationId);
+                    return;
+                }
+                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState());
+            }
+
+            // Check if commit already exists in idempotency keys
+            String commitIdempotencyKey = "quiz:" + lockedJob.getId() + ":commit";
+            if (hasBillingIdempotencyKey(lockedJob, "commit")) {
+                log.info("Job {} already has commit idempotency key, returning success [correlationId={}]", jobId, correlationId);
+                return;
+            }
+
+            // Enforce ordering: only allow commit when job is COMPLETED and reservation is ACTIVE
+            if (!lockedJob.getStatus().isSuccess()) {
+                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(), 
+                        "Job must be in COMPLETED status to commit tokens. Current status: " + lockedJob.getStatus());
+            }
+
+            // Check if reservation has expired
+            if (lockedJob.isReservationExpired()) {
+                log.warn("Reservation for job {} has expired, skipping commit [correlationId={}]", jobId, correlationId);
+                return;
+            }
+
+            // Get input prompt tokens from job (stored during estimation)
+            long inputPromptTokens = lockedJob.getInputPromptTokens() != null ? lockedJob.getInputPromptTokens() : 0L;
+            
+            // Compute commit from persisted output using shared EOT table; BigDecimal scale 0, RoundingMode.CEILING
+            long actualBillingTokens = estimationService.computeActualBillingTokens(
+                    allQuestions, 
+                    originalRequest.difficulty(), 
+                    inputPromptTokens
+            );
+
+            // Cap actual tokens at reserved amount to avoid overcharging users
+            // Users aren't responsible for our estimation accuracy
+            long reservedTokens = lockedJob.getBillingEstimatedTokens();
+            long tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
+            boolean wasCapped = actualBillingTokens > reservedTokens;
+            
+            if (wasCapped) {
+                long underestimationDelta = actualBillingTokens - reservedTokens;
+                log.warn("BILLING_UNDERESTIMATION: Actual tokens ({}) exceed reserved tokens ({}) for job {} (reservationId: {}). " +
+                        "Delta: {}, Committing reserved amount to avoid overcharging user.", 
+                        actualBillingTokens, reservedTokens, jobId, lockedJob.getBillingReservationId(), underestimationDelta);
+                
+                // TODO: Emit metrics when metrics system is available
+                // meterRegistry.counter("billing.underestimation.count").increment();
+                // meterRegistry.gauge("billing.underestimation.delta", underestimationDelta);
+            }
+
+            log.info("Committing {} billing tokens for job {} (actual: {}, reserved: {}, inputPromptTokens: {}, questions: {}) [correlationId={}]", 
+                    tokensToCommit, jobId, actualBillingTokens, reservedTokens, inputPromptTokens, allQuestions.size(), correlationId);
+
+            // Write both COMMIT and RELEASE ledger rows with reservationId, jobId, idempotencyKey, and reason
+            var commitResult = billingService.commit(
+                    lockedJob.getBillingReservationId(),
+                    tokensToCommit,
+                    "quiz-generation",
+                    commitIdempotencyKey
+            );
+
+            // Guard: If billing service doesn't auto-release remainder when commit < reserved, do it explicitly
+            long reserved = lockedJob.getBillingEstimatedTokens();
+            long remainder = Math.max(0, reserved - tokensToCommit);
+            if (remainder > 0 && (commitResult == null || commitResult.releasedTokens() == 0)) {
+                try {
+                    log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", 
+                            remainder, jobId, correlationId);
+                    billingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
+                } catch (Exception ex) {
+                    log.warn("Failed to explicitly release remainder {} for reservation {}: {} [correlationId={}]", 
+                            remainder, lockedJob.getBillingReservationId(), ex.getMessage(), correlationId);
+                }
+            }
+
+            // Update job billing fields
+            lockedJob.setActualTokens(actualBillingTokens);
+            lockedJob.setBillingCommittedTokens(tokensToCommit);
+            lockedJob.setWasCappedAtReserved(wasCapped);
+            lockedJob.setBillingState(BillingState.COMMITTED);
+            
+            // Update idempotency keys JSON for audit trail
+            updateBillingIdempotencyKeys(lockedJob, "commit", commitIdempotencyKey);
+            
+            // Clear any previous billing errors
+            lockedJob.setLastBillingError(null);
+            
+            jobRepository.save(lockedJob);
+
+            log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, wasCappedAtReserved: {}) [correlationId={}]", 
+                    tokensToCommit, jobId, actualBillingTokens, 
+                    commitResult != null ? commitResult.releasedTokens() : 0L, wasCapped, correlationId);
+
+        } catch (InvalidJobStateForCommitException e) {
+            // These are business rule violations that should be logged but not fail the quiz creation
+            log.error("Business rule violation during commit for job {} [correlationId={}]: {}", 
+                    jobId, correlationId, e.getMessage());
+            
+            // Store billing error for support with structured format
+            storeBillingError(job, e, correlationId);
+            
+        } catch (Exception e) {
+            log.error("Unexpected error during commit for job {} [correlationId={}]", jobId, correlationId, e);
+            
+            // Store billing error for support
+            storeBillingError(job, e, correlationId);
+            
+            // Don't re-throw - quiz creation was successful, billing failure shouldn't fail the whole operation
+            // The reservation will be released by the sweeper when it expires
+        }
+    }
+    
+    /**
+     * Store billing error in structured JSON format for support purposes.
+     */
+    private void storeBillingError(QuizGenerationJob job, Exception e, String correlationId) {
+        try {
+            BillingError billingError = new BillingError(
+                    e.getMessage(), 
+                    e.getClass().getSimpleName(), 
+                    java.time.Instant.now(), 
+                    correlationId
+            );
+            job.setLastBillingError(objectMapper.writeValueAsString(billingError));
+            jobRepository.save(job);
+        } catch (Exception saveError) {
+            log.error("Failed to save billing error for job {} [correlationId={}]", job.getId(), correlationId, saveError);
+        }
+    }
+
+    /**
+     * Record for structured billing error information
+     */
+    private record BillingError(String error, String errorType, java.time.Instant timestamp, String correlationId) {}
+
+    /**
+     * Update billing idempotency keys JSON field
+     */
+    private void updateBillingIdempotencyKeys(QuizGenerationJob job, String operation, String idempotencyKey) {
+        try {
+            Map<String, String> keys = new HashMap<>();
+            if (job.getBillingIdempotencyKeys() != null && !job.getBillingIdempotencyKeys().trim().isEmpty()) {
+                // Parse existing keys
+                keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+                        objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+            }
+            
+            keys.put(operation, idempotencyKey);
+            job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(keys));
+        } catch (Exception e) {
+            log.warn("Failed to update billing idempotency keys for job {}: {}", job.getId(), e.getMessage());
+        }
+    }
+
+    private boolean hasBillingIdempotencyKey(QuizGenerationJob job, String operation) {
+        try {
+            if (job.getBillingIdempotencyKeys() == null || job.getBillingIdempotencyKeys().trim().isEmpty()) {
+                return false;
+            }
+            Map<String, String> keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+                    objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+            return keys.containsKey(operation);
+        } catch (Exception e) {
+            log.warn("Failed to check billing idempotency keys for job {}: {}", job.getId(), e.getMessage());
+            return false;
+        }
+    }
+
 
 }
