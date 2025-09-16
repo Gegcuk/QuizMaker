@@ -384,7 +384,7 @@ public class ShareLinkController {
         String tokenHash = shareLinkService.hashToken(token);
         rateLimitService.checkRateLimit("share-link-stats", ipAddress + "|" + tokenHash, 60);
 
-        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId, "anonymous");
         return ResponseEntity.ok(stats);
     }
 

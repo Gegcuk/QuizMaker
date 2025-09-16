@@ -213,6 +213,9 @@ class AttemptServiceImplTest {
         quiz.setId(quizId);
         quiz.setIsTimerEnabled(true);
         quiz.setTimerDuration(30);
+        quiz.setCreator(user); // Make user the owner so they can start attempts
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
         // no questions collection setup here; totalQuestions derived from size (defaults 0)
 
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));

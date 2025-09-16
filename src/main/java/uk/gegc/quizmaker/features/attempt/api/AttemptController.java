@@ -275,7 +275,8 @@ public class AttemptController {
             @PathVariable UUID attemptId,
             Authentication authentication
     ) {
-        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        String username = authentication.getName();
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId, username);
         return ResponseEntity.ok(stats);
     }
 

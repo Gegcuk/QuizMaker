@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -246,6 +247,11 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(status().isCreated()).andReturn()
                 .getResponse().getContentAsString();
         quizId = UUID.fromString(objectMapper.readTree(resp).get("quizId").asText());
+        var persistedQuiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        persistedQuiz.setStatus(QuizStatus.PUBLISHED);
+        persistedQuiz.setVisibility(Visibility.PUBLIC);
+        quizRepository.save(persistedQuiz);
     }
     
     private UserDetails createUserDetails(User user) {
@@ -687,6 +693,11 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
 
         UUID timedQuizId = UUID.fromString(objectMapper.readTree(timedResponse).get("quizId").asText());
+        var timedQuizEntity = quizRepository.findById(timedQuizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + timedQuizId + " not found"));
+        timedQuizEntity.setStatus(QuizStatus.PUBLISHED);
+        timedQuizEntity.setVisibility(Visibility.PUBLIC);
+        quizRepository.save(timedQuizEntity);
 
         JsonNode dummyContent = objectMapper.readTree("{\"options\":[{\"id\":\"A\",\"text\":\"foo\",\"correct\":true},{\"id\":\"B\",\"text\":\"bar\",\"correct\":false}]}");
         CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest(QuestionType.MCQ_SINGLE,
@@ -868,7 +879,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
 
         mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId)
-                        .with(user(regularUserDetails)))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
                 .andExpect(jsonPath("$.quizId", is(quizId.toString())))
@@ -883,7 +894,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("startAttempt with no time limit returns null timeLimitMinutes")
     void startAttempt_noTimeLimit_returnsNullTimeLimit() throws Exception {
         mockMvc.perform(post("/api/v1/attempts/quizzes/{id}", quizId)
-                        .with(user(regularUserDetails)))
+                        .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attemptId").exists())
                 .andExpect(jsonPath("$.timeLimitMinutes").isEmpty());

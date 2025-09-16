@@ -676,7 +676,7 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
         AttemptStatsDto stats = new AttemptStatsDto(attemptId, java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(12), 5, 4, 80.0, 100.0, java.util.List.of(), Instant.now().minusSeconds(60), Instant.now());
-        when(attemptService.getAttemptStats(attemptId)).thenReturn(stats);
+        when(attemptService.getAttemptStats(attemptId, "anonymous")).thenReturn(stats);
 
         mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token)))
@@ -775,7 +775,7 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptQuizId(attemptId)).thenReturn(quizId);
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
-        when(attemptService.getAttemptStats(attemptId)).thenThrow(new RuntimeException("boom"));
+        when(attemptService.getAttemptStats(attemptId, "anonymous")).thenThrow(new RuntimeException("boom"));
 
         mockMvc.perform(get("/api/v1/quizzes/shared/attempts/{attemptId}/stats", attemptId)
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token)))

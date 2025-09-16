@@ -33,7 +33,7 @@ public interface AttemptService {
     List<QuestionForAttemptDto> getShuffledQuestions(UUID quizId, Authentication authentication);
 
     // 📊 Enhanced Analytics
-    AttemptStatsDto getAttemptStats(UUID attemptId);
+    AttemptStatsDto getAttemptStats(UUID attemptId, String username);
 
     // 🔧 Attempt Management
     AttemptDto pauseAttempt(String username, UUID attemptId);

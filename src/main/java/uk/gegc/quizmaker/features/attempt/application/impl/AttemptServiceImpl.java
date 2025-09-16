@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
+import uk.gegc.quizmaker.features.quiz.domain.model.ShareLinkScope;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
@@ -72,6 +73,16 @@ public class AttemptServiceImpl implements AttemptService {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
+        // Authorization check: quiz must be published and public, or user must be owner/moderator
+        boolean canStartAttempt = (quiz.getVisibility() == Visibility.PUBLIC && quiz.getStatus() == QuizStatus.PUBLISHED)
+                || (quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId()))
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+
+        if (!canStartAttempt) {
+            throw new AccessDeniedException("You do not have permission to start an attempt on this quiz");
+        }
+
         Attempt attempt = new Attempt();
         attempt.setUser(user);
         attempt.setQuiz(quiz);
@@ -102,6 +113,30 @@ public class AttemptServiceImpl implements AttemptService {
 
         ShareLink shareLink = shareLinkRepository.findById(shareLinkId)
                 .orElseThrow(() -> new ResourceNotFoundException("ShareLink " + shareLinkId + " not found"));
+
+        // Validate share link ownership and scope
+        if (!shareLink.getQuiz().getId().equals(quizId)) {
+            throw new ResourceNotFoundException("ShareLink does not belong to quiz " + quizId);
+        }
+
+        // Check if share link has permission to start attempts
+        // Both QUIZ_VIEW and QUIZ_ATTEMPT_START scopes allow starting attempts
+        if (shareLink.getScope() != ShareLinkScope.QUIZ_VIEW && shareLink.getScope() != ShareLinkScope.QUIZ_ATTEMPT_START) {
+            throw new AccessDeniedException("ShareLink does not have permission to start attempts");
+        }
+
+        // Check if share link is expired
+        if (shareLink.getExpiresAt() != null && shareLink.getExpiresAt().isBefore(Instant.now())) {
+            throw new AccessDeniedException("ShareLink has expired");
+        }
+
+        // Check if share link is revoked
+        if (shareLink.getRevokedAt() != null) {
+            throw new AccessDeniedException("ShareLink has been revoked");
+        }
+
+        // Note: Share links can work on private/draft quizzes as long as the user has the valid share link
+        // This allows quiz creators to share private quizzes with specific people
 
         // Use a sentinel anonymous user (by username), or create one if missing
         User user = userRepository.findByUsername("anonymous")
@@ -476,9 +511,22 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional(readOnly = true)
-    public AttemptStatsDto getAttemptStats(UUID attemptId) {
+    public AttemptStatsDto getAttemptStats(UUID attemptId, String username) {
         Attempt attempt = attemptRepository.findByIdWithAnswersAndQuestion(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+
+        // Authorization check: user must own the attempt or have appropriate permissions
+        User currentUser = userRepository.findByUsernameWithRolesAndPermissions(username)
+                .or(() -> userRepository.findByEmailWithRolesAndPermissions(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        boolean canViewStats = attempt.getUser().getId().equals(currentUser.getId())
+                || appPermissionEvaluator.hasPermission(currentUser, PermissionName.ATTEMPT_READ_ALL)
+                || appPermissionEvaluator.hasPermission(currentUser, PermissionName.SYSTEM_ADMIN);
+
+        if (!canViewStats) {
+            throw new AccessDeniedException("You do not have permission to view stats for attempt " + attemptId);
+        }
 
         Duration totalTime = attempt.getCompletedAt() != null && attempt.getStartedAt() != null
                 ? Duration.between(attempt.getStartedAt(), attempt.getCompletedAt())
@@ -576,7 +624,7 @@ public class AttemptServiceImpl implements AttemptService {
             throw new ResourceNotFoundException("Attempt does not belong to quiz " + quizId);
         }
 
-        return getAttemptStats(attemptId);
+        return getAttemptStats(attemptId, username);
     }
 
     @Override
