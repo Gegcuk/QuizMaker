@@ -341,8 +341,7 @@ public class AttemptController {
             @PathVariable UUID quizId,
             Authentication authentication
     ) {
-        String username = authentication.getName();
-        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, username);
+        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, authentication);
         return ResponseEntity.ok(questions);
     }
 

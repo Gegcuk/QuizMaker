@@ -453,9 +453,11 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<QuestionForAttemptDto> getShuffledQuestions(UUID quizId, String username) {
+    public List<QuestionForAttemptDto> getShuffledQuestions(UUID quizId, Authentication authentication) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        checkQuizAccessPermission(quiz, authentication);
 
         List<Question> questions = questionRepository.findAllByQuizId_IdOrderById(quizId);
         Collections.shuffle(questions);
