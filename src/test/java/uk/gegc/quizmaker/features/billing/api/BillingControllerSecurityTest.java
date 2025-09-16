@@ -4,7 +4,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -20,7 +24,10 @@ import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionSource;
 import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType;
+import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -32,15 +39,26 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(BillingCheckoutController.class)
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+@TestPropertySource(properties = {
+    "stripe.secret-key=sk_test_mock",
+    "stripe.publishable-key=pk_test_mock",
+    "stripe.price.small=price_mock_small",
+    "stripe.price.medium=price_mock_medium", 
+    "stripe.price.large=price_mock_large",
+    "stripe.price.subscription=price_mock_subscription"
+})
 @DisplayName("Billing Controller Security Tests")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BillingControllerSecurityTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @MockitoBean
-    private BillingService billingService;
+    private uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl billingServiceImpl;
 
     @MockitoBean
     private CheckoutReadService checkoutReadService;
@@ -53,6 +71,15 @@ class BillingControllerSecurityTest {
 
     @MockitoBean
     private RateLimitService rateLimitService;
+
+    @MockitoBean
+    private UserRepository userRepository;
+
+    @MockitoBean
+    private PaymentRepository paymentRepository;
+
+    @MockitoBean
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     private UUID userId;
     private BalanceDto testBalance;
@@ -82,20 +109,32 @@ class BillingControllerSecurityTest {
                 "{\"packId\": \"basic_pack\"}",
                 LocalDateTime.now()
         );
+        
+        // Mock permission check to allow access for authenticated users only
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenAnswer(invocation -> {
+            // Check if there's an authenticated user in the security context
+            try {
+                org.springframework.security.core.Authentication auth = 
+                    org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+                return auth != null && auth.isAuthenticated() && !(auth instanceof org.springframework.security.authentication.AnonymousAuthenticationToken);
+            } catch (Exception e) {
+                return false;
+            }
+        });
     }
 
     @Test
-    @DisplayName("GET /balance should return 401 when user is not authenticated")
-    void getBalance_WhenNotAuthenticated_ShouldReturn401() throws Exception {
+    @DisplayName("GET /balance should return 403 when user is not authenticated")
+    void getBalance_WhenNotAuthenticated_ShouldReturn403() throws Exception {
         mockMvc.perform(get("/api/v1/billing/balance"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /balance should return 200 when user is authenticated")
     void getBalance_WhenAuthenticated_ShouldReturn200() throws Exception {
-        when(billingService.getBalance(any(UUID.class))).thenReturn(testBalance);
+        when(billingServiceImpl.getBalance(any(UUID.class))).thenReturn(testBalance);
         
         mockMvc.perform(get("/api/v1/billing/balance"))
                 .andExpect(status().isOk())
@@ -108,14 +147,14 @@ class BillingControllerSecurityTest {
 
 
     @Test
-    @DisplayName("GET /transactions should return 401 when user is not authenticated")
-    void getTransactions_WhenNotAuthenticated_ShouldReturn401() throws Exception {
+    @DisplayName("GET /transactions should return 403 when user is not authenticated")
+    void getTransactions_WhenNotAuthenticated_ShouldReturn403() throws Exception {
         mockMvc.perform(get("/api/v1/billing/transactions"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /transactions should return 200 when user is authenticated")
     void getTransactions_WhenAuthenticated_ShouldReturn200() throws Exception {
         Page<TransactionDto> transactionPage = new PageImpl<>(
@@ -124,7 +163,7 @@ class BillingControllerSecurityTest {
                 1
         );
         
-        when(billingService.listTransactions(
+        when(billingServiceImpl.listTransactions(
                 any(UUID.class),
                 any(),
                 any(),
@@ -146,7 +185,7 @@ class BillingControllerSecurityTest {
 
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /transactions should support filtering by type")
     void getTransactions_WithTypeFilter_ShouldFilterCorrectly() throws Exception {
         Page<TransactionDto> transactionPage = new PageImpl<>(
@@ -155,7 +194,7 @@ class BillingControllerSecurityTest {
                 1
         );
         
-        when(billingService.listTransactions(
+        when(billingServiceImpl.listTransactions(
                 eq(userId),
                 any(),
                 eq(TokenTransactionType.PURCHASE),
@@ -171,7 +210,7 @@ class BillingControllerSecurityTest {
     }
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /transactions should support filtering by source")
     void getTransactions_WithSourceFilter_ShouldFilterCorrectly() throws Exception {
         Page<TransactionDto> transactionPage = new PageImpl<>(
@@ -180,7 +219,7 @@ class BillingControllerSecurityTest {
                 1
         );
         
-        when(billingService.listTransactions(
+        when(billingServiceImpl.listTransactions(
                 eq(userId),
                 any(),
                 any(),
@@ -196,7 +235,7 @@ class BillingControllerSecurityTest {
     }
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /transactions should support pagination")
     void getTransactions_WithPagination_ShouldPaginateCorrectly() throws Exception {
         Page<TransactionDto> transactionPage = new PageImpl<>(
@@ -205,7 +244,7 @@ class BillingControllerSecurityTest {
                 25
         );
         
-        when(billingService.listTransactions(
+        when(billingServiceImpl.listTransactions(
                 eq(userId),
                 any(),
                 any(),
@@ -225,7 +264,7 @@ class BillingControllerSecurityTest {
     }
 
     @Test
-    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000")
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_READ"})
     @DisplayName("GET /transactions should support date range filtering")
     void getTransactions_WithDateRangeFilter_ShouldFilterCorrectly() throws Exception {
         Page<TransactionDto> transactionPage = new PageImpl<>(
@@ -237,7 +276,7 @@ class BillingControllerSecurityTest {
         LocalDateTime dateFrom = LocalDateTime.now().minusDays(30);
         LocalDateTime dateTo = LocalDateTime.now();
         
-        when(billingService.listTransactions(
+        when(billingServiceImpl.listTransactions(
                 eq(userId),
                 any(),
                 any(),

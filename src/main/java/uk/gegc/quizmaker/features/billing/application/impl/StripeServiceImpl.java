@@ -6,11 +6,13 @@ import com.stripe.model.Customer;
 import com.stripe.model.Subscription;
 import com.stripe.model.Charge;
 import com.stripe.model.checkout.Session;
+import com.stripe.model.Price;
 import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.SubscriptionCreateParams;
 import com.stripe.param.SubscriptionUpdateParams;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.stripe.param.checkout.SessionRetrieveParams;
+import com.stripe.param.PriceListParams;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -281,5 +283,31 @@ public class StripeServiceImpl implements StripeService {
 
         log.debug("Retrieved raw Stripe customer id={}", customerId);
         return customer;
+    }
+
+    @Override
+    public String resolvePriceIdByLookupKey(String lookupKey) throws StripeException {
+        if (!StringUtils.hasText(lookupKey)) {
+            throw new IllegalArgumentException("Lookup key must be provided");
+        }
+
+        // List prices by lookup key and return the first active match
+        PriceListParams params = PriceListParams.builder()
+                .addLookupKey(lookupKey)
+                .setActive(true)
+                .setLimit(1L)
+                .build();
+
+        java.util.List<Price> prices;
+        if (stripeClient != null) {
+            prices = stripeClient.prices().list(params).getData();
+        } else {
+            prices = Price.list(params).getData();
+        }
+
+        if (prices == null || prices.isEmpty()) {
+            throw new IllegalArgumentException("No active price found for lookup key: " + lookupKey);
+        }
+        return prices.get(0).getId();
     }
 }
