@@ -147,8 +147,6 @@ public class DocumentChunker {
             // Skip chunks that are too small or contain only irrelevant content
             int chunkTokens = tokenCounter.estimateTokens(chunkText);
             if (chunkTokens < MIN_CHUNK_TOKENS || isIrrelevantChunk(chunkText)) {
-                log.debug("Skipping irrelevant chunk {}: {} chars (~{} tokens)", 
-                        chunkIndex, chunkText.length(), chunkTokens);
                 currentPosition = chunkEnd;
                 continue;
             }
@@ -162,9 +160,7 @@ public class DocumentChunker {
             );
             
             chunks.add(chunk);
-            log.debug("Created chunk {}: positions {} to {} ({} chars, ~{} tokens)", 
-                chunkIndex, currentPosition, chunkEnd, chunkText.length(), chunkTokens);
-            
+
             // Move to next chunk position (with overlap)
             int overlapSize = getOverlapSize();
             int nextPosition = Math.max(currentPosition + 1, chunkEnd - overlapSize);

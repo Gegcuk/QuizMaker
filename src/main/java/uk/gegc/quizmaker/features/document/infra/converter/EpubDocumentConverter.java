@@ -31,8 +31,6 @@ public class EpubDocumentConverter implements DocumentConverter {
     public boolean canConvert(String contentType, String filename) {
         boolean canConvert = SUPPORTED_CONTENT_TYPES.contains(contentType) ||
                 filename.toLowerCase().endsWith(".epub");
-        log.debug("EpubDocumentConverter.canConvert - contentType: {}, filename: {}, result: {}",
-                contentType, filename, canConvert);
         return canConvert;
     }
 

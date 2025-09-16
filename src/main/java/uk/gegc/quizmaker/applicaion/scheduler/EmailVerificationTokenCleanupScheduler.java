@@ -22,7 +22,6 @@ public class EmailVerificationTokenCleanupScheduler {
         try {
             LocalDateTime now = LocalDateTime.now();
             emailVerificationTokenRepository.deleteExpiredTokens(now);
-            log.debug("Expired email verification tokens cleanup completed");
         } catch (Exception e) {
             log.error("Failed to cleanup expired email verification tokens", e);
         }

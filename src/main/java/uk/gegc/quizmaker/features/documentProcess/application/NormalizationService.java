@@ -85,9 +85,6 @@ public class NormalizationService {
         // and will be used for offset calculations in AI structure building
         int charCount = normalized.length();
 
-        log.debug("Normalized text: original length={}, normalized length={}", 
-                 text.length(), charCount);
-
         return new NormalizationResult(normalized, charCount);
     }
 }

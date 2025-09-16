@@ -4,16 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureWebMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
+import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
@@ -32,18 +27,11 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
-@AutoConfigureWebMvc
-@ActiveProfiles("test")
-class DocumentControllerIntegrationTest {
-
-    @Autowired
-    private WebApplicationContext context;
+class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
     @MockitoBean
     private DocumentProcessingService documentProcessingService;
@@ -51,16 +39,11 @@ class DocumentControllerIntegrationTest {
     @MockitoBean
     private DocumentProcessingConfig documentConfig;
 
-    private MockMvc mockMvc;
+    @Autowired
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders
-                .webAppContextSetup(context)
-                .apply(springSecurity())
-                .build();
-        objectMapper = new ObjectMapper();
 
         // Setup default config values
         when(documentConfig.createDefaultRequest()).thenReturn(createDefaultRequest());

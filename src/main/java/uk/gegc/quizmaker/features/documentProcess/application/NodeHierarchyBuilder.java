@@ -25,8 +25,6 @@ public class NodeHierarchyBuilder {
             return nodes;
         }
 
-        log.debug("Building hierarchy for {} nodes", nodes.size());
-
         // Create a mutable copy and sort by start offset to ensure proper ordering
         List<DocumentNode> mutableNodes = new ArrayList<>(nodes);
         mutableNodes.sort((a, b) -> Integer.compare(a.getStartOffset(), b.getStartOffset()));
@@ -54,11 +52,6 @@ public class NodeHierarchyBuilder {
 
             // Push current node onto stack
             stack.push(node);
-
-            log.debug("Node '{}' assigned parent: {}, idx: {}", 
-                    node.getTitle(), 
-                    parent != null ? parent.getTitle() : "ROOT", 
-                    idx);
         }
 
         // Reassign parent end offsets based on their children
@@ -67,7 +60,6 @@ public class NodeHierarchyBuilder {
         // Validate hierarchy integrity
         validateHierarchy(mutableNodes);
 
-        log.debug("Successfully built hierarchy for {} nodes", mutableNodes.size());
         return mutableNodes;
     }
 
@@ -126,14 +118,10 @@ public class NodeHierarchyBuilder {
                 if (maxChildEndOffset > parent.getEndOffset()) {
                     int oldEndOffset = parent.getEndOffset();
                     parent.setEndOffset(maxChildEndOffset);
-                    log.debug("Updated parent '{}' (depth {}) end offset from {} to {} based on {} children", 
-                            parent.getTitle(), parent.getDepth(), oldEndOffset, maxChildEndOffset, children.size());
                 }
             }
         }
 
-        log.debug("Completed recursive parent end offset reassignment for {} nodes (max depth: {})", 
-                nodes.size(), maxDepth);
     }
 
     /**
@@ -180,8 +168,6 @@ public class NodeHierarchyBuilder {
                     );
                 }
             }
-
-            log.debug("Validated {} siblings under {}", siblings.size(), parentName);
         }
     }
 
@@ -204,7 +190,5 @@ public class NodeHierarchyBuilder {
                 }
             }
         }
-        
-        log.debug("Parent-child containment validation passed for {} nodes", nodes.size());
     }
 }

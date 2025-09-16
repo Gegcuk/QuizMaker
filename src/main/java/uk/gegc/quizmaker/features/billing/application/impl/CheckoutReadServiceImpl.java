@@ -15,6 +15,10 @@ import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.stripe.model.Price;
+import com.stripe.StripeClient;
+import org.springframework.util.StringUtils;
 
 /**
  * Implementation of checkout read service.
@@ -29,6 +33,8 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
     private final PaymentMapper paymentMapper;
     private final ProductPackRepository productPackRepository;
     private final StripeProperties stripeProperties;
+    @Autowired(required = false)
+    private StripeClient stripeClient;
 
     @Override
     public CheckoutSessionStatus getCheckoutSessionStatus(String sessionId, UUID userId) {
@@ -68,7 +74,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
 
     @Override
     public List<PackDto> getAvailablePacks() {
-        return productPackRepository.findAll().stream()
+        var packs = productPackRepository.findAll().stream()
                 .map(pack -> new PackDto(
                         pack.getId(),
                         pack.getName(),
@@ -78,5 +84,61 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                         pack.getStripePriceId()
                 ))
                 .toList();
+
+        if (!packs.isEmpty()) {
+            return packs;
+        }
+
+        log.warn("No ProductPacks found in DB; falling back to configured Stripe price IDs for /config response");
+        return buildFallbackPacksFromStripe();
+    }
+
+    private List<PackDto> buildFallbackPacksFromStripe() {
+        try {
+            java.util.ArrayList<PackDto> result = new java.util.ArrayList<>();
+            addFallbackPack(result, stripeProperties.getPriceSmall(), "Starter Pack", 1000L);
+            addFallbackPack(result, stripeProperties.getPriceMedium(), "Growth Pack", 5000L);
+            addFallbackPack(result, stripeProperties.getPriceLarge(), "Pro Pack", 10000L);
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to build fallback packs from Stripe: {}", e.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
+    private void addFallbackPack(java.util.List<PackDto> out, String priceId, String defaultName, long defaultTokens) {
+        if (!StringUtils.hasText(priceId)) return;
+        String name = defaultName;
+        long tokens = defaultTokens;
+        long amountCents = 0L;
+        String currency = "usd";
+        try {
+            Price price = (stripeClient != null)
+                    ? stripeClient.prices().retrieve(priceId)
+                    : Price.retrieve(priceId);
+            if (price != null) {
+                if (price.getUnitAmount() != null) amountCents = price.getUnitAmount();
+                if (StringUtils.hasText(price.getCurrency())) currency = price.getCurrency();
+                if (price.getMetadata() != null) {
+                    String t = price.getMetadata().get("tokens");
+                    if (StringUtils.hasText(t)) {
+                        try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                    }
+                }
+                if (price.getProductObject() != null) {
+                    var prod = price.getProductObject();
+                    if (StringUtils.hasText(prod.getName())) name = prod.getName();
+                    if (prod.getMetadata() != null) {
+                        String t = prod.getMetadata().get("tokens");
+                        if (StringUtils.hasText(t)) {
+                            try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.info("Could not retrieve Stripe Price {} for fallback packs (using defaults): {}", priceId, e.getMessage());
+        }
+        out.add(new PackDto(UUID.randomUUID(), name, tokens, amountCents, currency, priceId));
     }
 }

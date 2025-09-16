@@ -226,9 +226,6 @@ public class NodeMerger {
         
         mergedNode.setMetaJson(bestNode.getMetaJson());
         
-        log.debug("Merged {} nodes into single node: {} ({} to {})", 
-            nodes.size(), mergedNode.getTitle(), mergedStart, mergedEnd);
-        
         return mergedNode;
     }
     

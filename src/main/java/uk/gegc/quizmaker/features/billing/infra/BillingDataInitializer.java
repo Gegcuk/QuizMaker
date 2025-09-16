@@ -6,7 +6,6 @@ import org.springframework.boot.CommandLineRunner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
@@ -36,9 +35,15 @@ public class BillingDataInitializer implements CommandLineRunner {
     public void run(String... args) {
         try {
             log.info("BillingDataInitializer: seeding packs from Stripe price IDs if missing...");
+            log.info("Resolved Stripe price IDs: small='{}' medium='{}' large='{}'", 
+                    stripeProperties.getPriceSmall(), stripeProperties.getPriceMedium(), stripeProperties.getPriceLarge());
+
+            long before = productPackRepository.count();
             seedFromPriceId(stripeProperties.getPriceSmall(), "Starter Pack", 1000L);
             seedFromPriceId(stripeProperties.getPriceMedium(), "Growth Pack", 5000L);
             seedFromPriceId(stripeProperties.getPriceLarge(), "Pro Pack", 10000L);
+            long after = productPackRepository.count();
+            log.info("BillingDataInitializer: product_packs count before={} after={}", before, after);
         } catch (Exception e) {
             log.warn("BillingDataInitializer encountered an error while seeding packs: {}", e.getMessage());
         }
@@ -91,9 +96,7 @@ public class BillingDataInitializer implements CommandLineRunner {
             log.info("Could not retrieve Stripe Price {} (using defaults): {}", priceId, e.getMessage());
         }
 
-        ProductPack pack = new ProductPack();
-        pack.setId(UUID.randomUUID());
-        pack.setName(name);
+        ProductPack pack = new ProductPack();pack.setName(name);
         pack.setTokens(tokens);
         pack.setPriceCents(amountCents);
         pack.setCurrency(currency);
@@ -115,3 +118,4 @@ public class BillingDataInitializer implements CommandLineRunner {
         }
     }
 }
+

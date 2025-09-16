@@ -41,12 +41,10 @@ public class MimeTypeDetector {
         for (Map.Entry<String, String> entry : EXTENSION_TO_MIME.entrySet()) {
             if (lowerFilename.endsWith(entry.getKey())) {
                 String mimeType = entry.getValue();
-                log.debug("Detected MIME type for {}: {}", filename, mimeType);
                 return mimeType;
             }
         }
 
-        log.debug("Unknown file extension for {}, using default MIME type: {}", filename, DEFAULT_MIME_TYPE);
         return DEFAULT_MIME_TYPE;
     }
 

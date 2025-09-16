@@ -131,7 +131,6 @@ public class TextDocumentConverter implements DocumentConverter {
 
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
-            log.debug("Checking line {}: '{}' for chapter pattern", i, line);
             if (chapterMatcher.find()) {
                 log.info("Found chapter header at line {}: '{}'", i, line);
 

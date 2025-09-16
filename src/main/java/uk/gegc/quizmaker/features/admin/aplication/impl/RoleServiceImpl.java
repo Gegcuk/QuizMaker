@@ -231,7 +231,6 @@ public class RoleServiceImpl implements RoleService {
                     roleRepository.save(existingRole);
                     log.info("Updated existing role: {} with {} total permissions", roleName, existingRole.getPermissions().size());
                 } else {
-                    log.debug("Role {} already has all required permissions", roleName);
                 }
             } catch (Exception e) {
                 log.error("Failed to update existing role {}: {}", roleName, e.getMessage());

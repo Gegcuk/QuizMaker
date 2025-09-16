@@ -118,10 +118,8 @@ public class PermissionServiceImpl implements PermissionService {
                         permissionName.getAction()
                 );
                 createdCount++;
-                log.debug("Created permission: {}", permissionName.name());
             } else {
                 existingCount++;
-                log.debug("Permission already exists: {}", permissionName.name());
             }
         }
 

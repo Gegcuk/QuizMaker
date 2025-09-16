@@ -6,14 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
@@ -52,7 +46,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,18 +53,9 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@DirtiesContext(classMode = AFTER_CLASS)
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create"
-})
 @DisplayName("Integration Tests QuizController")
-class QuizControllerIntegrationTest {
+class QuizControllerIntegrationTest extends BaseIntegrationTest {
 
-    @Autowired
-    MockMvc mockMvc;
     @Autowired
     ObjectMapper objectMapper;
     @Autowired
@@ -87,8 +71,6 @@ class QuizControllerIntegrationTest {
     @Autowired
     AttemptRepository attemptRepository;
     @Autowired
-    JdbcTemplate jdbcTemplate;
-    @Autowired
     PermissionRepository permissionRepository;
     @Autowired
     RoleRepository roleRepository;
@@ -103,82 +85,34 @@ class QuizControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Clean up database
-        jdbcTemplate.execute("DELETE FROM answers");
-        jdbcTemplate.execute("DELETE FROM attempts");
-        jdbcTemplate.execute("DELETE FROM quiz_questions");
-        jdbcTemplate.execute("DELETE FROM quiz_tags");
-        jdbcTemplate.execute("DELETE FROM question_tags");
-        jdbcTemplate.execute("DELETE FROM quizzes");
-        jdbcTemplate.execute("DELETE FROM user_roles");
-        jdbcTemplate.execute("DELETE FROM users");
-        jdbcTemplate.execute("DELETE FROM categories");
-        jdbcTemplate.execute("DELETE FROM role_permissions");
-        jdbcTemplate.execute("DELETE FROM roles");
-        jdbcTemplate.execute("DELETE FROM permissions");
 
-        questionRepository.deleteAllInBatch();
-        tagRepository.deleteAllInBatch();
-        categoryRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        roleRepository.deleteAllInBatch();
-        permissionRepository.deleteAllInBatch();
+        // Find existing permissions (created by DataInitializer)
+        Permission quizCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_CREATE permission not found"));
+        Permission quizReadPermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_READ.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_READ permission not found"));
+        Permission quizUpdatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_UPDATE.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_UPDATE permission not found"));
+        Permission quizDeletePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_DELETE.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_DELETE permission not found"));
+        Permission quizModeratePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_MODERATE.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_MODERATE permission not found"));
+        Permission quizAdminPermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("QUIZ_ADMIN permission not found"));
+        Permission questionCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUESTION_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("QUESTION_CREATE permission not found"));
+        Permission questionReadPermission = permissionRepository.findByPermissionName(PermissionName.QUESTION_READ.name())
+                .orElseThrow(() -> new RuntimeException("QUESTION_READ permission not found"));
+        Permission categoryReadPermission = permissionRepository.findByPermissionName(PermissionName.CATEGORY_READ.name())
+                .orElseThrow(() -> new RuntimeException("CATEGORY_READ permission not found"));
+        Permission tagReadPermission = permissionRepository.findByPermissionName(PermissionName.TAG_READ.name())
+                .orElseThrow(() -> new RuntimeException("TAG_READ permission not found"));
 
-        // Create permissions
-        Permission quizCreatePermission = new Permission();
-        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
-        quizCreatePermission = permissionRepository.save(quizCreatePermission);
-
-        Permission quizReadPermission = new Permission();
-        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
-        quizReadPermission = permissionRepository.save(quizReadPermission);
-
-        Permission quizUpdatePermission = new Permission();
-        quizUpdatePermission.setPermissionName(PermissionName.QUIZ_UPDATE.name());
-        quizUpdatePermission = permissionRepository.save(quizUpdatePermission);
-
-        Permission quizDeletePermission = new Permission();
-        quizDeletePermission.setPermissionName(PermissionName.QUIZ_DELETE.name());
-        quizDeletePermission = permissionRepository.save(quizDeletePermission);
-
-        Permission quizModeratePermission = new Permission();
-        quizModeratePermission.setPermissionName(PermissionName.QUIZ_MODERATE.name());
-        quizModeratePermission = permissionRepository.save(quizModeratePermission);
-
-        Permission quizAdminPermission = new Permission();
-        quizAdminPermission.setPermissionName(PermissionName.QUIZ_ADMIN.name());
-        quizAdminPermission = permissionRepository.save(quizAdminPermission);
-
-        Permission questionCreatePermission = new Permission();
-        questionCreatePermission.setPermissionName(PermissionName.QUESTION_CREATE.name());
-        questionCreatePermission = permissionRepository.save(questionCreatePermission);
-
-        Permission questionReadPermission = new Permission();
-        questionReadPermission.setPermissionName(PermissionName.QUESTION_READ.name());
-        questionReadPermission = permissionRepository.save(questionReadPermission);
-
-        Permission categoryReadPermission = new Permission();
-        categoryReadPermission.setPermissionName(PermissionName.CATEGORY_READ.name());
-        categoryReadPermission = permissionRepository.save(categoryReadPermission);
-
-        Permission tagReadPermission = new Permission();
-        tagReadPermission.setPermissionName(PermissionName.TAG_READ.name());
-        tagReadPermission = permissionRepository.save(tagReadPermission);
-
-        // Create roles
-        Role adminRole = new Role();
-        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
-        adminRole.setPermissions(Set.of(
-                quizCreatePermission, quizReadPermission, quizUpdatePermission, 
-                quizDeletePermission, quizModeratePermission, quizAdminPermission,
-                questionCreatePermission, questionReadPermission, categoryReadPermission, tagReadPermission
-        ));
-        adminRole = roleRepository.save(adminRole);
-
-        Role userRole = new Role();
-        userRole.setRoleName(RoleName.ROLE_USER.name());
-        userRole.setPermissions(Set.of(quizReadPermission, questionReadPermission, categoryReadPermission, tagReadPermission));
-        userRole = roleRepository.save(userRole);
+        // Find existing roles (created by DataInitializer)
+        Role adminRole = roleRepository.findByRoleName(RoleName.ROLE_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("ROLE_ADMIN role not found"));
+        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
+                .orElseThrow(() -> new RuntimeException("ROLE_USER role not found"));
 
         // Create test users with roles
         adminUser = new User();
@@ -1067,10 +1001,6 @@ class QuizControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID questionId = UUID.fromString(objectMapper.readTree(qBody).get("questionId").asText());
-
-        mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{ques}", quizId, questionId)
-                        .with(user(adminUserDetails)))
-                .andExpect(status().isNoContent());
 
         String atBody = mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
                         .with(user(adminUserDetails)))

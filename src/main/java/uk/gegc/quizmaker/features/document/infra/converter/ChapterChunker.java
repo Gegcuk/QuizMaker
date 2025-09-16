@@ -132,9 +132,6 @@ public class ChapterChunker implements UniversalChunker {
             Chunk currentChunk = chapterChunks.get(i);
             int currentSize = currentChunk.getCharacterCount();
 
-            log.debug("Processing chapter chunk {}: '{}' ({} chars)", 
-                    i, currentChunk.getTitle(), currentSize);
-
             // Case 1: Chapter is too large - split it
             if (currentSize > maxSize) {
                 log.info("Chapter '{}' is too large ({} chars), splitting", currentChunk.getTitle(), currentSize);
@@ -186,7 +183,6 @@ public class ChapterChunker implements UniversalChunker {
             }
             // Case 3: Chapter is just right - keep as-is
             else {
-                log.debug("Chapter '{}' size is good ({} chars), keeping as-is", currentChunk.getTitle(), currentSize);
                 optimizedChunks.add(currentChunk);
             }
         }
@@ -380,14 +376,11 @@ public class ChapterChunker implements UniversalChunker {
             return chunks;
         }
 
-        log.debug("Recursion depth {}: Processing content of {} characters", recursionDepth, content.length());
-
         // If content is small enough, create single chunk
         if (content.length() <= maxSize) {
             Chunk chunk = createChunk(title, content, startPage, endPage,
                     null, title, startChunkIndex, ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document);
             chunks.add(chunk);
-            log.debug("Content fits in single chunk: {} characters", content.length());
             return chunks;
         }
 
@@ -401,9 +394,6 @@ public class ChapterChunker implements UniversalChunker {
         int tolerance = (int) (content.length() * 0.05); // 5% tolerance
         int minSearchPoint = Math.max(targetSize - tolerance, minSize);
         int maxSearchPoint = Math.min(targetSize + tolerance, content.length() - minSize);
-
-        log.debug("Searching for split point around middle {} (range: {} to {})", 
-                middlePoint, minSearchPoint, maxSearchPoint);
 
         // Search for best split point starting from middle
         int bestSplitPoint = -1;
@@ -425,13 +415,11 @@ public class ChapterChunker implements UniversalChunker {
         // If no good split point found, look for next sentence boundary
         if (bestSplitPoint == -1) {
             bestSplitPoint = findNextSentenceBoundary(content, middlePoint);
-            log.debug("No good split point found, using sentence boundary at: {}", bestSplitPoint);
         }
 
         // If still no split point, use middle
         if (bestSplitPoint == -1 || bestSplitPoint <= 0 || bestSplitPoint >= content.length()) {
             bestSplitPoint = middlePoint;
-            log.debug("Using middle point as split: {}", bestSplitPoint);
         }
 
         // Create first chunk
@@ -441,8 +429,6 @@ public class ChapterChunker implements UniversalChunker {
         Chunk firstChunk = createChunk(firstChunkTitle, firstChunkContent, startPage, endPage,
                 null, title, startChunkIndex, ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, document);
         chunks.add(firstChunk);
-
-        log.debug("Created first chunk: {} characters at split point {}", firstChunkContent.length(), bestSplitPoint);
 
         // Recursively process remaining content
         String remainingContent = content.substring(bestSplitPoint).trim();
@@ -559,9 +545,6 @@ public class ChapterChunker implements UniversalChunker {
                 shouldCombine = combinedSize <= 100000 && combinedSize > Math.max(currentChunk.getCharacterCount(), nextChunk.getCharacterCount());
             }
 
-            log.debug("Chunk {}: {} chars, Chunk {}: {} chars, Combined: {} chars, Should combine: {}",
-                    i - 1, currentChunk.getCharacterCount(), i, nextChunk.getCharacterCount(), combinedSize, shouldCombine);
-
             if (shouldCombine) {
                 // Combine chunks
                 String combinedContent = currentChunk.getContent() + "\n\n" + nextChunk.getContent();
@@ -583,7 +566,6 @@ public class ChapterChunker implements UniversalChunker {
                 combinedChunk.setChunkType(currentChunk.getChunkType());
                 combinedChunk.setChunkIndex(currentChunk.getChunkIndex());
 
-                log.debug("Combined chunks {} and {}: {} characters", i - 1, i, combinedContent.length());
                 currentChunk = combinedChunk;
             } else {
                 // Keep current chunk and move to next

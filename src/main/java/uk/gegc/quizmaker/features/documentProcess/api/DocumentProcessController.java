@@ -97,8 +97,7 @@ public class DocumentProcessController {
      */
     @GetMapping("/{id}")
     public DocumentView getDocument(@PathVariable UUID id) {
-        log.debug("Retrieving document metadata: {}", id);
-        
+
         NormalizedDocument document = queryService.getDocument(id);
         return mapper.toDocumentView(document);
     }
@@ -111,8 +110,7 @@ public class DocumentProcessController {
      */
     @GetMapping("/{id}/head")
     public DocumentView getDocumentHead(@PathVariable UUID id) {
-        log.debug("Retrieving document head: {}", id);
-        
+
         NormalizedDocument document = queryService.getDocument(id);
         return mapper.toDocumentView(document);
     }
@@ -130,9 +128,7 @@ public class DocumentProcessController {
             @PathVariable UUID id,
             @RequestParam(value = "start", defaultValue = "0") @Min(0) int start,
             @RequestParam(value = "end", required = false) @Min(0) Integer end) {
-        
-        log.debug("Retrieving text slice: document={}, start={}, end={}", id, start, end);
-        
+
         if (end == null) {
             // Use char count to compute default end without loading the whole text
             end = queryService.getTextLength(id);
@@ -154,9 +150,7 @@ public class DocumentProcessController {
     public ResponseEntity<?> getStructure(
             @PathVariable UUID id,
             @RequestParam(value = "format", defaultValue = "tree") String format) {
-        
-        log.debug("Retrieving document structure: document={}, format={}", id, format);
-        
+
         return switch (format.toLowerCase()) {
             case "tree" -> {
                 StructureTreeResponse response = structureService.getTree(id);
@@ -217,9 +211,7 @@ public class DocumentProcessController {
     public ExtractResponse extractByNode(
             @PathVariable UUID id,
             @RequestParam("nodeId") UUID nodeId) {
-        
-        log.debug("Extracting content by node: document={}, node={}", id, nodeId);
-        
+
         return structureService.extractByNode(id, nodeId);
     }
 

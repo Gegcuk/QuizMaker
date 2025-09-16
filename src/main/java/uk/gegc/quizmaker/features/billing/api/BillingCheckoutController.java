@@ -80,9 +80,7 @@ public class BillingCheckoutController {
             
             // Rate limiting: 60 requests per minute per user
             rateLimitService.checkRateLimit("billing-balance", currentUserId.toString(), 60);
-            
-            log.debug("Retrieving balance for user: {}", currentUserId);
-            
+
             BalanceDto balance = billingService.getBalance(currentUserId);
             
             return ResponseEntity.ok()
@@ -108,10 +106,7 @@ public class BillingCheckoutController {
             
             // Rate limiting: 30 requests per minute per user
             rateLimitService.checkRateLimit("billing-transactions", currentUserId.toString(), 30);
-            
-            log.debug("Retrieving transactions for user: {} with filters - type: {}, source: {}, dateFrom: {}, dateTo: {}", 
-                    currentUserId, type, source, dateFrom, dateTo);
-            
+
             Page<TransactionDto> transactions = billingService.listTransactions(
                     currentUserId, pageable, type, source, dateFrom, dateTo);
             

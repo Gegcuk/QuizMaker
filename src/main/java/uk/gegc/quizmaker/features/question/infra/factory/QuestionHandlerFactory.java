@@ -19,7 +19,6 @@ public class QuestionHandlerFactory {
         
         handlers.forEach(handler -> {
             QuestionType supportedType = handler.supportedType();
-            log.debug("Registering handler {} for type {}", handler.getClass().getSimpleName(), supportedType);
             handlerMap.put(supportedType, handler);
         });
         

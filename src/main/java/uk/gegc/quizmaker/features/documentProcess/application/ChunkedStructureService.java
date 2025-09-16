@@ -199,7 +199,6 @@ public class ChunkedStructureService {
             
             // Skip non-quiz-relevant sections
             if (isQuizIrrelevant(title)) {
-                log.debug("Filtering out quiz-irrelevant node: {}", node.getTitle());
                 continue;
             }
             
@@ -242,7 +241,6 @@ public class ChunkedStructureService {
      */
     public boolean needsChunking(String text) {
         if (text == null || text.isEmpty()) {
-            log.debug("Text is null or empty, no chunking needed");
             return false;
         }
         

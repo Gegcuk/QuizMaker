@@ -183,8 +183,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     freshJob.updateProgress(processedChunks, "Processing chunk " + processedChunks + " of " + chunks.size());
                     jobRepository.save(freshJob);
 
-                    log.debug("Completed chunk {} processing for job {}, chunk questions: {}, total questions: {}",
-                            chunkIndex, jobId, chunkQuestionsList.size(), allQuestions.size());
                 } catch (Exception e) {
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
@@ -306,7 +304,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     ) {
         return CompletableFuture.supplyAsync(() -> {
             Instant startTime = Instant.now();
-            log.debug("Generating questions for chunk {} (index: {})", chunk.getId(), chunk.getChunkIndex());
 
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
@@ -339,8 +336,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         
                         if (!questions.isEmpty()) {
                             allQuestions.addAll(questions);
-                            log.debug("Generated {} {} questions for chunk {}",
-                                    questions.size(), questionType, chunk.getChunkIndex());
                         } else {
                             chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
                                     questionType));
@@ -359,10 +354,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     throw new AiServiceException("Failed to generate any questions for chunk " +
                             chunk.getChunkIndex() + ". Errors: " + String.join("; ", chunkErrors));
                 }
-
-                log.debug("Completed chunk {} processing in {} ms with {} questions",
-                        chunk.getChunkIndex(), Duration.between(startTime, Instant.now()).toMillis(),
-                        allQuestions.size());
 
                 return allQuestions;
 
@@ -507,8 +498,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Integer chunkIndex,
             UUID jobId
     ) {
-        log.debug("Attempting to generate {} {} questions for chunk {} with fallbacks", 
-                questionCount, questionType, chunkIndex);
 
         // Update job status to show fallback attempt
         updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
@@ -521,7 +510,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 
                 List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, difficulty);
                 if (questions.size() >= questionCount) {
-                    log.debug("Strategy 1 (normal) succeeded on attempt {} for {} {}", attempt, questionType, chunkIndex);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
                 } else {
@@ -1011,8 +999,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 List<DocumentChunk> chapterChunks = allChunks.stream()
                         .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                log.debug("Filtered to {} chunks for chapter: title={}, number={}", 
-                        chapterChunks.size(), request.chapterTitle(), request.chapterNumber());
                 return chapterChunks;
 
             case SPECIFIC_SECTION:

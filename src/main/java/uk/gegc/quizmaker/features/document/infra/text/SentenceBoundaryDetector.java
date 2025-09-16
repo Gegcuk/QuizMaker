@@ -160,39 +160,31 @@ public class SentenceBoundaryDetector {
         // Try to find a sentence boundary within the max length
         String searchText = text.substring(0, maxLength);
 
-        log.debug("Finding split point: maxLength={}, minSplitSize={}, effectiveMinSplitSize={}", 
-                maxLength, minSplitSize, effectiveMinSplitSize);
-
         // First, try to find natural breaks like list items or exercise patterns
         int naturalBreak = findNaturalBreak(searchText, effectiveMinSplitSize);
         if (naturalBreak >= effectiveMinSplitSize) {
-            log.debug("Found natural break at position: {}", naturalBreak);
             return naturalBreak;
         }
 
         // Then try sentence boundaries
         int sentenceEnd = findLastSentenceEnd(searchText);
         if (sentenceEnd >= effectiveMinSplitSize) {
-            log.debug("Found sentence boundary at position: {}", sentenceEnd);
             return sentenceEnd;
         }
 
         // If no good boundary found, try to break at word boundaries
         int wordBoundary = findWordBoundary(text, maxLength);
         if (wordBoundary >= effectiveMinSplitSize) {
-            log.debug("Found word boundary at position: {}", wordBoundary);
             return wordBoundary;
         }
 
         // For very short texts or when no suitable boundary is found,
         // return the maxLength if it's reasonable, otherwise return -1
         if (maxLength >= effectiveMinSplitSize) {
-            log.debug("No suitable boundary found, using maxLength: {}", maxLength);
             return maxLength;
         }
 
         // If no suitable boundary found, return -1 to indicate failure
-        log.debug("No suitable boundary found, returning -1");
         return -1;
     }
 

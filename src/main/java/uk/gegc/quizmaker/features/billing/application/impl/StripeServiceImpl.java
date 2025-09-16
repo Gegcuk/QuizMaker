@@ -247,7 +247,6 @@ public class StripeServiceImpl implements StripeService {
             subscription = Subscription.retrieve(subscriptionId);
         }
 
-        log.debug("Retrieved Stripe subscription id={}", subscriptionId);
         return subscription;
     }
 
@@ -264,7 +263,6 @@ public class StripeServiceImpl implements StripeService {
             charge = Charge.retrieve(chargeId);
         }
 
-        log.debug("Retrieved Stripe charge id={}", chargeId);
         return charge;
     }
 
@@ -281,7 +279,6 @@ public class StripeServiceImpl implements StripeService {
             customer = Customer.retrieve(customerId);
         }
 
-        log.debug("Retrieved raw Stripe customer id={}", customerId);
         return customer;
     }
 

@@ -26,8 +26,7 @@ public class CheckoutValidationServiceImpl implements CheckoutValidationService 
 
     @Override
     public CheckoutValidationResult validateAndResolvePack(Session session, UUID packIdFromMetadata) {
-        log.debug("Validating checkout session: {}", session.getId());
-        
+
         // 1. Resolve primary pack
         ProductPack primaryPack = resolvePrimaryPack(session, packIdFromMetadata);
         
@@ -177,8 +176,6 @@ public class CheckoutValidationServiceImpl implements CheckoutValidationService 
         
         // Additional validation: check line item currencies if available
         validateLineItemCurrencies(session, packCurrency);
-        
-        log.debug("Currency validation passed for session {}: {}", session.getId(), sessionCurrency);
     }
     
     private void validateLineItemCurrencies(Session session, String expectedCurrency) {

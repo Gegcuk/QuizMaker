@@ -6,16 +6,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MvcResult;
+import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -38,25 +31,15 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@DirtiesContext(classMode = AFTER_CLASS)
-@Transactional
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false",
+@org.springframework.test.context.TestPropertySource(properties = {
         "quizmaker.share-links.token-pepper=test-pepper-for-integration-tests"
 })
 @DisplayName("Integration Tests ShareLinkController")
-class ShareLinkControllerIntegrationTest {
+class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
 
-    @Autowired
-    MockMvc mockMvc;
     @Autowired
     ObjectMapper objectMapper;
     @Autowired
@@ -72,8 +55,6 @@ class ShareLinkControllerIntegrationTest {
     @Autowired
     PermissionRepository permissionRepository;
     @Autowired
-    JdbcTemplate jdbcTemplate;
-    @Autowired
     ShareLinkService shareLinkService;
 
     private UUID userId;
@@ -86,58 +67,22 @@ class ShareLinkControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Clean up database in dependency order to avoid foreign key constraint violations
-        jdbcTemplate.execute("DELETE FROM answers");
-        jdbcTemplate.execute("DELETE FROM attempts");
-        jdbcTemplate.execute("DELETE FROM share_link_usage");
-        jdbcTemplate.execute("DELETE FROM share_links");
-        jdbcTemplate.execute("DELETE FROM quiz_questions");
-        jdbcTemplate.execute("DELETE FROM quiz_tags");
-        jdbcTemplate.execute("DELETE FROM question_tags");
-        jdbcTemplate.execute("DELETE FROM questions");
-        jdbcTemplate.execute("DELETE FROM quizzes");
-        jdbcTemplate.execute("DELETE FROM user_roles");
-        jdbcTemplate.execute("DELETE FROM users");
-        jdbcTemplate.execute("DELETE FROM categories");
-        jdbcTemplate.execute("DELETE FROM tags");
-        jdbcTemplate.execute("DELETE FROM role_permissions");
-        jdbcTemplate.execute("DELETE FROM roles");
-        jdbcTemplate.execute("DELETE FROM permissions");
 
-        shareLinkRepository.deleteAllInBatch();
-        quizRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        categoryRepository.deleteAllInBatch();
-        roleRepository.deleteAllInBatch();
-        permissionRepository.deleteAllInBatch();
+        // Find existing permissions (created by DataInitializer)
+        Permission quizAdminPermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_ADMIN"));
+        Permission quizModeratePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_MODERATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_MODERATE"));
+        Permission quizCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_CREATE"));
+        Permission quizReadPermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_READ"));
 
-        // Create permissions
-        Permission quizAdminPermission = new Permission();
-        quizAdminPermission.setPermissionName(PermissionName.QUIZ_ADMIN.name());
-        quizAdminPermission = permissionRepository.save(quizAdminPermission);
-        
-        Permission quizModeratePermission = new Permission();
-        quizModeratePermission.setPermissionName(PermissionName.QUIZ_MODERATE.name());
-        quizModeratePermission = permissionRepository.save(quizModeratePermission);
-        
-        Permission quizCreatePermission = new Permission();
-        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
-        quizCreatePermission = permissionRepository.save(quizCreatePermission);
-        
-        Permission quizReadPermission = new Permission();
-        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
-        quizReadPermission = permissionRepository.save(quizReadPermission);
-
-        // Create roles
-        Role adminRole = new Role();
-        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
-        adminRole.setPermissions(Set.of(quizAdminPermission, quizModeratePermission, quizCreatePermission, quizReadPermission));
-        adminRole = roleRepository.save(adminRole);
-        
-        Role userRole = new Role();
-        userRole.setRoleName(RoleName.ROLE_USER.name());
-        userRole.setPermissions(Set.of(quizReadPermission));
-        userRole = roleRepository.save(userRole);
+        // Find existing roles (created by DataInitializer)
+        Role adminRole = roleRepository.findByRoleName(RoleName.ROLE_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("Role not found: ROLE_ADMIN"));
+        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
+                .orElseThrow(() -> new RuntimeException("Role not found: ROLE_USER"));
 
         // Create test users with roles
         User user = new User();

@@ -78,7 +78,6 @@ public class EstimationServiceImpl implements EstimationService {
 
             // For scopes that explicitly select nothing (e.g., SPECIFIC_CHUNKS with empty indices),
             // keep returning a zeroed estimate as before.
-            log.debug("No chunks matched scope {} for document {}. Returning zeroed estimate.", request.quizScope(), documentId);
             long llmZero = 0L;
             long billingZero = llmTokensToBillingTokens(llmZero);
             UUID estimationId = UUID.randomUUID();
@@ -348,9 +347,6 @@ public class EstimationServiceImpl implements EstimationService {
             // Total output tokens for this type
             long typeOutputTokens = count * adjustedCompletionTokens;
             totalOutputTokens += typeOutputTokens;
-            
-            log.debug("Question type {}: count={}, baseCompletionTokens={}, adjustedCompletionTokens={}, typeOutputTokens={}", 
-                    type, count, baseCompletionTokens, adjustedCompletionTokens, typeOutputTokens);
         }
 
         // Total LLM tokens = input prompt tokens + output tokens

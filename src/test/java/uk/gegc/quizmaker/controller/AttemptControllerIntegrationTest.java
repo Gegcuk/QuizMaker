@@ -11,19 +11,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
@@ -58,7 +51,6 @@ import static org.junit.jupiter.params.provider.Arguments.of;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,20 +58,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static uk.gegc.quizmaker.features.question.domain.model.QuestionType.TRUE_FALSE;
 
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@DirtiesContext(classMode = AFTER_CLASS)
-@Transactional
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
-})
 @DisplayName("Integration Tests AttemptController")
-public class AttemptControllerIntegrationTest {
+public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
 
-    @Autowired
-    MockMvc mockMvc;
     @Autowired
     ObjectMapper objectMapper;
     @Autowired
@@ -92,8 +73,6 @@ public class AttemptControllerIntegrationTest {
     RoleRepository roleRepository;
     @Autowired
     PermissionRepository permissionRepository;
-    @Autowired
-    JdbcTemplate jdbcTemplate;
     @Autowired
     EntityManager entityManager;
     @Autowired
@@ -193,88 +172,36 @@ public class AttemptControllerIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Clean up database in dependency order to avoid foreign key constraint violations
-        jdbcTemplate.execute("DELETE FROM answers");
-        jdbcTemplate.execute("DELETE FROM attempts");
-        jdbcTemplate.execute("DELETE FROM quiz_questions");
-        jdbcTemplate.execute("DELETE FROM quiz_tags");
-        jdbcTemplate.execute("DELETE FROM question_tags");
-        jdbcTemplate.execute("DELETE FROM questions");
-        jdbcTemplate.execute("DELETE FROM quizzes");
-        jdbcTemplate.execute("DELETE FROM user_roles");
-        jdbcTemplate.execute("DELETE FROM users");
-        jdbcTemplate.execute("DELETE FROM categories");
-        jdbcTemplate.execute("DELETE FROM tags");
-        jdbcTemplate.execute("DELETE FROM role_permissions");
-        jdbcTemplate.execute("DELETE FROM roles");
-        jdbcTemplate.execute("DELETE FROM permissions");
 
-        attemptRepository.deleteAllInBatch();
-        quizRepository.deleteAllInBatch();
-        userRepository.deleteAllInBatch();
-        categoryRepository.deleteAllInBatch();
-        roleRepository.deleteAllInBatch();
-        permissionRepository.deleteAllInBatch();
+        // Find existing permissions (created by DataInitializer)
+        Permission attemptCreatePermission = permissionRepository.findByPermissionName(PermissionName.ATTEMPT_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: ATTEMPT_CREATE"));
+        Permission attemptReadPermission = permissionRepository.findByPermissionName(PermissionName.ATTEMPT_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: ATTEMPT_READ"));
+        Permission attemptReadAllPermission = permissionRepository.findByPermissionName(PermissionName.ATTEMPT_READ_ALL.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: ATTEMPT_READ_ALL"));
+        Permission attemptDeletePermission = permissionRepository.findByPermissionName(PermissionName.ATTEMPT_DELETE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: ATTEMPT_DELETE"));
+        Permission quizReadPermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_READ"));
+        Permission quizCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_CREATE"));
+        Permission quizUpdatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_UPDATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUIZ_UPDATE"));
+        Permission questionCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUESTION_CREATE.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUESTION_CREATE"));
+        Permission questionReadPermission = permissionRepository.findByPermissionName(PermissionName.QUESTION_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: QUESTION_READ"));
+        Permission categoryReadPermission = permissionRepository.findByPermissionName(PermissionName.CATEGORY_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: CATEGORY_READ"));
+        Permission tagReadPermission = permissionRepository.findByPermissionName(PermissionName.TAG_READ.name())
+                .orElseThrow(() -> new RuntimeException("Permission not found: TAG_READ"));
 
-        // Create permissions
-        Permission attemptCreatePermission = new Permission();
-        attemptCreatePermission.setPermissionName(PermissionName.ATTEMPT_CREATE.name());
-        attemptCreatePermission = permissionRepository.save(attemptCreatePermission);
-
-        Permission attemptReadPermission = new Permission();
-        attemptReadPermission.setPermissionName(PermissionName.ATTEMPT_READ.name());
-        attemptReadPermission = permissionRepository.save(attemptReadPermission);
-
-        Permission attemptReadAllPermission = new Permission();
-        attemptReadAllPermission.setPermissionName(PermissionName.ATTEMPT_READ_ALL.name());
-        attemptReadAllPermission = permissionRepository.save(attemptReadAllPermission);
-
-        Permission attemptDeletePermission = new Permission();
-        attemptDeletePermission.setPermissionName(PermissionName.ATTEMPT_DELETE.name());
-        attemptDeletePermission = permissionRepository.save(attemptDeletePermission);
-
-        Permission quizReadPermission = new Permission();
-        quizReadPermission.setPermissionName(PermissionName.QUIZ_READ.name());
-        quizReadPermission = permissionRepository.save(quizReadPermission);
-
-        Permission quizCreatePermission = new Permission();
-        quizCreatePermission.setPermissionName(PermissionName.QUIZ_CREATE.name());
-        quizCreatePermission = permissionRepository.save(quizCreatePermission);
-
-        Permission quizUpdatePermission = new Permission();
-        quizUpdatePermission.setPermissionName(PermissionName.QUIZ_UPDATE.name());
-        quizUpdatePermission = permissionRepository.save(quizUpdatePermission);
-
-        Permission questionCreatePermission = new Permission();
-        questionCreatePermission.setPermissionName(PermissionName.QUESTION_CREATE.name());
-        questionCreatePermission = permissionRepository.save(questionCreatePermission);
-
-        Permission questionReadPermission = new Permission();
-        questionReadPermission.setPermissionName(PermissionName.QUESTION_READ.name());
-        questionReadPermission = permissionRepository.save(questionReadPermission);
-
-        Permission categoryReadPermission = new Permission();
-        categoryReadPermission.setPermissionName(PermissionName.CATEGORY_READ.name());
-        categoryReadPermission = permissionRepository.save(categoryReadPermission);
-
-        Permission tagReadPermission = new Permission();
-        tagReadPermission.setPermissionName(PermissionName.TAG_READ.name());
-        tagReadPermission = permissionRepository.save(tagReadPermission);
-
-        // Create roles
-        Role adminRole = new Role();
-        adminRole.setRoleName(RoleName.ROLE_ADMIN.name());
-        adminRole.setPermissions(Set.of(
-                attemptCreatePermission, attemptReadPermission, attemptReadAllPermission, 
-                attemptDeletePermission, quizReadPermission, quizCreatePermission, quizUpdatePermission,
-                questionCreatePermission, questionReadPermission, categoryReadPermission, tagReadPermission
-        ));
-        adminRole = roleRepository.save(adminRole);
-
-        Role userRole = new Role();
-        userRole.setRoleName(RoleName.ROLE_USER.name());
-        userRole.setPermissions(Set.of(attemptCreatePermission, attemptReadPermission, quizReadPermission, categoryReadPermission, tagReadPermission));
-        userRole = roleRepository.save(userRole);
+        // Find existing roles (created by DataInitializer)
+        Role adminRole = roleRepository.findByRoleName(RoleName.ROLE_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("Role not found: ROLE_ADMIN"));
+        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
+                .orElseThrow(() -> new RuntimeException("Role not found: ROLE_USER"));
 
         // Create test users with roles
         adminUser = new User();

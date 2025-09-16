@@ -59,8 +59,7 @@ public class ShareLinkAnalyticsServiceImpl implements ShareLinkAnalyticsService 
                     .build();
 
             analyticsRepository.save(analytics);
-            
-            log.debug("Recorded analytics event: {} for share link: {}", eventType, shareLinkId);
+
         } catch (Exception e) {
             log.error("Failed to record analytics event for share link: {}", shareLinkId, e);
             // Don't throw - analytics should not break main functionality

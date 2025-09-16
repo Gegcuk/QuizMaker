@@ -98,7 +98,6 @@ public class SrtVttDocumentConverter implements DocumentConverter {
             // Clean up multiple spaces
             text = text.replaceAll("\\s+", " ");
             
-            log.debug("Converted SRT/VTT document: {} bytes -> {} characters", bytes.length, text.length());
             return new ConversionResult(text);
             
         } catch (Exception e) {

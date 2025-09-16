@@ -543,7 +543,6 @@ public class BillingServiceImpl implements BillingService {
                                     String releaseIdempotencyKey = "quiz:" + job.getId() + ":release";
                                     job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
                                     quizGenerationJobRepository.save(job);
-                                    log.debug("Updated job {} billing state to RELEASED due to expired reservation {}", job.getId(), res.getId());
                                 }
                             });
                 } catch (Exception jobUpdateError) {
@@ -560,10 +559,7 @@ public class BillingServiceImpl implements BillingService {
                 metricsService.incrementReservationReleased(res.getUserId(), releaseAmount);
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
                 metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
-                
-                log.debug("Expired reservation {} for user {}, released {} tokens", 
-                        res.getId(), res.getUserId(), releaseAmount);
-                        
+
             } catch (Exception e) {
                 log.error("Failed to expire reservation {} for user {}: {}", 
                         res.getId(), res.getUserId(), e.getMessage(), e);
