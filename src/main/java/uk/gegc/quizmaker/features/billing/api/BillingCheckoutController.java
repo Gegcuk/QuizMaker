@@ -146,6 +146,32 @@ public class BillingCheckoutController {
         }
     }
 
+    @PostMapping("/checkout-sessions")
+    @RequirePermission(PermissionName.BILLING_WRITE)
+    public ResponseEntity<CheckoutSessionResponse> createCheckoutSession(@Valid @RequestBody CreateCheckoutSessionRequest request) {
+        try {
+            UUID currentUserId = BillingSecurityUtils.getCurrentUserId();
+            
+            // Rate limiting: 5 requests per minute per user
+            rateLimitService.checkRateLimit("checkout-session-create", currentUserId.toString(), 5);
+            
+            log.info("Creating checkout session for user: {} with priceId: {}", currentUserId, request.priceId());
+            
+            CheckoutSessionResponse session = stripeService.createCheckoutSession(
+                currentUserId, 
+                request.priceId(), 
+                request.packId()
+            );
+            
+            log.info("Checkout session created successfully: {} for user: {}", session.sessionId(), currentUserId);
+            
+            return ResponseEntity.ok(session);
+        } catch (Exception e) {
+            log.error("Error creating checkout session: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @PostMapping("/create-customer")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {

@@ -31,6 +31,11 @@ public interface BillingMetricsService {
     void incrementWebhookOk(String eventType);
     void incrementWebhookDuplicate(String eventType);
     void incrementWebhookFailed(String eventType);
+    
+    /**
+     * Record webhook latency metrics.
+     */
+    void recordWebhookLatency(String eventType, long latencyMs);
 
     /**
      * Record balance metrics.
