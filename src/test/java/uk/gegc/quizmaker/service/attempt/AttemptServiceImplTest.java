@@ -8,7 +8,12 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import uk.gegc.quizmaker.features.attempt.api.dto.AttemptDto;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
@@ -26,19 +31,19 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -64,6 +69,8 @@ class AttemptServiceImplTest {
     ScoringService scoringService;
     @Mock
     SafeQuestionMapper safeQuestionMapper;
+    @Mock
+    AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks
     AttemptServiceImpl service;
@@ -125,6 +132,69 @@ class AttemptServiceImplTest {
 
         assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3, mock(Authentication.class)))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("getAttempts returns current user's attempts when no userId provided")
+    void getAttempts_defaultsToAuthenticatedUser() {
+        String username = "alice";
+        UUID currentUserId = UUID.randomUUID();
+        User currentUser = new User();
+        currentUser.setId(currentUserId);
+
+        Pageable pageable = PageRequest.of(0, 10);
+
+        when(userRepository.findByUsernameWithRolesAndPermissions(username)).thenReturn(Optional.of(currentUser));
+        when(attemptRepository.findAllByQuizAndUserEager(null, currentUserId, pageable))
+                .thenReturn(Page.empty(pageable));
+
+        Page<AttemptDto> result = service.getAttempts(username, pageable, null, null);
+
+        assertThat(result).isEmpty();
+        verify(attemptRepository).findAllByQuizAndUserEager(isNull(), eq(currentUserId), eq(pageable));
+    }
+
+    @Test
+    @DisplayName("getAttempts forbids filtering by other user without ATTEMPT_READ_ALL")
+    void getAttempts_otherUserWithoutPermission() {
+        String username = "alice";
+        UUID currentUserId = UUID.randomUUID();
+        User currentUser = new User();
+        currentUser.setId(currentUserId);
+
+        UUID requestedUserId = UUID.randomUUID();
+        Pageable pageable = PageRequest.of(0, 5);
+
+        when(userRepository.findByUsernameWithRolesAndPermissions(username)).thenReturn(Optional.of(currentUser));
+        when(appPermissionEvaluator.hasPermission(eq(currentUser), eq(PermissionName.ATTEMPT_READ_ALL))).thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(eq(currentUser), eq(PermissionName.SYSTEM_ADMIN))).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getAttempts(username, pageable, null, requestedUserId))
+                .isInstanceOf(AccessDeniedException.class);
+
+        verify(attemptRepository, never()).findAllByQuizAndUserEager(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("getAttempts allows filtering by other user when caller has ATTEMPT_READ_ALL")
+    void getAttempts_otherUserWithPermission() {
+        String username = "moderator";
+        UUID currentUserId = UUID.randomUUID();
+        User currentUser = new User();
+        currentUser.setId(currentUserId);
+
+        UUID requestedUserId = UUID.randomUUID();
+        Pageable pageable = PageRequest.of(0, 5);
+
+        when(userRepository.findByUsernameWithRolesAndPermissions(username)).thenReturn(Optional.of(currentUser));
+        when(appPermissionEvaluator.hasPermission(eq(currentUser), eq(PermissionName.ATTEMPT_READ_ALL))).thenReturn(true);
+        when(attemptRepository.findAllByQuizAndUserEager(null, requestedUserId, pageable))
+                .thenReturn(Page.empty(pageable));
+
+        Page<AttemptDto> result = service.getAttempts(username, pageable, null, requestedUserId);
+
+        assertThat(result).isEmpty();
+        verify(attemptRepository).findAllByQuizAndUserEager(isNull(), eq(requestedUserId), eq(pageable));
     }
 
     @Test

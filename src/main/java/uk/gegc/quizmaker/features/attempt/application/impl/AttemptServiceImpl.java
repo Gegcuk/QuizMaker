@@ -164,12 +164,21 @@ public class AttemptServiceImpl implements AttemptService {
                                         Pageable pageable,
                                         UUID quizId,
                                         UUID userId) {
-        UUID filterUserId = (userId != null)
-                ? userId
-                : userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"))
-                .getId();
+        User currentUser = userRepository.findByUsernameWithRolesAndPermissions(username)
+                .or(() -> userRepository.findByEmailWithRolesAndPermissions(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        UUID filterUserId = currentUser.getId();
+        if (userId != null) {
+            if (!userId.equals(filterUserId)) {
+                boolean canViewAllAttempts = appPermissionEvaluator.hasPermission(currentUser, PermissionName.ATTEMPT_READ_ALL)
+                        || appPermissionEvaluator.hasPermission(currentUser, PermissionName.SYSTEM_ADMIN);
+                if (!canViewAllAttempts) {
+                    throw new AccessDeniedException("You do not have permission to view attempts for user " + userId);
+                }
+            }
+            filterUserId = userId;
+        }
 
         return attemptRepository
                 .findAllByQuizAndUserEager(quizId, filterUserId, pageable)

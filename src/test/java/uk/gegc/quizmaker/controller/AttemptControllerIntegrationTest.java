@@ -653,8 +653,13 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(get("/api/v1/attempts")
                         .with(user(regularUserDetails))
                         .param("userId", UUID.randomUUID().toString()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/attempts")
+                        .with(user(adminUserDetails))
+                        .param("userId", regularUser.getId().toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements", is(0)));
+                .andExpect(jsonPath("$.totalElements", is(2)));
     }
 
     @Test
