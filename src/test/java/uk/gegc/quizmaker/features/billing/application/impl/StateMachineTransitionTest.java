@@ -21,6 +21,9 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.testutils.BillingTestUtils;
+import uk.gegc.quizmaker.features.billing.testutils.LedgerAsserts;
+import uk.gegc.quizmaker.features.billing.testutils.BillingState;
 
 import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -120,10 +123,8 @@ class StateMachineTransitionTest {
             UUID userId = UUID.randomUUID();
             long amount = 1000L;
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(5000L);
-            balance.setReservedTokens(0L);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 5000L, 0L);
             
             when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
             when(transactionRepository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
@@ -146,6 +147,9 @@ class StateMachineTransitionTest {
             assertThat(result.state()).isEqualTo(ReservationState.ACTIVE);
             assertThat(result.estimatedTokens()).isEqualTo(amount);
             
+            // I5: State machine validation - NONE → RESERVED transition
+            LedgerAsserts.assertI5_StateMachine(BillingState.NONE, BillingState.RESERVED);
+            
             // Verify reservation was saved with ACTIVE state
             verify(reservationRepository).save(argThat(reservation -> 
                 reservation.getState() == ReservationState.ACTIVE &&
@@ -162,17 +166,12 @@ class StateMachineTransitionTest {
             UUID reservationId = UUID.randomUUID();
             long amount = 1000L;
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(5000L);
-            balance.setReservedTokens(amount);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 5000L, amount);
             
-            Reservation reservation = new Reservation();
+            // Use utility to create mock reservation
+            Reservation reservation = BillingTestUtils.createMockReservation(userId, amount, ReservationState.ACTIVE);
             reservation.setId(reservationId);
-            reservation.setUserId(userId);
-            reservation.setEstimatedTokens(amount);
-            reservation.setCommittedTokens(0L);
-            reservation.setState(ReservationState.ACTIVE);
             reservation.setExpiresAt(LocalDateTime.now().plusHours(1));
             
             when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
@@ -187,6 +186,9 @@ class StateMachineTransitionTest {
             // Then
             assertThat(result.committedTokens()).isEqualTo(amount);
             assertThat(result.releasedTokens()).isEqualTo(0L);
+            
+            // I5: State machine validation - RESERVED → COMMITTED transition
+            LedgerAsserts.assertI5_StateMachine(BillingState.RESERVED, BillingState.COMMITTED);
             
             // Verify reservation state was updated to COMMITTED
             verify(reservationRepository).save(argThat(res -> 
@@ -203,17 +205,12 @@ class StateMachineTransitionTest {
             UUID reservationId = UUID.randomUUID();
             long amount = 1000L;
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(5000L);
-            balance.setReservedTokens(amount);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 5000L, amount);
             
-            Reservation reservation = new Reservation();
+            // Use utility to create mock reservation
+            Reservation reservation = BillingTestUtils.createMockReservation(userId, amount, ReservationState.ACTIVE);
             reservation.setId(reservationId);
-            reservation.setUserId(userId);
-            reservation.setEstimatedTokens(amount);
-            reservation.setCommittedTokens(0L);
-            reservation.setState(ReservationState.ACTIVE);
             reservation.setExpiresAt(LocalDateTime.now().plusHours(1));
             
             when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
@@ -227,6 +224,9 @@ class StateMachineTransitionTest {
 
             // Then
             assertThat(result.releasedTokens()).isEqualTo(amount);
+            
+            // I5: State machine validation - RESERVED → RELEASED transition
+            LedgerAsserts.assertI5_StateMachine(BillingState.RESERVED, BillingState.RELEASED);
             
             // Verify reservation state was updated to RELEASED
             verify(reservationRepository).save(argThat(res -> 

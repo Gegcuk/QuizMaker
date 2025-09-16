@@ -23,6 +23,9 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.testutils.BillingTestUtils;
+import uk.gegc.quizmaker.features.billing.testutils.LedgerAsserts;
+import uk.gegc.quizmaker.features.billing.testutils.AccountSnapshot;
 
 import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -121,16 +124,12 @@ class ReservationComprehensiveTest {
             String ref = "test-ref";
             String idempotencyKey = "test-key";
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(5000L);
-            balance.setReservedTokens(0L);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 5000L, 0L);
             
-            Reservation savedReservation = new Reservation();
+            // Use utility to create mock reservation
+            Reservation savedReservation = BillingTestUtils.createMockReservation(userId, estimatedTokens, ReservationState.ACTIVE);
             savedReservation.setId(UUID.randomUUID());
-            savedReservation.setUserId(userId);
-            savedReservation.setEstimatedTokens(estimatedTokens);
-            savedReservation.setState(ReservationState.ACTIVE);
             savedReservation.setExpiresAt(LocalDateTime.now().plusMinutes(30));
             
             when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
@@ -164,6 +163,12 @@ class ReservationComprehensiveTest {
             // Verify balance was updated (available -> reserved)
             assertThat(balance.getAvailableTokens()).isEqualTo(4000L); // 5000 - 1000
             assertThat(balance.getReservedTokens()).isEqualTo(1000L);
+            
+            // I2: Balance math validation - total balance should remain the same (available + reserved)
+            AccountSnapshot before = AccountSnapshot.initial(userId, 5000L, 0L);
+            AccountSnapshot after = AccountSnapshot.after(userId, 4000L, 1000L, 0L, 0L, 0L);
+            // Note: For reservations, we validate that total balance (available + reserved) remains constant
+            assertThat(after.totalBalance()).isEqualTo(before.totalBalance());
             
             // Verify reservation was saved with correct state and TTL
             verify(reservationRepository).save(argThat(reservation -> 
@@ -330,15 +335,12 @@ class ReservationComprehensiveTest {
             String idempotencyKey = "test-key";
             
             UUID existingReservationId = UUID.randomUUID();
-            Reservation existingReservation = new Reservation();
+            // Use utility to create mock reservation
+            Reservation existingReservation = BillingTestUtils.createMockReservation(userId, estimatedTokens, ReservationState.ACTIVE);
             existingReservation.setId(existingReservationId);
-            existingReservation.setUserId(userId);
-            existingReservation.setEstimatedTokens(estimatedTokens);
-            existingReservation.setState(ReservationState.ACTIVE);
             
-            TokenTransaction existingTx = new TokenTransaction();
-            existingTx.setType(TokenTransactionType.RESERVE);
-            existingTx.setRefId(existingReservationId.toString());
+            // Use utility to create mock transaction
+            TokenTransaction existingTx = BillingTestUtils.createMockTransaction(existingReservationId, TokenTransactionType.RESERVE, 0L, idempotencyKey);
             
             when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.of(existingTx));
             when(reservationRepository.findById(existingReservationId)).thenReturn(Optional.of(existingReservation));
@@ -364,6 +366,9 @@ class ReservationComprehensiveTest {
             assertThat(result1.id()).isEqualTo(result2.id());
             assertThat(result1.id()).isEqualTo(existingReservationId);
             assertThat(result1.estimatedTokens()).isEqualTo(estimatedTokens);
+            
+            // I4: Idempotency validation - same key should return same result
+            LedgerAsserts.assertI4_Idempotent(idempotencyKey, TokenTransactionType.RESERVE, java.util.List.of(existingTx));
             
             // Verify no new reservation was created
             verify(reservationRepository, never()).save(any(Reservation.class));

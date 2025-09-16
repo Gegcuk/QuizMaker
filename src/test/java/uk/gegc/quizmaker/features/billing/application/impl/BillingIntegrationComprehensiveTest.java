@@ -22,6 +22,9 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.testutils.BillingTestUtils;
+import uk.gegc.quizmaker.features.billing.testutils.LedgerAsserts;
+import uk.gegc.quizmaker.features.billing.testutils.AccountSnapshot;
 
 import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -202,10 +205,8 @@ class BillingIntegrationComprehensiveTest {
             int numberOfThreads = 10;
             int operationsPerThread = 5;
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(100000L); // Large amount to handle concurrent operations
-            balance.setReservedTokens(0L);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 100000L, 0L); // Large amount to handle concurrent operations
             
             when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
             when(transactionRepository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
@@ -323,15 +324,13 @@ class BillingIntegrationComprehensiveTest {
             assertThat(commitResult.committedTokens()).isEqualTo(actualUsage);
             assertThat(commitResult.committedTokens() + commitResult.releasedTokens()).isEqualTo(estimatedTokens);
             
-            // I2: Balance math
-            long expectedAvailable = initialTokens + 2000L - estimatedTokens + (estimatedTokens - actualUsage);
-            long expectedReserved = 0L; // Reservation is fully consumed after commit
-            assertThat(balance.getAvailableTokens()).isEqualTo(expectedAvailable);
-            assertThat(balance.getReservedTokens()).isEqualTo(expectedReserved);
+            // I2: Balance math - use utility assertion
+            AccountSnapshot before = AccountSnapshot.initial(userId, initialTokens, 0L);
+            AccountSnapshot after = AccountSnapshot.after(userId, balance.getAvailableTokens(), balance.getReservedTokens(), 2000L, 0L, actualUsage);
+            LedgerAsserts.assertI2_BalanceMath(before, after);
             
-            // I3: Cap rule
-            assertThat(actualUsage).isLessThanOrEqualTo(estimatedTokens);
-            assertThat(estimatedTokens - actualUsage).isGreaterThanOrEqualTo(0);
+            // I3: Cap rule - use utility assertion
+            LedgerAsserts.assertI3_CapRule(actualUsage, estimatedTokens, actualUsage);
             
             // I6: Rounding
             assertThat(balance.getAvailableTokens() % 1).isEqualTo(0);

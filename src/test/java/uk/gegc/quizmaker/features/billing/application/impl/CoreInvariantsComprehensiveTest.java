@@ -22,6 +22,9 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.testutils.BillingTestUtils;
+import uk.gegc.quizmaker.features.billing.testutils.LedgerAsserts;
+import uk.gegc.quizmaker.features.billing.testutils.AccountSnapshot;
 
 import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -123,16 +126,12 @@ class CoreInvariantsComprehensiveTest {
             long reservationAmount = 1000L;
             long actualUsage = 1500L; // More than reserved
             
-            Balance balance = new Balance();
-            balance.setUserId(userId);
-            balance.setAvailableTokens(5000L);
-            balance.setReservedTokens(reservationAmount);
+            // Use utility to create mock balance
+            Balance balance = BillingTestUtils.createMockBalance(userId, 5000L, reservationAmount);
             
-            Reservation reservation = new Reservation();
+            // Use utility to create mock reservation
+            Reservation reservation = BillingTestUtils.createMockReservation(userId, reservationAmount, ReservationState.ACTIVE);
             reservation.setId(reservationId);
-            reservation.setUserId(userId);
-            reservation.setEstimatedTokens(reservationAmount);
-            reservation.setState(ReservationState.ACTIVE);
             reservation.setExpiresAt(LocalDateTime.now().plusHours(1));
             
             lenient().when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
@@ -830,19 +829,17 @@ class CoreInvariantsComprehensiveTest {
 
             // Then - verify all invariants hold
             
-            // I1: Non-overspend
+            // I1: Non-overspend - use utility assertion
             assertThat(commitResult.committedTokens()).isEqualTo(commitAmount);
             assertThat(commitResult.committedTokens() + commitResult.releasedTokens()).isEqualTo(reserveAmount);
             
-            // I2: Balance math
-            long expectedAvailable = initialAvailable - reserveAmount + credits + (reserveAmount - commitAmount); // Available after reservation, credits, and released tokens
-            long expectedReserved = 0L; // Reservation is fully consumed after commit
-            assertThat(balance.getAvailableTokens()).isEqualTo(expectedAvailable);
-            assertThat(balance.getReservedTokens()).isEqualTo(expectedReserved);
+            // I2: Balance math - use utility assertion
+            AccountSnapshot before = AccountSnapshot.initial(userId, initialAvailable, 0L);
+            AccountSnapshot after = AccountSnapshot.after(userId, balance.getAvailableTokens(), balance.getReservedTokens(), credits, 0L, commitAmount);
+            LedgerAsserts.assertI2_BalanceMath(before, after);
             
-            // I3: Cap rule
-            assertThat(commitAmount).isLessThanOrEqualTo(reserveAmount);
-            assertThat(reserveAmount - commitAmount).isGreaterThanOrEqualTo(0);
+            // I3: Cap rule - use utility assertion
+            LedgerAsserts.assertI3_CapRule(commitAmount, reserveAmount, commitAmount);
             
             // I6: Rounding - all amounts should be integers
             assertThat(balance.getAvailableTokens() % 1).isEqualTo(0);

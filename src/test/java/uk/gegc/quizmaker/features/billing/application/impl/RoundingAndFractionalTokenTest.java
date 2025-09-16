@@ -19,6 +19,8 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.testutils.BillingTestUtils;
+import uk.gegc.quizmaker.features.billing.testutils.LedgerAsserts;
 
 import jakarta.persistence.EntityManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -134,6 +136,8 @@ class RoundingAndFractionalTokenTest {
                 long expected = (long) testCase[2];
                 
                 long result = (long) Math.ceil(input * ratio);
+                
+                // I6: Rounding validation - ensure no fractional billing tokens
                 assertThat(result).isEqualTo(expected)
                     .as("Input: %f, Ratio: %f should round up to %d", input, ratio, expected);
             }
@@ -148,6 +152,8 @@ class RoundingAndFractionalTokenTest {
 
             for (int i = 0; i < ratios.length; i++) {
                 long result = (long) Math.ceil(input * ratios[i]);
+                
+                // I6: Rounding validation - ensure no fractional billing tokens
                 assertThat(result).isEqualTo(expected[i])
                     .as("Input: %f with ratio %f should round up to %d", input, ratios[i], expected[i]);
             }
