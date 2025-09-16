@@ -160,17 +160,28 @@ public class RoleServiceImpl implements RoleService {
         permissionService.initializePermissions();
 
         // Create roles with appropriate permissions
+        log.info("Creating ROLE_USER with permissions: {}", getUserPermissions());
         createRoleIfNotExists(RoleName.ROLE_USER.name(), "Basic user role", true, getUserPermissions());
+        
+        log.info("Creating ROLE_QUIZ_CREATOR with permissions: {}", getQuizCreatorPermissions());
         createRoleIfNotExists(RoleName.ROLE_QUIZ_CREATOR.name(), "Quiz creator role", false, getQuizCreatorPermissions());
+        
+        log.info("Creating ROLE_MODERATOR with permissions: {}", getModeratorPermissions());
         createRoleIfNotExists(RoleName.ROLE_MODERATOR.name(), "Moderator role", false, getModeratorPermissions());
+        
+        log.info("Creating ROLE_ADMIN with permissions: {}", getAdminPermissions());
         createRoleIfNotExists(RoleName.ROLE_ADMIN.name(), "Administrator role", false, getAdminPermissions());
+        
+        log.info("Creating ROLE_SUPER_ADMIN with all permissions");
         createRoleIfNotExists(RoleName.ROLE_SUPER_ADMIN.name(), "Super administrator role", false, getSuperAdminPermissions());
+
 
         log.info("Default roles and permissions initialization completed");
     }
 
     private void createRoleIfNotExists(String roleName, String description, boolean isDefault, Set<String> permissionNames) {
         if (!roleExists(roleName)) {
+            // Create new role
             Role role = Role.builder()
                     .roleName(roleName)
                     .description(description)
@@ -192,6 +203,38 @@ public class RoleServiceImpl implements RoleService {
 
             roleRepository.save(savedRole);
             log.info("Created role: {} with {} permissions", roleName, savedRole.getPermissions().size());
+        } else {
+            // Update existing role with missing permissions
+            try {
+                Role existingRole = roleRepository.findByRoleNameWithPermissions(roleName)
+                        .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
+                
+                Set<String> currentPermissions = existingRole.getPermissions().stream()
+                        .map(Permission::getPermissionName)
+                        .collect(java.util.stream.Collectors.toSet());
+                
+                boolean needsUpdate = false;
+                for (String permissionName : permissionNames) {
+                    if (!currentPermissions.contains(permissionName)) {
+                        try {
+                            Permission permission = permissionService.getPermissionByName(permissionName);
+                            existingRole.getPermissions().add(permission);
+                            needsUpdate = true;
+                            log.info("Added missing permission {} to existing role: {}", permissionName, roleName);
+                        } catch (ResourceNotFoundException e) {
+                            log.warn("Permission not found: {}", permissionName);
+                        }
+                    }
+                }
+                
+                if (needsUpdate) {
+                    roleRepository.save(existingRole);
+                    log.info("Updated existing role: {} with {} total permissions", roleName, existingRole.getPermissions().size());
+                } else {
+                }
+            } catch (Exception e) {
+                log.error("Failed to update existing role {}: {}", roleName, e.getMessage());
+            }
         }
     }
 
@@ -215,7 +258,9 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.BOOKMARK_DELETE.name(),
                 PermissionName.FOLLOW_CREATE.name(),
                 PermissionName.FOLLOW_DELETE.name(),
-                PermissionName.NOTIFICATION_READ.name()
+                PermissionName.NOTIFICATION_READ.name(),
+                PermissionName.BILLING_READ.name(),
+                PermissionName.BILLING_WRITE.name()
         );
     }
 
@@ -225,7 +270,7 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.QUIZ_CREATE.name(),
                 PermissionName.QUIZ_UPDATE.name(),
                 PermissionName.QUIZ_DELETE.name(),
-                PermissionName.QUIZ_PUBLISH.name(),
+                // Removed QUIZ_PUBLISH - creators cannot publish directly, must go through moderation
                 PermissionName.QUESTION_CREATE.name(),
                 PermissionName.QUESTION_UPDATE.name(),
                 PermissionName.QUESTION_DELETE.name(),
@@ -281,4 +326,5 @@ public class RoleServiceImpl implements RoleService {
         ));
         return permissions;
     }
+
 }

@@ -23,6 +23,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -36,8 +38,10 @@ import uk.gegc.quizmaker.features.document.application.DocumentValidationService
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
+import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -47,12 +51,14 @@ import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 
@@ -73,10 +79,12 @@ public class QuizController {
     private final ObjectMapper objectMapper;
     private final RateLimitService rateLimitService;
     private final TrustedProxyUtil trustedProxyUtil;
+    private final ModerationService moderationService;
+    private final UserRepository userRepository;
 
     @Operation(
             summary = "Create a new quiz",
-            description = "Requires ADMIN role. Returns the generated UUID of the created quiz."
+            description = "Create a new quiz. Requires QUIZ_CREATE permission. Non-moderators can only create PRIVATE/DRAFT quizzes. Returns the generated UUID of the created quiz."
     )
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "Payload for creating a new quiz",
@@ -86,7 +94,7 @@ public class QuizController {
             )
     )
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<Map<String, UUID>> createQuiz(@RequestBody @Valid CreateQuizRequest request,
                                                         Authentication authentication) {
         UUID quizId = quizService.createQuiz(authentication.getName(), request);
@@ -95,7 +103,7 @@ public class QuizController {
 
     @Operation(
             summary = "List quizzes with pagination and optional filters",
-            description = "Returns a page of quizzes; you can page/sort via `page`, `size`, `sort`, and filter via the fields of QuizSearchCriteria"
+            description = "Returns a page of quizzes based on scope. Default scope shows only public quizzes. Use scope=me to see your own quizzes, scope=all for moderators to see all quizzes."
     )
     @GetMapping
     public ResponseEntity<Page<QuizDto>> getQuizzes(
@@ -107,13 +115,18 @@ public class QuizController {
             @ParameterObject
             @ModelAttribute
             QuizSearchCriteria quizSearchCriteria,
+            
+            @Parameter(description = "Scope of quizzes to return: public (default), me (own quizzes), all (moderators only)")
+            @RequestParam(defaultValue = "public") String scope,
+            
+            Authentication authentication,
             HttpServletRequest request
     ) {
         // Rate limit search endpoint: 120/min per IP
         String clientIp = trustedProxyUtil.getClientIp(request);
         rateLimitService.checkRateLimit("search-quizzes", clientIp, 120);
 
-        Page<QuizDto> quizPage = quizService.getQuizzes(pageable, quizSearchCriteria);
+        Page<QuizDto> quizPage = quizService.getQuizzes(pageable, quizSearchCriteria, scope, authentication);
 
         // Simple weak ETag based on result set metadata
         String eTag = ("W/\"" + quizPage.getTotalElements() + ":" + quizPage.getNumber() + ":" + quizPage.getSize() + ":" + quizPage.getSort() + "\"");
@@ -132,13 +145,14 @@ public class QuizController {
     @GetMapping("/{quizId}")
     public ResponseEntity<QuizDto> getQuiz(
             @Parameter(description = "UUID of the quiz to retrieve", required = true)
-            @PathVariable UUID quizId) {
-        return ResponseEntity.ok(quizService.getQuizById(quizId));
+            @PathVariable UUID quizId,
+            Authentication authentication) {
+        return ResponseEntity.ok(quizService.getQuizById(quizId, authentication));
     }
 
     @Operation(
             summary = "Update an existing quiz",
-            description = "ADMIN only. Only provided fields will be updated."
+            description = "Update quiz details. Requires QUIZ_UPDATE permission and ownership or moderation permissions. Only provided fields will be updated."
     )
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "Fields to update in the quiz",
@@ -148,7 +162,7 @@ public class QuizController {
             )
     )
     @PatchMapping("/{quizId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     public ResponseEntity<QuizDto> updateQuiz(
             @Parameter(description = "UUID of the quiz to update", required = true)
             @PathVariable UUID quizId,
@@ -162,7 +176,7 @@ public class QuizController {
 
     @Operation(
             summary = "Bulk update quizzes",
-            description = "ADMIN only. Update multiple quizzes in one request."
+            description = "Update multiple quizzes in one request. Requires QUIZ_UPDATE permission and ownership or moderation permissions for each quiz."
     )
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "Bulk update payload",
@@ -170,7 +184,7 @@ public class QuizController {
             content = @Content(schema = @Schema(implementation = BulkQuizUpdateRequest.class))
     )
     @PatchMapping("/bulk-update")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     public ResponseEntity<BulkQuizUpdateOperationResultDto> bulkUpdateQuizzes(
             @RequestBody @Valid BulkQuizUpdateRequest request,
             Authentication authentication
@@ -181,11 +195,11 @@ public class QuizController {
 
     @Operation(
             summary = "Delete a quiz",
-            description = "ADMIN only. Permanently deletes the quiz."
+            description = "Permanently delete a quiz. Requires QUIZ_DELETE permission and ownership or admin permissions."
     )
     @DeleteMapping("/{quizId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_DELETE)
     public void deleteQuiz(
             @Parameter(description = "UUID of the quiz to delete", required = true)
             @PathVariable UUID quizId,
@@ -195,10 +209,10 @@ public class QuizController {
 
     @Operation(
             summary = "Bulk delete quizzes",
-            description = "ADMIN only. Delete multiple quizzes by comma-separated IDs."
+            description = "Delete multiple quizzes by comma-separated IDs. Requires QUIZ_DELETE permission and ownership or admin permissions for each quiz."
     )
     @DeleteMapping(params = "ids")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_DELETE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteQuizzes(
             @Parameter(description = "Comma-separated quiz IDs", required = true)
@@ -210,10 +224,10 @@ public class QuizController {
 
     @Operation(
             summary = "Associate a question with a quiz",
-            description = "ADMIN only. Adds an existing question to the quiz."
+            description = "Adds an existing question to the quiz. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
     )
     @PostMapping("/{quizId}/questions/{questionId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addQuestion(
             @Parameter(description = "UUID of the quiz", required = true)
@@ -227,10 +241,10 @@ public class QuizController {
 
     @Operation(
             summary = "Remove a question from a quiz",
-            description = "ADMIN only."
+            description = "Remove a question from a quiz. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
     )
     @DeleteMapping("/{quizId}/questions/{questionId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeQuestion(
             @Parameter(description = "UUID of the quiz", required = true)
@@ -244,10 +258,10 @@ public class QuizController {
 
     @Operation(
             summary = "Add a tag to a quiz",
-            description = "ADMIN only."
+            description = "Add a tag to a quiz. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
     )
     @PostMapping("/{quizId}/tags/{tagId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void addTag(
             @Parameter(description = "UUID of the quiz", required = true)
@@ -261,10 +275,10 @@ public class QuizController {
 
     @Operation(
             summary = "Remove a tag from a quiz",
-            description = "ADMIN only."
+            description = "Remove a tag from a quiz. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
     )
     @DeleteMapping("/{quizId}/tags/{tagId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeTag(
             @Parameter(description = "UUID of the quiz", required = true)
@@ -277,11 +291,11 @@ public class QuizController {
     }
 
     @Operation(
-            summary = "Change a quiz’s category",
-            description = "ADMIN only."
+            summary = "Change a quiz's category",
+            description = "Change a quiz's category. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
     )
     @PatchMapping("/{quizId}/category/{categoryId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changeCategory(
             @Parameter(description = "UUID of the quiz", required = true)
@@ -300,9 +314,10 @@ public class QuizController {
     @GetMapping("/{quizId}/results")
     public ResponseEntity<QuizResultSummaryDto> getQuizResults(
             @Parameter(description = "UUID of the quiz to summarize", required = true)
-            @PathVariable UUID quizId
+            @PathVariable UUID quizId,
+            Authentication authentication
     ) {
-        return ResponseEntity.ok(attemptService.getQuizResultSummary(quizId));
+        return ResponseEntity.ok(attemptService.getQuizResultSummary(quizId, authentication));
     }
 
     @Operation(
@@ -313,9 +328,10 @@ public class QuizController {
     public ResponseEntity<List<LeaderboardEntryDto>> getQuizLeaderboard(
             @Parameter(description = "UUID of the quiz", required = true)
             @PathVariable UUID quizId,
-            @RequestParam(name = "top", defaultValue = "10") int top
+            @RequestParam(name = "top", defaultValue = "10") int top,
+            Authentication authentication
     ) {
-        List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top);
+        List<LeaderboardEntryDto> leaderBoardEntryDtos = attemptService.getQuizLeaderboard(quizId, top, authentication);
         return ResponseEntity.ok(leaderBoardEntryDtos);
     }
 
@@ -349,7 +365,7 @@ public class QuizController {
 
     @Operation(
             summary = "Toggle quiz visibility",
-            description = "ADMIN only – switch a quiz between PUBLIC and PRIVATE.",
+            description = "Switch a quiz between PUBLIC and PRIVATE. Requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -387,7 +403,7 @@ public class QuizController {
             }
     )
     @PatchMapping("/{quizId}/visibility")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(value = {PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
     public ResponseEntity<QuizDto> updateQuizVisibility(
             @Parameter(description = "UUID of the quiz to update", required = true)
             @PathVariable UUID quizId,
@@ -404,7 +420,7 @@ public class QuizController {
 
     @Operation(
             summary = "Change quiz status",
-            description = "ADMIN only - switch a quiz between DRAFT and PUBLISHED",
+            description = "Switch a quiz between DRAFT and PUBLISHED. Requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -424,7 +440,7 @@ public class QuizController {
             }
     )
     @PatchMapping("/{quizId}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(value = {PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
     public ResponseEntity<QuizDto> updateQuizStatus(
             @Parameter(description = "UUID of the quiz to update", required = true)
             @PathVariable UUID quizId,
@@ -468,30 +484,17 @@ public class QuizController {
             summary = "Submit quiz for moderation review",
             description = "Creator submits the quiz for review. Transitions to PENDING_REVIEW.")
     @PostMapping("/{quizId}/submit-for-review")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
     public ResponseEntity<Void> submitForReview(@PathVariable UUID quizId, Authentication authentication) {
-        // Reuse the existing service contract; controller determines actor from auth
-        User dummy = new User();
-        // Find current user ID via service; we only have username here, so delegate through service layer in future
-        // For now, call ModerationService via QuizService if exposed; otherwise this endpoint is a placeholder
+        UUID userId = resolveAuthenticatedUserId(authentication);
+        moderationService.submitForReview(quizId, userId);
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(
-            summary = "Unpublish a quiz",
-            description = "Move a published quiz back to draft state.")
-    @PostMapping("/{quizId}/unpublish")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> unpublishQuiz(@PathVariable UUID quizId,
-                                              @RequestBody(required = false) UnpublishRequest request,
-                                              Authentication authentication) {
-        // Placeholder: wire to ModerationService when controller-level moderation endpoints are finalized
-        return ResponseEntity.noContent().build();
-    }
 
     @Operation(
             summary = "Generate quiz from document using AI (Async)",
-            description = "ADMIN only. Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be processed and have chunks available. Users can specify exactly how many questions of each type to generate per chunk. Supports different scopes: entire document, specific chunks, specific chapter, or specific section. Returns a job ID for tracking progress.",
+            description = "Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be processed and have chunks available. Users can specify exactly how many questions of each type to generate per chunk. Supports different scopes: entire document, specific chunks, specific chapter, or specific section. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -534,7 +537,7 @@ public class QuizController {
             }
     )
     @PostMapping("/generate-from-document")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationResponse> generateQuizFromDocument(
             @RequestBody @Valid GenerateQuizFromDocumentRequest request,
             Authentication authentication
@@ -545,7 +548,7 @@ public class QuizController {
 
     @Operation(
             summary = "Upload document and generate quiz in one operation (Async)",
-            description = "ADMIN only. Upload a document, process it, and start quiz generation in a single operation. This endpoint combines document upload and quiz generation for simpler frontend integration. Returns a job ID for tracking progress.",
+            description = "Upload a document, process it, and start quiz generation in a single operation. This endpoint combines document upload and quiz generation for simpler frontend integration. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -586,7 +589,7 @@ public class QuizController {
             }
     )
     @PostMapping(value = "/generate-from-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationResponse> generateQuizFromUpload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
@@ -639,7 +642,7 @@ public class QuizController {
 
     @Operation(
             summary = "Generate quiz from plain text (Async)",
-            description = "ADMIN only. Generate a quiz from plain text content in a single operation. This endpoint processes the text, chunks it, and starts quiz generation. Returns a job ID for tracking progress.",
+            description = "Generate a quiz from plain text content in a single operation. This endpoint processes the text, chunks it, and starts quiz generation. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -682,7 +685,7 @@ public class QuizController {
             }
     )
     @PostMapping("/generate-from-text")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationResponse> generateQuizFromText(
             @RequestBody @Valid GenerateQuizFromTextRequest request,
             Authentication authentication
@@ -812,7 +815,7 @@ public class QuizController {
             }
     )
     @DeleteMapping("/generation-status/{jobId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationStatus> cancelGenerationJob(
             @Parameter(description = "UUID of the generation job to cancel", required = true)
             @PathVariable UUID jobId,
@@ -903,9 +906,9 @@ public class QuizController {
             }
     )
     @PostMapping("/generation-jobs/cleanup-stale")
+    @RequirePermission(PermissionName.QUIZ_ADMIN)
     public ResponseEntity<String> cleanupStaleJobs(Authentication authentication) {
-        // This is a simple cleanup operation that doesn't require user-specific logic
-        // In a production system, you might want to restrict this to admin users
+        // Admin-only operation for cleaning up global state
         jobService.cleanupStalePendingJobs();
         return ResponseEntity.ok("Stale jobs cleaned up successfully");
     }
@@ -936,6 +939,7 @@ public class QuizController {
             }
     )
     @PostMapping("/generation-jobs/{jobId}/force-cancel")
+    @RequirePermission(PermissionName.QUIZ_ADMIN)
     public ResponseEntity<String> forceCancelJob(
             @Parameter(description = "UUID of the job to force cancel", required = true)
             @PathVariable UUID jobId,
@@ -968,5 +972,30 @@ public class QuizController {
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid questionsPerType JSON format: " + e.getMessage());
         }
+    }
+
+    /**
+     * Safely parses a UUID string, returning Optional.empty() if invalid.
+     */
+    private Optional<UUID> safeParseUuid(String uuidString) {
+        try {
+            return Optional.of(UUID.fromString(uuidString));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolves the authenticated user's ID from the authentication principal (username or email).
+     */
+    private UUID resolveAuthenticatedUserId(Authentication authentication) {
+        String principal = authentication.getName();
+        return safeParseUuid(principal)
+                .orElseGet(() -> {
+                    User user = userRepository.findByUsername(principal)
+                            .or(() -> userRepository.findByEmail(principal))
+                            .orElseThrow(() -> new UnauthorizedException("Unknown principal"));
+                    return user.getId();
+                });
     }
 }

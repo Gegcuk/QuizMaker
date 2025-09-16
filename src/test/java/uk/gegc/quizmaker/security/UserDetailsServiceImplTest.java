@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -41,10 +42,11 @@ public class UserDetailsServiceImplTest {
         Role role = Role.builder()
                 .roleId(1L)
                 .roleName("ROLE_USER")
+                .permissions(new HashSet<>())
                 .build();
         user.setRoles(Set.of(role));
 
-        when(userRepository.findByUsernameWithRoles("johndoe")).thenReturn(Optional.of(user));
+        when(userRepository.findByUsernameWithRolesAndPermissions("johndoe")).thenReturn(Optional.of(user));
 
         UserDetails userDetails = userDetailsServiceImpl.loadUserByUsername("johndoe");
 
@@ -56,8 +58,8 @@ public class UserDetailsServiceImplTest {
                         .anyMatch(authority -> authority.getAuthority().equals("ROLE_USER"))
         );
 
-        verify(userRepository).findByUsernameWithRoles("johndoe");
-        verify(userRepository, never()).findByEmailWithRoles(any());
+        verify(userRepository).findByUsernameWithRolesAndPermissions("johndoe");
+        verify(userRepository, never()).findByEmailWithRolesAndPermissions(any());
     }
 
     @Test
@@ -70,12 +72,13 @@ public class UserDetailsServiceImplTest {
         Role admin = Role.builder()
                 .roleId(2L)
                 .roleName("ROLE_ADMIN")
+                .permissions(new HashSet<>())
                 .build();
         user.setRoles(Set.of(admin));
 
-        when(userRepository.findByUsernameWithRoles("jane@example.com"))
+        when(userRepository.findByUsernameWithRolesAndPermissions("jane@example.com"))
                 .thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("jane@example.com"))
+        when(userRepository.findByEmailWithRolesAndPermissions("jane@example.com"))
                 .thenReturn(Optional.of(user));
 
         UserDetails ud = userDetailsServiceImpl.loadUserByUsername("jane@example.com");
@@ -87,23 +90,23 @@ public class UserDetailsServiceImplTest {
                         .stream()
                         .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))
         );
-        verify(userRepository).findByUsernameWithRoles("jane@example.com");
-        verify(userRepository).findByEmailWithRoles("jane@example.com");
+        verify(userRepository).findByUsernameWithRolesAndPermissions("jane@example.com");
+        verify(userRepository).findByEmailWithRolesAndPermissions("jane@example.com");
     }
 
     @Test
     @DisplayName("loadUserByUsername: sad when user not found")
     void loadUserByUsername_notFound() {
         // given
-        when(userRepository.findByUsernameWithRoles("missing")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("missing")).thenReturn(Optional.empty());
+        when(userRepository.findByUsernameWithRolesAndPermissions("missing")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("missing")).thenReturn(Optional.empty());
 
         assertThrows(
                 UsernameNotFoundException.class,
                 () -> userDetailsServiceImpl.loadUserByUsername("missing")
         );
-        verify(userRepository).findByUsernameWithRoles("missing");
-        verify(userRepository).findByEmailWithRoles("missing");
+        verify(userRepository).findByUsernameWithRolesAndPermissions("missing");
+        verify(userRepository).findByEmailWithRolesAndPermissions("missing");
     }
 
 }

@@ -37,8 +37,6 @@ public class QuestionResponseParserImpl implements QuestionResponseParser {
     public List<Question> parseQuestionsFromAIResponse(String aiResponse, QuestionType expectedType)
             throws AIResponseParseException {
         try {
-            log.debug("Parsing AI response for question type: {}", expectedType);
-
             // Clean the response - remove any markdown formatting
             String cleanedResponse = cleanAIResponse(aiResponse);
 
@@ -54,7 +52,6 @@ public class QuestionResponseParserImpl implements QuestionResponseParser {
                 validateQuestionContent(question);
             }
 
-            log.debug("Successfully parsed {} questions of type {}", questions.size(), expectedType);
             return questions;
 
         } catch (Exception e) {
@@ -66,8 +63,6 @@ public class QuestionResponseParserImpl implements QuestionResponseParser {
     @Override
     public void validateQuestionContent(Question question) throws AIResponseParseException {
         try {
-            log.debug("Validating question content for type: {}", question.getType());
-
             // Use the existing question handler factory to validate content
             var handler = questionHandlerFactory.getHandler(question.getType());
 

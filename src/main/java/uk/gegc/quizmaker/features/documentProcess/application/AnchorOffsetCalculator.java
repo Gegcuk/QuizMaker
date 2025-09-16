@@ -28,8 +28,7 @@ public class AnchorOffsetCalculator {
      * @throws AnchorNotFoundException if any anchor cannot be found and no valid fallback exists
      */
     public List<DocumentNode> calculateOffsets(List<DocumentNode> nodes, String documentText) {
-        log.debug("Calculating offsets for {} nodes using anchors", nodes.size());
-        
+
         int anchorSuccesses = 0;
         int offsetFallbacks = 0;
         
@@ -49,7 +48,6 @@ public class AnchorOffsetCalculator {
                         node.getStartOffset() < node.getEndOffset()) {
                         
                         offsetFallbacks++;
-                        log.debug("Successfully used AI offset fallback for '{}'", node.getTitle());
                     } else {
                         log.error("AI-provided offsets are invalid for '{}': [{}:{}), document length: {}", 
                                 node.getTitle(), node.getStartOffset(), node.getEndOffset(), documentText.length());
@@ -124,8 +122,6 @@ public class AnchorOffsetCalculator {
         
         node.setStartOffset(startOffset);
         node.setEndOffset(endOffset);
-        
-        log.debug("Calculated offsets for node '{}': [{}, {})", node.getTitle(), startOffset, endOffset);
     }
 
     /**
@@ -162,8 +158,6 @@ public class AnchorOffsetCalculator {
         // Try with newline normalization
         position = normalizedDoc.indexOf(anchorNormalized, fromIndex);
         if (position != -1) {
-            log.debug("Found {} anchor '{}' for node '{}' using newline normalization at position {}", 
-                    anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle, position);
             return position;
         }
         
@@ -177,8 +171,6 @@ public class AnchorOffsetCalculator {
         if (normalizedPosition != -1) {
             // Convert back to original text position
             int originalPosition = findOriginalPosition(normalizedDoc, docWhitespaceNormalized, normalizedPosition);
-            log.debug("Found {} anchor '{}' for node '{}' using whitespace normalization at position {}", 
-                    anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle, originalPosition);
             return originalPosition;
         }
         

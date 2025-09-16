@@ -27,7 +27,6 @@ public class TxtPassthroughConverter implements DocumentConverter {
     public ConversionResult convert(byte[] bytes) throws ConversionException {
         try {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            log.debug("Converted text file: {} bytes -> {} characters", bytes.length, text.length());
             return new ConversionResult(text);
         } catch (Exception e) {
             throw new ConversionException("Failed to convert text file", e);

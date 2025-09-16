@@ -29,8 +29,6 @@ public class DocumentConverterFactory {
         log.info("Available converters: {}", converters.stream().map(DocumentConverter::getConverterType).toList());
 
         for (DocumentConverter converter : converters) {
-            log.debug("Checking converter: {} - canConvert: {}",
-                    converter.getConverterType(), converter.canConvert(contentType, filename));
             if (converter.canConvert(contentType, filename)) {
                 log.info("Found converter: {}", converter.getConverterType());
                 return converter;

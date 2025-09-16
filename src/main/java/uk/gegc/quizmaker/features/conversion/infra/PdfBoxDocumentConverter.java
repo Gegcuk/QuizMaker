@@ -32,7 +32,6 @@ public class PdfBoxDocumentConverter implements DocumentConverter {
             stripper.setSortByPosition(true);
             String text = stripper.getText(document);
             
-            log.debug("Converted PDF document: {} bytes -> {} characters", bytes.length, text.length());
             return new ConversionResult(text);
         } catch (Exception e) {
             throw new ConversionException("Failed to convert PDF document: " + e.getMessage(), e);

@@ -108,7 +108,6 @@ public class OpenAiLlmClient implements LlmClient {
                         throw new LlmException("No structured response received from AI service");
                     }
 
-                    log.debug("AI structure response received, converting to DocumentNodes...");
                     return convertToDocumentNodes(response.nodes());
 
                 } catch (Exception e) {
@@ -218,8 +217,6 @@ public class OpenAiLlmClient implements LlmClient {
                 throw new LlmException("Node missing end anchor: " + node.getTitle());
             }
         }
-        
-        log.debug("Basic structure validation passed for {} nodes", nodes.size());
     }
 
 
@@ -258,8 +255,7 @@ public class OpenAiLlmClient implements LlmClient {
             content.append("\n=== END REQUEST ===\n");
             
             Files.write(logPath, content.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            log.debug("AI request logged to: {}", logPath);
-            
+
         } catch (IOException e) {
             log.warn("Failed to log AI request: {}", e.getMessage());
         }

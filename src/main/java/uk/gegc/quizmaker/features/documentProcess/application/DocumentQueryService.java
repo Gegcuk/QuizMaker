@@ -68,10 +68,7 @@ public class DocumentQueryService {
         
         // Adjust end to text length if it exceeds
         int actualEnd = Math.min(end, textLength);
-        
-        log.debug("Extracting text slice: document={}, start={}, end={}, actualEnd={}", 
-                 documentId, start, end, actualEnd);
-        
+
         return text.substring(start, actualEnd);
     }
 

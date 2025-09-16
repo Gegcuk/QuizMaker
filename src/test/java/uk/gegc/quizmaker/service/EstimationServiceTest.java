@@ -258,4 +258,120 @@ class EstimationServiceTest {
         assertEquals(384, ch.estimatedLlmTokens());
         assertEquals(384, sec.estimatedLlmTokens());
     }
+
+    @Test
+    void estimateQuizGeneration_includesHumanizedEstimate() {
+        Document doc = makeDocumentWithChunks(1, 100);
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
+        var req = requestFor(qpt);
+
+        EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
+
+        assertNotNull(result.humanizedEstimate());
+        assertTrue(result.humanizedEstimate().contains("1 billing token"));
+        assertTrue(result.humanizedEstimate().contains("192 LLM tokens"));
+    }
+
+    @Test
+    void estimateQuizGeneration_includesEstimationId() {
+        Document doc = makeDocumentWithChunks(1, 100);
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
+        var req = requestFor(qpt);
+
+        EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
+
+        assertNotNull(result.estimationId());
+        assertTrue(result.estimationId().toString().length() > 0);
+    }
+
+    @Test
+    void estimateQuizGeneration_deterministicForSameInputs() {
+        Document doc = makeDocumentWithChunks(1, 100);
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
+        var req = requestFor(qpt);
+
+        EstimationDto result1 = estimationService.estimateQuizGeneration(docId, req);
+        EstimationDto result2 = estimationService.estimateQuizGeneration(docId, req);
+
+        // LLM and billing tokens should be identical
+        assertEquals(result1.estimatedLlmTokens(), result2.estimatedLlmTokens());
+        assertEquals(result1.estimatedBillingTokens(), result2.estimatedBillingTokens());
+        assertEquals(result1.humanizedEstimate(), result2.humanizedEstimate());
+        
+        // Only estimationId should be different (unique per call)
+        assertNotEquals(result1.estimationId(), result2.estimationId());
+    }
+
+    @Test
+    void estimateQuizGeneration_zeroTokensHumanizedEstimate() {
+        Document doc = new Document();
+        doc.setId(UUID.randomUUID());
+        doc.setChunks(List.of()); // No chunks - this should trigger the zero estimate path
+
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
+        var req = requestFor(qpt);
+        // Set scope to SPECIFIC_CHUNKS with empty indices to trigger zero estimate
+        req = new GenerateQuizFromDocumentRequest(
+                docId,
+                QuizScope.SPECIFIC_CHUNKS,
+                List.of(), // Empty chunk indices
+                null, null, req.quizTitle(), req.quizDescription(),
+                req.questionsPerType(), req.difficulty(), req.estimatedTimePerQuestion(),
+                req.categoryId(), req.tagIds()
+        );
+
+        EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
+
+        assertEquals("No tokens required", result.humanizedEstimate());
+        assertEquals(0, result.estimatedLlmTokens());
+        assertEquals(0, result.estimatedBillingTokens());
+    }
+
+    @Test
+    void estimateQuizGeneration_multipleQuestionTypes() {
+        Document doc = makeDocumentWithChunks(1, 100);
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(
+                QuestionType.MCQ_SINGLE, 2,
+                QuestionType.OPEN, 1,
+                QuestionType.TRUE_FALSE, 3
+        );
+        var req = requestFor(qpt);
+
+        EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
+
+        // Should be higher than single question type due to multiple types
+        assertTrue(result.estimatedLlmTokens() > 192); // Single TRUE_FALSE baseline
+        assertTrue(result.estimatedBillingTokens() >= 1);
+    }
+
+    @Test
+    void estimateQuizGeneration_safetyFactorApplied() {
+        Document doc = makeDocumentWithChunks(1, 100);
+        UUID docId = UUID.randomUUID();
+        when(documentRepository.findByIdWithChunks(docId)).thenReturn(Optional.of(doc));
+
+        Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
+        var req = requestFor(qpt);
+
+        EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
+
+        // Base calculation: 100 input + 60 completion = 160
+        // With safety factor 1.2: 160 * 1.2 = 192
+        assertEquals(192, result.estimatedLlmTokens());
+    }
 }

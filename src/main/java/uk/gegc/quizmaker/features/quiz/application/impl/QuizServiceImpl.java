@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,8 +40,17 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
+import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 
 import java.io.IOException;
 import java.util.*;
@@ -63,6 +73,10 @@ public class QuizServiceImpl implements QuizService {
     private final AiQuizGenerationService aiQuizGenerationService;
     private final DocumentProcessingService documentProcessingService;
     private final QuizHashCalculator quizHashCalculator;
+    private final BillingService billingService;
+    private final EstimationService estimationService;
+    private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -89,27 +103,102 @@ public class QuizServiceImpl implements QuizService {
                 .collect(Collectors.toSet());
 
         Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
-        // Enforce visibility invariant on creation: PUBLIC quizzes are published
-        if (quiz.getVisibility() == Visibility.PUBLIC) {
-            quiz.setStatus(QuizStatus.PUBLISHED);
+        
+        // Harden quiz creation: non-moderators cannot create PUBLIC/PUBLISHED quizzes directly
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN);
+        
+        if (!hasModerationPermissions) {
+            // Force visibility to PRIVATE and status to DRAFT for non-moderators
+            quiz.setVisibility(Visibility.PRIVATE);
+            quiz.setStatus(QuizStatus.DRAFT);
+        } else {
+            // Moderators can set visibility, but enforce invariant: PUBLIC quizzes are published
+            if (quiz.getVisibility() == Visibility.PUBLIC) {
+                quiz.setStatus(QuizStatus.PUBLISHED);
+            }
         }
+        
         return quizRepository.save(quiz).getId();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<QuizDto> getQuizzes(Pageable pageable,
-                                    QuizSearchCriteria criteria) {
+    public Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria criteria, String scope, Authentication authentication) {
+        final User user;
+        if (authentication != null && authentication.isAuthenticated()) {
+            user = userRepository.findByUsername(authentication.getName())
+                    .or(() -> userRepository.findByEmail(authentication.getName()))
+                    .orElse(null);
+        } else {
+            user = null;
+        }
+
         Specification<Quiz> spec = QuizSpecifications.build(criteria);
+        
+        // Apply scoping based on the scope parameter
+        switch (scope.toLowerCase()) {
+            case "me":
+                if (user == null) {
+                    throw new ForbiddenException("Authentication required for scope=me");
+                }
+                // Only return quizzes owned by the user
+                spec = spec.and((root, query, cb) -> 
+                    cb.equal(root.get("creator").get("id"), user.getId()));
+                break;
+                
+            case "all":
+                if (user == null || !(appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE) 
+                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+                    throw new ForbiddenException("Moderator/Admin permissions required for scope=all");
+                }
+                // Return all quizzes (no additional filtering)
+                break;
+                
+            case "public":
+            default:
+                // Only return public, published quizzes
+                spec = spec.and((root, query, cb) -> 
+                    cb.and(
+                        cb.equal(root.get("visibility"), Visibility.PUBLIC),
+                        cb.equal(root.get("status"), QuizStatus.PUBLISHED)
+                    ));
+                break;
+        }
+
         return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public QuizDto getQuizById(UUID id) {
-        var quiz = quizRepository.findByIdWithTags(id)
+    public QuizDto getQuizById(UUID id, Authentication authentication) {
+        Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        // If user is authenticated, check if they're the owner
+        if (authentication != null && authentication.isAuthenticated()) {
+            User user = userRepository.findByUsername(authentication.getName())
+                    .or(() -> userRepository.findByEmail(authentication.getName()))
+                    .orElse(null);
+            
+            if (user != null) {
+                boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+                boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+                
+                // Allow access if user is owner or has moderation permissions
+                if (isOwner || hasModerationPermissions) {
+                    return quizMapper.toDto(quiz);
+                }
+            }
+        }
+
+        // For anonymous users or non-owners: only allow access to public quizzes
+        if (quiz.getVisibility() != Visibility.PUBLIC || quiz.getStatus() != QuizStatus.PUBLISHED) {
+            throw new ForbiddenException("Access denied: quiz is not public");
+        }
+
         return quizMapper.toDto(quiz);
     }
 
@@ -119,6 +208,17 @@ public class QuizServiceImpl implements QuizService {
         Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to update this quiz");
+        }
 
         // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
         if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
@@ -171,9 +271,19 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void deleteQuizById(String username, UUID id) {
-        if (!quizRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Quiz " + id + " not found");
+        Quiz quiz = quizRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to delete this quiz");
         }
+
         quizRepository.deleteById(id);
     }
 
@@ -183,9 +293,27 @@ public class QuizServiceImpl implements QuizService {
         if (quizIds == null || quizIds.isEmpty()) {
             return;
         }
+        
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+        
+        boolean hasAdminPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
         var existing = quizRepository.findAllById(quizIds);
-        if (!existing.isEmpty()) {
-            quizRepository.deleteAll(existing);
+        List<Quiz> quizzesToDelete = new ArrayList<>();
+        
+        for (Quiz quiz : existing) {
+            // Check ownership or admin permissions for each quiz
+            boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+            if (isOwner || hasAdminPermissions) {
+                quizzesToDelete.add(quiz);
+            }
+            // Silently ignore quizzes the user doesn't have permission to delete
+        }
+        
+        if (!quizzesToDelete.isEmpty()) {
+            quizRepository.deleteAll(quizzesToDelete);
         }
     }
 
@@ -340,27 +468,87 @@ public class QuizServiceImpl implements QuizService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
 
-        // Check if user already has an active generation job
-        List<QuizGenerationJob> activeJobs = jobService.getActiveJobs().stream()
-                .filter(job -> job.getUser().getUsername().equals(username))
-                .toList();
-        if (!activeJobs.isEmpty()) {
-            throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
-        }
-
         try {
-            // Calculate total chunks and estimated time before creating job
+            // Step 1: Get estimation for token requirements
+            EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
+            long estimatedTokens = estimation.estimatedBillingTokens();
+            
+            log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, username);
+
+            // Step 2: Create simple idempotency key based on user + document + scope
+            // This ensures concurrent identical requests share the same reservation
+            String stableIdempotencyKey = "quiz:" + user.getId() + ":" + request.documentId() + ":" + 
+                (request.quizScope() != null ? request.quizScope().name() : "default");
+
+            // Step 3: Reserve tokens first with stable idempotency key
+            // This will either succeed or fail with InsufficientTokensException
+            // If it fails due to idempotency, it means another identical request is already processing
+            ReservationDto reservation;
+            try {
+                reservation = billingService.reserve(user.getId(), estimatedTokens, "quiz-generation", stableIdempotencyKey);
+                log.info("Successfully reserved {} tokens for user {} with reservation ID {} using stable key {}", 
+                        estimatedTokens, username, reservation.id(), stableIdempotencyKey);
+            } catch (InsufficientTokensException e) {
+                // Re-throw with the detailed information from BillingService
+                throw new InsufficientTokensException(
+                    "Insufficient tokens to start quiz generation. " + e.getMessage(),
+                    e.getEstimatedTokens(),
+                    e.getAvailableTokens(),
+                    e.getShortfall(),
+                    e.getReservationTtl()
+                );
+            }
+
+            // Step 4: Calculate total chunks and estimated time after successful reservation
             int totalChunks = aiQuizGenerationService.calculateTotalChunks(request.documentId(), request);
             int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
                     totalChunks, request.questionsPerType());
 
-            // Create generation job with proper estimates
-            QuizGenerationJob job = jobService.createJob(user, request.documentId(),
-                    objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
-            
-            log.info("Created job {} for user {}, starting async generation", job.getId(), username);
+            // Step 5: Create generation job after successful reservation
+            QuizGenerationJob job;
+            try {
+                job = jobService.createJob(user, request.documentId(),
+                        objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // If job creation fails, we need to release the reservation
+                log.warn("Failed to create job after successful reservation, releasing reservation {}", reservation.id());
+                try {
+                    billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
+                } catch (Exception releaseEx) {
+                    log.error("Failed to release reservation {} after job creation failure: {}", 
+                            reservation.id(), releaseEx.getMessage(), releaseEx);
+                }
+                
+                // Check if this is due to the unique constraint on active jobs
+                if (e.getMessage() != null && e.getMessage().contains("active_user_id")) {
+                    throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+                }
+                throw e; // Re-throw if it's a different constraint violation
+            }
 
-            // Start async generation
+            // Step 6: Update job with reservation details
+            job.setBillingReservationId(reservation.id());
+            job.setReservationExpiresAt(reservation.expiresAt());
+            job.setBillingEstimatedTokens(estimatedTokens);
+            job.setBillingState(BillingState.RESERVED);
+            
+            // Store input prompt tokens for commit calculation
+            job.setInputPromptTokens(estimation.estimatedLlmTokens());
+            
+            // Store estimation version for audit trail
+            job.setEstimationVersion("v1.0");
+            
+            // Store idempotency key for later use
+            Map<String, String> idempotencyKeys = new HashMap<>();
+            idempotencyKeys.put("reserve", stableIdempotencyKey);
+            job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(idempotencyKeys));
+            
+            jobRepository.save(job);
+            
+            log.info("Updated job {} for user {} with reservation {}, starting async generation", 
+                    job.getId(), username, reservation.id());
+
+            // Step 7: Start async generation
             aiQuizGenerationService.generateQuizFromDocumentAsync(job.getId(), request);
 
             return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
@@ -374,7 +562,7 @@ public class QuizServiceImpl implements QuizService {
     @Transactional
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
-        return QuizGenerationStatus.fromEntity(job);
+        return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
     }
 
     @Override
@@ -390,7 +578,15 @@ public class QuizServiceImpl implements QuizService {
             throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
         }
 
-        return getQuizById(job.getGeneratedQuizId());
+        // Fix owner access: Use job's owner instead of null auth
+        Quiz quiz = quizRepository.findByIdWithTags(job.getGeneratedQuizId())
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
+
+        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(job.getUser().getId())) {
+            throw new ForbiddenException("Access denied");
+        }
+        
+        return quizMapper.toDto(quiz);
     }
 
     @Override
@@ -406,14 +602,38 @@ public class QuizServiceImpl implements QuizService {
 
         // Refresh job from database
         job = jobRepository.findById(jobId).orElseThrow();
-        return QuizGenerationStatus.fromEntity(job);
+        
+        // Release billing reservation if it exists
+        if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+            try {
+                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                billingService.release(
+                    job.getBillingReservationId(),
+                    "Job cancelled by user",
+                    jobId.toString(),
+                    releaseIdempotencyKey
+                );
+                job.setBillingState(BillingState.RELEASED);
+                // Store release idempotency key for audit trail
+                job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                jobRepository.save(job);
+                log.info("Released billing reservation {} for cancelled job {}", job.getBillingReservationId(), jobId);
+            } catch (Exception billingError) {
+                log.error("Failed to release billing reservation for cancelled job {}", jobId, billingError);
+                // Store billing error but don't fail the cancellation
+                job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                jobRepository.save(job);
+            }
+        }
+        
+        return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
     }
 
     @Override
     @Transactional
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
-        return jobs.map(QuizGenerationStatus::fromEntity);
+        return jobs.map(job -> QuizGenerationStatus.fromEntity(job, featureFlags.isBilling()));
     }
 
     @Override
@@ -439,6 +659,28 @@ public class QuizServiceImpl implements QuizService {
                 QuizGenerationJob job = jobRepository.findById(event.getJobId()).orElse(null);
                 if (job != null) {
                     job.markFailed("Quiz creation failed: " + e.getMessage());
+                    
+                            // Release billing reservation if it exists
+                            if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+                                try {
+                                    String releaseIdempotencyKey = "quiz:" + event.getJobId() + ":release";
+                                    billingService.release(
+                                        job.getBillingReservationId(),
+                                        "Quiz creation failed: " + e.getMessage(),
+                                        event.getJobId().toString(),
+                                        releaseIdempotencyKey
+                                    );
+                                    job.setBillingState(BillingState.RELEASED);
+                                    // Store release idempotency key for audit trail
+                                    job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                    log.info("Released billing reservation {} for failed quiz creation job {}", job.getBillingReservationId(), event.getJobId());
+                                } catch (Exception billingError) {
+                                    log.error("Failed to release billing reservation for quiz creation failure job {}", event.getJobId(), billingError);
+                                    // Store billing error but don't fail the job update
+                                    job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                                }
+                            }
+                    
                     jobRepository.save(job);
                 }
             } catch (Exception saveError) {
@@ -499,6 +741,9 @@ public class QuizServiceImpl implements QuizService {
             // Update job with consolidated quiz ID and total questions
             job.markCompleted(consolidatedQuiz.getId(), totalQuestions);
             jobRepository.save(job);
+
+            // Commit tokens after successful quiz creation
+            commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
 
             // TODO: Create document quiz group entity to track relationships
             // This would require additional database schema for quiz relationships
@@ -655,12 +900,24 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var question = questionRepository.findById(questionId)
+        Question question = questionRepository.findById(questionId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Question " + questionId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getQuestions().add(question);
         quizRepository.save(quiz);
     }
@@ -668,9 +925,21 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getQuestions().removeIf(q -> q.getId().equals(questionId));
         quizRepository.save(quiz);
     }
@@ -678,12 +947,24 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var tag = tagRepository.findById(tagId)
+        Tag tag = tagRepository.findById(tagId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Tag " + tagId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getTags().add(tag);
         quizRepository.save(quiz);
     }
@@ -691,9 +972,21 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
         quiz.getTags().removeIf(t -> t.getId().equals(tagId));
         quizRepository.save(quiz);
     }
@@ -701,23 +994,52 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void changeCategory(String username, UUID quizId, UUID categoryId) {
-        var quiz = quizRepository.findById(quizId)
+        Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        var cat = categoryRepository.findById(categoryId)
+        Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Category " + categoryId + " not found"));
-        quiz.setCategory(cat);
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to modify this quiz");
+        }
+
+        quiz.setCategory(category);
         quizRepository.save(quiz);
     }
 
     @Override
     @Transactional
     public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
-
         Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        quiz.setVisibility(visibility);
 
+        User user = userRepository.findByUsername(name)
+                .or(() -> userRepository.findByEmail(name))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + name + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
+        if (!(isOwner || hasModerationPermissions)) {
+            throw new ForbiddenException("Not allowed to change quiz visibility");
+        }
+        
+        // Additional restriction: only moderators/admins can set visibility to PUBLIC
+        if (visibility == Visibility.PUBLIC && !hasModerationPermissions) {
+            throw new ForbiddenException("Only moderators can set quiz visibility to PUBLIC");
+        }
+
+        quiz.setVisibility(visibility);
         return quizMapper.toDto(quizRepository.save(quiz));
     }
 
@@ -726,6 +1048,24 @@ public class QuizServiceImpl implements QuizService {
     public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        
+        if (!(isOwner || hasModerationPermissions)) {
+            throw new ForbiddenException("Not allowed to change quiz status");
+        }
+        
+        // Additional restriction: only moderators/admins can set status to PUBLISHED
+        if (status == QuizStatus.PUBLISHED && !hasModerationPermissions) {
+            throw new ForbiddenException("Only moderators can publish quizzes");
+        }
 
         if (status == QuizStatus.PUBLISHED) {
             validateQuizForPublishing(quiz);
@@ -788,4 +1128,204 @@ public class QuizServiceImpl implements QuizService {
         return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
                 .map(quizMapper::toDto);
     }
+
+    /**
+     * Commit tokens for successful quiz generation.
+     * Implements OUTPUT-only commit mode as specified in the billing plan.
+     * 
+     * State gating: Only allows commit for jobs in RESERVED state.
+     * Epsilon policy: Rejects commits that exceed reserved tokens by more than configured epsilon.
+     * Ledger linking: Ensures proper audit trail with reservation ID, job ID, and idempotency keys.
+     */
+    void commitTokensForSuccessfulGeneration(QuizGenerationJob job, List<Question> allQuestions, 
+                                                   GenerateQuizFromDocumentRequest originalRequest) {
+        String jobId = job.getId().toString();
+        String correlationId = "commit-" + jobId + "-" + System.currentTimeMillis();
+        
+        try {
+            log.info("Starting token commit for job {} [correlationId={}]", jobId, correlationId);
+            
+            // Re-load job with pessimistic lock to prevent race conditions
+            QuizGenerationJob lockedJob = jobRepository.findByIdForUpdate(job.getId())
+                    .orElseThrow(() -> new IllegalStateException("Job " + jobId + " not found during commit"));
+
+            if (lockedJob.getBillingReservationId() == null) {
+                log.warn("Job {} has no reservation ID, cannot commit [correlationId={}]", jobId, correlationId);
+                return;
+            }
+            
+            // Check if already committed (idempotent)
+            if (!lockedJob.getBillingState().isReserved()) {
+                if (lockedJob.getBillingState() == BillingState.COMMITTED) {
+                    log.info("Job {} already committed, returning success [correlationId={}]", jobId, correlationId);
+                    return;
+                }
+                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState());
+            }
+
+            // Check if commit already exists in idempotency keys
+            String commitIdempotencyKey = "quiz:" + lockedJob.getId() + ":commit";
+            if (hasBillingIdempotencyKey(lockedJob, "commit")) {
+                log.info("Job {} already has commit idempotency key, returning success [correlationId={}]", jobId, correlationId);
+                return;
+            }
+
+            // Enforce ordering: only allow commit when job is COMPLETED and reservation is ACTIVE
+            if (!lockedJob.getStatus().isSuccess()) {
+                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(), 
+                        "Job must be in COMPLETED status to commit tokens. Current status: " + lockedJob.getStatus());
+            }
+
+            // Check if reservation has expired
+            if (lockedJob.isReservationExpired()) {
+                log.warn("Reservation for job {} has expired, skipping commit [correlationId={}]", jobId, correlationId);
+                return;
+            }
+
+            // Get input prompt tokens from job (stored during estimation)
+            long inputPromptTokens = lockedJob.getInputPromptTokens() != null ? lockedJob.getInputPromptTokens() : 0L;
+            
+            // Compute commit from persisted output using shared EOT table; BigDecimal scale 0, RoundingMode.CEILING
+            long actualBillingTokens = estimationService.computeActualBillingTokens(
+                    allQuestions, 
+                    originalRequest.difficulty(), 
+                    inputPromptTokens
+            );
+
+            // Cap actual tokens at reserved amount to avoid overcharging users
+            // Users aren't responsible for our estimation accuracy
+            long reservedTokens = lockedJob.getBillingEstimatedTokens();
+            long tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
+            boolean wasCapped = actualBillingTokens > reservedTokens;
+            
+            if (wasCapped) {
+                long underestimationDelta = actualBillingTokens - reservedTokens;
+                log.warn("BILLING_UNDERESTIMATION: Actual tokens ({}) exceed reserved tokens ({}) for job {} (reservationId: {}). " +
+                        "Delta: {}, Committing reserved amount to avoid overcharging user.", 
+                        actualBillingTokens, reservedTokens, jobId, lockedJob.getBillingReservationId(), underestimationDelta);
+                
+                // TODO: Emit metrics when metrics system is available
+                // meterRegistry.counter("billing.underestimation.count").increment();
+                // meterRegistry.gauge("billing.underestimation.delta", underestimationDelta);
+            }
+
+            log.info("Committing {} billing tokens for job {} (actual: {}, reserved: {}, inputPromptTokens: {}, questions: {}) [correlationId={}]", 
+                    tokensToCommit, jobId, actualBillingTokens, reservedTokens, inputPromptTokens, allQuestions.size(), correlationId);
+
+            // Write both COMMIT and RELEASE ledger rows with reservationId, jobId, idempotencyKey, and reason
+            var commitResult = billingService.commit(
+                    lockedJob.getBillingReservationId(),
+                    tokensToCommit,
+                    "quiz-generation",
+                    commitIdempotencyKey
+            );
+
+            // Guard: If billing service doesn't auto-release remainder when commit < reserved, do it explicitly
+            long reserved = lockedJob.getBillingEstimatedTokens();
+            long remainder = Math.max(0, reserved - tokensToCommit);
+            if (remainder > 0 && (commitResult == null || commitResult.releasedTokens() == 0)) {
+                try {
+                    log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", 
+                            remainder, jobId, correlationId);
+                    billingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
+                } catch (Exception ex) {
+                    log.warn("Failed to explicitly release remainder {} for reservation {}: {} [correlationId={}]", 
+                            remainder, lockedJob.getBillingReservationId(), ex.getMessage(), correlationId);
+                }
+            }
+
+            // Update job billing fields
+            lockedJob.setActualTokens(actualBillingTokens);
+            lockedJob.setBillingCommittedTokens(tokensToCommit);
+            lockedJob.setWasCappedAtReserved(wasCapped);
+            lockedJob.setBillingState(BillingState.COMMITTED);
+            
+            // Update idempotency keys JSON for audit trail
+            updateBillingIdempotencyKeys(lockedJob, "commit", commitIdempotencyKey);
+            
+            // Clear any previous billing errors
+            lockedJob.setLastBillingError(null);
+            
+            jobRepository.save(lockedJob);
+
+            log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, wasCappedAtReserved: {}) [correlationId={}]", 
+                    tokensToCommit, jobId, actualBillingTokens, 
+                    commitResult != null ? commitResult.releasedTokens() : 0L, wasCapped, correlationId);
+
+        } catch (InvalidJobStateForCommitException e) {
+            // These are business rule violations that should be logged but not fail the quiz creation
+            log.error("Business rule violation during commit for job {} [correlationId={}]: {}", 
+                    jobId, correlationId, e.getMessage());
+            
+            // Store billing error for support with structured format
+            storeBillingError(job, e, correlationId);
+            
+        } catch (Exception e) {
+            log.error("Unexpected error during commit for job {} [correlationId={}]", jobId, correlationId, e);
+            
+            // Store billing error for support
+            storeBillingError(job, e, correlationId);
+            
+            // Don't re-throw - quiz creation was successful, billing failure shouldn't fail the whole operation
+            // The reservation will be released by the sweeper when it expires
+        }
+    }
+    
+    /**
+     * Store billing error in structured JSON format for support purposes.
+     */
+    private void storeBillingError(QuizGenerationJob job, Exception e, String correlationId) {
+        try {
+            BillingError billingError = new BillingError(
+                    e.getMessage(), 
+                    e.getClass().getSimpleName(), 
+                    java.time.Instant.now(), 
+                    correlationId
+            );
+            job.setLastBillingError(objectMapper.writeValueAsString(billingError));
+            jobRepository.save(job);
+        } catch (Exception saveError) {
+            log.error("Failed to save billing error for job {} [correlationId={}]", job.getId(), correlationId, saveError);
+        }
+    }
+
+    /**
+     * Record for structured billing error information
+     */
+    private record BillingError(String error, String errorType, java.time.Instant timestamp, String correlationId) {}
+
+    /**
+     * Update billing idempotency keys JSON field
+     */
+    private void updateBillingIdempotencyKeys(QuizGenerationJob job, String operation, String idempotencyKey) {
+        try {
+            Map<String, String> keys = new HashMap<>();
+            if (job.getBillingIdempotencyKeys() != null && !job.getBillingIdempotencyKeys().trim().isEmpty()) {
+                // Parse existing keys
+                keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+                        objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+            }
+            
+            keys.put(operation, idempotencyKey);
+            job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(keys));
+        } catch (Exception e) {
+            log.warn("Failed to update billing idempotency keys for job {}: {}", job.getId(), e.getMessage());
+        }
+    }
+
+    private boolean hasBillingIdempotencyKey(QuizGenerationJob job, String operation) {
+        try {
+            if (job.getBillingIdempotencyKeys() == null || job.getBillingIdempotencyKeys().trim().isEmpty()) {
+                return false;
+            }
+            Map<String, String> keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+                    objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+            return keys.containsKey(operation);
+        } catch (Exception e) {
+            log.warn("Failed to check billing idempotency keys for job {}: {}", job.getId(), e.getMessage());
+            return false;
+        }
+    }
+
+
 }

@@ -3,12 +3,8 @@ package uk.gegc.quizmaker.features.billing.integration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
 
@@ -21,18 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Simple integration tests for billing feature.
  * Tests basic functionality without complex Spring context loading.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@TestPropertySource(properties = {
-    "spring.jpa.hibernate.ddl-auto=create"
-    // Note: Uses real Stripe configuration from environment variables (.env file)
-})
 @DisplayName("Billing Integration Tests")
-class BillingIntegrationTest {
+class BillingIntegrationTest extends BaseIntegrationTest {
 
-    @Autowired
-    private MockMvc mockMvc;
 
     @Autowired
     private PaymentRepository paymentRepository;

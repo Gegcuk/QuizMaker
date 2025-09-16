@@ -388,6 +388,43 @@ public class ShareLinkController {
         return ResponseEntity.ok(stats);
     }
 
+    @GetMapping("/shared/attempts/{attemptId}/current-question")
+    @Operation(
+        summary = "Get current question for shared link attempt",
+        description = "Retrieve the current question for an in-progress shared link attempt."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Current question returned"),
+        @ApiResponse(responseCode = "400", description = "Invalid token or request"),
+        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz"),
+        @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered")
+    })
+    public ResponseEntity<CurrentQuestionDto> getCurrentQuestionForSharedAttempt(
+            @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
+            HttpServletRequest httpRequest
+    ) {
+        String token = cookieManager.getShareLinkToken(httpRequest)
+                .orElseThrow(() -> new IllegalArgumentException("Valid share token required"));
+        if (!TOKEN_RE.matcher(token).matches()) {
+            throw new IllegalArgumentException("Invalid token format");
+        }
+
+        ShareLinkDto shareLink = shareLinkService.validateToken(token);
+        UUID attemptQuizId = attemptService.getAttemptQuizId(attemptId);
+        UUID attemptShareLinkId = attemptService.getAttemptShareLinkId(attemptId);
+        if (!shareLink.quizId().equals(attemptQuizId) || !shareLink.id().equals(attemptShareLinkId)) {
+            throw new ResourceNotFoundException("Attempt does not belong to shared quiz");
+        }
+
+        String ipAddress = getClientIpAddress(httpRequest);
+        String tokenHash = shareLinkService.hashToken(token);
+        rateLimitService.checkRateLimit("share-link-question", ipAddress + "|" + tokenHash, 60);
+
+        // Use anonymous user for shared link attempts
+        CurrentQuestionDto currentQuestion = attemptService.getCurrentQuestion("anonymous", attemptId);
+        return ResponseEntity.ok(currentQuestion);
+    }
+
     @PostMapping("/shared/attempts/{attemptId}/complete")
     @Operation(
         summary = "Complete an anonymous attempt",

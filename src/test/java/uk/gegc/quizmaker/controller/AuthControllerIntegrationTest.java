@@ -10,22 +10,22 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.MessageSource;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
+import uk.gegc.quizmaker.BaseIntegrationTest;
+import uk.gegc.quizmaker.features.user.domain.model.Role;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
-import uk.gegc.quizmaker.features.user.domain.model.User;
-import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,27 +38,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create"
-})
 @WithMockUser(username = "defaultUser", roles = "ADMIN")
 @DisplayName("Integration Tests AuthController")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class AuthControllerIntegrationTest {
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=create"
+})
+public class AuthControllerIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     UserRepository userRepository;
     @Autowired
+    RoleRepository roleRepository;
+    @Autowired
     ObjectMapper objectMapper;
     @Autowired
-    private MockMvc mockMvc;
-    @Autowired
     private MessageSource messageSource;
-
 
 
     /**
@@ -131,12 +126,17 @@ public class AuthControllerIntegrationTest {
     void setUp() {
         userRepository.deleteAll();
 
+        // Find the ADMIN role (created by DataInitializer)
+        Role adminRole = roleRepository.findByRoleName(RoleName.ROLE_ADMIN.name())
+                .orElseThrow(() -> new RuntimeException("Role not found: ROLE_ADMIN"));
+
         User defaultUser = new User();
         defaultUser.setUsername("defaultUser");
         defaultUser.setEmail("defaultUser@email.com");
         defaultUser.setHashedPassword("defaultPassword");
         defaultUser.setActive(true);
         defaultUser.setDeleted(false);
+        defaultUser.setRoles(Set.of(adminRole));
         userRepository.save(defaultUser);
     }
 

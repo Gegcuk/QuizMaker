@@ -19,6 +19,7 @@ public class DataInitializer implements CommandLineRunner {
 
         try {
             // Initialize all roles and permissions
+            log.info("Calling roleService.initializeDefaultRolesAndPermissions()...");
             roleService.initializeDefaultRolesAndPermissions();
             log.info("Data initialization completed successfully");
         } catch (Exception e) {

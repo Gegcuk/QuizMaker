@@ -51,14 +51,22 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
                         // Billing config endpoint should be public for frontend integration
                         .requestMatchers(HttpMethod.GET, "/api/v1/billing/config").permitAll()
+                        // Billing endpoints require authentication and billing permissions (handled by @PreAuthorize)
+                        .requestMatchers("/api/v1/billing/balance").authenticated()
+                        .requestMatchers("/api/v1/billing/transactions").authenticated()
+                        .requestMatchers("/api/v1/billing/estimate/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/**").permitAll()
-                        // Allow anonymous start of attempts via share links
+                        // Quiz endpoints - tighten permissions
+                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/public/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/shared/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/quizzes/shared/**").permitAll()
+                        .requestMatchers("/api/v1/quizzes/**").authenticated()
+                        // Tag and category endpoints
                         .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/questions/**").permitAll()
+                        // Question endpoints - require authentication for general access
+                        .requestMatchers("/api/v1/questions/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/docs/**").permitAll()

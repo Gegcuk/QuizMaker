@@ -32,8 +32,7 @@ public class DocumentConversionService {
      * @throws ConversionException if conversion fails
      */
     public ConversionResult convert(String originalName, byte[] bytes) throws ConversionException {
-        log.debug("Converting document: {} ({} bytes)", originalName, bytes.length);
-        
+
         String mimeType = mimeTypeDetector.detectMimeType(originalName);
         DocumentConverter converter = findConverter(originalName);
         if (converter == null && mimeType != null) {
@@ -43,7 +42,6 @@ public class DocumentConversionService {
             throw new UnsupportedFormatException("No suitable converter found for: " + originalName);
         }
         
-        log.debug("Using converter: {}", converter.getClass().getSimpleName());
         return converter.convert(bytes);
     }
 

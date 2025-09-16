@@ -28,6 +28,8 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
@@ -58,6 +60,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final AiRateLimitConfig rateLimitConfig;
+    private final BillingService billingService;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -180,8 +183,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     freshJob.updateProgress(processedChunks, "Processing chunk " + processedChunks + " of " + chunks.size());
                     jobRepository.save(freshJob);
 
-                    log.debug("Completed chunk {} processing for job {}, chunk questions: {}, total questions: {}",
-                            chunkIndex, jobId, chunkQuestionsList.size(), allQuestions.size());
                 } catch (Exception e) {
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
@@ -241,6 +242,28 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
                 if (failedJob != null) {
                     failedJob.markFailed("Generation failed: " + e.getMessage());
+                    
+                        // Release billing reservation if it exists
+                        if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
+                            try {
+                                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                                billingService.release(
+                                    failedJob.getBillingReservationId(),
+                                    "Generation failed: " + e.getMessage(),
+                                    jobId.toString(),
+                                    releaseIdempotencyKey
+                                );
+                                failedJob.setBillingState(BillingState.RELEASED);
+                                // Store release idempotency key for audit trail
+                                failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
+                            } catch (Exception billingError) {
+                                log.error("Failed to release billing reservation for job {}", jobId, billingError);
+                                // Store billing error but don't fail the job update
+                                failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                            }
+                        }
+                    
                     jobRepository.save(failedJob);
                 }
             } catch (Exception saveError) {
@@ -281,7 +304,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     ) {
         return CompletableFuture.supplyAsync(() -> {
             Instant startTime = Instant.now();
-            log.debug("Generating questions for chunk {} (index: {})", chunk.getId(), chunk.getChunkIndex());
 
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
@@ -314,8 +336,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         
                         if (!questions.isEmpty()) {
                             allQuestions.addAll(questions);
-                            log.debug("Generated {} {} questions for chunk {}",
-                                    questions.size(), questionType, chunk.getChunkIndex());
                         } else {
                             chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
                                     questionType));
@@ -334,10 +354,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     throw new AiServiceException("Failed to generate any questions for chunk " +
                             chunk.getChunkIndex() + ". Errors: " + String.join("; ", chunkErrors));
                 }
-
-                log.debug("Completed chunk {} processing in {} ms with {} questions",
-                        chunk.getChunkIndex(), Duration.between(startTime, Instant.now()).toMillis(),
-                        allQuestions.size());
 
                 return allQuestions;
 
@@ -482,8 +498,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Integer chunkIndex,
             UUID jobId
     ) {
-        log.debug("Attempting to generate {} {} questions for chunk {} with fallbacks", 
-                questionCount, questionType, chunkIndex);
 
         // Update job status to show fallback attempt
         updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
@@ -496,7 +510,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 
                 List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, difficulty);
                 if (questions.size() >= questionCount) {
-                    log.debug("Strategy 1 (normal) succeeded on attempt {} for {} {}", attempt, questionType, chunkIndex);
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
                 } else {
@@ -986,8 +999,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 List<DocumentChunk> chapterChunks = allChunks.stream()
                         .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                log.debug("Filtered to {} chunks for chapter: title={}, number={}", 
-                        chapterChunks.size(), request.chapterTitle(), request.chapterNumber());
                 return chapterChunks;
 
             case SPECIFIC_SECTION:

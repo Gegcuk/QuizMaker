@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
@@ -22,15 +23,20 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuestionStatsDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -55,6 +61,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final ScoringService scoringService;
     private final SafeQuestionMapper safeQuestionMapper;
     private final ShareLinkRepository shareLinkRepository;
+    private final AppPermissionEvaluator appPermissionEvaluator;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -73,7 +80,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         Attempt saved = attemptRepository.saveAndFlush(attempt);
 
-        int totalQuestions = quiz.getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(quiz.getId());
         Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
                 ? quiz.getTimerDuration()
                 : null;
@@ -117,7 +124,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         Attempt saved = attemptRepository.saveAndFlush(attempt);
 
-        int totalQuestions = quiz.getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(quiz.getId());
         Integer timeLimitMinutes = Boolean.TRUE.equals(quiz.getIsTimerEnabled())
                 ? quiz.getTimerDuration()
                 : null;
@@ -189,10 +196,8 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Can only get current question for attempts that are in progress");
         }
 
-        // Get all questions for the quiz and convert to sorted list for consistent ordering
-        List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                .sorted(Comparator.comparing(Question::getId))
-                .collect(Collectors.toList());
+        // Get all questions for the quiz from Question side
+        List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
         int totalQuestions = allQuestions.size();
         
         if (totalQuestions == 0) {
@@ -245,10 +250,8 @@ public class AttemptServiceImpl implements AttemptService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Question " + request.questionId() + " not found"));
 
-        // ensure question belongs to quiz
-        boolean belongs = attempt.getQuiz().getQuestions().stream()
-                .map(Question::getId)
-                .anyMatch(id -> id.equals(question.getId()));
+        // ensure question belongs to quiz - check from Question side
+        boolean belongs = questionRepository.existsByIdAndQuizId_Id(question.getId(), attempt.getQuiz().getId());
         if (!belongs) {
             throw new ResourceNotFoundException(
                     "Question " + question.getId() + " is not part of Quiz " +
@@ -257,10 +260,8 @@ public class AttemptServiceImpl implements AttemptService {
 
         // For ONE_BY_ONE mode, enforce sequential question submission
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            // Get all questions for the quiz and convert to sorted list for consistent ordering
-            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                    .sorted(Comparator.comparing(Question::getId))
-                    .collect(Collectors.toList());
+            // Get all questions for the quiz from Question side
+            List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
@@ -297,10 +298,8 @@ public class AttemptServiceImpl implements AttemptService {
         var baseDto = answerMapper.toDto(answer);
         QuestionForAttemptDto nextQuestion = null;
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
-            // Get all questions for the quiz and convert to sorted list for consistent ordering
-            List<Question> allQuestions = attempt.getQuiz().getQuestions().stream()
-                    .sorted(Comparator.comparing(Question::getId))
-                    .collect(Collectors.toList());
+            // Get all questions for the quiz from Question side
+            List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
             // Count answers using the same approach as getCurrentQuestion to ensure consistency
             long answeredCount = answerRepository.countByAttemptId(attemptId);
@@ -356,7 +355,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         double totalScore = scoringService.computeAndPersistScore(attempt);
         long correctCount = scoringService.countCorrect(attempt);
-        int totalQ = attempt.getQuiz().getQuestions().size();
+        int totalQ = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         attempt.setStatus(AttemptStatus.COMPLETED);
         attempt.setCompletedAt(Instant.now());
@@ -366,10 +365,12 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional(readOnly = true)
-    public QuizResultSummaryDto getQuizResultSummary(UUID quizId) {
-
+    public QuizResultSummaryDto getQuizResultSummary(UUID quizId, Authentication authentication) {
         Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        // Access control: allow access if quiz is public, user is owner, or user has moderation permissions
+        checkQuizAccessPermission(quiz, authentication);
 
         List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
         Object[] agg = rows.isEmpty()
@@ -390,7 +391,7 @@ public class AttemptServiceImpl implements AttemptService {
                     long correct = a.getAnswers().stream()
                             .filter(ans -> Boolean.TRUE.equals(ans.getIsCorrect()))
                             .count();
-                    int totalQ = quiz.getQuestions().size();
+                    int totalQ = (int) questionRepository.countByQuizId_Id(quiz.getId());
                     return totalQ > 0 && ((double) correct / totalQ) >= 0.5;
                 })
                 .count();
@@ -398,7 +399,7 @@ public class AttemptServiceImpl implements AttemptService {
                 ? ((double) passing / attemptsCount) * 100.0
                 : 0.0;
 
-        List<QuestionStatsDto> questionStats = quiz.getQuestions().stream()
+        List<QuestionStatsDto> questionStats = questionRepository.findAllByQuizId_IdOrderById(quiz.getId()).stream()
                 .map(q -> {
                     UUID qid = q.getId();
                     long asked = completed.stream()
@@ -428,12 +429,16 @@ public class AttemptServiceImpl implements AttemptService {
 
     @Override
     @Transactional
-    public List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top) {
+    public List<LeaderboardEntryDto> getQuizLeaderboard(UUID quizId, int top, Authentication authentication) {
         if (top <= 0) {
             return List.of();
         }
 
-        quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        // Access control: allow access if quiz is public, user is owner, or user has moderation permissions
+        checkQuizAccessPermission(quiz, authentication);
 
         List<Object[]> rows = attemptRepository.getLeaderboardData(quizId);
         return rows.stream()
@@ -452,7 +457,7 @@ public class AttemptServiceImpl implements AttemptService {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        List<Question> questions = new ArrayList<>(quiz.getQuestions());
+        List<Question> questions = questionRepository.findAllByQuizId_IdOrderById(quizId);
         Collections.shuffle(questions);
 
         return safeQuestionMapper.toSafeDtoList(questions);
@@ -469,7 +474,7 @@ public class AttemptServiceImpl implements AttemptService {
                 : Duration.ZERO;
 
         int questionsAnswered = attempt.getAnswers().size();
-        int totalQuestions = attempt.getQuiz().getQuestions().size();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
         long correctAnswers = attempt.getAnswers().stream()
                 .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
                 .count();
@@ -643,6 +648,50 @@ public class AttemptServiceImpl implements AttemptService {
         if (!attempt.getUser().getUsername().equals(username)) {
             throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());
         }
+    }
+
+    /**
+     * Check if the user has permission to access quiz analytics (results/leaderboard).
+     * Allows access if:
+     * - Quiz is public (PUBLIC visibility and PUBLISHED status)
+     * - User is the quiz owner
+     * - User has moderation/admin permissions
+     */
+    private void checkQuizAccessPermission(Quiz quiz, Authentication authentication) {
+        // Allow access to public, published quizzes for anyone
+        if (quiz.getVisibility() == Visibility.PUBLIC && quiz.getStatus() == QuizStatus.PUBLISHED) {
+            return;
+        }
+
+        // For non-public quizzes, require authentication
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ForbiddenException("Access denied: quiz is not public and authentication required");
+        }
+
+        // Get the authenticated user
+        User user = userRepository.findByUsername(authentication.getName())
+                .or(() -> userRepository.findByEmail(authentication.getName()))
+                .orElse(null);
+
+        if (user == null) {
+            throw new ForbiddenException("Access denied: user not found");
+        }
+
+        // Check if user is the quiz owner
+        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+        if (isOwner) {
+            return;
+        }
+
+        // Check if user has moderation/admin permissions
+        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        if (hasModerationPermissions) {
+            return;
+        }
+
+        // If none of the above conditions are met, deny access
+        throw new ForbiddenException("Access denied: insufficient permissions to view quiz analytics");
     }
 
 }

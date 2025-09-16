@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -18,19 +20,27 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.Comparator;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@Execution(ExecutionMode.CONCURRENT)
 class AttemptServiceCurrentQuestionTest {
 
     @Mock
@@ -41,6 +51,15 @@ class AttemptServiceCurrentQuestionTest {
 
     @Mock
     private AnswerRepository answerRepository;
+
+    @Mock
+    private QuestionRepository questionRepository;
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private AppPermissionEvaluator appPermissionEvaluator;
 
     @InjectMocks
     private AttemptServiceImpl attemptService;
@@ -66,6 +85,13 @@ class AttemptServiceCurrentQuestionTest {
         testQuiz = new Quiz();
         testQuiz.setId(UUID.randomUUID());
         testQuiz.setTitle("Test Quiz");
+
+        // Setup user repository mock
+        lenient().when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        lenient().when(userRepository.findByEmail("testuser")).thenReturn(Optional.empty());
+        
+        // Setup permission evaluator mock - allow all permissions for test user
+        lenient().when(appPermissionEvaluator.hasPermission(eq(testUser), any())).thenReturn(true);
 
         question1 = new Question();
         question1.setId(UUID.randomUUID());
@@ -124,6 +150,16 @@ class AttemptServiceCurrentQuestionTest {
         } catch (Exception e) {
             // Ignore for test
         }
+        
+        // Setup question repository mock to return questions based on the quiz's current question set
+        lenient().when(questionRepository.findAllByQuizId_IdOrderById(testQuiz.getId()))
+                .thenAnswer(invocation -> {
+                    // Return questions in the order they appear in the quiz's question set
+                    Set<Question> quizQuestions = testQuiz.getQuestions();
+                    return quizQuestions.stream()
+                            .sorted(Comparator.comparing(Question::getId))
+                            .collect(java.util.stream.Collectors.toList());
+                });
     }
 
     @Test

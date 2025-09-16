@@ -14,11 +14,13 @@ import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Validated
@@ -56,16 +58,42 @@ public class EstimationServiceImpl implements EstimationService {
                 .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
         List<DocumentChunk> chunks = selectChunks(document, request);
+        log.info("Found {} chunks for document {} with scope {}", chunks.size(), documentId, request.quizScope());
+        
         if (chunks.isEmpty()) {
-            log.debug("No chunks matched scope for document {}. Returning zeroed estimate.", documentId);
+            // If ENTIRE_DOCUMENT requested but chunks are empty, calculate estimate based on document content
+            if (request.quizScope() == null || request.quizScope() == QuizScope.ENTIRE_DOCUMENT) {
+                log.warn("No chunks matched ENTIRE_DOCUMENT for {}. Calculating estimate from document content.", documentId);
+                
+                // Calculate estimate based on document content directly
+                long estimatedLlmTokens = calculateEstimateFromDocumentContent(document, request);
+                long estimatedBillingTokens = Math.max(1L, llmTokensToBillingTokens(estimatedLlmTokens));
+                
+                log.info("Fallback calculation result: {} LLM tokens -> {} billing tokens", estimatedLlmTokens, estimatedBillingTokens);
+                
+                UUID estimationId = UUID.randomUUID();
+                String humanizedEstimate = EstimationDto.createHumanizedEstimate(estimatedLlmTokens, estimatedBillingTokens, billingProperties.getCurrency());
+                return new EstimationDto(estimatedLlmTokens, estimatedBillingTokens, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
+            }
+
+            // For scopes that explicitly select nothing (e.g., SPECIFIC_CHUNKS with empty indices),
+            // keep returning a zeroed estimate as before.
             long llmZero = 0L;
             long billingZero = llmTokensToBillingTokens(llmZero);
-            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true);
+            UUID estimationId = UUID.randomUUID();
+            String humanizedEstimate = EstimationDto.createHumanizedEstimate(llmZero, billingZero, billingProperties.getCurrency());
+            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
         }
 
+        log.info("Processing {} chunks for estimation", chunks.size());
+        log.info("Question types and counts: {}", request.questionsPerType());
+        log.info("Difficulty: {}", request.difficulty());
+        
         // Pre-compute prompt overhead tokens (system + context)
         long systemTokens = estimateTokens(promptTemplateService.buildSystemPrompt());
         long contextTokens = estimateTokens(safeLoadTemplate("base/context-template.txt"));
+        
+        log.info("System tokens: {}, Context tokens: {}", systemTokens, contextTokens);
 
         // Pre-compute question-type template tokens used in this request
         Map<QuestionType, Long> templateTokensByType = new EnumMap<>(QuestionType.class);
@@ -73,6 +101,7 @@ public class EstimationServiceImpl implements EstimationService {
             String templateName = "question-types/" + getQuestionTypeTemplateName(type);
             long templateTokens = estimateTokens(safeLoadTemplate(templateName));
             templateTokensByType.put(type, templateTokens);
+            log.info("Template {} tokens: {}", templateName, templateTokens);
         }
 
         long totalLlmTokens = 0L;
@@ -100,13 +129,21 @@ public class EstimationServiceImpl implements EstimationService {
         long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
 
         long billingTokens = llmTokensToBillingTokens(adjustedLlm);
+        
+        log.info("Normal calculation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
+                adjustedLlm, billingTokens, safetyFactor);
 
+        UUID estimationId = UUID.randomUUID();
+        String humanizedEstimate = EstimationDto.createHumanizedEstimate(adjustedLlm, billingTokens, billingProperties.getCurrency());
+        
         return new EstimationDto(
                 adjustedLlm,
                 billingTokens,
                 null, // approxCostCents not implemented in MVP
                 billingProperties.getCurrency(),
-                true // explicitly an estimate, not a quote
+                true, // explicitly an estimate, not a quote
+                humanizedEstimate,
+                estimationId
         );
     }
 
@@ -198,5 +235,129 @@ public class EstimationServiceImpl implements EstimationService {
             case MEDIUM -> 1.0d;
             case HARD -> 1.15d;
         };
+    }
+
+    /**
+     * Calculate token estimate when chunks are missing by using document content directly.
+     * This is a fallback for when document processing didn't create proper chunks.
+     */
+    private long calculateEstimateFromDocumentContent(Document document, GenerateQuizFromDocumentRequest request) {
+        // Get document content from chunks if available, otherwise use filename as fallback
+        String content = "";
+        
+        // Try to get content from chunks first
+        if (document.getChunks() != null && !document.getChunks().isEmpty()) {
+            content = document.getChunks().stream()
+                    .map(DocumentChunk::getContent)
+                    .filter(c -> c != null && !c.trim().isEmpty())
+                    .reduce("", (a, b) -> a + " " + b)
+                    .trim();
+        }
+        
+        // Fallback: use filename if no chunk content available
+        if (content.trim().isEmpty()) {
+            content = document.getOriginalFilename() != null ? document.getOriginalFilename() : "";
+        }
+        
+        if (content.trim().isEmpty()) {
+            log.warn("Document {} has no content available for estimation. Using minimal estimate.", document.getId());
+            return 1000L; // Minimal reasonable estimate
+        }
+        
+        log.info("Calculating estimate from document content: {} characters", content.length());
+        log.info("Question types and counts: {}", request.questionsPerType());
+        log.info("Difficulty: {}", request.difficulty());
+        
+        // Pre-compute prompt overhead tokens (system + context)
+        long systemTokens = estimateTokens(promptTemplateService.buildSystemPrompt());
+        long contextTokens = estimateTokens(safeLoadTemplate("base/context-template.txt"));
+        
+        log.info("System tokens: {}, Context tokens: {}", systemTokens, contextTokens);
+        
+        // Pre-compute question-type template tokens used in this request
+        Map<QuestionType, Long> templateTokensByType = new EnumMap<>(QuestionType.class);
+        for (QuestionType type : request.questionsPerType().keySet()) {
+            String templateName = "question-types/" + getQuestionTypeTemplateName(type);
+            long templateTokens = estimateTokens(safeLoadTemplate(templateName));
+            templateTokensByType.put(type, templateTokens);
+        }
+        
+        long contentTokens = estimateTokens(content);
+        long totalLlmTokens = 0L;
+        
+        log.info("Content tokens: {}", contentTokens);
+        
+        // Calculate tokens for each question type
+        for (Map.Entry<QuestionType, Integer> e : request.questionsPerType().entrySet()) {
+            QuestionType type = e.getKey();
+            int count = Optional.ofNullable(e.getValue()).orElse(0);
+            if (count <= 0) continue;
+            
+            long templateTokens = templateTokensByType.getOrDefault(type, 0L);
+            long inputTokens = systemTokens + contextTokens + templateTokens + contentTokens;
+            double difficultyMultiplier = getDifficultyMultiplier(request.difficulty());
+            long completionTokens = (long) Math.ceil(count * COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120) * difficultyMultiplier);
+            
+            log.info("Question type {}: count={}, templateTokens={}, inputTokens={}, completionTokens={}, difficultyMultiplier={}", 
+                    type, count, templateTokens, inputTokens, completionTokens, difficultyMultiplier);
+            
+            totalLlmTokens += inputTokens + completionTokens;
+        }
+        
+        // Apply safety factor to LLM tokens
+        double safetyFactor = billingProperties.getSafetyFactor();
+        long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
+        
+        log.info("Total LLM tokens before safety factor: {}", totalLlmTokens);
+        log.info("Safety factor: {}", safetyFactor);
+        log.info("Calculated estimate from document content: {} LLM tokens", adjustedLlm);
+        return adjustedLlm;
+    }
+
+    @Override
+    public long computeActualBillingTokens(List<Question> questions, Difficulty difficulty, long inputPromptTokens) {
+        if (questions == null || questions.isEmpty()) {
+            log.warn("No questions provided for actual token computation, returning input prompt tokens only");
+            return llmTokensToBillingTokens(inputPromptTokens);
+        }
+
+        log.info("Computing actual billing tokens for {} questions with difficulty {}", questions.size(), difficulty);
+
+        // Group questions by type to compute EOT (Expected Output Tokens)
+        Map<QuestionType, Long> questionsByType = questions.stream()
+                .collect(Collectors.groupingBy(
+                        Question::getType,
+                        Collectors.counting()
+                ));
+
+        double difficultyMultiplier = getDifficultyMultiplier(difficulty);
+        long totalOutputTokens = 0L;
+
+        // Compute output tokens using the same EOT table as estimation
+        for (Map.Entry<QuestionType, Long> entry : questionsByType.entrySet()) {
+            QuestionType type = entry.getKey();
+            long count = entry.getValue();
+            
+            // Get base completion tokens for this question type
+            int baseCompletionTokens = COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120);
+            
+            // Apply difficulty multiplier
+            long adjustedCompletionTokens = (long) Math.ceil(baseCompletionTokens * difficultyMultiplier);
+            
+            // Total output tokens for this type
+            long typeOutputTokens = count * adjustedCompletionTokens;
+            totalOutputTokens += typeOutputTokens;
+        }
+
+        // Total LLM tokens = input prompt tokens + output tokens
+        long totalLlmTokens = inputPromptTokens + totalOutputTokens;
+        
+        // Convert to billing tokens (no safety factor for actual usage)
+        long actualBillingTokens = llmTokensToBillingTokens(totalLlmTokens);
+        
+        log.info("Actual token computation: inputPromptTokens={}, outputTokens={}, totalLlmTokens={}, actualBillingTokens={}", 
+                inputPromptTokens, totalOutputTokens, totalLlmTokens, actualBillingTokens);
+        
+        return actualBillingTokens;
     }
 }

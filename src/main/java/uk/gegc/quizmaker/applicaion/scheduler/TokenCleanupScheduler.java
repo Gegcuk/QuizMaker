@@ -22,7 +22,6 @@ public class TokenCleanupScheduler {
         try {
             LocalDateTime now = LocalDateTime.now();
             passwordResetTokenRepository.deleteExpiredTokens(now);
-            log.debug("Scheduled cleanup of expired password reset tokens completed");
         } catch (Exception e) {
             log.error("Failed to clean up expired password reset tokens", e);
         }

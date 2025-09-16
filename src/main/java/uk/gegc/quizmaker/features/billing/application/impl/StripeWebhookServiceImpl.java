@@ -57,6 +57,8 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
 
     @Override
     public Result process(String payload, String signatureHeader) throws StripeException {
+        long startTime = System.currentTimeMillis();
+        
         String webhookSecret = stripeProperties.getWebhookSecret();
         if (!StringUtils.hasText(webhookSecret)) {
             log.warn("Stripe webhook secret not configured; rejecting request");
@@ -95,6 +97,10 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                 case DUPLICATE -> metricsService.incrementWebhookDuplicate(type);
                 case IGNORED -> metricsService.incrementWebhookOk(type); // Treat ignored as OK
             }
+            
+            // Record webhook latency
+            long latencyMs = System.currentTimeMillis() - startTime;
+            metricsService.recordWebhookLatency(type, latencyMs);
             
             return result;
         } catch (Exception e) {

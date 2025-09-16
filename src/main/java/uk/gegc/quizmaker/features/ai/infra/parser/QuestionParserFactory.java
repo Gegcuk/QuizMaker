@@ -33,8 +33,6 @@ public class QuestionParserFactory {
     public List<Question> parseQuestions(JsonNode contentNode, QuestionType questionType)
             throws AIResponseParseException {
 
-        log.debug("Parsing questions for type: {}", questionType);
-
         return switch (questionType) {
             case MCQ_SINGLE -> mcqQuestionParser.parseMcqSingleQuestions(contentNode);
             case MCQ_MULTI -> mcqQuestionParser.parseMcqMultiQuestions(contentNode);

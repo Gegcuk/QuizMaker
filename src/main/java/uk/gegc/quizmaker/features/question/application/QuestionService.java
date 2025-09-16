@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.question.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
 import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
@@ -12,9 +13,9 @@ import java.util.UUID;
 public interface QuestionService {
     UUID createQuestion(String username, CreateQuestionRequest questionDto);
 
-    Page<QuestionDto> listQuestions(UUID quizId, Pageable pageable);
+    Page<QuestionDto> listQuestions(UUID quizId, Pageable pageable, Authentication authentication);
 
-    QuestionDto getQuestion(UUID questionId);
+    QuestionDto getQuestion(UUID questionId, Authentication authentication);
 
     QuestionDto updateQuestion(String username, UUID questionId, UpdateQuestionRequest updateQuestionRequest);
 

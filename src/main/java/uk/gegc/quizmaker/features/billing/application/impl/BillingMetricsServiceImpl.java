@@ -78,6 +78,11 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     }
 
     @Override
+    public void recordWebhookLatency(String eventType, long latencyMs) {
+        log.info("METRIC: stripe.webhooks.latency eventType={} latencyMs={}", eventType, latencyMs);
+    }
+
+    @Override
     public void recordBalanceAvailable(UUID userId, long amount) {
         log.info("METRIC: billing.balance.available userId={} amount={}", userId, amount);
     }

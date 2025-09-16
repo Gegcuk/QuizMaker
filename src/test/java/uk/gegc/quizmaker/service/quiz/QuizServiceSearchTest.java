@@ -5,9 +5,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.Authentication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -24,9 +28,17 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@Transactional
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false"
+})
 class QuizServiceSearchTest {
 
     @Autowired
@@ -86,7 +98,12 @@ class QuizServiceSearchTest {
     @Test
     @DisplayName("applies search criteria across fields and returns page of QuizDto")
     void serviceAppliesCriteria() {
-        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null));
+        // Mock authentication for the creator user
+        Authentication auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn("creator");
+        when(auth.isAuthenticated()).thenReturn(true);
+        
+        Page<QuizDto> page = quizService.getQuizzes(PageRequest.of(0, 10), new QuizSearchCriteria(null, List.of("java"), null, "intro", null), "me", auth);
         assertThat(page.getTotalElements()).isGreaterThanOrEqualTo(1);
         assertThat(page.getContent()).anyMatch(dto -> dto.title().toLowerCase().contains("java"));
     }

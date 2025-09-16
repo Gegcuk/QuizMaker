@@ -92,4 +92,12 @@ public interface StripeService {
      * @return raw customer object
      */
     com.stripe.model.Customer retrieveCustomerRaw(String customerId) throws com.stripe.exception.StripeException;
+
+    /**
+     * Resolve a Stripe Price ID by its lookup key.
+     *
+     * @param lookupKey the Stripe price lookup key
+     * @return the resolved Stripe Price ID
+     */
+    String resolvePriceIdByLookupKey(String lookupKey) throws com.stripe.exception.StripeException;
 }

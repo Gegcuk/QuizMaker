@@ -65,6 +65,7 @@ class BillingServiceTest {
                 balanceRepository,
                 transactionRepository,
                 reservationRepository,
+                mock(uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository.class),
                 balanceMapper,
                 txMapper,
                 reservationMapper,

@@ -1,11 +1,15 @@
 package uk.gegc.quizmaker.features.quiz.domain.model;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -65,6 +69,41 @@ public class QuizGenerationJob {
     @Column(name = "generation_time_seconds")
     private Long generationTimeSeconds;
 
+    // Billing fields for token consumption tracking
+    @Column(name = "billing_reservation_id")
+    private UUID billingReservationId;
+
+    @Column(name = "reservation_expires_at")
+    private LocalDateTime reservationExpiresAt;
+
+    @Column(name = "billing_estimated_tokens", nullable = false)
+    private Long billingEstimatedTokens = 0L;
+
+    @Column(name = "billing_committed_tokens", nullable = false)
+    private Long billingCommittedTokens = 0L;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_state", nullable = false)
+    private BillingState billingState = BillingState.NONE;
+
+    @Column(name = "billing_idempotency_keys", columnDefinition = "JSON")
+    private String billingIdempotencyKeys;
+
+    @Column(name = "last_billing_error", columnDefinition = "JSON")
+    private String lastBillingError;
+
+    @Column(name = "input_prompt_tokens")
+    private Long inputPromptTokens;
+
+    @Column(name = "estimation_version")
+    private String estimationVersion;
+
+    @Column(name = "actual_tokens")
+    private Long actualTokens;
+
+    @Column(name = "was_capped")
+    private Boolean wasCappedAtReserved = false;
+
     @PrePersist
     protected void onCreate() {
         if (startedAt == null) {
@@ -82,6 +121,15 @@ public class QuizGenerationJob {
         if (totalQuestionsGenerated == null) {
             totalQuestionsGenerated = 0;
         }
+        if (billingEstimatedTokens == null) {
+            billingEstimatedTokens = 0L;
+        }
+        if (billingCommittedTokens == null) {
+            billingCommittedTokens = 0L;
+        }
+        if (billingState == null) {
+            billingState = BillingState.NONE;
+        }
     }
 
     @PreUpdate
@@ -91,7 +139,7 @@ public class QuizGenerationJob {
                 completedAt = LocalDateTime.now();
             }
             if (generationTimeSeconds == null && startedAt != null) {
-                generationTimeSeconds = java.time.Duration.between(startedAt, completedAt).getSeconds();
+                generationTimeSeconds = Duration.between(startedAt, completedAt).getSeconds();
             }
         }
 
@@ -154,7 +202,7 @@ public class QuizGenerationJob {
             return 0L;
         }
         LocalDateTime endTime = completedAt != null ? completedAt : LocalDateTime.now();
-        return java.time.Duration.between(startedAt, endTime).getSeconds();
+        return Duration.between(startedAt, endTime).getSeconds();
     }
 
     /**
@@ -174,5 +222,92 @@ public class QuizGenerationJob {
 
         long totalEstimatedSeconds = (long) (elapsedSeconds / progress);
         return totalEstimatedSeconds - elapsedSeconds;
+    }
+
+    /**
+     * Check if the job has billing activity
+     */
+    public boolean hasBillingActivity() {
+        return billingState != null && !billingState.isNone();
+    }
+
+    /**
+     * Check if tokens are currently reserved for this job
+     */
+    public boolean hasReservedTokens() {
+        return billingState != null && billingState.isReserved();
+    }
+
+    /**
+     * Check if tokens have been committed for this job
+     */
+    public boolean hasCommittedTokens() {
+        return billingState != null && billingState.isCommitted();
+    }
+
+    /**
+     * Check if the reservation has expired
+     */
+    public boolean isReservationExpired() {
+        return reservationExpiresAt != null && LocalDateTime.now().isAfter(reservationExpiresAt);
+    }
+
+    /**
+     * Get the remaining time until reservation expires (in seconds)
+     */
+    public Long getReservationTimeRemainingSeconds() {
+        if (reservationExpiresAt == null) {
+            return null;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isAfter(reservationExpiresAt)) {
+            return 0L;
+        }
+        return Duration.between(now, reservationExpiresAt).getSeconds();
+    }
+
+    /**
+     * Add a billing idempotency key to the job's audit trail
+     */
+    public void addBillingIdempotencyKey(String operation, String key) {
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> keys = new HashMap<>();
+            
+            // Parse existing keys if present
+            if (billingIdempotencyKeys != null && !billingIdempotencyKeys.isBlank()) {
+                keys = mapper.readValue(billingIdempotencyKeys, Map.class);
+            }
+            
+            // Add new key
+            keys.put(operation, key);
+            
+            // Serialize back to JSON
+            billingIdempotencyKeys = mapper.writeValueAsString(keys);
+        } catch (Exception e) {
+            // If JSON parsing fails, create a simple map with the new key
+            billingIdempotencyKeys = "{\"" + operation + "\":\"" + key + "\"}";
+        }
+    }
+
+    /**
+     * Get a billing idempotency key by operation
+     */
+    public String getBillingIdempotencyKey(String operation) {
+        if (billingIdempotencyKeys == null || billingIdempotencyKeys.isBlank()) {
+            return null;
+        }
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> keys = mapper.readValue(billingIdempotencyKeys, Map.class);
+            return keys.get(operation);
+        } catch (Exception e) {
+            return null;
+        }
     }
 } 

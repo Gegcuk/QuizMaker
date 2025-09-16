@@ -62,7 +62,6 @@ public class EpubDocumentConverter implements DocumentConverter {
             }
             
             String text = fullText.toString().trim();
-            log.debug("Converted EPUB document: {} bytes -> {} characters", bytes.length, text.length());
             return new ConversionResult(text);
             
         } catch (IOException e) {

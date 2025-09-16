@@ -37,8 +37,12 @@ import uk.gegc.quizmaker.features.billing.infra.mapping.TokenTransactionMapper;
 import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -52,6 +56,7 @@ public class BillingServiceImpl implements BillingService {
     private final BalanceRepository balanceRepository;
     private final TokenTransactionRepository transactionRepository;
     private final ReservationRepository reservationRepository;
+    private final QuizGenerationJobRepository quizGenerationJobRepository;
 
     private final BalanceMapper balanceMapper;
     @Qualifier("tokenTransactionMapperImpl")
@@ -66,7 +71,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:read')")
+    @PreAuthorize("hasAuthority('BILLING_READ')")
     public BalanceDto getBalance(UUID userId) {
         var balance = balanceRepository.findByUserId(userId).orElseGet(() -> {
             var b = new Balance();
@@ -80,7 +85,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional(readOnly = true)
-    @PreAuthorize("hasAuthority('billing:read')")
+    @PreAuthorize("hasAuthority('BILLING_READ')")
     public Page<TransactionDto> listTransactions(UUID userId,
                                                  Pageable pageable,
                                                  TokenTransactionType type,
@@ -94,7 +99,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReservationDto reserve(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
         if (estimatedBillingTokens <= 0) {
             throw new IllegalArgumentException("estimatedBillingTokens must be > 0");
@@ -143,7 +148,15 @@ public class BillingServiceImpl implements BillingService {
                 long reserved = balance.getReservedTokens();
 
                 if (available < estimatedBillingTokens) {
-                    throw new InsufficientTokensException("Not enough tokens to reserve: required=" + estimatedBillingTokens + ", available=" + available);
+                    long shortfall = estimatedBillingTokens - available;
+                    LocalDateTime reservationTtl = LocalDateTime.now().plusMinutes(billingProperties.getReservationTtlMinutes());
+                    throw new InsufficientTokensException(
+                        "Not enough tokens to reserve: required=" + estimatedBillingTokens + ", available=" + available,
+                        estimatedBillingTokens,
+                        available,
+                        shortfall,
+                        reservationTtl
+                    );
                 }
 
                 // Move available -> reserved
@@ -210,7 +223,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public CommitResultDto commit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
         if (actualBillingTokens <= 0) {
             throw new IllegalArgumentException("actualBillingTokens must be > 0");
@@ -314,7 +327,7 @@ public class BillingServiceImpl implements BillingService {
 
     @Override
     @Transactional
-    @PreAuthorize("hasAuthority('billing:write')")
+    @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
@@ -480,6 +493,9 @@ public class BillingServiceImpl implements BillingService {
         var cutoff = LocalDateTime.now();
         var expired = reservationRepository.findByStateAndExpiresAtBefore(ReservationState.ACTIVE, cutoff);
         
+        // Always record backlog metric, even when empty
+        metricsService.recordSweeperBacklog(expired.size());
+        
         if (expired.isEmpty()) {
             return; // No expired reservations to process
         }
@@ -516,6 +532,23 @@ public class BillingServiceImpl implements BillingService {
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
 
+                // Update job billing state if this reservation is linked to a quiz generation job
+                try {
+                    quizGenerationJobRepository.findByBillingReservationId(res.getId())
+                            .ifPresent(job -> {
+                                if (job.getBillingState() == BillingState.RESERVED) {
+                                    job.setBillingState(BillingState.RELEASED);
+                                    job.setLastBillingError("{\"reason\":\"Reservation expired\",\"expiredAt\":\"" + res.getExpiresAt() + "\"}");
+                                    // Store release idempotency key for audit trail (sweeper uses null key since it's automatic)
+                                    String releaseIdempotencyKey = "quiz:" + job.getId() + ":release";
+                                    job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                    quizGenerationJobRepository.save(job);
+                                }
+                            });
+                } catch (Exception jobUpdateError) {
+                    log.warn("Failed to update job billing state for expired reservation {}: {}", res.getId(), jobUpdateError.getMessage());
+                }
+
                 // Emit structured logging and metrics
                 BillingStructuredLogger.logLedgerWrite(log, "info", 
                         "Expired reservation {} for user {}, released {} tokens", 
@@ -526,19 +559,13 @@ public class BillingServiceImpl implements BillingService {
                 metricsService.incrementReservationReleased(res.getUserId(), releaseAmount);
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
                 metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
-                
-                log.debug("Expired reservation {} for user {}, released {} tokens", 
-                        res.getId(), res.getUserId(), releaseAmount);
-                        
+
             } catch (Exception e) {
                 log.error("Failed to expire reservation {} for user {}: {}", 
                         res.getId(), res.getUserId(), e.getMessage(), e);
                 // Continue processing other reservations even if one fails
             }
         }
-        
-        // Record sweeper backlog metric
-        metricsService.recordSweeperBacklog(expired.size());
         
         log.info("Completed processing {} expired reservations", expired.size());
     }
@@ -642,7 +669,7 @@ public class BillingServiceImpl implements BillingService {
 
     private String buildMetaJson(String ref, String reason, Long released) {
         try {
-            java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+            Map<String, Object> m = new LinkedHashMap<>();
             if (ref != null && !ref.isBlank()) m.put("ref", ref);
             if (reason != null && !reason.isBlank()) m.put("reason", reason);
             if (released != null) m.put("released", released);

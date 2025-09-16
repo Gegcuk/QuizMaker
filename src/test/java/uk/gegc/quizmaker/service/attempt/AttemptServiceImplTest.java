@@ -8,6 +8,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.attempt.api.dto.StartAttemptResponse;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 import uk.gegc.quizmaker.features.attempt.application.impl.AttemptServiceImpl;
@@ -21,6 +22,8 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -33,6 +36,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -68,7 +72,10 @@ class AttemptServiceImplTest {
     @DisplayName("getLeaderboard returns top N ordered by score")
     void getLeaderboard_basic() {
         UUID quizId = UUID.randomUUID();
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(new Quiz()));
+        Quiz quiz = new Quiz();
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         UUID u1 = UUID.randomUUID();
         UUID u2 = UUID.randomUUID();
         UUID u3 = UUID.randomUUID();
@@ -79,7 +86,7 @@ class AttemptServiceImplTest {
         );
         when(attemptRepository.getLeaderboardData(quizId)).thenReturn(rows);
 
-        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 2);
+        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 2, mock(Authentication.class));
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).userId()).isEqualTo(u1);
@@ -91,7 +98,10 @@ class AttemptServiceImplTest {
     @DisplayName("getLeaderboard handles ties and insufficient participants")
     void getLeaderboard_tiesAndShortList() {
         UUID quizId = UUID.randomUUID();
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(new Quiz()));
+        Quiz quiz = new Quiz();
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         UUID u1 = UUID.randomUUID();
         UUID u2 = UUID.randomUUID();
         List<Object[]> rows = List.of(
@@ -100,7 +110,7 @@ class AttemptServiceImplTest {
         );
         when(attemptRepository.getLeaderboardData(quizId)).thenReturn(rows);
 
-        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 5);
+        List<LeaderboardEntryDto> result = service.getQuizLeaderboard(quizId, 5, mock(Authentication.class));
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).bestScore()).isEqualTo(50.0);
@@ -113,7 +123,7 @@ class AttemptServiceImplTest {
         UUID quizId = UUID.randomUUID();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3))
+        assertThatThrownBy(() -> service.getQuizLeaderboard(quizId, 3, mock(Authentication.class)))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 

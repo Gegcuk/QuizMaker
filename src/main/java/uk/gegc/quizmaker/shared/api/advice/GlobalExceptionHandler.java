@@ -3,6 +3,8 @@ package uk.gegc.quizmaker.shared.api.advice;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -30,6 +32,8 @@ import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+    
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler({ResourceNotFoundException.class, DocumentNotFoundException.class})
     @ResponseStatus(HttpStatus.NOT_FOUND)
@@ -151,6 +155,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex) {
+        // Log the actual exception for debugging
+        logger.error("RuntimeException occurred: {}", ex.getMessage(), ex);
+        
         // Handle specific authorization cases
         if ("Access denied".equals(ex.getMessage())) {
             ErrorResponse errorResponse = new ErrorResponse(
@@ -226,12 +233,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     // ===================== Billing-specific errors (ProblemDetail) =====================
     @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientTokens(RuntimeException ex, HttpServletRequest r) {
+    public ResponseEntity<ProblemDetail> handleInsufficientTokens(uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Insufficient tokens");
+        pd.setTitle("Insufficient Tokens");
         pd.setDetail(ex.getMessage());
         pd.setInstance(URI.create(r.getRequestURI()));
         pd.setType(URI.create("https://example.com/problems/insufficient-tokens"));
+        pd.setProperty("errorCode", "INSUFFICIENT_TOKENS");
+        pd.setProperty("estimatedTokens", ex.getEstimatedTokens());
+        pd.setProperty("availableTokens", ex.getAvailableTokens());
+        pd.setProperty("shortfall", ex.getShortfall());
+        pd.setProperty("reservationTtl", ex.getReservationTtl());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
@@ -294,6 +306,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         pd.setType(URI.create("https://example.com/problems/idempotency-conflict"));
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
+
+    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        pd.setTitle("Invalid Job State for Commit");
+        pd.setType(URI.create("https://api.quizmaker.com/problems/invalid-job-state-for-commit"));
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setProperty("timestamp", java.time.Instant.now());
+        pd.setProperty("jobId", ex.getJobId());
+        pd.setProperty("currentState", ex.getCurrentState().name());
+        pd.setProperty("expectedState", "RESERVED");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     @ResponseStatus(HttpStatus.CONFLICT)

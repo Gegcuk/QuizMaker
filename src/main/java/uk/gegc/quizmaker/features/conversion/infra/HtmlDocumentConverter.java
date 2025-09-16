@@ -40,7 +40,6 @@ public class HtmlDocumentConverter implements DocumentConverter {
             // Get text content
             String text = doc.text();
             
-            log.debug("Converted HTML document: {} bytes -> {} characters", bytes.length, text.length());
             return new ConversionResult(text);
         } catch (Exception e) {
             throw new ConversionException("Failed to convert HTML document: " + e.getMessage(), e);

@@ -61,7 +61,7 @@ class CorsConfigTest {
 
     @Test
     void testCorsWithAllowedOrigin() throws Exception {
-        mockMvc.perform(get("/api/v1/quizzes")
+        mockMvc.perform(get("/api/v1/quizzes/public")
                 .header(HttpHeaders.ORIGIN, "http://localhost:3000"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
@@ -77,7 +77,7 @@ class CorsConfigTest {
 
     @Test
     void testCorsWithCredentials() throws Exception {
-        mockMvc.perform(get("/api/v1/quizzes")
+        mockMvc.perform(get("/api/v1/quizzes/public")
                 .header(HttpHeaders.ORIGIN, "http://localhost:3000")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer test-token"))
                 .andExpect(status().isOk())
