@@ -10,12 +10,11 @@ import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
+import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
-import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
-import uk.gegc.quizmaker.shared.security.annotation.RequireRole;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,6 +28,7 @@ public class AdminController {
 
     private final RoleService roleService;
     private final PermissionUtil permissionUtil;
+    private final PolicyReconciliationService policyReconciliationService;
 
     // Example using annotation-based permission checking
     @GetMapping("/roles")
@@ -72,10 +72,10 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    // Example using role-based checking
+    // Standardized permission-based checking for role assignment
     @PostMapping("/users/{userId}/roles/{roleId}")
     @Operation(summary = "Assign role to user")
-    @RequireRole(RoleName.ROLE_ADMIN)
+    @RequirePermission(PermissionName.ROLE_ASSIGN)
     public ResponseEntity<Void> assignRoleToUser(@PathVariable UUID userId,
                                                  @PathVariable Long roleId) {
         roleService.assignRoleToUser(userId, roleId);
@@ -84,45 +84,92 @@ public class AdminController {
 
     @DeleteMapping("/users/{userId}/roles/{roleId}")
     @Operation(summary = "Remove role from user")
-    @RequireRole(RoleName.ROLE_ADMIN)
+    @RequirePermission(PermissionName.ROLE_ASSIGN)
     public ResponseEntity<Void> removeRoleFromUser(@PathVariable UUID userId,
                                                    @PathVariable Long roleId) {
         roleService.removeRoleFromUser(userId, roleId);
         return ResponseEntity.ok().build();
     }
 
-    // Example using manual permission checking
+    // Standardized annotation-based permission checking
     @PostMapping("/system/initialize")
     @Operation(summary = "Initialize system roles and permissions")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
     public ResponseEntity<String> initializeSystem() {
-        // Manual permission check using PermissionUtil
-        permissionUtil.requirePermission(PermissionName.SYSTEM_ADMIN);
-
         roleService.initializeDefaultRolesAndPermissions();
         return ResponseEntity.ok("System initialized successfully");
     }
 
-    // Example combining multiple permission checks
+    // Standardized annotation-based permission checking with multiple permissions
     @GetMapping("/system/status")
     @Operation(summary = "Get system status")
     @RequirePermission(value = {PermissionName.SYSTEM_ADMIN, PermissionName.AUDIT_READ},
             operator = RequirePermission.LogicalOperator.OR)
     public ResponseEntity<String> getSystemStatus() {
-        // Additional manual checks if needed
-        if (permissionUtil.isSuperAdmin()) {
-            return ResponseEntity.ok("System status: All systems operational (Super Admin view)");
-        } else {
-            return ResponseEntity.ok("System status: All systems operational (Limited view)");
-        }
+        // Simplified response - authorization is handled by annotation
+        return ResponseEntity.ok("System status: All systems operational");
     }
 
-    // Example for super admin only endpoints
+    // Standardized permission-based checking for super admin operations
     @PostMapping("/super/dangerous-operation")
     @Operation(summary = "Perform dangerous operation")
-    @RequireRole(RoleName.ROLE_SUPER_ADMIN)
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
     public ResponseEntity<String> performDangerousOperation() {
         log.warn("Dangerous operation performed by user: {}",
                 permissionUtil.getCurrentUser().getUsername());
         return ResponseEntity.ok("Operation completed");
+    }
+
+    // Policy reconciliation endpoints
+    @PostMapping("/policy/reconcile")
+    @Operation(summary = "Reconcile roles and permissions against canonical manifest")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<PolicyReconciliationService.ReconciliationResult> reconcilePolicy() {
+        log.info("Policy reconciliation triggered by user: {}", 
+                permissionUtil.getCurrentUser().getUsername());
+        
+        PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileAll();
+        
+        if (result.success()) {
+            log.info("Policy reconciliation completed successfully: {}", result.message());
+            return ResponseEntity.ok(result);
+        } else {
+            log.error("Policy reconciliation failed: {}", result.message());
+            return ResponseEntity.badRequest().body(result);
+        }
+    }
+
+    @GetMapping("/policy/status")
+    @Operation(summary = "Get policy reconciliation status")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<PolicyReconciliationService.PolicyDiff> getPolicyStatus() {
+        PolicyReconciliationService.PolicyDiff diff = policyReconciliationService.getPolicyDiff();
+        return ResponseEntity.ok(diff);
+    }
+
+    @GetMapping("/policy/version")
+    @Operation(summary = "Get canonical policy manifest version")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<String> getPolicyVersion() {
+        String version = policyReconciliationService.getManifestVersion();
+        return ResponseEntity.ok(version);
+    }
+
+    @PostMapping("/policy/reconcile/{roleName}")
+    @Operation(summary = "Reconcile specific role against canonical manifest")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<PolicyReconciliationService.ReconciliationResult> reconcileRole(@PathVariable String roleName) {
+        log.info("Role reconciliation triggered for role: {} by user: {}", 
+                roleName, permissionUtil.getCurrentUser().getUsername());
+        
+        PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileRole(roleName);
+        
+        if (result.success()) {
+            log.info("Role reconciliation completed successfully for {}: {}", roleName, result.message());
+            return ResponseEntity.ok(result);
+        } else {
+            log.error("Role reconciliation failed for {}: {}", roleName, result.message());
+            return ResponseEntity.badRequest().body(result);
+        }
     }
 }

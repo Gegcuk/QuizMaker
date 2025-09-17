@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
+import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
@@ -31,6 +32,7 @@ public class RoleServiceImpl implements RoleService {
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final PermissionService permissionService;
+    private final PolicyReconciliationService policyReconciliationService;
     private final RoleMapper roleMapper;
 
     @Override
@@ -154,7 +156,42 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public void initializeDefaultRolesAndPermissions() {
-        log.info("Initializing default roles and permissions");
+        log.info("Initializing default roles and permissions using canonical policy manifest");
+
+        try {
+            // Use the policy reconciliation service to ensure consistency with manifest
+            PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileAll();
+            
+            if (result.success()) {
+                log.info("Policy reconciliation completed successfully: {} permissions added, {} roles added, {} roles updated, {} mappings updated",
+                    result.permissionsAdded(), result.rolesAdded(), result.rolesUpdated(), result.rolePermissionMappingsUpdated());
+            } else {
+                log.error("Policy reconciliation completed with errors: {}", result.message());
+                if (!result.errors().isEmpty()) {
+                    result.errors().forEach(error -> log.error("Reconciliation error: {}", error));
+                }
+                throw new RuntimeException("Failed to initialize roles and permissions: " + result.message());
+            }
+            
+            log.info("Default roles and permissions initialization completed using manifest version: {}", 
+                policyReconciliationService.getManifestVersion());
+                
+        } catch (Exception e) {
+            log.error("Failed to initialize roles and permissions using manifest: {}", e.getMessage(), e);
+            // Fallback to legacy method if manifest-based approach fails
+            log.warn("Falling back to legacy hardcoded initialization method");
+            initializeDefaultRolesAndPermissionsLegacy();
+        }
+    }
+
+    /**
+     * Legacy method for initializing roles and permissions using hardcoded values.
+     * This is kept as a fallback in case the manifest-based approach fails.
+     * @deprecated Use manifest-based reconciliation instead
+     */
+    @Deprecated
+    private void initializeDefaultRolesAndPermissionsLegacy() {
+        log.info("Initializing default roles and permissions using legacy hardcoded method");
 
         // First initialize all permissions
         permissionService.initializePermissions();
@@ -175,8 +212,7 @@ public class RoleServiceImpl implements RoleService {
         log.info("Creating ROLE_SUPER_ADMIN with all permissions");
         createRoleIfNotExists(RoleName.ROLE_SUPER_ADMIN.name(), "Super administrator role", false, getSuperAdminPermissions());
 
-
-        log.info("Default roles and permissions initialization completed");
+        log.info("Legacy default roles and permissions initialization completed");
     }
 
     private void createRoleIfNotExists(String roleName, String description, boolean isDefault, Set<String> permissionNames) {
