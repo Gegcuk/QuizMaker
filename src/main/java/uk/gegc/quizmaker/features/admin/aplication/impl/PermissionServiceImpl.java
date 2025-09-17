@@ -51,6 +51,13 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     @Transactional(readOnly = true)
+    public Permission getPermissionById(Long permissionId) {
+        return permissionRepository.findById(permissionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Permission not found: " + permissionId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<Permission> getAllPermissions() {
         return permissionRepository.findAll();
     }

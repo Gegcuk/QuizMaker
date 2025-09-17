@@ -2,19 +2,24 @@ package uk.gegc.quizmaker.features.admin.aplication.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
+import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.features.admin.application.RolePermissionAuditService;
 import uk.gegc.quizmaker.features.user.domain.model.*;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.HashSet;
 import java.util.List;
@@ -31,7 +36,10 @@ public class RoleServiceImpl implements RoleService {
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final PermissionService permissionService;
+    private final PolicyReconciliationService policyReconciliationService;
     private final RoleMapper roleMapper;
+    private final RolePermissionAuditService auditService;
+    private final PermissionUtil permissionUtil;
 
     @Override
     public RoleDto createRole(CreateRoleRequest request) {
@@ -47,6 +55,20 @@ public class RoleServiceImpl implements RoleService {
                 .build();
 
         Role savedRole = roleRepository.save(role);
+        
+        // Log audit trail
+        User currentUser = permissionUtil.getCurrentUser();
+        if (currentUser != null) {
+            auditService.logRoleCreated(
+                currentUser, 
+                savedRole, 
+                "Role created via API", 
+                generateCorrelationId(),
+                getCurrentIpAddress(),
+                getCurrentUserAgent()
+            );
+        }
+        
         log.info("Created role: {}", request.getRoleName());
         return roleMapper.toDto(savedRole);
     }
@@ -66,15 +88,28 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public void deleteRole(Long roleId) {
-        Role role = roleRepository.findById(roleId)
+        Role role = roleRepository.findByIdWithUsers(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
-        // Remove role from all users first
-        for (User user : role.getUsers()) {
-            user.getRoles().remove(role);
-            userRepository.save(user);
+        // Check if role has users assigned
+        if (!role.getUsers().isEmpty()) {
+            throw new IllegalStateException("Cannot delete role with assigned users. Please remove all users from role first.");
         }
 
+        // Log audit trail before deletion
+        User currentUser = permissionUtil.getCurrentUser();
+        if (currentUser != null) {
+            auditService.logRoleDeleted(
+                currentUser, 
+                role, 
+                "Role deleted via API", 
+                generateCorrelationId(),
+                getCurrentIpAddress(),
+                getCurrentUserAgent()
+            );
+        }
+
+        // Delete role (JPA will handle permission associations via cascade if configured)
         roleRepository.delete(role);
         log.info("Deleted role: {}", role.getRoleName());
     }
@@ -99,6 +134,13 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<RoleDto> getAllRoles(Pageable pageable, String search) {
+        Page<Role> roles = roleRepository.findAllWithPermissionsAndSearch(search, pageable);
+        return roles.map(roleMapper::toDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Role getRoleByName(RoleName roleName) {
         return roleRepository.findByRoleNameWithPermissions(roleName.name())
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
@@ -114,6 +156,21 @@ public class RoleServiceImpl implements RoleService {
 
         user.getRoles().add(role);
         userRepository.save(user);
+        
+        // Log audit trail
+        User currentUser = permissionUtil.getCurrentUser();
+        if (currentUser != null) {
+            auditService.logRoleAssigned(
+                currentUser, 
+                user, 
+                role, 
+                "Role assigned via API", 
+                generateCorrelationId(),
+                getCurrentIpAddress(),
+                getCurrentUserAgent()
+            );
+        }
+        
         log.info("Assigned role {} to user {}", role.getRoleName(), user.getUsername());
     }
 
@@ -127,6 +184,21 @@ public class RoleServiceImpl implements RoleService {
 
         user.getRoles().remove(role);
         userRepository.save(user);
+        
+        // Log audit trail
+        User currentUser = permissionUtil.getCurrentUser();
+        if (currentUser != null) {
+            auditService.logRoleRemoved(
+                currentUser, 
+                user, 
+                role, 
+                "Role removed via API", 
+                generateCorrelationId(),
+                getCurrentIpAddress(),
+                getCurrentUserAgent()
+            );
+        }
+        
         log.info("Removed role {} from user {}", role.getRoleName(), user.getUsername());
     }
 
@@ -154,7 +226,42 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public void initializeDefaultRolesAndPermissions() {
-        log.info("Initializing default roles and permissions");
+        log.info("Initializing default roles and permissions using canonical policy manifest");
+
+        try {
+            // Use the policy reconciliation service to ensure consistency with manifest
+            PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileAll();
+            
+            if (result.success()) {
+                log.info("Policy reconciliation completed successfully: {} permissions added, {} roles added, {} roles updated, {} mappings updated",
+                    result.permissionsAdded(), result.rolesAdded(), result.rolesUpdated(), result.rolePermissionMappingsUpdated());
+            } else {
+                log.error("Policy reconciliation completed with errors: {}", result.message());
+                if (!result.errors().isEmpty()) {
+                    result.errors().forEach(error -> log.error("Reconciliation error: {}", error));
+                }
+                throw new RuntimeException("Failed to initialize roles and permissions: " + result.message());
+            }
+            
+            log.info("Default roles and permissions initialization completed using manifest version: {}", 
+                policyReconciliationService.getManifestVersion());
+                
+        } catch (Exception e) {
+            log.error("Failed to initialize roles and permissions using manifest: {}", e.getMessage(), e);
+            // Fallback to legacy method if manifest-based approach fails
+            log.warn("Falling back to legacy hardcoded initialization method");
+            initializeDefaultRolesAndPermissionsLegacy();
+        }
+    }
+
+    /**
+     * Legacy method for initializing roles and permissions using hardcoded values.
+     * This is kept as a fallback in case the manifest-based approach fails.
+     * @deprecated Use manifest-based reconciliation instead
+     */
+    @Deprecated
+    private void initializeDefaultRolesAndPermissionsLegacy() {
+        log.info("Initializing default roles and permissions using legacy hardcoded method");
 
         // First initialize all permissions
         permissionService.initializePermissions();
@@ -175,8 +282,7 @@ public class RoleServiceImpl implements RoleService {
         log.info("Creating ROLE_SUPER_ADMIN with all permissions");
         createRoleIfNotExists(RoleName.ROLE_SUPER_ADMIN.name(), "Super administrator role", false, getSuperAdminPermissions());
 
-
-        log.info("Default roles and permissions initialization completed");
+        log.info("Legacy default roles and permissions initialization completed");
     }
 
     private void createRoleIfNotExists(String roleName, String description, boolean isDefault, Set<String> permissionNames) {
@@ -246,7 +352,6 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.TAG_READ.name(),
                 PermissionName.USER_READ.name(),
                 PermissionName.USER_UPDATE.name(),
-                PermissionName.USER_DELETE.name(),
                 PermissionName.COMMENT_READ.name(),
                 PermissionName.COMMENT_CREATE.name(),
                 PermissionName.COMMENT_UPDATE.name(),
@@ -289,7 +394,8 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.CATEGORY_UPDATE.name(),
                 PermissionName.TAG_UPDATE.name(),
                 PermissionName.ATTEMPT_READ_ALL.name(),
-                PermissionName.USER_MANAGE.name()
+                PermissionName.USER_MANAGE.name(),
+                PermissionName.USER_DELETE.name()
         ));
         return permissions;
     }
@@ -302,6 +408,7 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.CATEGORY_ADMIN.name(),
                 PermissionName.TAG_ADMIN.name(),
                 PermissionName.USER_ADMIN.name(),
+                PermissionName.USER_DELETE.name(),
                 PermissionName.ROLE_READ.name(),
                 PermissionName.ROLE_ASSIGN.name(),
                 PermissionName.PERMISSION_READ.name(),
@@ -325,6 +432,31 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.PERMISSION_DELETE.name()
         ));
         return permissions;
+    }
+
+    /**
+     * Generate a correlation ID for audit trail
+     */
+    private String generateCorrelationId() {
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Get current IP address from request context
+     * TODO: Implement proper IP address extraction from HttpServletRequest
+     */
+    private String getCurrentIpAddress() {
+        // For now, return null - this should be implemented with proper request context
+        return null;
+    }
+
+    /**
+     * Get current user agent from request context
+     * TODO: Implement proper user agent extraction from HttpServletRequest
+     */
+    private String getCurrentUserAgent() {
+        // For now, return null - this should be implemented with proper request context
+        return null;
     }
 
 }

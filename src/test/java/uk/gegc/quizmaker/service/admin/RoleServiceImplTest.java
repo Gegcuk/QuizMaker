@@ -11,6 +11,8 @@ import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.admin.aplication.impl.RoleServiceImpl;
+import uk.gegc.quizmaker.features.admin.application.RolePermissionAuditService;
+import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
@@ -20,6 +22,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.RoleMapper;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.*;
 
@@ -44,6 +47,15 @@ class RoleServiceImplTest {
 
     @Mock
     private RoleMapper roleMapper;
+
+    @Mock
+    private PolicyReconciliationService policyReconciliationService;
+
+    @Mock
+    private RolePermissionAuditService auditService;
+
+    @Mock
+    private PermissionUtil permissionUtil;
 
     @InjectMocks
     private RoleServiceImpl roleService;
@@ -78,6 +90,7 @@ class RoleServiceImplTest {
 
         when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
         when(roleMapper.toDto(savedRole)).thenReturn(expectedDto);
+        when(permissionUtil.getCurrentUser()).thenReturn(null); // Mock current user as null for test
 
         // When
         RoleDto result = roleService.createRole(request);
@@ -167,8 +180,31 @@ class RoleServiceImplTest {
     }
 
     @Test
-    @DisplayName("deleteRole: successfully deletes role and removes from users")
+    @DisplayName("deleteRole: successfully deletes role when no users assigned")
     void deleteRole_success() {
+        // Given
+        Long roleId = 1L;
+        Role role = Role.builder()
+                .roleId(roleId)
+                .roleName("TEST_ROLE")
+                .users(new HashSet<>()) // Empty users set - role can be deleted
+                .build();
+
+        when(roleRepository.findByIdWithUsers(roleId)).thenReturn(Optional.of(role));
+        when(permissionUtil.getCurrentUser()).thenReturn(null); // Mock current user as null for test
+
+        // When
+        roleService.deleteRole(roleId);
+
+        // Then
+        verify(roleRepository).findByIdWithUsers(roleId);
+        verify(roleRepository).delete(role);
+        verify(userRepository, never()).save(any(User.class)); // No users to update
+    }
+
+    @Test
+    @DisplayName("deleteRole: throws exception when role has assigned users")
+    void deleteRole_withAssignedUsers() {
         // Given
         Long roleId = 1L;
         Role role = Role.builder()
@@ -180,21 +216,17 @@ class RoleServiceImplTest {
         User user1 = new User();
         user1.setRoles(new HashSet<>(Set.of(role)));
 
-        User user2 = new User();
-        user2.setRoles(new HashSet<>(Set.of(role)));
+        role.setUsers(Set.of(user1)); // Role has assigned users
 
-        role.setUsers(Set.of(user1, user2));
+        when(roleRepository.findByIdWithUsers(roleId)).thenReturn(Optional.of(role));
 
-        when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
+        // When & Then
+        assertThrows(IllegalStateException.class, () ->
+                roleService.deleteRole(roleId)
+        );
 
-        // When
-        roleService.deleteRole(roleId);
-
-        // Then
-        assertFalse(user1.getRoles().contains(role));
-        assertFalse(user2.getRoles().contains(role));
-        verify(userRepository, times(2)).save(any(User.class));
-        verify(roleRepository).delete(role);
+        verify(roleRepository).findByIdWithUsers(roleId);
+        verify(roleRepository, never()).delete(any());
     }
 
     @Test
@@ -289,6 +321,7 @@ class RoleServiceImplTest {
         when(userRepository.findByIdWithRoles(userId)).thenReturn(Optional.of(user));
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(userRepository.save(any(User.class))).thenReturn(user);
+        when(permissionUtil.getCurrentUser()).thenReturn(null); // Mock current user as null for test
 
         // When
         roleService.assignRoleToUser(userId, roleId);
@@ -319,6 +352,7 @@ class RoleServiceImplTest {
         when(userRepository.findByIdWithRoles(userId)).thenReturn(Optional.of(user));
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(role));
         when(userRepository.save(any(User.class))).thenReturn(user);
+        when(permissionUtil.getCurrentUser()).thenReturn(null); // Mock current user as null for test
 
         // When
         roleService.removeRoleFromUser(userId, roleId);
@@ -424,6 +458,9 @@ class RoleServiceImplTest {
                 .build();
 
         when(permissionService.getPermissionByName(any())).thenReturn(permission);
+        
+        // Mock PolicyReconciliationService to return null (will trigger fallback to legacy method)
+        when(policyReconciliationService.reconcileAll()).thenReturn(null);
 
         // When
         roleService.initializeDefaultRolesAndPermissions();
