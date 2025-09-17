@@ -1,9 +1,9 @@
 package uk.gegc.quizmaker.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.features.billing.domain.model.*;
 import uk.gegc.quizmaker.features.billing.infra.mapping.BalanceMapper;
 import uk.gegc.quizmaker.features.billing.infra.mapping.ReservationMapper;
@@ -25,8 +26,8 @@ import uk.gegc.quizmaker.features.billing.infra.mapping.TokenTransactionMapper;
 import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,6 +42,7 @@ class BillingServiceTest {
     private TokenTransactionRepository transactionRepository;
     private ReservationRepository reservationRepository;
     private BillingProperties billingProperties;
+    private BillingMetricsService metricsService;
 
     // use real mappers via MapStruct generated impls is complex here; mock mapping
     private BalanceMapper balanceMapper;
@@ -58,14 +60,14 @@ class BillingServiceTest {
         balanceMapper = mock(BalanceMapper.class);
         txMapper = mock(TokenTransactionMapper.class);
         reservationMapper = mock(ReservationMapper.class);
-        BillingMetricsService metricsService = mock(BillingMetricsService.class);
+        metricsService = mock(BillingMetricsService.class);
 
         service = new BillingServiceImpl(
                 billingProperties,
                 balanceRepository,
                 transactionRepository,
                 reservationRepository,
-                mock(uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository.class),
+                mock(QuizGenerationJobRepository.class),
                 balanceMapper,
                 txMapper,
                 reservationMapper,
@@ -261,6 +263,69 @@ class BillingServiceTest {
     }
 
     @Test
+    @DisplayName("reserve: emits reservation created metrics when reservation is successfully created")
+    void reserve_emitsReservationCreatedMetrics() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long estimatedBillingTokens = 50L;
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(100L);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey("idemp-metrics")).thenReturn(Optional.empty());
+
+        UUID resId = UUID.randomUUID();
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> {
+            Reservation r = inv.getArgument(0);
+            r.setId(resId);
+            return r;
+        });
+
+        ReservationDto expected = new ReservationDto(resId, userId, ReservationState.ACTIVE, estimatedBillingTokens, 0, null, null, null, null);
+        when(reservationMapper.toDto(any(Reservation.class))).thenReturn(expected);
+
+        // When
+        ReservationDto result = service.reserve(userId, estimatedBillingTokens, "job-ref", "idemp-metrics");
+
+        // Then
+        assertEquals(expected, result);
+        verify(metricsService).incrementReservationCreated(userId, estimatedBillingTokens);
+    }
+
+    @Test
+    @DisplayName("reserve: emits reservation created metrics for idempotent case")
+    void reserve_emitsReservationCreatedMetricsForIdempotentCase() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long estimatedBillingTokens = 30L;
+        UUID resId = UUID.randomUUID();
+        
+        TokenTransaction existingTx = new TokenTransaction();
+        existingTx.setType(TokenTransactionType.RESERVE);
+        existingTx.setRefId(resId.toString());
+        when(transactionRepository.findByIdempotencyKey("idemp-existing")).thenReturn(Optional.of(existingTx));
+
+        Reservation res = new Reservation();
+        res.setId(resId);
+        res.setUserId(userId);
+        res.setEstimatedTokens(estimatedBillingTokens);
+        res.setState(ReservationState.ACTIVE);
+        when(reservationRepository.findById(resId)).thenReturn(Optional.of(res));
+
+        ReservationDto dto = new ReservationDto(resId, userId, ReservationState.ACTIVE, estimatedBillingTokens, 0, null, null, null, null);
+        when(reservationMapper.toDto(res)).thenReturn(dto);
+
+        // When
+        ReservationDto result = service.reserve(userId, estimatedBillingTokens, "job-ref", "idemp-existing");
+
+        // Then
+        assertEquals(dto, result);
+        verify(metricsService).incrementReservationCreated(userId, estimatedBillingTokens);
+    }
+
+    @Test
     void listTransactions_mapsToDtos() {
         UUID userId = UUID.randomUUID();
         TokenTransaction tx = new TokenTransaction();
@@ -367,5 +432,178 @@ class BillingServiceTest {
 
         assertThrows(uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException.class,
                 () -> service.release(resId, "reason", "ref", "idemp-r3"));
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is false and insufficient tokens then throw InsufficientAvailableTokensException")
+    void deductTokens_whenAllowNegativeBalanceFalseAndInsufficientTokens_thenThrowException() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 1000L;
+        long availableTokens = 500L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(false);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When & Then
+        InsufficientAvailableTokensException exception = assertThrows(
+            InsufficientAvailableTokensException.class,
+            () -> service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson)
+        );
+
+        assertEquals(requestedTokens, exception.getRequestedTokens());
+        assertEquals(availableTokens, exception.getAvailableTokens());
+        assertEquals(500L, exception.getShortfall());
+        assertTrue(exception.getMessage().contains("Insufficient available tokens for refund/adjustment"));
+        assertTrue(exception.getMessage().contains("Requested: 1000"));
+        assertTrue(exception.getMessage().contains("Available: 500"));
+        assertTrue(exception.getMessage().contains("Shortfall: 500"));
+
+        // Verify balance was not modified
+        verify(balanceRepository, never()).save(any(Balance.class));
+        verify(transactionRepository, never()).save(any(TokenTransaction.class));
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is true and insufficient tokens then allow negative balance")
+    void deductTokens_whenAllowNegativeBalanceTrueAndInsufficientTokens_thenAllowNegativeBalance() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 1000L;
+        long availableTokens = 500L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(true);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When
+        service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson);
+
+        // Then
+        ArgumentCaptor<Balance> balanceCaptor = ArgumentCaptor.forClass(Balance.class);
+        verify(balanceRepository).save(balanceCaptor.capture());
+        
+        Balance savedBalance = balanceCaptor.getValue();
+        assertEquals(-500L, savedBalance.getAvailableTokens()); // 500 - 1000 = -500
+
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        
+        TokenTransaction savedTransaction = transactionCaptor.getValue();
+        assertEquals(TokenTransactionType.REFUND, savedTransaction.getType());
+        assertEquals(-requestedTokens, savedTransaction.getAmountTokens());
+        assertEquals(-500L, savedTransaction.getBalanceAfterAvailable());
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is false and sufficient tokens then deduct normally")
+    void deductTokens_whenAllowNegativeBalanceFalseAndSufficientTokens_thenDeductNormally() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 500L;
+        long availableTokens = 1000L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(false);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When
+        service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson);
+
+        // Then
+        ArgumentCaptor<Balance> balanceCaptor = ArgumentCaptor.forClass(Balance.class);
+        verify(balanceRepository).save(balanceCaptor.capture());
+        
+        Balance savedBalance = balanceCaptor.getValue();
+        assertEquals(500L, savedBalance.getAvailableTokens()); // 1000 - 500 = 500
+
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        
+        TokenTransaction savedTransaction = transactionCaptor.getValue();
+        assertEquals(TokenTransactionType.REFUND, savedTransaction.getType());
+        assertEquals(-requestedTokens, savedTransaction.getAmountTokens());
+        assertEquals(500L, savedTransaction.getBalanceAfterAvailable());
+    }
+
+    @Test
+    @DisplayName("commit: when remainder exists then RELEASE transaction records correct remainder amount")
+    void commit_whenRemainderExists_thenReleaseTransactionRecordsCorrectRemainderAmount() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        long estimatedTokens = 100L;
+        long actualBillingTokens = 70L;
+        long expectedRemainder = 30L; // 100 - 70 = 30
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(0L);
+        balance.setReservedTokens(estimatedTokens);
+
+        Reservation res = new Reservation();
+        res.setId(reservationId);
+        res.setUserId(userId);
+        res.setEstimatedTokens(estimatedTokens);
+        res.setCommittedTokens(0L);
+        res.setState(ReservationState.ACTIVE);
+
+        when(reservationRepository.findByIdAndState(reservationId, ReservationState.ACTIVE)).thenReturn(Optional.of(res));
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey("idemp-commit")).thenReturn(Optional.empty());
+
+        // When
+        CommitResultDto result = service.commit(reservationId, actualBillingTokens, "job-1", "idemp-commit");
+
+        // Then
+        assertEquals(reservationId, result.reservationId());
+        assertEquals(actualBillingTokens, result.committedTokens());
+        assertEquals(expectedRemainder, result.releasedTokens());
+
+        // Verify two transactions were saved: COMMIT and RELEASE
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository, times(2)).save(transactionCaptor.capture());
+        
+        List<TokenTransaction> savedTransactions = transactionCaptor.getAllValues();
+        
+        // First transaction should be COMMIT
+        TokenTransaction commitTx = savedTransactions.get(0);
+        assertEquals(TokenTransactionType.COMMIT, commitTx.getType());
+        assertEquals(actualBillingTokens, commitTx.getAmountTokens());
+        
+        // Second transaction should be RELEASE with remainder amount
+        TokenTransaction releaseTx = savedTransactions.get(1);
+        assertEquals(TokenTransactionType.RELEASE, releaseTx.getType());
+        assertEquals(expectedRemainder, releaseTx.getAmountTokens()); // This was the bug - was 0L, now remainder
+        assertEquals(reservationId.toString(), releaseTx.getRefId());
+        assertEquals(TokenTransactionSource.QUIZ_GENERATION, releaseTx.getSource());
     }
 }

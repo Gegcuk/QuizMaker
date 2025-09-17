@@ -11,10 +11,13 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import com.stripe.exception.StripeException;
 
 import java.net.URI;
 import java.util.HashMap;
@@ -60,6 +63,21 @@ public class BillingErrorHandler {
                 HttpStatus.BAD_REQUEST, ex.getMessage());
         problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-tokens"));
         problemDetail.setTitle("Insufficient Tokens");
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+    }
+
+    @ExceptionHandler(InsufficientAvailableTokensException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex) {
+        log.warn("Insufficient available tokens: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, ex.getMessage());
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-available-tokens"));
+        problemDetail.setTitle("Insufficient Available Tokens");
+        problemDetail.setProperty("requestedTokens", ex.getRequestedTokens());
+        problemDetail.setProperty("availableTokens", ex.getAvailableTokens());
+        problemDetail.setProperty("shortfall", ex.getShortfall());
         
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
@@ -149,8 +167,57 @@ public class BillingErrorHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail);
     }
 
+    @ExceptionHandler(StripeException.class)
+    public ResponseEntity<ProblemDetail> handleStripeException(StripeException ex) {
+        log.error("Stripe API error: {}", ex.getMessage(), ex);
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Payment processing error");
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/stripe-error"));
+        problemDetail.setTitle("Payment Processing Error");
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex) {
+        log.warn("Rate limit exceeded: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/rate-limit-exceeded"));
+        problemDetail.setTitle("Rate Limit Exceeded");
+        
+        // Add retry-after header if available
+        if (ex.getRetryAfterSeconds() > 0) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                    .body(problemDetail);
+        }
+        
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(problemDetail);
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException ex) {
+        // Check if this is a configuration-related error
+        if (ex.getMessage() != null && (
+            ex.getMessage().contains("configuration") || 
+            ex.getMessage().contains("config") ||
+            ex.getMessage().contains("misconfigured") ||
+            ex.getMessage().contains("missing configuration"))) {
+            
+            log.error("Configuration error in billing API: {}", ex.getMessage(), ex);
+            
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                    HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
+            problemDetail.setType(URI.create("https://api.quizmaker.com/problems/configuration-error"));
+            problemDetail.setTitle("Service Configuration Error");
+            
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problemDetail);
+        }
+        
+        // For other IllegalStateException cases, treat as internal error
         log.error("Illegal state: {}", ex.getMessage(), ex);
         
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(

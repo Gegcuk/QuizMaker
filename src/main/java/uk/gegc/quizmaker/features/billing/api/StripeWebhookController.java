@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import org.springframework.http.HttpStatus;
 
 @Slf4j
 @RestController
@@ -18,12 +20,18 @@ import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidS
 public class StripeWebhookController {
 
     private final StripeWebhookService webhookService;
+    private final FeatureFlags featureFlags;
 
     @PostMapping("/webhook")
     public ResponseEntity<String> handleWebhook(
             @RequestBody String payload,
             @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
     ) {
+        if (!featureFlags.isBilling()) {
+            log.warn("Billing feature is disabled, rejecting webhook");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("");
+        }
+        
         try {
             var res = webhookService.process(payload, sigHeader);
             return ResponseEntity.ok(switch (res) {

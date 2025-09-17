@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 
 /**
  * Utility class for date and time operations using the centralized Clock.
@@ -48,7 +49,7 @@ public class DateUtils {
      * @return Current LocalDateTime in UTC
      */
     public LocalDateTime nowUtc() {
-        return LocalDateTime.now(Clock.systemUTC());
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
     /**

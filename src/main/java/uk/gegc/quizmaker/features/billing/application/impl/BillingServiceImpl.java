@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingStructuredLogger;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
@@ -124,6 +125,8 @@ public class BillingServiceImpl implements BillingService {
                     if (res.getEstimatedTokens() != estimatedBillingTokens) {
                         throw new IdempotencyConflictException("Idempotency key reused with different reservation amount");
                     }
+                    // Emit reservation created metrics for idempotent case
+                    metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
                     return reservationMapper.toDto(res);
                 } catch (IllegalArgumentException e) {
                     throw new IllegalStateException("Invalid reservation UUID in REF for prior idempotent RESERVE");
@@ -187,6 +190,10 @@ public class BillingServiceImpl implements BillingService {
                 tx.setBalanceAfterAvailable(balance.getAvailableTokens());
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
+                
+                // Emit reservation created metrics
+                metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
+                
                 // Flush to surface any optimistic locking issues within the retry loop
                 entityManager.flush();
                 return reservationMapper.toDto(res);
@@ -210,6 +217,8 @@ public class BillingServiceImpl implements BillingService {
                             UUID resId = UUID.fromString(existing.get().getRefId());
                             var res = reservationRepository.findById(resId)
                                     .orElseThrow(() -> new IllegalStateException("Reservation referenced by idempotent key not found after race"));
+                            // Emit reservation created metrics for race condition case
+                            metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
                             return reservationMapper.toDto(res);
                         } catch (Exception ignored) {
                             // fall through
@@ -294,7 +303,7 @@ public class BillingServiceImpl implements BillingService {
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
                 metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
 
-                // Then: if remainder exists, move reserved -> available for the difference and record RELEASE tx with amount 0
+                // Then: if remainder exists, move reserved -> available for the difference and record RELEASE tx with remainder amount
                 if (remainder > 0) {
                     balance.setReservedTokens(balance.getReservedTokens() - remainder);
                     balance.setAvailableTokens(balance.getAvailableTokens() + remainder);
@@ -304,7 +313,7 @@ public class BillingServiceImpl implements BillingService {
                     releaseTx.setUserId(res.getUserId());
                     releaseTx.setType(TokenTransactionType.RELEASE);
                     releaseTx.setSource(TokenTransactionSource.QUIZ_GENERATION);
-                    releaseTx.setAmountTokens(0L);
+                    releaseTx.setAmountTokens(remainder);
                     releaseTx.setRefId(reservationId.toString());
                     releaseTx.setIdempotencyKey(null);
                     releaseTx.setMetaJson(buildMetaJson(null, "commit-remainder", remainder));
@@ -487,7 +496,7 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
-    @Scheduled(fixedDelayString = "${billing.reservation-sweeper-ms:60000}")
+    @Scheduled(fixedDelayString = "#{@billingProperties.reservationSweeperMs}")
     @Transactional
     public void expireReservations() {
         var cutoff = LocalDateTime.now();
@@ -605,13 +614,18 @@ public class BillingServiceImpl implements BillingService {
                 
                 // Check if user has enough tokens to deduct
                 if (available < tokens) {
-                    // Option 1: Allow negative balance (tracked debt)
-                    // Option 2: Deduct what's available and log the shortfall
-                    // Option 3: Throw exception
-                    
-                    // For now, we'll allow negative balance but log a warning
-                    log.warn("Deducting {} tokens from user {} with only {} available (will result in negative balance)", 
-                            tokens, userId, available);
+                    if (!billingProperties.isAllowNegativeBalance()) {
+                        // Negative balances not allowed - throw exception
+                        long shortfall = tokens - available;
+                        throw new InsufficientAvailableTokensException(
+                            String.format("Insufficient available tokens for refund/adjustment. Requested: %d, Available: %d, Shortfall: %d", 
+                                tokens, available, shortfall),
+                            tokens, available, shortfall);
+                    } else {
+                        // Allow negative balance but log a warning
+                        log.warn("Deducting {} tokens from user {} with only {} available (will result in negative balance)", 
+                                tokens, userId, available);
+                    }
                 }
 
                 // Deduct tokens from available

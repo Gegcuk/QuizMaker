@@ -337,11 +337,45 @@ class QuizAuditService {
 }
 ```
 
-## 12) Tests (what to write with the code)
+## 12) Tests (what to write and how to write)
 
-- **Controllers:** `@WebMvcTest` + MockMvc for status/body/validation paths.
-- **Services:** plain JUnit + Mockito (no Spring context unless needed).
-- **Repositories:** `@DataJpaTest` to assert queries, projections, and `@EntityGraph` eliminates N+1. (Keep these as close to the code as possible.)
+- Test types and when to use them
+  - Controllers: `@WebMvcTest` + MockMvc for status/body/validation paths; slice the MVC layer, mock services.
+  - Services: plain JUnit 5 + Mockito (no Spring context unless needed); verify business rules and edge cases.
+  - Repositories: `@DataJpaTest` for queries/projections; assert `@EntityGraph`/JOIN FETCH remove N+1; prefer projections for lists.
+  - Integration: extend `BaseIntegrationTest` for full‑stack scenarios that cross layers (security, transactions, serialization).
+  - Contract/DTO serialization: Jackson `ObjectMapper` round‑trip tests for request/response DTOs when APIs are stable.
+
+- Display names and structure
+  - Use `@DisplayName` with the pattern: `methodOrRoute: when <condition> then <expectation>`.
+    - Examples:
+      - `createQuiz: when title missing then 400 Bad Request`
+      - `GET /api/v1/billing/balance: when authorized then 200`
+      - `findByEmailWithRoles: when unknown email then empty`
+  - Within tests, annotate sections with `// Given`, `// When`, `// Then` comments for readability.
+  - Prefer parameterized tests for matrix‑like inputs (`@ParameterizedTest` with clear `@DisplayName` templates).
+
+- Base test classes
+  - Use `BaseIntegrationTest` (extends `@SpringBootTest`, `@AutoConfigureMockMvc`, `@ActiveProfiles("test")`, transactional rollback) for integration tests.
+  - For MVC slices, consider a `BaseMvcTest` (if/when introduced) to centralize common setup (global exception handler, Jackson config).
+  - For JPA slices, consider a `BaseJpaTest` (if/when introduced) to standardize clock/profile and common utilities.
+
+- Clock and time in tests
+  - Prefer `Clock` over `now()` in production code; in tests, activate the `test` profile to use `TestClockConfig`’s fixed clock.
+  - Avoid `Thread.sleep` and time‑sensitive assertions; inject `Clock` and compute deterministically.
+  - For time comparisons, allow truncation where appropriate (e.g., compare `Instant` or truncate nanos).
+
+- Test data and fixtures
+  - Use builders/factories for entities/DTOs; keep them in `src/test/java/.../util` or dedicated factory classes.
+  - Keep fixtures minimal; prefer in‑test construction over large shared fixtures to avoid coupling.
+  - Seed DB only when necessary (e.g., `@Sql`) and scope seeds to a test class; otherwise build data via repositories.
+
+- Consistency checklist
+  - Class names: `XxxServiceTest`, `XxxRepositoryTest`, `XxxControllerTest` (slice), `XxxIntegrationTest` (full context).
+  - One assertion subject per test; multiple assertions allowed when tied to the same behavior.
+  - Use AssertJ for fluent assertions; avoid hamcrest/junit mix.
+  - Verify negative paths (validation, authorization) alongside happy paths.
+  - Keep tests independent and order‑agnostic; no reliance on execution order.
 
 ## 13) Per-Layer Checklists (agent must self-verify)
 
@@ -374,6 +408,43 @@ class QuizAuditService {
 - [ ] No PII in logs; parameterized logging.
 - [ ] No Optional in fields/params (return types only).
 - [ ] Code does not rely on OSIV behavior.
+
+## 14) Time & Clock (consistency rules)
+
+- Always inject and use `java.time.Clock` in services/components that read the current time.
+  - Do not call `LocalDateTime.now()`, `Instant.now()`, etc. directly in business code.
+  - Prefer `Instant.now(clock)` for persistence and domain timestamps; convert to `LocalDateTime` with explicit zone when needed.
+- Configuration
+  - Primary app clock defined in `shared/config/ClockConfig` with `app.timezone` (default UTC).
+  - Additional beans: `utcClock`, `systemClock` for explicit needs (use sparingly; default to primary clock).
+  - Tests run under `@ActiveProfiles("test")` which provide a fixed `Clock` via `TestClockConfig`.
+- Scheduling & TTL
+  - Use `Clock` for calculating TTLs/expirations; avoid embedding durations in `now()` calls.
+  - When calculating windows/cutoffs, prefer `Instant` math and convert at the boundary.
+
+## 15) Consistency & Best Practices (project‑wide)
+
+- Naming & packaging
+  - Feature‑first package layout (`features/<feature>/{api,application,domain,infra}`) and `shared/*` for cross‑cutting.
+  - DTOs are Java records in `api/dto` with Jakarta validation on components.
+  - MapStruct mappers live under `infra/mapping` and should be referenced via interfaces (not static helpers).
+
+- API & errors
+  - Expose ProblemDetail responses only; map domain exceptions in a single advice per feature area.
+  - Avoid leaking entity internals in API; map to DTOs and keep field names stable.
+
+- Security
+  - Method security at service layer (`@PreAuthorize`) for sensitive operations; keep expressions simple and test them.
+
+- Persistence
+  - LAZY by default; annotate aggregates with `@Version` when concurrency is possible.
+  - For list endpoints, prefer projections over full entities and page/slice consistently.
+
+- Logging
+  - Parameterized logging, correlation IDs if available; never log secrets/tokens/PII.
+
+- Reviews & CI
+  - Enforce these consistency rules in PR reviews; prefer small, focused changes with tests.
 
 ## 14) Feature-Specific Guidance
 

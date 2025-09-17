@@ -28,7 +28,8 @@ import jakarta.persistence.EntityManager;
 @Transactional
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create-drop",
-    "spring.flyway.enabled=false"
+    "spring.flyway.enabled=false",
+    "quizmaker.features.billing=true"
 })
 public abstract class BaseIntegrationTest {
     

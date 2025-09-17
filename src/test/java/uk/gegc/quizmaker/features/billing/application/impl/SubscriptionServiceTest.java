@@ -13,11 +13,12 @@ import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.SubscriptionStatusRepository;
+import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -44,6 +45,9 @@ class SubscriptionServiceTest {
     @Mock
     private SubscriptionStatusRepository subscriptionStatusRepository;
     
+    @Mock
+    private ProductPackRepository productPackRepository;
+    
     private SubscriptionService subscriptionService;
     
     private UUID testUserId;
@@ -58,7 +62,8 @@ class SubscriptionServiceTest {
         subscriptionService = new SubscriptionServiceImpl(
             internalBillingService, 
             metricsService, 
-            subscriptionStatusRepository
+            subscriptionStatusRepository,
+            productPackRepository
         );
         
         testUserId = UUID.randomUUID();
@@ -207,45 +212,106 @@ class SubscriptionServiceTest {
     class GetTokensPerPeriodTests {
 
         @Test
-        @DisplayName("Should return stable value across invocations")
-        void shouldReturnStableValueAcrossInvocations() {
-            // When - Call multiple times
-            long firstResult = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
-            long secondResult = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
-            long thirdResult = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
+        @DisplayName("Should return tokens from ProductPack when price ID exists")
+        void shouldReturnTokensFromProductPackWhenPriceIdExists() {
+            // Given - Mock ProductPack with specific token amount
+            ProductPack productPack = new ProductPack();
+            productPack.setTokens(5000L);
+            when(productPackRepository.findByStripePriceId(testPriceId))
+                .thenReturn(Optional.of(productPack));
             
-            // Then - All results should be the same
-            assertThat(firstResult).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
-            assertThat(secondResult).isEqualTo(firstResult);
-            assertThat(thirdResult).isEqualTo(firstResult);
+            // When
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
+            
+            // Then
+            assertThat(result).isEqualTo(5000L);
+            verify(productPackRepository).findByStripePriceId(testPriceId);
         }
 
         @Test
-        @DisplayName("Should return consistent value for different subscription IDs")
-        void shouldReturnConsistentValueForDifferentSubscriptionIds() {
-            // When
-            long result1 = subscriptionService.getTokensPerPeriod("sub_1", testPriceId);
-            long result2 = subscriptionService.getTokensPerPeriod("sub_2", testPriceId);
-            long result3 = subscriptionService.getTokensPerPeriod("sub_3", testPriceId);
+        @DisplayName("Should return default tokens when price ID is not found")
+        void shouldReturnDefaultTokensWhenPriceIdIsNotFound() {
+            // Given - No ProductPack found
+            when(productPackRepository.findByStripePriceId(testPriceId))
+                .thenReturn(Optional.empty());
             
-            // Then - All should return the same default value
-            assertThat(result1).isEqualTo(10000L);
-            assertThat(result2).isEqualTo(10000L);
-            assertThat(result3).isEqualTo(10000L);
+            // When
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
+            
+            // Then
+            assertThat(result).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
+            verify(productPackRepository).findByStripePriceId(testPriceId);
         }
 
         @Test
-        @DisplayName("Should return consistent value for different price IDs")
-        void shouldReturnConsistentValueForDifferentPriceIds() {
+        @DisplayName("Should return default tokens when price ID is null")
+        void shouldReturnDefaultTokensWhenPriceIdIsNull() {
             // When
-            long result1 = subscriptionService.getTokensPerPeriod(testSubscriptionId, "price_1");
-            long result2 = subscriptionService.getTokensPerPeriod(testSubscriptionId, "price_2");
-            long result3 = subscriptionService.getTokensPerPeriod(testSubscriptionId, "price_3");
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, null);
             
-            // Then - All should return the same default value
-            assertThat(result1).isEqualTo(10000L);
-            assertThat(result2).isEqualTo(10000L);
-            assertThat(result3).isEqualTo(10000L);
+            // Then
+            assertThat(result).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
+            verify(productPackRepository, never()).findByStripePriceId(any());
+        }
+
+        @Test
+        @DisplayName("Should return default tokens when price ID is empty")
+        void shouldReturnDefaultTokensWhenPriceIdIsEmpty() {
+            // When
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, "");
+            
+            // Then
+            assertThat(result).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
+            verify(productPackRepository, never()).findByStripePriceId(any());
+        }
+
+        @Test
+        @DisplayName("Should return default tokens when price ID is whitespace only")
+        void shouldReturnDefaultTokensWhenPriceIdIsWhitespaceOnly() {
+            // When
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, "   ");
+            
+            // Then
+            assertThat(result).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
+            verify(productPackRepository, never()).findByStripePriceId(any());
+        }
+
+        @Test
+        @DisplayName("Should return different token amounts for different price IDs")
+        void shouldReturnDifferentTokenAmountsForDifferentPriceIds() {
+            // Given - Different ProductPacks with different token amounts
+            ProductPack smallPack = new ProductPack();
+            smallPack.setTokens(1000L);
+            ProductPack largePack = new ProductPack();
+            largePack.setTokens(25000L);
+            
+            when(productPackRepository.findByStripePriceId("price_small"))
+                .thenReturn(Optional.of(smallPack));
+            when(productPackRepository.findByStripePriceId("price_large"))
+                .thenReturn(Optional.of(largePack));
+            
+            // When
+            long smallResult = subscriptionService.getTokensPerPeriod(testSubscriptionId, "price_small");
+            long largeResult = subscriptionService.getTokensPerPeriod(testSubscriptionId, "price_large");
+            
+            // Then
+            assertThat(smallResult).isEqualTo(1000L);
+            assertThat(largeResult).isEqualTo(25000L);
+            assertThat(smallResult).isNotEqualTo(largeResult);
+        }
+
+        @Test
+        @DisplayName("Should handle repository exceptions gracefully")
+        void shouldHandleRepositoryExceptionsGracefully() {
+            // Given - Repository throws exception
+            when(productPackRepository.findByStripePriceId(testPriceId))
+                .thenThrow(new RuntimeException("Database error"));
+            
+            // When
+            long result = subscriptionService.getTokensPerPeriod(testSubscriptionId, testPriceId);
+            
+            // Then - Should return default tokens
+            assertThat(result).isEqualTo(10000L); // DEFAULT_TOKENS_PER_PERIOD
         }
     }
 

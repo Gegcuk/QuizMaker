@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.features.billing.application;
 
-import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
@@ -51,6 +50,21 @@ public class BillingProperties {
      * When true, users can have negative balances (e.g., from refunds).
      * When false, balances are clamped to zero.
      */
-    private boolean allowNegativeBalance = true;
+    private boolean allowNegativeBalance = false;
+
+    /**
+     * Whether to allow email-based fallback for Stripe customer ownership verification.
+     * When true, if customer metadata lacks userId, fall back to matching customer email to user email.
+     * When false, require metadata userId match only (more secure, prevents email reuse/aliasing issues).
+     */
+    private boolean allowEmailFallbackForCustomerOwnership = false;
+
+    /**
+     * Reservation sweeper interval in milliseconds.
+     * How often the sweeper runs to clean up expired reservations and release their tokens.
+     * Default: 60000ms (1 minute).
+     */
+    @Positive
+    private long reservationSweeperMs = 60000L;
 
 }

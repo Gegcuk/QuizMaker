@@ -41,7 +41,10 @@ public class ClockConfig {
     @Bean
     @Primary
     public Clock clock() {
-        return Clock.system(ZoneId.of(timezone));
+        String configuredZone = timezone == null || timezone.isBlank()
+                ? "UTC"
+                : timezone.trim();
+        return Clock.system(ZoneId.of(configuredZone));
     }
 
     /**

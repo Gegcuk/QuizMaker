@@ -146,12 +146,13 @@ public class CheckoutValidationServiceImpl implements CheckoutValidationService 
 
     private String extractPriceId(Object lineItem) {
         try {
-            // Use reflection to access the price ID from the line item
-            var priceField = lineItem.getClass().getMethod("getPrice");
-            var price = priceField.invoke(lineItem);
-            if (price != null) {
-                var priceIdField = price.getClass().getMethod("getId");
-                return (String) priceIdField.invoke(price);
+            // Use proper Stripe SDK methods instead of reflection
+            // Cast to the appropriate Stripe SDK type
+            if (lineItem instanceof com.stripe.model.LineItem stripeLineItem) {
+                var price = stripeLineItem.getPrice();
+                if (price != null) {
+                    return price.getId();
+                }
             }
         } catch (Exception e) {
             log.debug("Failed to extract price ID from line item: {}", e.getMessage());
@@ -201,9 +202,11 @@ public class CheckoutValidationServiceImpl implements CheckoutValidationService 
     
     private String extractLineItemCurrency(Object lineItem) {
         try {
-            // Use reflection to access the currency from the line item
-            var currencyField = lineItem.getClass().getMethod("getCurrency");
-            return (String) currencyField.invoke(lineItem);
+            // Use proper Stripe SDK methods instead of reflection
+            // Cast to the appropriate Stripe SDK type
+            if (lineItem instanceof com.stripe.model.LineItem stripeLineItem) {
+                return stripeLineItem.getCurrency();
+            }
         } catch (Exception e) {
             log.debug("Failed to extract currency from line item: {}", e.getMessage());
         }
