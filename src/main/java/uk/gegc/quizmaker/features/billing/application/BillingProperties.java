@@ -50,7 +50,7 @@ public class BillingProperties {
      * When true, users can have negative balances (e.g., from refunds).
      * When false, balances are clamped to zero.
      */
-    private boolean allowNegativeBalance = true;
+    private boolean allowNegativeBalance = false;
 
     /**
      * Whether to allow email-based fallback for Stripe customer ownership verification.

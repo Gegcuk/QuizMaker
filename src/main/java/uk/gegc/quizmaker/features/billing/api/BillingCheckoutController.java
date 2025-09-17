@@ -143,118 +143,92 @@ public class BillingCheckoutController {
     @PostMapping("/create-customer")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request,
-                                                           Authentication authentication) {
+                                                           Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
-        
+
         // Rate limiting: 3 requests per minute per user (Stripe customer creation is expensive)
         rateLimitService.checkRateLimit("billing-create-customer", currentUserId.toString(), 3);
-        
-        log.info("Creating Stripe customer for user {} with email {}", currentUserId, request.email());
-        
-        try {
-            CustomerResponse customer = stripeService.createCustomer(currentUserId, request.email());
-            return ResponseEntity.ok(customer);
-        } catch (StripeException e) {
-            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
-        }
-    }
 
+        log.info("Creating Stripe customer for user {} with email {}", currentUserId, request.email());
+
+        CustomerResponse customer = stripeService.createCustomer(currentUserId, request.email());
+        return ResponseEntity.ok(customer);
+    }
     @GetMapping("/customers/{customerId}")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CustomerResponse> getCustomer(@PathVariable String customerId,
-                                                        Authentication authentication) {
+                                                        Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
-        try {
-            // Verify ownership via Stripe customer metadata userId
-            var rawCustomer = stripeService.retrieveCustomerRaw(customerId);
-            String mdUserId = rawCustomer.getMetadata() != null ? rawCustomer.getMetadata().get("userId") : null;
-            if (mdUserId == null || !mdUserId.equalsIgnoreCase(currentUserId.toString())) {
-                // Check if email fallback is allowed by configuration
-                if (billingProperties.isAllowEmailFallbackForCustomerOwnership()) {
-                    // Fallback to email-based ownership if metadata not present and fallback is enabled
-                    User user = userRepository.findById(currentUserId)
-                            .orElse(null);
-                    String custEmail = rawCustomer.getEmail();
-                    if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
-                        log.warn("User {} attempted to access customer {} not owned by them (email fallback enabled)", currentUserId, customerId);
-                        throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: customer not owned by user");
-                    }
-                    log.info("User {} accessing customer {} via email fallback (metadata userId missing)", currentUserId, customerId);
-                } else {
-                    // Metadata-only ownership required
-                    log.warn("User {} attempted to access customer {} without proper metadata userId (email fallback disabled)", currentUserId, customerId);
-                    throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: metadata-only ownership required");
+
+        // Verify ownership via Stripe customer metadata userId
+        var rawCustomer = stripeService.retrieveCustomerRaw(customerId);
+        String mdUserId = rawCustomer.getMetadata() != null ? rawCustomer.getMetadata().get("userId") : null;
+        if (mdUserId == null || !mdUserId.equalsIgnoreCase(currentUserId.toString())) {
+            // Check if email fallback is allowed by configuration
+            if (billingProperties.isAllowEmailFallbackForCustomerOwnership()) {
+                // Fallback to email-based ownership if metadata not present and fallback is enabled
+                User user = userRepository.findById(currentUserId)
+                        .orElse(null);
+                String custEmail = rawCustomer.getEmail();
+                if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
+                    log.warn("User {} attempted to access customer {} not owned by them (email fallback enabled)", currentUserId, customerId);
+                    throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: customer not owned by user");
                 }
+                log.info("User {} accessing customer {} via email fallback (metadata userId missing)", currentUserId, customerId);
+            } else {
+                // Metadata-only ownership required
+                log.warn("User {} attempted to access customer {} without proper metadata userId (email fallback disabled)", currentUserId, customerId);
+                throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: metadata-only ownership required");
             }
-            log.info("User {} accessing own customer {}", currentUserId, customerId);
-
-            CustomerResponse customer = stripeService.retrieveCustomer(customerId);
-            return ResponseEntity.ok(customer);
-        } catch (StripeException e) {
-            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         }
-    }
+        log.info("User {} accessing own customer {}", currentUserId, customerId);
 
+        CustomerResponse customer = stripeService.retrieveCustomer(customerId);
+        return ResponseEntity.ok(customer);
+    }
     @PostMapping("/create-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<SubscriptionResponse> createSubscription(@Valid @RequestBody CreateSubscriptionRequest request,
-                                                                   Authentication authentication) {
+                                                                   Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
-        
-        try {
-            // Resolve or create Stripe customer for this user
-            String customerId = resolveStripeCustomerId(currentUserId);
-            
-            log.info("Creating subscription for user {} with customer {} and price {}", 
-                    currentUserId, customerId, request.priceId());
-            
-            SubscriptionResponse subscription = stripeService.createSubscription(customerId, request.priceId());
-            return ResponseEntity.ok(subscription);
-        } catch (StripeException e) {
-            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
-        } catch (Exception e) {
-            throw new RuntimeException("Error resolving customer or creating subscription: " + e.getMessage(), e);
-        }
-    }
 
+        // Resolve or create Stripe customer for this user
+        String customerId = resolveStripeCustomerId(currentUserId);
+
+        log.info("Creating subscription for user {} with customer {} and price {}",
+                currentUserId, customerId, request.priceId());
+
+        SubscriptionResponse subscription = stripeService.createSubscription(customerId, request.priceId());
+        return ResponseEntity.ok(subscription);
+    }
     @PostMapping("/update-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> updateSubscription(@Valid @RequestBody UpdateSubscriptionRequest request,
-                                                     Authentication authentication) {
+                                                     Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
-        
-        try {
-            // Resolve price ID from lookup key via Stripe
-            String newPriceId = stripeService.resolvePriceIdByLookupKey(request.newPriceLookupKey());
-            
-            log.info("Updating subscription {} for user {} to price {}", 
-                    request.subscriptionId(), currentUserId, newPriceId);
-            
-            var subscription = stripeService.updateSubscription(request.subscriptionId(), newPriceId);
-            // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
-            return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
-        } catch (StripeException e) {
-            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
-        }
-    }
 
+        // Resolve price ID from lookup key via Stripe
+        String newPriceId = stripeService.resolvePriceIdByLookupKey(request.newPriceLookupKey());
+
+        log.info("Updating subscription {} for user {} to price {}",
+                request.subscriptionId(), currentUserId, newPriceId);
+
+        var subscription = stripeService.updateSubscription(request.subscriptionId(), newPriceId);
+        // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
+        return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
+    }
     @PostMapping("/cancel-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> cancelSubscription(@Valid @RequestBody CancelSubscriptionRequest request,
-                                                     Authentication authentication) {
+                                                     Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
-        
-        log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);
-        
-        try {
-            var subscription = stripeService.cancelSubscription(request.subscriptionId());
-            // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
-            return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
-        } catch (StripeException e) {
-            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
-        }
-    }
 
+        log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);
+
+        var subscription = stripeService.cancelSubscription(request.subscriptionId());
+        // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
+        return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
+    }
     private java.util.Optional<UUID> safeParseUuid(String value) {
         try {
             return java.util.Optional.of(UUID.fromString(value));
@@ -277,7 +251,7 @@ public class BillingCheckoutController {
                 });
     }
 
-    private String resolveStripeCustomerId(UUID userId) throws Exception {
+    private String resolveStripeCustomerId(UUID userId) throws StripeException {
         // Prefer existing Stripe customer ID from the most recent payment
         var page = paymentRepository.findByUserId(
                 userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt"))
