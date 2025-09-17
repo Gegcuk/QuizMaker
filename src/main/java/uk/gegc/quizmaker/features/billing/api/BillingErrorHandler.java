@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
@@ -60,6 +61,21 @@ public class BillingErrorHandler {
                 HttpStatus.BAD_REQUEST, ex.getMessage());
         problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-tokens"));
         problemDetail.setTitle("Insufficient Tokens");
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+    }
+
+    @ExceptionHandler(InsufficientAvailableTokensException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex) {
+        log.warn("Insufficient available tokens: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, ex.getMessage());
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-available-tokens"));
+        problemDetail.setTitle("Insufficient Available Tokens");
+        problemDetail.setProperty("requestedTokens", ex.getRequestedTokens());
+        problemDetail.setProperty("availableTokens", ex.getAvailableTokens());
+        problemDetail.setProperty("shortfall", ex.getShortfall());
         
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }

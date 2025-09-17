@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingStructuredLogger;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
@@ -605,13 +606,18 @@ public class BillingServiceImpl implements BillingService {
                 
                 // Check if user has enough tokens to deduct
                 if (available < tokens) {
-                    // Option 1: Allow negative balance (tracked debt)
-                    // Option 2: Deduct what's available and log the shortfall
-                    // Option 3: Throw exception
-                    
-                    // For now, we'll allow negative balance but log a warning
-                    log.warn("Deducting {} tokens from user {} with only {} available (will result in negative balance)", 
-                            tokens, userId, available);
+                    if (!billingProperties.isAllowNegativeBalance()) {
+                        // Negative balances not allowed - throw exception
+                        long shortfall = tokens - available;
+                        throw new InsufficientAvailableTokensException(
+                            String.format("Insufficient available tokens for refund/adjustment. Requested: %d, Available: %d, Shortfall: %d", 
+                                tokens, available, shortfall),
+                            tokens, available, shortfall);
+                    } else {
+                        // Allow negative balance but log a warning
+                        log.warn("Deducting {} tokens from user {} with only {} available (will result in negative balance)", 
+                                tokens, userId, available);
+                    }
                 }
 
                 // Deduct tokens from available

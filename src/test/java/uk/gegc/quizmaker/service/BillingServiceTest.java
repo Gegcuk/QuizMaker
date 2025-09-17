@@ -1,9 +1,9 @@
 package uk.gegc.quizmaker.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.features.billing.domain.model.*;
 import uk.gegc.quizmaker.features.billing.infra.mapping.BalanceMapper;
 import uk.gegc.quizmaker.features.billing.infra.mapping.ReservationMapper;
@@ -26,7 +27,6 @@ import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -367,5 +367,125 @@ class BillingServiceTest {
 
         assertThrows(uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException.class,
                 () -> service.release(resId, "reason", "ref", "idemp-r3"));
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is false and insufficient tokens then throw InsufficientAvailableTokensException")
+    void deductTokens_whenAllowNegativeBalanceFalseAndInsufficientTokens_thenThrowException() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 1000L;
+        long availableTokens = 500L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(false);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When & Then
+        InsufficientAvailableTokensException exception = assertThrows(
+            InsufficientAvailableTokensException.class,
+            () -> service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson)
+        );
+
+        assertEquals(requestedTokens, exception.getRequestedTokens());
+        assertEquals(availableTokens, exception.getAvailableTokens());
+        assertEquals(500L, exception.getShortfall());
+        assertTrue(exception.getMessage().contains("Insufficient available tokens for refund/adjustment"));
+        assertTrue(exception.getMessage().contains("Requested: 1000"));
+        assertTrue(exception.getMessage().contains("Available: 500"));
+        assertTrue(exception.getMessage().contains("Shortfall: 500"));
+
+        // Verify balance was not modified
+        verify(balanceRepository, never()).save(any(Balance.class));
+        verify(transactionRepository, never()).save(any(TokenTransaction.class));
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is true and insufficient tokens then allow negative balance")
+    void deductTokens_whenAllowNegativeBalanceTrueAndInsufficientTokens_thenAllowNegativeBalance() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 1000L;
+        long availableTokens = 500L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(true);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When
+        service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson);
+
+        // Then
+        ArgumentCaptor<Balance> balanceCaptor = ArgumentCaptor.forClass(Balance.class);
+        verify(balanceRepository).save(balanceCaptor.capture());
+        
+        Balance savedBalance = balanceCaptor.getValue();
+        assertEquals(-500L, savedBalance.getAvailableTokens()); // 500 - 1000 = -500
+
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        
+        TokenTransaction savedTransaction = transactionCaptor.getValue();
+        assertEquals(TokenTransactionType.REFUND, savedTransaction.getType());
+        assertEquals(-requestedTokens, savedTransaction.getAmountTokens());
+        assertEquals(-500L, savedTransaction.getBalanceAfterAvailable());
+    }
+
+    @Test
+    @DisplayName("deductTokens: when allowNegativeBalance is false and sufficient tokens then deduct normally")
+    void deductTokens_whenAllowNegativeBalanceFalseAndSufficientTokens_thenDeductNormally() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long requestedTokens = 500L;
+        long availableTokens = 1000L;
+        String idempotencyKey = "test-key";
+        String ref = "test-ref";
+        String metaJson = "{}";
+
+        billingProperties.setAllowNegativeBalance(false);
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(availableTokens);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey(idempotencyKey)).thenReturn(Optional.empty());
+
+        // When
+        service.deductTokens(userId, requestedTokens, idempotencyKey, ref, metaJson);
+
+        // Then
+        ArgumentCaptor<Balance> balanceCaptor = ArgumentCaptor.forClass(Balance.class);
+        verify(balanceRepository).save(balanceCaptor.capture());
+        
+        Balance savedBalance = balanceCaptor.getValue();
+        assertEquals(500L, savedBalance.getAvailableTokens()); // 1000 - 500 = 500
+
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository).save(transactionCaptor.capture());
+        
+        TokenTransaction savedTransaction = transactionCaptor.getValue();
+        assertEquals(TokenTransactionType.REFUND, savedTransaction.getType());
+        assertEquals(-requestedTokens, savedTransaction.getAmountTokens());
+        assertEquals(500L, savedTransaction.getBalanceAfterAvailable());
     }
 }
