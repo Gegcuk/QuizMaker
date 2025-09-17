@@ -12,6 +12,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Implementation of billing metrics service.
@@ -45,8 +46,14 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     // Gauges for tracking current state
     private final ConcurrentHashMap<String, AtomicLong> balanceGauges = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> negativeBalanceGauges = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> reservedBalanceGauges = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> reconciliationDriftGauges = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicReference<Double>> webhookFailureRateGauges = new ConcurrentHashMap<>();
+    private final AtomicLong sweeperBacklogGauge;
     
     public BillingMetricsServiceImpl(MeterRegistry meterRegistry) {
+        this.sweeperBacklogGauge = new AtomicLong(0L);
+
         this.meterRegistry = meterRegistry;
         
         // Initialize counters
@@ -195,10 +202,14 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     public void recordBalanceReserved(UUID userId, long amount) {
         log.info("METRIC: billing.balance.reserved userId={} amount={}", userId, amount);
         String userIdStr = userId.toString();
-        Gauge.builder("billing.balance.reserved", () -> amount)
-                .description("Reserved token balance for user")
-                .tag("userId", userIdStr)
-                .register(meterRegistry);
+        reservedBalanceGauges.computeIfAbsent(userIdStr, k -> {
+            AtomicLong gauge = new AtomicLong(amount);
+            Gauge.builder("billing.balance.reserved", gauge, AtomicLong::get)
+                    .description("Reserved token balance for user")
+                    .tag("userId", userIdStr)
+                    .register(meterRegistry);
+            return gauge;
+        }).set(amount);
     }
 
     @Override
@@ -218,10 +229,15 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     @Override
     public void recordReconciliationDrift(UUID userId, long driftAmount) {
         log.warn("METRIC: billing.reconciliation.drift userId={} driftAmount={}", userId, driftAmount);
-        Gauge.builder("billing.reconciliation.drift", () -> driftAmount)
-                .description("Reconciliation drift amount for user")
-                .tag("userId", userId.toString())
-                .register(meterRegistry);
+        String userIdStr = userId.toString();
+        reconciliationDriftGauges.computeIfAbsent(userIdStr, k -> {
+            AtomicLong gauge = new AtomicLong(driftAmount);
+            Gauge.builder("billing.reconciliation.drift", gauge, AtomicLong::get)
+                    .description("Reconciliation drift amount for user")
+                    .tag("userId", userIdStr)
+                    .register(meterRegistry);
+            return gauge;
+        }).set(driftAmount);
     }
 
     @Override
@@ -239,18 +255,20 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     @Override
     public void recordWebhookFailureRate(String eventType, double failureRate) {
         log.warn("METRIC: billing.webhook.failure_rate eventType={} failureRate={}", eventType, failureRate);
-        Gauge.builder("billing.webhook.failure_rate", () -> failureRate)
-                .description("Webhook failure rate by event type")
-                .tag("eventType", eventType)
-                .register(meterRegistry);
+        webhookFailureRateGauges.computeIfAbsent(eventType, key -> {
+            AtomicReference<Double> ref = new AtomicReference<>(failureRate);
+            Gauge.builder("billing.webhook.failure_rate", ref, AtomicReference::get)
+                    .description("Webhook failure rate by event type")
+                    .tag("eventType", eventType)
+                    .register(meterRegistry);
+            return ref;
+        }).set(failureRate);
     }
 
     @Override
     public void recordSweeperBacklog(int expiredReservations) {
         log.warn("METRIC: billing.sweeper.backlog expiredReservations={}", expiredReservations);
-        Gauge.builder("billing.sweeper.backlog", () -> expiredReservations)
-                .description("Number of expired reservations in sweeper backlog")
-                .register(meterRegistry);
+        sweeperBacklogGauge.set(expiredReservations);
     }
 
     @Override
