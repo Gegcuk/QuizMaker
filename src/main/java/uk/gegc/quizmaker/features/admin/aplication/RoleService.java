@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.admin.aplication;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
@@ -36,6 +38,11 @@ public interface RoleService {
      * Get all roles
      */
     List<RoleDto> getAllRoles();
+
+    /**
+     * Get all roles with pagination and filtering
+     */
+    Page<RoleDto> getAllRoles(Pageable pageable, String search);
 
     /**
      * Get role by name

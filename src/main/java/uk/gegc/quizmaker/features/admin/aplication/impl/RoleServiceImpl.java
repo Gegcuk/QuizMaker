@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.features.admin.aplication.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
@@ -128,6 +130,13 @@ public class RoleServiceImpl implements RoleService {
         return roles.stream()
                 .map(roleMapper::toDto)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<RoleDto> getAllRoles(Pageable pageable, String search) {
+        Page<Role> roles = roleRepository.findAllWithPermissionsAndSearch(search, pageable);
+        return roles.map(roleMapper::toDto);
     }
 
     @Override

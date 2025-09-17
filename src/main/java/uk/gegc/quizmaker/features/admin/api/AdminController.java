@@ -3,8 +3,13 @@ package uk.gegc.quizmaker.features.admin.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
@@ -12,6 +17,8 @@ import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
 import uk.gegc.quizmaker.features.admin.api.dto.UpdateRoleRequest;
 import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
+import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
+import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
@@ -27,8 +34,12 @@ import java.util.UUID;
 public class AdminController {
 
     private final RoleService roleService;
+    private final PermissionService permissionService;
     private final PermissionUtil permissionUtil;
     private final PolicyReconciliationService policyReconciliationService;
+
+    @Value("${app.admin.system-initialization.enabled:true}")
+    private boolean systemInitializationEnabled;
 
     // Example using annotation-based permission checking
     @GetMapping("/roles")
@@ -36,6 +47,16 @@ public class AdminController {
     @RequirePermission(PermissionName.ROLE_READ)
     public ResponseEntity<List<RoleDto>> getAllRoles() {
         List<RoleDto> roles = roleService.getAllRoles();
+        return ResponseEntity.ok(roles);
+    }
+
+    @GetMapping("/roles/paginated")
+    @Operation(summary = "Get roles with pagination and filtering")
+    @RequirePermission(PermissionName.ROLE_READ)
+    public ResponseEntity<Page<RoleDto>> getAllRolesPaginated(
+            @PageableDefault(size = 20, sort = "roleName") Pageable pageable,
+            @RequestParam(required = false) String search) {
+        Page<RoleDto> roles = roleService.getAllRoles(pageable, search);
         return ResponseEntity.ok(roles);
     }
 
@@ -51,7 +72,14 @@ public class AdminController {
     @Operation(summary = "Create a new role")
     @RequirePermission(PermissionName.ROLE_CREATE)
     public ResponseEntity<RoleDto> createRole(@Valid @RequestBody CreateRoleRequest request) {
-        RoleDto createdRole = roleService.createRole(request);
+        // Normalize role name to uppercase
+        CreateRoleRequest normalizedRequest = CreateRoleRequest.builder()
+                .roleName(request.getRoleName().toUpperCase())
+                .description(request.getDescription())
+                .isDefault(request.isDefault())
+                .build();
+        
+        RoleDto createdRole = roleService.createRole(normalizedRequest);
         return ResponseEntity.ok(createdRole);
     }
 
@@ -96,6 +124,12 @@ public class AdminController {
     @Operation(summary = "Initialize system roles and permissions")
     @RequirePermission(PermissionName.SYSTEM_ADMIN)
     public ResponseEntity<String> initializeSystem() {
+        if (!systemInitializationEnabled) {
+            log.warn("System initialization attempted but disabled via feature flag by user: {}", 
+                    permissionUtil.getCurrentUser().getUsername());
+            return ResponseEntity.badRequest().body("System initialization is disabled");
+        }
+        
         roleService.initializeDefaultRolesAndPermissions();
         return ResponseEntity.ok("System initialized successfully");
     }
@@ -172,4 +206,94 @@ public class AdminController {
             return ResponseEntity.badRequest().body(result);
         }
     }
+
+    // Permission CRUD endpoints
+    @GetMapping("/permissions")
+    @Operation(summary = "Get all permissions")
+    @RequirePermission(PermissionName.PERMISSION_READ)
+    public ResponseEntity<List<Permission>> getAllPermissions() {
+        List<Permission> permissions = permissionService.getAllPermissions();
+        return ResponseEntity.ok(permissions);
+    }
+
+    @GetMapping("/permissions/{permissionId}")
+    @Operation(summary = "Get permission by ID")
+    @RequirePermission(PermissionName.PERMISSION_READ)
+    public ResponseEntity<Permission> getPermissionById(@PathVariable Long permissionId) {
+        Permission permission = permissionService.getPermissionByName(
+            permissionService.getAllPermissions().stream()
+                .filter(p -> p.getPermissionId().equals(permissionId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Permission not found"))
+                .getPermissionName()
+        );
+        return ResponseEntity.ok(permission);
+    }
+
+    @PostMapping("/permissions")
+    @Operation(summary = "Create a new permission")
+    @RequirePermission(PermissionName.PERMISSION_CREATE)
+    public ResponseEntity<Permission> createPermission(@Valid @RequestBody CreatePermissionRequest request) {
+        Permission permission = permissionService.createPermission(
+            request.permissionName().toUpperCase(), // Normalize to uppercase
+            request.description(),
+            request.resource(),
+            request.action()
+        );
+        return ResponseEntity.ok(permission);
+    }
+
+    @PutMapping("/permissions/{permissionId}")
+    @Operation(summary = "Update an existing permission")
+    @RequirePermission(PermissionName.PERMISSION_UPDATE)
+    public ResponseEntity<Permission> updatePermission(@PathVariable Long permissionId,
+                                                      @Valid @RequestBody UpdatePermissionRequest request) {
+        Permission permission = permissionService.updatePermission(
+            permissionId,
+            request.description(),
+            request.resource(),
+            request.action()
+        );
+        return ResponseEntity.ok(permission);
+    }
+
+    @DeleteMapping("/permissions/{permissionId}")
+    @Operation(summary = "Delete a permission")
+    @RequirePermission(PermissionName.PERMISSION_DELETE)
+    public ResponseEntity<Void> deletePermission(@PathVariable Long permissionId) {
+        permissionService.deletePermission(permissionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/roles/{roleId}/permissions/{permissionId}")
+    @Operation(summary = "Assign permission to role")
+    @RequirePermission(PermissionName.ROLE_ASSIGN)
+    public ResponseEntity<Void> assignPermissionToRole(@PathVariable Long roleId,
+                                                       @PathVariable Long permissionId) {
+        permissionService.assignPermissionToRole(roleId, permissionId);
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/roles/{roleId}/permissions/{permissionId}")
+    @Operation(summary = "Remove permission from role")
+    @RequirePermission(PermissionName.ROLE_ASSIGN)
+    public ResponseEntity<Void> removePermissionFromRole(@PathVariable Long roleId,
+                                                         @PathVariable Long permissionId) {
+        permissionService.removePermissionFromRole(roleId, permissionId);
+        return ResponseEntity.ok().build();
+    }
+
+    // DTOs for permission operations
+    public record CreatePermissionRequest(
+        @NotBlank String permissionName,
+        String description,
+        String resource,
+        String action
+    ) {}
+
+    public record UpdatePermissionRequest(
+        String description,
+        String resource,
+        String action
+    ) {}
 }

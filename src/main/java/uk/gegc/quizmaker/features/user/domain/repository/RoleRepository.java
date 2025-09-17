@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.user.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -47,4 +49,13 @@ public interface RoleRepository extends JpaRepository<Role, Long> {
      */
     @Query("SELECT r FROM Role r LEFT JOIN FETCH r.users WHERE r.roleId = :roleId")
     Optional<Role> findByIdWithUsers(@Param("roleId") Long roleId);
+
+    /**
+     * Find all roles with pagination and optional search filtering
+     */
+    @Query("SELECT DISTINCT r FROM Role r LEFT JOIN FETCH r.permissions WHERE " +
+           "(:search IS NULL OR :search = '' OR " +
+           "LOWER(r.roleName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+           "LOWER(r.description) LIKE LOWER(CONCAT('%', :search, '%')))")
+    Page<Role> findAllWithPermissionsAndSearch(@Param("search") String search, Pageable pageable);
 }
