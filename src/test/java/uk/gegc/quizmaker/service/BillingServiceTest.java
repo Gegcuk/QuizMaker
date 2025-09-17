@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.billing.infra.mapping.TokenTransactionMapper;
 import uk.gegc.quizmaker.features.billing.infra.repository.BalanceRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ReservationRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +42,7 @@ class BillingServiceTest {
     private TokenTransactionRepository transactionRepository;
     private ReservationRepository reservationRepository;
     private BillingProperties billingProperties;
+    private BillingMetricsService metricsService;
 
     // use real mappers via MapStruct generated impls is complex here; mock mapping
     private BalanceMapper balanceMapper;
@@ -58,14 +60,14 @@ class BillingServiceTest {
         balanceMapper = mock(BalanceMapper.class);
         txMapper = mock(TokenTransactionMapper.class);
         reservationMapper = mock(ReservationMapper.class);
-        BillingMetricsService metricsService = mock(BillingMetricsService.class);
+        metricsService = mock(BillingMetricsService.class);
 
         service = new BillingServiceImpl(
                 billingProperties,
                 balanceRepository,
                 transactionRepository,
                 reservationRepository,
-                mock(uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository.class),
+                mock(QuizGenerationJobRepository.class),
                 balanceMapper,
                 txMapper,
                 reservationMapper,
@@ -258,6 +260,69 @@ class BillingServiceTest {
 
         assertThrows(uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException.class,
                 () -> service.reserve(userId, 40, "job-ref", "idem-k2"));
+    }
+
+    @Test
+    @DisplayName("reserve: emits reservation created metrics when reservation is successfully created")
+    void reserve_emitsReservationCreatedMetrics() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long estimatedBillingTokens = 50L;
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(100L);
+        balance.setReservedTokens(0L);
+
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey("idemp-metrics")).thenReturn(Optional.empty());
+
+        UUID resId = UUID.randomUUID();
+        when(reservationRepository.save(any(Reservation.class))).thenAnswer(inv -> {
+            Reservation r = inv.getArgument(0);
+            r.setId(resId);
+            return r;
+        });
+
+        ReservationDto expected = new ReservationDto(resId, userId, ReservationState.ACTIVE, estimatedBillingTokens, 0, null, null, null, null);
+        when(reservationMapper.toDto(any(Reservation.class))).thenReturn(expected);
+
+        // When
+        ReservationDto result = service.reserve(userId, estimatedBillingTokens, "job-ref", "idemp-metrics");
+
+        // Then
+        assertEquals(expected, result);
+        verify(metricsService).incrementReservationCreated(userId, estimatedBillingTokens);
+    }
+
+    @Test
+    @DisplayName("reserve: emits reservation created metrics for idempotent case")
+    void reserve_emitsReservationCreatedMetricsForIdempotentCase() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        long estimatedBillingTokens = 30L;
+        UUID resId = UUID.randomUUID();
+        
+        TokenTransaction existingTx = new TokenTransaction();
+        existingTx.setType(TokenTransactionType.RESERVE);
+        existingTx.setRefId(resId.toString());
+        when(transactionRepository.findByIdempotencyKey("idemp-existing")).thenReturn(Optional.of(existingTx));
+
+        Reservation res = new Reservation();
+        res.setId(resId);
+        res.setUserId(userId);
+        res.setEstimatedTokens(estimatedBillingTokens);
+        res.setState(ReservationState.ACTIVE);
+        when(reservationRepository.findById(resId)).thenReturn(Optional.of(res));
+
+        ReservationDto dto = new ReservationDto(resId, userId, ReservationState.ACTIVE, estimatedBillingTokens, 0, null, null, null, null);
+        when(reservationMapper.toDto(res)).thenReturn(dto);
+
+        // When
+        ReservationDto result = service.reserve(userId, estimatedBillingTokens, "job-ref", "idemp-existing");
+
+        // Then
+        assertEquals(dto, result);
+        verify(metricsService).incrementReservationCreated(userId, estimatedBillingTokens);
     }
 
     @Test

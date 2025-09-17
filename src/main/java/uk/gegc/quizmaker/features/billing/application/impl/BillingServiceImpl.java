@@ -125,6 +125,8 @@ public class BillingServiceImpl implements BillingService {
                     if (res.getEstimatedTokens() != estimatedBillingTokens) {
                         throw new IdempotencyConflictException("Idempotency key reused with different reservation amount");
                     }
+                    // Emit reservation created metrics for idempotent case
+                    metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
                     return reservationMapper.toDto(res);
                 } catch (IllegalArgumentException e) {
                     throw new IllegalStateException("Invalid reservation UUID in REF for prior idempotent RESERVE");
@@ -188,6 +190,10 @@ public class BillingServiceImpl implements BillingService {
                 tx.setBalanceAfterAvailable(balance.getAvailableTokens());
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
+                
+                // Emit reservation created metrics
+                metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
+                
                 // Flush to surface any optimistic locking issues within the retry loop
                 entityManager.flush();
                 return reservationMapper.toDto(res);
@@ -211,6 +217,8 @@ public class BillingServiceImpl implements BillingService {
                             UUID resId = UUID.fromString(existing.get().getRefId());
                             var res = reservationRepository.findById(resId)
                                     .orElseThrow(() -> new IllegalStateException("Reservation referenced by idempotent key not found after race"));
+                            // Emit reservation created metrics for race condition case
+                            metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
                             return reservationMapper.toDto(res);
                         } catch (Exception ignored) {
                             // fall through

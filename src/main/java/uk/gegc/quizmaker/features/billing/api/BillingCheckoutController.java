@@ -53,45 +53,30 @@ public class BillingCheckoutController {
     @GetMapping("/checkout-sessions/{sessionId}")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CheckoutSessionStatus> getCheckoutSessionStatus(@PathVariable String sessionId, Authentication authentication) {
-        try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            CheckoutSessionStatus status = checkoutReadService.getCheckoutSessionStatus(sessionId, currentUserId);
-            return ResponseEntity.ok(status);
-        } catch (Exception e) {
-            log.error("Error retrieving checkout session {}: {}", sessionId, e.getMessage());
-            return ResponseEntity.notFound().build();
-        }
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        CheckoutSessionStatus status = checkoutReadService.getCheckoutSessionStatus(sessionId, currentUserId);
+        return ResponseEntity.ok(status);
     }
 
     @GetMapping("/config")
     public ResponseEntity<ConfigResponse> getConfig() {
-        try {
-            ConfigResponse config = checkoutReadService.getBillingConfig();
-            return ResponseEntity.ok(config);
-        } catch (Exception e) {
-            log.error("Error retrieving billing config: {}", e.getMessage());
-            return ResponseEntity.internalServerError().build();
-        }
+        ConfigResponse config = checkoutReadService.getBillingConfig();
+        return ResponseEntity.ok(config);
     }
 
     @GetMapping("/balance")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<BalanceDto> getBalance(Authentication authentication) {
-        try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
-            // Rate limiting: 60 requests per minute per user
-            rateLimitService.checkRateLimit("billing-balance", currentUserId.toString(), 60);
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        // Rate limiting: 60 requests per minute per user
+        rateLimitService.checkRateLimit("billing-balance", currentUserId.toString(), 60);
 
-            BalanceDto balance = billingService.getBalance(currentUserId);
-            
-            return ResponseEntity.ok()
-                    .header("Cache-Control", "private, max-age=30")
-                    .body(balance);
-        } catch (Exception e) {
-            log.error("Error retrieving balance for current user", e);
-            return ResponseEntity.internalServerError().build();
-        }
+        BalanceDto balance = billingService.getBalance(currentUserId);
+        
+        return ResponseEntity.ok()
+                .header("Cache-Control", "private, max-age=30")
+                .body(balance);
     }
 
     @GetMapping("/transactions")
@@ -103,103 +88,72 @@ public class BillingCheckoutController {
             @RequestParam(required = false) LocalDateTime dateFrom,
             @RequestParam(required = false) LocalDateTime dateTo,
             Authentication authentication) {
-        try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
-            // Rate limiting: 30 requests per minute per user
-            rateLimitService.checkRateLimit("billing-transactions", currentUserId.toString(), 30);
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        // Rate limiting: 30 requests per minute per user
+        rateLimitService.checkRateLimit("billing-transactions", currentUserId.toString(), 30);
 
-            Page<TransactionDto> transactions = billingService.listTransactions(
-                    currentUserId, pageable, type, source, dateFrom, dateTo);
-            
-            return ResponseEntity.ok()
-                    .header("Cache-Control", "private, max-age=60")
-                    .body(transactions);
-        } catch (Exception e) {
-            log.error("Error retrieving transactions for user: {}", BillingSecurityUtils.getCurrentUserId(), e);
-            
-            // Handle parameter validation errors as 400 Bad Request
-            if (e instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ||
-                e instanceof org.springframework.web.bind.MethodArgumentNotValidException ||
-                e instanceof org.springframework.validation.BindException ||
-                e instanceof org.springframework.web.bind.ServletRequestBindingException) {
-                return ResponseEntity.badRequest().build();
-            }
-            
-            return ResponseEntity.internalServerError().build();
-        }
+        Page<TransactionDto> transactions = billingService.listTransactions(
+                currentUserId, pageable, type, source, dateFrom, dateTo);
+        
+        return ResponseEntity.ok()
+                .header("Cache-Control", "private, max-age=60")
+                .body(transactions);
     }
 
     @PostMapping("/estimate/quiz-generation")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<EstimationDto> estimateQuizGeneration(@Valid @RequestBody GenerateQuizFromDocumentRequest request,
                                                                Authentication authentication) {
-        try {
-            // Rate limiting: 10 requests per minute per user
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            rateLimitService.checkRateLimit("quiz-estimation", currentUserId.toString(), 10);
-            
-            log.info("Estimating quiz generation for document: {} by user: {}", request.documentId(), currentUserId);
-            
-            EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
-            
-            log.info("Estimation completed: {} billing tokens ({} LLM tokens) for user: {}", 
-                    estimation.estimatedBillingTokens(), estimation.estimatedLlmTokens(), currentUserId);
-            
-            return ResponseEntity.ok(estimation);
-        } catch (Exception e) {
-            log.error("Error estimating quiz generation for document {}: {}", request.documentId(), e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
+        // Rate limiting: 10 requests per minute per user
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        rateLimitService.checkRateLimit("quiz-estimation", currentUserId.toString(), 10);
+        
+        log.info("Estimating quiz generation for document: {} by user: {}", request.documentId(), currentUserId);
+        
+        EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
+        
+        log.info("Estimation completed: {} billing tokens ({} LLM tokens) for user: {}", 
+                estimation.estimatedBillingTokens(), estimation.estimatedLlmTokens(), currentUserId);
+        
+        return ResponseEntity.ok(estimation);
     }
 
     @PostMapping("/checkout-sessions")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CheckoutSessionResponse> createCheckoutSession(@Valid @RequestBody CreateCheckoutSessionRequest request,
                                                                          Authentication authentication) {
-        try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
-            // Rate limiting: 5 requests per minute per user
-            rateLimitService.checkRateLimit("checkout-session-create", currentUserId.toString(), 5);
-            
-            log.info("Creating checkout session for user: {} with priceId: {}", currentUserId, request.priceId());
-            
-            CheckoutSessionResponse session = stripeService.createCheckoutSession(
-                currentUserId, 
-                request.priceId(), 
-                request.packId()
-            );
-            
-            log.info("Checkout session created successfully: {} for user: {}", session.sessionId(), currentUserId);
-            
-            return ResponseEntity.ok(session);
-        } catch (Exception e) {
-            log.error("Error creating checkout session: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
-        }
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        // Rate limiting: 5 requests per minute per user
+        rateLimitService.checkRateLimit("checkout-session-create", currentUserId.toString(), 5);
+        
+        log.info("Creating checkout session for user: {} with priceId: {}", currentUserId, request.priceId());
+        
+        CheckoutSessionResponse session = stripeService.createCheckoutSession(
+            currentUserId, 
+            request.priceId(), 
+            request.packId()
+        );
+        
+        log.info("Checkout session created successfully: {} for user: {}", session.sessionId(), currentUserId);
+        
+        return ResponseEntity.ok(session);
     }
 
     @PostMapping("/create-customer")
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request,
                                                            Authentication authentication) {
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        log.info("Creating Stripe customer for user {} with email {}", currentUserId, request.email());
+        
         try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
-            log.info("Creating Stripe customer for user {} with email {}", currentUserId, request.email());
-            
             CustomerResponse customer = stripeService.createCustomer(currentUserId, request.email());
             return ResponseEntity.ok(customer);
-        } catch (CardException e) {
-            log.error("Card error creating customer: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
         } catch (StripeException e) {
-            log.error("Stripe API error creating customer: {}", e.getMessage());
-            return ResponseEntity.status(500).build();
-        } catch (Exception e) {
-            log.error("Unexpected error creating customer: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
+            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         }
     }
 
@@ -207,8 +161,8 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CustomerResponse> getCustomer(@PathVariable String customerId,
                                                         Authentication authentication) {
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
         try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
             // Verify ownership via Stripe customer metadata userId
             var rawCustomer = stripeService.retrieveCustomerRaw(customerId);
             String mdUserId = rawCustomer.getMetadata() != null ? rawCustomer.getMetadata().get("userId") : null;
@@ -221,22 +175,21 @@ public class BillingCheckoutController {
                     String custEmail = rawCustomer.getEmail();
                     if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
                         log.warn("User {} attempted to access customer {} not owned by them (email fallback enabled)", currentUserId, customerId);
-                        return ResponseEntity.status(403).build();
+                        throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: customer not owned by user");
                     }
                     log.info("User {} accessing customer {} via email fallback (metadata userId missing)", currentUserId, customerId);
                 } else {
                     // Metadata-only ownership required
                     log.warn("User {} attempted to access customer {} without proper metadata userId (email fallback disabled)", currentUserId, customerId);
-                    return ResponseEntity.status(403).build();
+                    throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: metadata-only ownership required");
                 }
             }
             log.info("User {} accessing own customer {}", currentUserId, customerId);
 
             CustomerResponse customer = stripeService.retrieveCustomer(customerId);
             return ResponseEntity.ok(customer);
-        } catch (Exception e) {
-            log.error("Error retrieving customer {}: {}", customerId, e.getMessage());
-            return ResponseEntity.notFound().build();
+        } catch (StripeException e) {
+            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         }
     }
 
@@ -244,8 +197,9 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<SubscriptionResponse> createSubscription(@Valid @RequestBody CreateSubscriptionRequest request,
                                                                    Authentication authentication) {
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
         try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
             // Resolve or create Stripe customer for this user
             String customerId = resolveStripeCustomerId(currentUserId);
             
@@ -254,15 +208,10 @@ public class BillingCheckoutController {
             
             SubscriptionResponse subscription = stripeService.createSubscription(customerId, request.priceId());
             return ResponseEntity.ok(subscription);
-        } catch (CardException e) {
-            log.error("Card error creating subscription: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
         } catch (StripeException e) {
-            log.error("Stripe API error creating subscription: {}", e.getMessage());
-            return ResponseEntity.status(500).build();
+            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error creating subscription: {}", e.getMessage());
-            return ResponseEntity.badRequest().build();
+            throw new RuntimeException("Error resolving customer or creating subscription: " + e.getMessage(), e);
         }
     }
 
@@ -270,9 +219,9 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> updateSubscription(@Valid @RequestBody UpdateSubscriptionRequest request,
                                                      Authentication authentication) {
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
         try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
             // Resolve price ID from lookup key via Stripe
             String newPriceId = stripeService.resolvePriceIdByLookupKey(request.newPriceLookupKey());
             
@@ -282,9 +231,8 @@ public class BillingCheckoutController {
             var subscription = stripeService.updateSubscription(request.subscriptionId(), newPriceId);
             // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
             return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
-        } catch (Exception e) {
-            log.error("Error updating subscription {}: {}", request.subscriptionId(), e.getMessage());
-            return ResponseEntity.badRequest().build();
+        } catch (StripeException e) {
+            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         }
     }
 
@@ -292,17 +240,16 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<String> cancelSubscription(@Valid @RequestBody CancelSubscriptionRequest request,
                                                      Authentication authentication) {
+        UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);
+        
         try {
-            UUID currentUserId = resolveAuthenticatedUserId(authentication);
-            
-            log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);
-            
             var subscription = stripeService.cancelSubscription(request.subscriptionId());
             // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
             return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
-        } catch (Exception e) {
-            log.error("Error cancelling subscription {}: {}", request.subscriptionId(), e.getMessage());
-            return ResponseEntity.badRequest().build();
+        } catch (StripeException e) {
+            throw new RuntimeException("Stripe API error: " + e.getMessage(), e);
         }
     }
 
