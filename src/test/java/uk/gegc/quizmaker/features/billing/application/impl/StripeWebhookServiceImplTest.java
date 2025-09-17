@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.billing.application.StripeProperties;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
+import uk.gegc.quizmaker.features.billing.application.WebhookLoggingContext;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
@@ -44,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -665,5 +667,114 @@ class StripeWebhookServiceImplTest {
                 .hasRootCauseMessage("Invalid userId in metadata");
         }
     }
+
+    @Nested
+    @DisplayName("Payment Upsert Concurrency Tests")
+    class PaymentUpsertConcurrencyTests {
+
+        @Test
+        @DisplayName("upsertPaymentAndCredit: when DataIntegrityViolationException occurs then re-read existing payment and continue")
+        void upsertPaymentAndCredit_whenDataIntegrityViolationExceptionOccurs_thenReReadExistingPaymentAndContinue() throws Exception {
+            // Given
+            String eventId = "evt_test";
+            String sessionId = "cs_test_session_123";
+            UUID userId = UUID.randomUUID();
+            
+            Session mockSession = mock(Session.class);
+            when(mockSession.getId()).thenReturn(sessionId);
+            when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent");
+            when(mockSession.getCustomer()).thenReturn("cus_test_customer");
+            
+            // Mock validation result
+            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            when(validationResult.totalTokens()).thenReturn(1000L);
+            when(validationResult.totalAmountCents()).thenReturn(1000L);
+            when(validationResult.currency()).thenReturn("usd");
+            when(validationResult.getPackCount()).thenReturn(1);
+            
+            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
+            when(mockPack.getId()).thenReturn(UUID.randomUUID());
+            when(validationResult.primaryPack()).thenReturn(mockPack);
+            
+            // Mock existing payment that was created by concurrent webhook
+            uk.gegc.quizmaker.features.billing.domain.model.Payment existingPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
+            when(existingPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.SUCCEEDED);
+            
+            // Mock repository behavior - simulate concurrent delivery scenario
+            when(paymentRepository.findByStripeSessionId(sessionId))
+                    .thenReturn(Optional.empty()) // First call returns empty
+                    .thenReturn(Optional.of(existingPayment)); // Re-read returns existing payment
+            when(paymentRepository.save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate entry")); // Save throws unique constraint violation
+            
+            WebhookLoggingContext loggingContext = mock(WebhookLoggingContext.class);
+            
+            // When
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("upsertPaymentAndCredit", 
+                    String.class, Session.class, UUID.class, CheckoutValidationService.CheckoutValidationResult.class, WebhookLoggingContext.class);
+            method.setAccessible(true);
+            method.invoke(webhookService, eventId, mockSession, userId, validationResult, loggingContext);
+            
+            // Then
+            // Verify that save was attempted first
+            verify(paymentRepository).save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class));
+            
+            // Verify that findByStripeSessionId was called twice (initial + re-read)
+            verify(paymentRepository, times(2)).findByStripeSessionId(sessionId);
+            
+            // Verify that billing service was called to credit tokens (idempotent operation)
+            verify(internalBillingService).creditPurchase(eq(userId), eq(1000L), anyString(), anyString(), any());
+            
+            // Verify that event was marked as processed
+            verify(processedStripeEventRepository).save(any(uk.gegc.quizmaker.features.billing.domain.model.ProcessedStripeEvent.class));
+        }
+
+        @Test
+        @DisplayName("upsertPaymentAndCredit: when DataIntegrityViolationException occurs and existing payment is not SUCCEEDED then throw exception")
+        void upsertPaymentAndCredit_whenDataIntegrityViolationExceptionOccursAndExistingPaymentNotSucceeded_thenThrowException() throws Exception {
+            // Given
+            String eventId = "evt_test";
+            String sessionId = "cs_test_session_123";
+            UUID userId = UUID.randomUUID();
+            
+            Session mockSession = mock(Session.class);
+            when(mockSession.getId()).thenReturn(sessionId);
+            when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent");
+            when(mockSession.getCustomer()).thenReturn("cus_test_customer");
+            
+            // Mock validation result
+            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            when(validationResult.totalTokens()).thenReturn(1000L);
+            when(validationResult.totalAmountCents()).thenReturn(1000L);
+            when(validationResult.currency()).thenReturn("usd");
+            
+            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
+            when(mockPack.getId()).thenReturn(UUID.randomUUID());
+            when(validationResult.primaryPack()).thenReturn(mockPack);
+            
+            // Mock existing payment that is in wrong state
+            uk.gegc.quizmaker.features.billing.domain.model.Payment existingPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
+            when(existingPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING); // Wrong state
+            
+            // Mock repository behavior
+            when(paymentRepository.findByStripeSessionId(sessionId))
+                    .thenReturn(Optional.empty()) // First call returns empty
+                    .thenReturn(Optional.of(existingPayment)); // Re-read returns existing payment in wrong state
+            when(paymentRepository.save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class)))
+                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate entry")); // Save throws unique constraint violation
+            
+            WebhookLoggingContext loggingContext = mock(WebhookLoggingContext.class);
+            
+            // When & Then
+            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("upsertPaymentAndCredit", 
+                    String.class, Session.class, UUID.class, CheckoutValidationService.CheckoutValidationResult.class, WebhookLoggingContext.class);
+            method.setAccessible(true);
+            
+            assertThatThrownBy(() -> method.invoke(webhookService, eventId, mockSession, userId, validationResult, loggingContext))
+                    .hasCauseInstanceOf(IllegalStateException.class)
+                    .hasRootCauseMessage("Existing payment for session " + sessionId + " is not in SUCCEEDED state: PENDING");
+        }
+    }
+
 
 }

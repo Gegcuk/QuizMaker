@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionSource;
 import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType;
 import jakarta.validation.Valid;
 import uk.gegc.quizmaker.features.billing.api.dto.*;
+import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
@@ -47,6 +48,7 @@ public class BillingCheckoutController {
     private final RateLimitService rateLimitService;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final BillingProperties billingProperties;
 
     @GetMapping("/checkout-sessions/{sessionId}")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -211,12 +213,20 @@ public class BillingCheckoutController {
             var rawCustomer = stripeService.retrieveCustomerRaw(customerId);
             String mdUserId = rawCustomer.getMetadata() != null ? rawCustomer.getMetadata().get("userId") : null;
             if (mdUserId == null || !mdUserId.equalsIgnoreCase(currentUserId.toString())) {
-                // Fallback to email-based ownership if metadata not present
-                User user = userRepository.findById(currentUserId)
-                        .orElse(null);
-                String custEmail = rawCustomer.getEmail();
-                if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
-                    log.warn("User {} attempted to access customer {} not owned by them", currentUserId, customerId);
+                // Check if email fallback is allowed by configuration
+                if (billingProperties.isAllowEmailFallbackForCustomerOwnership()) {
+                    // Fallback to email-based ownership if metadata not present and fallback is enabled
+                    User user = userRepository.findById(currentUserId)
+                            .orElse(null);
+                    String custEmail = rawCustomer.getEmail();
+                    if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
+                        log.warn("User {} attempted to access customer {} not owned by them (email fallback enabled)", currentUserId, customerId);
+                        return ResponseEntity.status(403).build();
+                    }
+                    log.info("User {} accessing customer {} via email fallback (metadata userId missing)", currentUserId, customerId);
+                } else {
+                    // Metadata-only ownership required
+                    log.warn("User {} attempted to access customer {} without proper metadata userId (email fallback disabled)", currentUserId, customerId);
                     return ResponseEntity.status(403).build();
                 }
             }

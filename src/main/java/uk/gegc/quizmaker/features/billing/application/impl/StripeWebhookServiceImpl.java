@@ -15,6 +15,7 @@ import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -853,7 +854,22 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         String enhancedMetadata = buildEnhancedPurchaseMetaJson(session, validationResult);
         payment.setSessionMetadata(enhancedMetadata);
         
-        paymentRepository.save(payment);
+        // Handle concurrent webhook deliveries that might cause unique constraint violations
+        try {
+            paymentRepository.save(payment);
+        } catch (DataIntegrityViolationException e) {
+            // Another webhook delivery already processed this session - re-read the existing payment
+            loggingContext.logInfo(log, "Payment already exists for session {}, re-reading existing payment", session.getId());
+            payment = paymentRepository.findByStripeSessionId(session.getId())
+                    .orElseThrow(() -> new IllegalStateException("Payment not found after unique constraint violation for session: " + session.getId()));
+            
+            // Verify the existing payment is in the correct state
+            if (payment.getStatus() != PaymentStatus.SUCCEEDED) {
+                throw new IllegalStateException("Existing payment for session " + session.getId() + " is not in SUCCEEDED state: " + payment.getStatus());
+            }
+            
+            loggingContext.logInfo(log, "Using existing payment {} for session {}", payment.getId(), session.getId());
+        }
 
         // Enhanced idempotency key: eventId:sessionId for per-event uniqueness
         String idempotencyKey = String.format("checkout:%s:%s", eventId, session.getId());

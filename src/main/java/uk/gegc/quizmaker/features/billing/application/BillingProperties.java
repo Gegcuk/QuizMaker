@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.features.billing.application;
 
-import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
@@ -52,5 +51,12 @@ public class BillingProperties {
      * When false, balances are clamped to zero.
      */
     private boolean allowNegativeBalance = true;
+
+    /**
+     * Whether to allow email-based fallback for Stripe customer ownership verification.
+     * When true, if customer metadata lacks userId, fall back to matching customer email to user email.
+     * When false, require metadata userId match only (more secure, prevents email reuse/aliasing issues).
+     */
+    private boolean allowEmailFallbackForCustomerOwnership = false;
 
 }
