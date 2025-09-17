@@ -48,7 +48,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "stripe.price.small=price_mock_small",
     "stripe.price.medium=price_mock_medium", 
     "stripe.price.large=price_mock_large",
-    "stripe.price.subscription=price_mock_subscription"
+    "stripe.price.subscription=price_mock_subscription",
+    "quizmaker.features.billing=true"
 })
 @DisplayName("Billing Controller Security Tests")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

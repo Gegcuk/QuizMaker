@@ -8,7 +8,9 @@ import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.SubscriptionStatusRepository;
+import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 
 import java.util.UUID;
 
@@ -23,18 +25,32 @@ public class SubscriptionServiceImpl implements SubscriptionService {
     private final InternalBillingService internalBillingService;
     private final BillingMetricsService metricsService;
     private final SubscriptionStatusRepository subscriptionStatusRepository;
+    private final ProductPackRepository productPackRepository;
 
-    // Default tokens per period - in a real implementation, this would come from configuration
+    // Fallback tokens per period when price ID lookup fails or is missing
     private static final long DEFAULT_TOKENS_PER_PERIOD = 10000L;
 
     @Override
     public long getTokensPerPeriod(String subscriptionId, String priceId) {
-        // In a real implementation, you'd look up the price ID in your product catalog
-        // and return the appropriate token amount for that subscription tier
+        if (priceId == null || priceId.trim().isEmpty()) {
+            log.warn("Price ID is null or empty for subscription {}, using default tokens: {}", 
+                    subscriptionId, DEFAULT_TOKENS_PER_PERIOD);
+            return DEFAULT_TOKENS_PER_PERIOD;
+        }
         
-        // For now, return a default amount
-        // You could also store this mapping in a database table
-        return DEFAULT_TOKENS_PER_PERIOD;
+        try {
+            return productPackRepository.findByStripePriceId(priceId)
+                    .map(ProductPack::getTokens)
+                    .orElseGet(() -> {
+                        log.warn("No ProductPack found for price ID '{}' (subscription {}), using default tokens: {}", 
+                                priceId, subscriptionId, DEFAULT_TOKENS_PER_PERIOD);
+                        return DEFAULT_TOKENS_PER_PERIOD;
+                    });
+        } catch (Exception e) {
+            log.warn("Error looking up ProductPack for price ID '{}' (subscription {}), using default tokens: {} - {}", 
+                    priceId, subscriptionId, DEFAULT_TOKENS_PER_PERIOD, e.getMessage());
+            return DEFAULT_TOKENS_PER_PERIOD;
+        }
     }
 
     @Override

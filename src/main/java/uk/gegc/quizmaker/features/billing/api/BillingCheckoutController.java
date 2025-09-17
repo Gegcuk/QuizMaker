@@ -29,6 +29,8 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import org.springframework.http.HttpStatus;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -48,10 +50,15 @@ public class BillingCheckoutController {
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
     private final BillingProperties billingProperties;
+    private final FeatureFlags featureFlags;
 
     @GetMapping("/checkout-sessions/{sessionId}")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<CheckoutSessionStatus> getCheckoutSessionStatus(@PathVariable String sessionId, Authentication authentication) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
         CheckoutSessionStatus status = checkoutReadService.getCheckoutSessionStatus(sessionId, currentUserId);
         return ResponseEntity.ok(status);
@@ -59,6 +66,10 @@ public class BillingCheckoutController {
 
     @GetMapping("/config")
     public ResponseEntity<ConfigResponse> getConfig() {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         ConfigResponse config = checkoutReadService.getBillingConfig();
         return ResponseEntity.ok(config);
     }
@@ -66,6 +77,10 @@ public class BillingCheckoutController {
     @GetMapping("/balance")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<BalanceDto> getBalance(Authentication authentication) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
         
         // Rate limiting: 60 requests per minute per user
@@ -87,6 +102,10 @@ public class BillingCheckoutController {
             @RequestParam(required = false) LocalDateTime dateFrom,
             @RequestParam(required = false) LocalDateTime dateTo,
             Authentication authentication) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
         
         // Rate limiting: 30 requests per minute per user
@@ -104,6 +123,10 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<EstimationDto> estimateQuizGeneration(@Valid @RequestBody GenerateQuizFromDocumentRequest request,
                                                                Authentication authentication) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         // Rate limiting: 10 requests per minute per user
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
         rateLimitService.checkRateLimit("quiz-estimation", currentUserId.toString(), 10);
@@ -122,6 +145,10 @@ public class BillingCheckoutController {
     @RequirePermission(PermissionName.BILLING_WRITE)
     public ResponseEntity<CheckoutSessionResponse> createCheckoutSession(@Valid @RequestBody CreateCheckoutSessionRequest request,
                                                                          Authentication authentication) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
         
         // Rate limiting: 5 requests per minute per user

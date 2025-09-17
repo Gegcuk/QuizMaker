@@ -6,6 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.beans.factory.annotation.Autowired;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,7 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
     "billing.currency=eur",
     "billing.strict-amount-validation=false",
     "billing.allow-negative-balance=false",
-    "billing.allow-email-fallback-for-customer-ownership=true"
+    "billing.allow-email-fallback-for-customer-ownership=true",
+    "quizmaker.features.billing=true"
 })
 class BillingPropertiesTest {
 
@@ -83,5 +85,15 @@ class BillingPropertiesTest {
     void shouldBindAllowEmailFallbackForCustomerOwnershipFromProperties() {
         // When & Then
         assertThat(billingProperties.isAllowEmailFallbackForCustomerOwnership()).isTrue();
+    }
+
+    @Autowired
+    private FeatureFlags featureFlags;
+
+    @Test
+    @DisplayName("Should bind billing feature flag from properties")
+    void shouldBindBillingFeatureFlagFromProperties() {
+        // When & Then
+        assertThat(featureFlags.isBilling()).isTrue();
     }
 }

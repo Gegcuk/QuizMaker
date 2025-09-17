@@ -50,7 +50,7 @@ import java.util.Optional;
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.flyway.enabled=false",
-    "quizmaker.features.billing.enabled=true"
+    "quizmaker.features.billing=true"
 })
 @Transactional
 @DisplayName("Balance Endpoint Integration Tests")

@@ -30,7 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-    "spring.jpa.hibernate.ddl-auto=create"
+    "spring.jpa.hibernate.ddl-auto=create",
+    "quizmaker.features.billing=true"
     // Note: Uses real Stripe configuration from environment variables (.env file)
 })
 @DisplayName("Stripe Webhook Security Tests")

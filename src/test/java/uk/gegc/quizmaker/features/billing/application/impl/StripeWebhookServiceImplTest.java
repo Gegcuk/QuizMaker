@@ -42,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -773,6 +774,185 @@ class StripeWebhookServiceImplTest {
             assertThatThrownBy(() -> method.invoke(webhookService, eventId, mockSession, userId, validationResult, loggingContext))
                     .hasCauseInstanceOf(IllegalStateException.class)
                     .hasRootCauseMessage("Existing payment for session " + sessionId + " is not in SUCCEEDED state: PENDING");
+        }
+    }
+
+    @Nested
+    @DisplayName("Async Payment Event Tests")
+    class AsyncPaymentEventTests {
+
+        @Test
+        @DisplayName("Should handle checkout.session.async_payment_succeeded event")
+        void shouldHandleCheckoutSessionAsyncPaymentSucceeded() throws StripeException {
+            // Given
+            when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
+            String payload = "{\"id\":\"evt_async_success\",\"type\":\"checkout.session.async_payment_succeeded\",\"data\":{\"object\":{\"id\":\"cs_test_session\"}}}";
+            String signature = "t=1234567890,v1=signature";
+
+            Event mockEvent = mock(Event.class);
+            when(mockEvent.getId()).thenReturn("evt_async_success");
+            when(mockEvent.getType()).thenReturn("checkout.session.async_payment_succeeded");
+            when(mockEvent.toJson()).thenReturn(payload);
+
+            Session mockSession = mock(Session.class);
+            when(mockSession.getId()).thenReturn("cs_test_session");
+            when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+            when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
+
+            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
+            when(mockPack.getId()).thenReturn(UUID.randomUUID());
+            when(mockPack.getStripePriceId()).thenReturn("price_test");
+            when(validationResult.primaryPack()).thenReturn(mockPack);
+            when(validationResult.totalTokens()).thenReturn(1000L);
+
+            when(processedStripeEventRepository.existsByEventId("evt_async_success")).thenReturn(false);
+            when(stripeService.retrieveSession("cs_test_session", true)).thenReturn(mockSession);
+            when(checkoutValidationService.validateAndResolvePack(any(Session.class), any(UUID.class))).thenReturn(validationResult);
+            when(paymentRepository.findByStripeSessionId("cs_test_session")).thenReturn(Optional.empty());
+
+            try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
+                webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
+                    .thenReturn(mockEvent);
+
+                // When
+                StripeWebhookService.Result result = webhookService.process(payload, signature);
+
+                // Then
+                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_succeeded");
+                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_succeeded");
+                verify(internalBillingService).creditPurchase(any(UUID.class), eq(1000L), anyString(), anyString(), any());
+            }
+        }
+
+        @Test
+        @DisplayName("Should handle checkout.session.async_payment_failed event")
+        void shouldHandleCheckoutSessionAsyncPaymentFailed() throws StripeException {
+            // Given
+            when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
+            String payload = "{\"id\":\"evt_async_failed\",\"type\":\"checkout.session.async_payment_failed\",\"data\":{\"object\":{\"id\":\"cs_test_session\"}}}";
+            String signature = "t=1234567890,v1=signature";
+
+            Event mockEvent = mock(Event.class);
+            when(mockEvent.getId()).thenReturn("evt_async_failed");
+            when(mockEvent.getType()).thenReturn("checkout.session.async_payment_failed");
+            when(mockEvent.toJson()).thenReturn(payload);
+
+            Session mockSession = mock(Session.class);
+            lenient().when(mockSession.getId()).thenReturn("cs_test_session");
+            lenient().when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+
+            uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
+            lenient().when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
+
+            when(processedStripeEventRepository.existsByEventId("evt_async_failed")).thenReturn(false);
+            when(stripeService.retrieveSession("cs_test_session", false)).thenReturn(mockSession);
+            when(paymentRepository.findByStripeSessionId("cs_test_session")).thenReturn(Optional.of(mockPayment));
+
+            try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
+                webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
+                    .thenReturn(mockEvent);
+
+                // When
+                StripeWebhookService.Result result = webhookService.process(payload, signature);
+
+                // Then
+                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
+                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed");
+                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.FAILED);
+                verify(paymentRepository).save(mockPayment);
+            }
+        }
+
+        @Test
+        @DisplayName("Should handle payment_intent.succeeded event")
+        void shouldHandlePaymentIntentSucceeded() throws StripeException {
+            // Given
+            when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
+            String payload = "{\"id\":\"evt_pi_success\",\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"pi_test_intent\"}}}";
+            String signature = "t=1234567890,v1=signature";
+
+            Event mockEvent = mock(Event.class);
+            when(mockEvent.getId()).thenReturn("evt_pi_success");
+            when(mockEvent.getType()).thenReturn("payment_intent.succeeded");
+
+            com.stripe.model.PaymentIntent mockPaymentIntent = mock(com.stripe.model.PaymentIntent.class);
+            when(mockPaymentIntent.getId()).thenReturn("pi_test_intent");
+
+            EventDataObjectDeserializer mockDeserializer = mock(EventDataObjectDeserializer.class);
+            when(mockDeserializer.getObject()).thenReturn(Optional.of(mockPaymentIntent));
+            when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
+
+            uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
+            when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
+            when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+
+            when(processedStripeEventRepository.existsByEventId("evt_pi_success")).thenReturn(false);
+            when(paymentRepository.findByStripePaymentIntentId("pi_test_intent")).thenReturn(Optional.of(mockPayment));
+
+            try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
+                webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
+                    .thenReturn(mockEvent);
+
+                // When
+                StripeWebhookService.Result result = webhookService.process(payload, signature);
+
+                // Then
+                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                verify(metricsService).incrementWebhookReceived("payment_intent.succeeded");
+                verify(metricsService).incrementWebhookOk("payment_intent.succeeded");
+                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.SUCCEEDED);
+                verify(paymentRepository).save(mockPayment);
+            }
+        }
+
+        @Test
+        @DisplayName("Should handle payment_intent.payment_failed event")
+        void shouldHandlePaymentIntentFailed() throws StripeException {
+            // Given
+            when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
+            String payload = "{\"id\":\"evt_pi_failed\",\"type\":\"payment_intent.payment_failed\",\"data\":{\"object\":{\"id\":\"pi_test_intent\"}}}";
+            String signature = "t=1234567890,v1=signature";
+
+            Event mockEvent = mock(Event.class);
+            when(mockEvent.getId()).thenReturn("evt_pi_failed");
+            when(mockEvent.getType()).thenReturn("payment_intent.payment_failed");
+
+            com.stripe.model.PaymentIntent mockPaymentIntent = mock(com.stripe.model.PaymentIntent.class);
+            when(mockPaymentIntent.getId()).thenReturn("pi_test_intent");
+            
+            com.stripe.model.StripeError mockError = mock(com.stripe.model.StripeError.class);
+            when(mockError.getCode()).thenReturn("card_declined");
+            when(mockError.getMessage()).thenReturn("Your card was declined.");
+            when(mockPaymentIntent.getLastPaymentError()).thenReturn(mockError);
+
+            EventDataObjectDeserializer mockDeserializer = mock(EventDataObjectDeserializer.class);
+            when(mockDeserializer.getObject()).thenReturn(Optional.of(mockPaymentIntent));
+            when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
+
+            uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
+            lenient().when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
+            lenient().when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+
+            when(processedStripeEventRepository.existsByEventId("evt_pi_failed")).thenReturn(false);
+            when(paymentRepository.findByStripePaymentIntentId("pi_test_intent")).thenReturn(Optional.of(mockPayment));
+
+            try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
+                webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
+                    .thenReturn(mockEvent);
+
+                // When
+                StripeWebhookService.Result result = webhookService.process(payload, signature);
+
+                // Then
+                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                verify(metricsService).incrementWebhookReceived("payment_intent.payment_failed");
+                verify(metricsService).incrementWebhookOk("payment_intent.payment_failed");
+                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.FAILED);
+                verify(paymentRepository).save(mockPayment);
+            }
         }
     }
 
