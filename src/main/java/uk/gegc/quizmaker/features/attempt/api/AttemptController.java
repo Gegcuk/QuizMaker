@@ -275,7 +275,8 @@ public class AttemptController {
             @PathVariable UUID attemptId,
             Authentication authentication
     ) {
-        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId);
+        String username = authentication.getName();
+        AttemptStatsDto stats = attemptService.getAttemptStats(attemptId, username);
         return ResponseEntity.ok(stats);
     }
 
@@ -341,8 +342,7 @@ public class AttemptController {
             @PathVariable UUID quizId,
             Authentication authentication
     ) {
-        String username = authentication.getName();
-        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, username);
+        List<QuestionForAttemptDto> questions = attemptService.getShuffledQuestions(quizId, authentication);
         return ResponseEntity.ok(questions);
     }
 
