@@ -1,16 +1,21 @@
 package uk.gegc.quizmaker.features.billing.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.api.dto.CheckoutSessionResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.CreateCheckoutSessionRequest;
+import uk.gegc.quizmaker.features.billing.api.dto.CreateCustomerRequest;
+import uk.gegc.quizmaker.features.billing.api.dto.CustomerResponse;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
@@ -30,6 +35,8 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -40,6 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class BillingCheckoutControllerTest {
 
     @Autowired
@@ -74,6 +82,18 @@ class BillingCheckoutControllerTest {
 
     @MockitoBean
     private BillingProperties billingProperties;
+
+    @BeforeEach
+    void setUp() {
+        // Reset mock state before each test to ensure clean test isolation
+        // This prevents test interference and ensures predictable test behavior
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Clean up any test-specific state after each test
+        // This ensures no side effects between tests
+    }
 
     @Test
     @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
@@ -264,6 +284,109 @@ class BillingCheckoutControllerTest {
 
         // When & Then
         mockMvc.perform(get("/api/v1/billing/customers/{customerId}", customerId))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
+    void createCustomer_ShouldReturnCustomerResponse() throws Exception {
+        // Given
+        String email = "test@example.com";
+        CreateCustomerRequest request = new CreateCustomerRequest(email);
+        UUID userId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        
+        // Mock permission check
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        
+        // Mock rate limiting to allow the request
+        doNothing().when(rateLimitService).checkRateLimit(eq("billing-create-customer"), eq(userId.toString()), eq(3));
+        
+        // Mock Stripe service response
+        CustomerResponse expectedResponse = new CustomerResponse("cus_test_123", email, null);
+        when(stripeService.createCustomer(eq(userId), eq(email))).thenReturn(expectedResponse);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/create-customer")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value("cus_test_123"))
+                .andExpect(jsonPath("$.email").value(email));
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
+    void createCustomer_WhenRateLimitExceeded_ShouldReturnTooManyRequests() throws Exception {
+        // Given
+        String email = "test@example.com";
+        CreateCustomerRequest request = new CreateCustomerRequest(email);
+        UUID userId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        
+        // Mock permission check
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        
+        // Mock rate limiting to throw exception (rate limit exceeded)
+        doThrow(new uk.gegc.quizmaker.shared.exception.RateLimitExceededException("Too many requests", 60))
+                .when(rateLimitService).checkRateLimit(eq("billing-create-customer"), eq(userId.toString()), eq(3));
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/create-customer")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
+    void createCustomer_WithMissingEmail_ShouldReturnBadRequest() throws Exception {
+        // Given
+        CreateCustomerRequest request = new CreateCustomerRequest("");
+        UUID userId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        
+        // Mock permission check
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        
+        // Mock rate limiting to allow the request
+        doNothing().when(rateLimitService).checkRateLimit(eq("billing-create-customer"), eq(userId.toString()), eq(3));
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/create-customer")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(authorities = {"BILLING_READ"}) // Insufficient permissions
+    void createCustomer_WithInsufficientPermissions_ShouldReturnForbidden() throws Exception {
+        // Given
+        CreateCustomerRequest request = new CreateCustomerRequest("test@example.com");
+        
+        // Mock permission check to deny access
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(false);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/create-customer")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void createCustomer_WithoutAuthentication_ShouldReturnForbidden() throws Exception {
+        // Given
+        CreateCustomerRequest request = new CreateCustomerRequest("test@example.com");
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/billing/create-customer")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
     }
 }

@@ -22,7 +22,6 @@ import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import com.stripe.model.StripeObject;
-import com.stripe.exception.CardException;
 import com.stripe.exception.StripeException;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -146,6 +145,9 @@ public class BillingCheckoutController {
     public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request,
                                                            Authentication authentication) {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
+        
+        // Rate limiting: 3 requests per minute per user (Stripe customer creation is expensive)
+        rateLimitService.checkRateLimit("billing-create-customer", currentUserId.toString(), 3);
         
         log.info("Creating Stripe customer for user {} with email {}", currentUserId, request.email());
         

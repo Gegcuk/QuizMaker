@@ -496,7 +496,7 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
-    @Scheduled(fixedDelayString = "${billing.reservation-sweeper-ms:60000}")
+    @Scheduled(fixedDelayString = "#{@billingProperties.reservationSweeperMs}")
     @Transactional
     public void expireReservations() {
         var cutoff = LocalDateTime.now();

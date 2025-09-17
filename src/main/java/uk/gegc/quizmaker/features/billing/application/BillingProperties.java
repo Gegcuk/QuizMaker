@@ -59,4 +59,12 @@ public class BillingProperties {
      */
     private boolean allowEmailFallbackForCustomerOwnership = false;
 
+    /**
+     * Reservation sweeper interval in milliseconds.
+     * How often the sweeper runs to clean up expired reservations and release their tokens.
+     * Default: 60000ms (1 minute).
+     */
+    @Positive
+    private long reservationSweeperMs = 60000L;
+
 }
