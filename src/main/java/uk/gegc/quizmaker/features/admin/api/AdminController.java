@@ -220,13 +220,7 @@ public class AdminController {
     @Operation(summary = "Get permission by ID")
     @RequirePermission(PermissionName.PERMISSION_READ)
     public ResponseEntity<Permission> getPermissionById(@PathVariable Long permissionId) {
-        Permission permission = permissionService.getPermissionByName(
-            permissionService.getAllPermissions().stream()
-                .filter(p -> p.getPermissionId().equals(permissionId))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("Permission not found"))
-                .getPermissionName()
-        );
+        Permission permission = permissionService.getPermissionById(permissionId);
         return ResponseEntity.ok(permission);
     }
 

@@ -408,6 +408,7 @@ public class RoleServiceImpl implements RoleService {
                 PermissionName.CATEGORY_ADMIN.name(),
                 PermissionName.TAG_ADMIN.name(),
                 PermissionName.USER_ADMIN.name(),
+                PermissionName.USER_DELETE.name(),
                 PermissionName.ROLE_READ.name(),
                 PermissionName.ROLE_ASSIGN.name(),
                 PermissionName.PERMISSION_READ.name(),

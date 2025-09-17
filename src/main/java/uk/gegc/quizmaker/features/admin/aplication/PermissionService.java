@@ -23,6 +23,11 @@ public interface PermissionService {
     List<Permission> getAllPermissions();
 
     /**
+     * Get permission by id
+     */
+    Permission getPermissionById(Long permissionId);
+
+    /**
      * Get permissions by resource
      */
     List<Permission> getPermissionsByResource(String resource);
@@ -62,3 +67,4 @@ public interface PermissionService {
      */
     Permission updatePermission(Long permissionId, String description, String resource, String action);
 }
+
