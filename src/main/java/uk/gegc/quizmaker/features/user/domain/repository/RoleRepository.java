@@ -41,4 +41,10 @@ public interface RoleRepository extends JpaRepository<Role, Long> {
      */
     @Query("SELECT r FROM Role r LEFT JOIN FETCH r.permissions WHERE r.isDefault = true")
     Optional<Role> findByIsDefaultTrueWithPermissions();
+
+    /**
+     * Find role by ID with users eagerly fetched to avoid N+1 queries
+     */
+    @Query("SELECT r FROM Role r LEFT JOIN FETCH r.users WHERE r.roleId = :roleId")
+    Optional<Role> findByIdWithUsers(@Param("roleId") Long roleId);
 }
