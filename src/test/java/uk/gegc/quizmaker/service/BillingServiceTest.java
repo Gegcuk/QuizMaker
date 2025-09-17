@@ -488,4 +488,57 @@ class BillingServiceTest {
         assertEquals(-requestedTokens, savedTransaction.getAmountTokens());
         assertEquals(500L, savedTransaction.getBalanceAfterAvailable());
     }
+
+    @Test
+    @DisplayName("commit: when remainder exists then RELEASE transaction records correct remainder amount")
+    void commit_whenRemainderExists_thenReleaseTransactionRecordsCorrectRemainderAmount() {
+        // Given
+        UUID userId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        long estimatedTokens = 100L;
+        long actualBillingTokens = 70L;
+        long expectedRemainder = 30L; // 100 - 70 = 30
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(0L);
+        balance.setReservedTokens(estimatedTokens);
+
+        Reservation res = new Reservation();
+        res.setId(reservationId);
+        res.setUserId(userId);
+        res.setEstimatedTokens(estimatedTokens);
+        res.setCommittedTokens(0L);
+        res.setState(ReservationState.ACTIVE);
+
+        when(reservationRepository.findByIdAndState(reservationId, ReservationState.ACTIVE)).thenReturn(Optional.of(res));
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(transactionRepository.findByIdempotencyKey("idemp-commit")).thenReturn(Optional.empty());
+
+        // When
+        CommitResultDto result = service.commit(reservationId, actualBillingTokens, "job-1", "idemp-commit");
+
+        // Then
+        assertEquals(reservationId, result.reservationId());
+        assertEquals(actualBillingTokens, result.committedTokens());
+        assertEquals(expectedRemainder, result.releasedTokens());
+
+        // Verify two transactions were saved: COMMIT and RELEASE
+        ArgumentCaptor<TokenTransaction> transactionCaptor = ArgumentCaptor.forClass(TokenTransaction.class);
+        verify(transactionRepository, times(2)).save(transactionCaptor.capture());
+        
+        List<TokenTransaction> savedTransactions = transactionCaptor.getAllValues();
+        
+        // First transaction should be COMMIT
+        TokenTransaction commitTx = savedTransactions.get(0);
+        assertEquals(TokenTransactionType.COMMIT, commitTx.getType());
+        assertEquals(actualBillingTokens, commitTx.getAmountTokens());
+        
+        // Second transaction should be RELEASE with remainder amount
+        TokenTransaction releaseTx = savedTransactions.get(1);
+        assertEquals(TokenTransactionType.RELEASE, releaseTx.getType());
+        assertEquals(expectedRemainder, releaseTx.getAmountTokens()); // This was the bug - was 0L, now remainder
+        assertEquals(reservationId.toString(), releaseTx.getRefId());
+        assertEquals(TokenTransactionSource.QUIZ_GENERATION, releaseTx.getSource());
+    }
 }

@@ -295,7 +295,7 @@ public class BillingServiceImpl implements BillingService {
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
                 metricsService.recordBalanceReserved(res.getUserId(), balance.getReservedTokens());
 
-                // Then: if remainder exists, move reserved -> available for the difference and record RELEASE tx with amount 0
+                // Then: if remainder exists, move reserved -> available for the difference and record RELEASE tx with remainder amount
                 if (remainder > 0) {
                     balance.setReservedTokens(balance.getReservedTokens() - remainder);
                     balance.setAvailableTokens(balance.getAvailableTokens() + remainder);
@@ -305,7 +305,7 @@ public class BillingServiceImpl implements BillingService {
                     releaseTx.setUserId(res.getUserId());
                     releaseTx.setType(TokenTransactionType.RELEASE);
                     releaseTx.setSource(TokenTransactionSource.QUIZ_GENERATION);
-                    releaseTx.setAmountTokens(0L);
+                    releaseTx.setAmountTokens(remainder);
                     releaseTx.setRefId(reservationId.toString());
                     releaseTx.setIdempotencyKey(null);
                     releaseTx.setMetaJson(buildMetaJson(null, "commit-remainder", remainder));

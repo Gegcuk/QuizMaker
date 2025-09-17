@@ -179,8 +179,8 @@ public class ReconciliationServiceImpl implements ReconciliationService {
                     // But we track this for detailed reconciliation
                 }
                 case REFUND -> {
-                    // Refunds reduce balance
-                    totalDebits += tx.getAmountTokens();
+                    // Refunds reduce balance (stored as negative amounts)
+                    totalDebits += Math.abs(tx.getAmountTokens());
                 }
             }
         }
