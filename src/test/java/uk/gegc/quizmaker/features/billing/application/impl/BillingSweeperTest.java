@@ -8,6 +8,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.ArgumentCaptor;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.domain.model.Balance;
 import uk.gegc.quizmaker.features.billing.domain.model.Reservation;
@@ -20,6 +21,7 @@ import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepos
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -29,6 +31,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for billing sweeper functionality that releases expired reservations.
@@ -187,6 +190,48 @@ class BillingSweeperTest {
         verify(transactionRepository, never()).save(any());
         verify(metricsService, never()).incrementTokensReleased(any(), anyLong(), anyString());
         verify(metricsService).recordSweeperBacklog(0);
+    }
+
+    @Test
+    @DisplayName("Should mark job as released with expiry error payload")
+    void shouldMarkJobAsReleasedWithExpiryError() {
+        UUID userId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        LocalDateTime cutoff = LocalDateTime.now();
+
+        Reservation expiredReservation = new Reservation();
+        expiredReservation.setId(reservationId);
+        expiredReservation.setUserId(userId);
+        expiredReservation.setState(ReservationState.ACTIVE);
+        expiredReservation.setEstimatedTokens(750L);
+        expiredReservation.setExpiresAt(cutoff.minusMinutes(3));
+
+        Balance balance = new Balance();
+        balance.setUserId(userId);
+        balance.setAvailableTokens(500L);
+        balance.setReservedTokens(750L);
+
+        QuizGenerationJob job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setBillingReservationId(reservationId);
+        job.setBillingState(BillingState.RESERVED);
+        job.setStatus(GenerationStatus.PROCESSING);
+
+        when(reservationRepository.findByStateAndExpiresAtBefore(eq(ReservationState.ACTIVE), any(LocalDateTime.class)))
+                .thenReturn(List.of(expiredReservation));
+        when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+        when(quizGenerationJobRepository.findByBillingReservationId(reservationId)).thenReturn(Optional.of(job));
+
+        billingService.expireReservations();
+
+        ArgumentCaptor<QuizGenerationJob> jobCaptor = ArgumentCaptor.forClass(QuizGenerationJob.class);
+        verify(quizGenerationJobRepository).save(jobCaptor.capture());
+        QuizGenerationJob savedJob = jobCaptor.getValue();
+        assertThat(savedJob.getBillingState()).isEqualTo(BillingState.RELEASED);
+        assertThat(savedJob.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(savedJob.getLastBillingError()).contains("Reservation expired");
+        assertThat(savedJob.getBillingIdempotencyKeys()).contains("\"release\"");
     }
 
     @Test

@@ -191,6 +191,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 }
             }
 
+            if (allQuestions.isEmpty()) {
+                throw new AiServiceException("Failed to generate any questions for job " + jobId + ". All generation attempts failed.");
+            }
+
             // Analyze coverage and attempt to fill gaps
             Map<QuestionType, Integer> missingTypes = findMissingQuestionTypes(requestedByType, generatedByType);
             

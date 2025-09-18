@@ -187,6 +187,36 @@ class QuizServiceReservationTest {
     }
 
     @Test
+    @DisplayName("startQuizGeneration should include zero-balance details when user has no available tokens")
+    void startQuizGeneration_ShouldIncludeZeroBalanceDetails() throws Exception {
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
+
+        InsufficientTokensException zeroBalance = new InsufficientTokensException(
+                "Not enough tokens to reserve: required=2, available=0",
+                2L,
+                0L,
+                2L,
+                LocalDateTime.now().plusMinutes(30)
+        );
+        when(billingService.reserve(any(), anyLong(), any(), any())).thenThrow(zeroBalance);
+
+        InsufficientTokensException exception = assertThrows(
+                InsufficientTokensException.class,
+                () -> quizService.startQuizGeneration("testuser", testRequest)
+        );
+
+        assertThat(exception.getEstimatedTokens()).isEqualTo(2L);
+        assertThat(exception.getAvailableTokens()).isZero();
+        assertThat(exception.getShortfall()).isEqualTo(2L);
+        assertThat(exception.getReservationTtl()).isNotNull();
+
+        verify(billingService).reserve(any(), anyLong(), any(), any());
+        verify(jobService, never()).createJob(any(), any(), any(), anyInt(), anyInt());
+        verify(aiQuizGenerationService, never()).generateQuizFromDocumentAsync(any(UUID.class), any());
+    }
+
+    @Test
     @DisplayName("startQuizGeneration should throw InsufficientTokensException with details when insufficient balance")
     void startQuizGeneration_ShouldThrowInsufficientTokensException() throws Exception {
         // Given
@@ -242,6 +272,8 @@ class QuizServiceReservationTest {
         // Then
         assertThat(response1).isNotNull();
         assertThat(response2).isNotNull();
+        assertThat(response1.jobId()).isEqualTo(response2.jobId());
+        assertThat(response1.estimatedTimeSeconds()).isEqualTo(response2.estimatedTimeSeconds());
 
         // Verify reservation was called twice with the same stable idempotency key
         verify(billingService, times(2)).reserve(
@@ -254,6 +286,98 @@ class QuizServiceReservationTest {
         // The billing service should handle idempotency internally
         // and return the same reservation for duplicate requests
     }
+
+    @Test
+    @DisplayName("startQuizGeneration should isolate reservations across different users")
+    void startQuizGeneration_ShouldIsolateReservationsAcrossDifferentUsers() throws Exception {
+        User secondUser = new User();
+        secondUser.setId(UUID.fromString("650e8400-e29b-41d4-a716-446655440004"));
+        secondUser.setUsername("user-two");
+        secondUser.setEmail("user-two@example.com");
+
+        GenerateQuizFromDocumentRequest secondRequest = new GenerateQuizFromDocumentRequest(
+                UUID.fromString("650e8400-e29b-41d4-a716-446655440005"),
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Second Quiz",
+                "Second Quiz Description",
+                Map.of(QuestionType.MCQ_SINGLE, 4, QuestionType.TRUE_FALSE, 2),
+                Difficulty.MEDIUM,
+                2,
+                null,
+                List.of()
+        );
+
+        ReservationDto reservationUser1 = new ReservationDto(
+                UUID.fromString("750e8400-e29b-41d4-a716-446655440006"),
+                testUser.getId(),
+                uk.gegc.quizmaker.features.billing.domain.model.ReservationState.ACTIVE,
+                2L,
+                0L,
+                LocalDateTime.now().plusMinutes(30),
+                null,
+                LocalDateTime.now(),
+                LocalDateTime.now()
+        );
+
+        ReservationDto reservationUser2 = new ReservationDto(
+                UUID.fromString("750e8400-e29b-41d4-a716-446655440007"),
+                secondUser.getId(),
+                uk.gegc.quizmaker.features.billing.domain.model.ReservationState.ACTIVE,
+                2L,
+                0L,
+                LocalDateTime.now().plusMinutes(30),
+                null,
+                LocalDateTime.now(),
+                LocalDateTime.now()
+        );
+
+        QuizGenerationJob jobUser1 = new QuizGenerationJob();
+        jobUser1.setId(UUID.fromString("850e8400-e29b-41d4-a716-446655440008"));
+        jobUser1.setUser(testUser);
+        jobUser1.setStatus(GenerationStatus.PENDING);
+
+        QuizGenerationJob jobUser2 = new QuizGenerationJob();
+        jobUser2.setId(UUID.fromString("850e8400-e29b-41d4-a716-446655440009"));
+        jobUser2.setUser(secondUser);
+        jobUser2.setStatus(GenerationStatus.PENDING);
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(userRepository.findByUsername("user-two")).thenReturn(Optional.of(secondUser));
+        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
+        when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(10);
+        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), any())).thenReturn(300);
+        when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(jobUser1, jobUser2);
+        when(billingService.reserve(any(), anyLong(), any(), any())).thenReturn(reservationUser1, reservationUser2);
+        when(jobRepository.save(any())).thenAnswer(invocation -> (QuizGenerationJob) invocation.getArgument(0));
+
+        QuizGenerationResponse responseUser1 = quizService.startQuizGeneration("testuser", testRequest);
+        QuizGenerationResponse responseUser2 = quizService.startQuizGeneration("user-two", secondRequest);
+
+        assertThat(responseUser1.jobId()).isEqualTo(jobUser1.getId());
+        assertThat(responseUser2.jobId()).isEqualTo(jobUser2.getId());
+        assertThat(responseUser1.estimatedTimeSeconds()).isEqualTo(300L);
+        assertThat(responseUser2.estimatedTimeSeconds()).isEqualTo(300L);
+
+        verify(billingService).reserve(
+                eq(testUser.getId()),
+                eq(2L),
+                eq("quiz-generation"),
+                eq("quiz:" + testUser.getId() + ":" + testRequest.documentId() + ":ENTIRE_DOCUMENT")
+        );
+        verify(billingService).reserve(
+                eq(secondUser.getId()),
+                eq(2L),
+                eq("quiz-generation"),
+                eq("quiz:" + secondUser.getId() + ":" + secondRequest.documentId() + ":ENTIRE_DOCUMENT")
+        );
+
+        verify(aiQuizGenerationService).generateQuizFromDocumentAsync(jobUser1.getId(), testRequest);
+        verify(aiQuizGenerationService).generateQuizFromDocumentAsync(jobUser2.getId(), secondRequest);
+    }
+
 
     @Test
     @DisplayName("startQuizGeneration should throw ValidationException when user has active job")

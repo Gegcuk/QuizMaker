@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.application.impl;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -45,12 +46,14 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -100,7 +103,66 @@ class QuizServiceImplBillingDelegationTest {
     }
 
     @Test
-    void commitTokensForSuccessfulGenerationUsesInternalBillingService() {
+    @DisplayName("Scenario 2.1: exact usage commits all reserved tokens without releasing remainder")
+    void commitTokensForSuccessfulGenerationExactUsageCommitsAllTokens() {
+        UUID jobId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        QuizGenerationJob job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setBillingReservationId(reservationId);
+        job.setBillingState(BillingState.RESERVED);
+        job.setBillingEstimatedTokens(100L);
+        job.setStatus(GenerationStatus.COMPLETED);
+        job.setInputPromptTokens(30L);
+        job.setReservationExpiresAt(LocalDateTime.now().plusMinutes(10));
+
+        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(estimationService.computeActualBillingTokens(anyList(), eq(Difficulty.MEDIUM), eq(30L))).thenReturn(100L);
+
+        CommitResultDto commitResult = new CommitResultDto(reservationId, 100L, 0L);
+        when(internalBillingService.commit(eq(reservationId), eq(100L), eq("quiz-generation"), anyString())).thenReturn(commitResult);
+
+        GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
+                UUID.randomUUID(),
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Quiz title",
+                "Quiz description",
+                Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM,
+                2,
+                null,
+                List.of()
+        );
+
+        Question question = new Question();
+        question.setType(QuestionType.MCQ_SINGLE);
+        question.setDifficulty(Difficulty.MEDIUM);
+        question.setQuestionText("Sample question");
+        question.setContent("{}");
+
+        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+
+        ArgumentCaptor<String> commitKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(internalBillingService).commit(eq(reservationId), eq(100L), eq("quiz-generation"), commitKeyCaptor.capture());
+        assertThat(commitKeyCaptor.getValue()).isEqualTo("quiz:" + jobId + ":commit");
+        verify(internalBillingService, Mockito.never()).release(any(), any(), any(), any());
+        verify(jobRepository).save(job);
+
+        assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
+        assertThat(job.getBillingCommittedTokens()).isEqualTo(100L);
+        assertThat(job.getActualTokens()).isEqualTo(100L);
+        assertThat(job.getWasCappedAtReserved()).isFalse();
+        assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\"");
+        assertThat(job.getLastBillingError()).isNull();
+    }
+
+    @Test
+    @DisplayName("Scenario 2.2: under-usage releases remainder after commit")
+    void commitTokensForSuccessfulGenerationUnderUsageReleasesRemainder() {
         UUID jobId = UUID.randomUUID();
         UUID reservationId = UUID.randomUUID();
         QuizGenerationJob job = new QuizGenerationJob();
@@ -154,6 +216,106 @@ class QuizServiceImplBillingDelegationTest {
         assertThat(job.getBillingCommittedTokens()).isEqualTo(60L);
         assertThat(job.getActualTokens()).isEqualTo(60L);
         assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\":");
+    }
+
+    @Test
+    @DisplayName("Scenario 2.3: over-usage caps committed tokens at reserved amount")
+    void commitTokensForSuccessfulGenerationCappedAtReservedWhenActualExceeds() {
+        UUID jobId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        QuizGenerationJob job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setBillingReservationId(reservationId);
+        job.setBillingState(BillingState.RESERVED);
+        job.setBillingEstimatedTokens(100L);
+        job.setStatus(GenerationStatus.COMPLETED);
+        job.setInputPromptTokens(25L);
+        job.setReservationExpiresAt(LocalDateTime.now().plusMinutes(10));
+
+        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(estimationService.computeActualBillingTokens(anyList(), eq(Difficulty.MEDIUM), eq(25L))).thenReturn(150L);
+
+        CommitResultDto commitResult = new CommitResultDto(reservationId, 100L, 0L);
+        when(internalBillingService.commit(eq(reservationId), eq(100L), eq("quiz-generation"), anyString())).thenReturn(commitResult);
+
+        GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
+                UUID.randomUUID(),
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Quiz title",
+                "Quiz description",
+                Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM,
+                2,
+                null,
+                List.of()
+        );
+
+        Question question = new Question();
+        question.setType(QuestionType.MCQ_SINGLE);
+        question.setDifficulty(Difficulty.MEDIUM);
+        question.setQuestionText("Sample question");
+        question.setContent("{}");
+
+        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+
+        ArgumentCaptor<String> commitKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(internalBillingService).commit(eq(reservationId), eq(100L), eq("quiz-generation"), commitKeyCaptor.capture());
+        assertThat(commitKeyCaptor.getValue()).isEqualTo("quiz:" + jobId + ":commit");
+        verify(internalBillingService, Mockito.never()).release(any(), any(), any(), any());
+        verify(jobRepository).save(job);
+
+        assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
+        assertThat(job.getBillingCommittedTokens()).isEqualTo(100L);
+        assertThat(job.getActualTokens()).isEqualTo(150L);
+        assertThat(job.getWasCappedAtReserved()).isTrue();
+        assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\"");
+    }
+
+    @Test
+    @DisplayName("Scenario 2.4: skip commit when reservation already expired")
+    void commitTokensForSuccessfulGenerationSkipsWhenReservationExpired() {
+        UUID jobId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        QuizGenerationJob job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setBillingReservationId(reservationId);
+        job.setBillingState(BillingState.RESERVED);
+        job.setBillingEstimatedTokens(50L);
+        job.setStatus(GenerationStatus.COMPLETED);
+        job.setReservationExpiresAt(LocalDateTime.now().minusMinutes(2));
+
+        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
+
+        GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
+                UUID.randomUUID(),
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Expired Reservation Quiz",
+                "Expired Reservation Description",
+                Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM,
+                2,
+                null,
+                List.of()
+        );
+
+        Question question = new Question();
+        question.setType(QuestionType.MCQ_SINGLE);
+        question.setDifficulty(Difficulty.MEDIUM);
+        question.setQuestionText("Sample question");
+        question.setContent("{}");
+
+        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+
+        verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
+        verify(internalBillingService, never()).release(any(), any(), any(), any());
+        verify(jobRepository, never()).save(any());
     }
 
     @Test
