@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
@@ -60,6 +61,9 @@ class AiQuizGenerationServiceTest {
 
     @Mock
     private AiRateLimitConfig rateLimitConfig;
+    
+    @Mock
+    private InternalBillingService internalBillingService;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;

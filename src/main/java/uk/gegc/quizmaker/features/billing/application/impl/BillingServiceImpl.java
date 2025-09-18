@@ -102,6 +102,15 @@ public class BillingServiceImpl implements BillingService {
     @Transactional
     @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReservationDto reserve(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
+        return performReserve(userId, estimatedBillingTokens, ref, idempotencyKey);
+    }
+
+    @Transactional
+    public ReservationDto reserveInternal(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
+        return performReserve(userId, estimatedBillingTokens, ref, idempotencyKey);
+    }
+
+    private ReservationDto performReserve(UUID userId, long estimatedBillingTokens, String ref, String idempotencyKey) {
         if (estimatedBillingTokens <= 0) {
             throw new IllegalArgumentException("estimatedBillingTokens must be > 0");
         }
@@ -190,10 +199,10 @@ public class BillingServiceImpl implements BillingService {
                 tx.setBalanceAfterAvailable(balance.getAvailableTokens());
                 tx.setBalanceAfterReserved(balance.getReservedTokens());
                 transactionRepository.save(tx);
-                
+
                 // Emit reservation created metrics
                 metricsService.incrementReservationCreated(userId, estimatedBillingTokens);
-                
+
                 // Flush to surface any optimistic locking issues within the retry loop
                 entityManager.flush();
                 return reservationMapper.toDto(res);
@@ -230,10 +239,20 @@ public class BillingServiceImpl implements BillingService {
         }
     }
 
+
     @Override
     @Transactional
     @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public CommitResultDto commit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
+        return performCommit(reservationId, actualBillingTokens, ref, idempotencyKey);
+    }
+
+    @Transactional
+    public CommitResultDto commitInternal(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
+        return performCommit(reservationId, actualBillingTokens, ref, idempotencyKey);
+    }
+
+    private CommitResultDto performCommit(UUID reservationId, long actualBillingTokens, String ref, String idempotencyKey) {
         if (actualBillingTokens <= 0) {
             throw new IllegalArgumentException("actualBillingTokens must be > 0");
         }
@@ -297,7 +316,7 @@ public class BillingServiceImpl implements BillingService {
                         "Committed {} tokens from reservation {} for user {}", 
                         res.getUserId(), "COMMIT", "QUIZ_GENERATION", actualBillingTokens, idempotencyKey, 
                         balance.getAvailableTokens(), balance.getReservedTokens(), reservationId.toString());
-                
+
                 metricsService.incrementTokensCommitted(res.getUserId(), actualBillingTokens, "QUIZ_GENERATION");
                 metricsService.incrementReservationCommitted(res.getUserId(), actualBillingTokens);
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
@@ -334,10 +353,20 @@ public class BillingServiceImpl implements BillingService {
         }
     }
 
+
     @Override
     @Transactional
     @PreAuthorize("hasAuthority('BILLING_WRITE')")
     public ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey) {
+        return performRelease(reservationId, reason, ref, idempotencyKey);
+    }
+
+    @Transactional
+    public ReleaseResultDto releaseInternal(UUID reservationId, String reason, String ref, String idempotencyKey) {
+        return performRelease(reservationId, reason, ref, idempotencyKey);
+    }
+
+    private ReleaseResultDto performRelease(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
@@ -396,7 +425,7 @@ public class BillingServiceImpl implements BillingService {
                         "Released {} tokens from reservation {} for user {}", 
                         res.getUserId(), "RELEASE", "QUIZ_GENERATION", releaseAmount, idempotencyKey, 
                         balance.getAvailableTokens(), balance.getReservedTokens(), reservationId.toString());
-                
+
                 metricsService.incrementTokensReleased(res.getUserId(), releaseAmount, "QUIZ_GENERATION");
                 metricsService.incrementReservationReleased(res.getUserId(), releaseAmount);
                 metricsService.recordBalanceAvailable(res.getUserId(), balance.getAvailableTokens());
@@ -414,7 +443,6 @@ public class BillingServiceImpl implements BillingService {
             }
         }
     }
-
     @Override
     @Transactional
     public void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
@@ -694,3 +722,4 @@ public class BillingServiceImpl implements BillingService {
         }
     }
 }
+

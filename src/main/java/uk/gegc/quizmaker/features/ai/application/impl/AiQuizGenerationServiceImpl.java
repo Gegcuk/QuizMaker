@@ -21,14 +21,13 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
@@ -55,12 +54,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final PromptTemplateService promptTemplateService;
     private final QuestionResponseParser questionResponseParser;
     private final QuizGenerationJobRepository jobRepository;
-    private final QuizGenerationJobService jobService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final AiRateLimitConfig rateLimitConfig;
-    private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -146,7 +144,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
                     .map(chunk -> generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId))
-                    .collect(Collectors.toList());
+                    .toList();
 
             // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
@@ -247,7 +245,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
                             try {
                                 String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                                billingService.release(
+                                internalBillingService.release(
                                     failedJob.getBillingReservationId(),
                                     "Generation failed: " + e.getMessage(),
                                     jobId.toString(),
@@ -303,8 +301,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId
     ) {
         return CompletableFuture.supplyAsync(() -> {
-            Instant startTime = Instant.now();
-
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
 
@@ -449,7 +445,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (retryCount < maxRetries - 1) {
                     retryCount++;
                     log.info("Retrying due to parsing error for type {}", questionType);
-                    continue;
                 } else {
                     throw new AiServiceException("Failed to parse AI response after " + maxRetries + " attempts", e);
                 }
@@ -477,7 +472,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (retryCount < maxRetries - 1) {
                     retryCount++;
                     log.info("Retrying due to error for type {}", questionType);
-                    continue;
                 } else {
                     throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts: " + e.getMessage(), e);
                 }
@@ -646,14 +640,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     private QuestionType findAlternativeQuestionType(QuestionType original) {
         return switch (original) {
-            case ORDERING -> QuestionType.MCQ_SINGLE;
-            case HOTSPOT -> QuestionType.MCQ_SINGLE;
-            case COMPLIANCE -> QuestionType.TRUE_FALSE;
+            case ORDERING, HOTSPOT, TRUE_FALSE, MCQ_MULTI -> QuestionType.MCQ_SINGLE;
+            case COMPLIANCE, OPEN, MCQ_SINGLE -> QuestionType.TRUE_FALSE;
             case FILL_GAP -> QuestionType.OPEN;
-            case OPEN -> QuestionType.TRUE_FALSE;
-            case TRUE_FALSE -> QuestionType.MCQ_SINGLE;
-            case MCQ_SINGLE -> QuestionType.TRUE_FALSE;
-            case MCQ_MULTI -> QuestionType.MCQ_SINGLE;
             default -> null;
         };
     }
@@ -700,7 +689,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         chunkQuestions.get(b.getChunkIndex()).size(),
                         chunkQuestions.get(a.getChunkIndex()).size()))
                 .limit(Math.min(5, chunks.size())) // Try up to 5 best chunks
-                .collect(Collectors.toList());
+                .toList();
 
         log.debug("Attempting redistribution using {} good chunks", goodChunks.size());
         updateJobStatusSafely(jobId, "Redistribution: Found " + goodChunks.size() + " suitable chunks for missing types");
@@ -820,9 +809,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         // Additional time per question type
         int timePerQuestionType = 10; // seconds
-
-        // Calculate total questions
-        int totalQuestions = questionsPerType.values().stream().mapToInt(Integer::intValue).sum();
 
         // Estimate: base time per chunk + additional time for question types
         int estimatedTime = (totalChunks * baseTimePerChunk) + (questionsPerType.size() * timePerQuestionType);
@@ -989,6 +975,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (request.chunkIndices() == null || request.chunkIndices().isEmpty()) {
                     throw new IllegalArgumentException("Chunk indices must be specified for SPECIFIC_CHUNKS scope");
                 }
+                assert allChunks != null;
                 List<DocumentChunk> specificChunks = allChunks.stream()
                         .filter(chunk -> request.chunkIndices().contains(chunk.getChunkIndex()))
                         .collect(Collectors.toList());
@@ -996,10 +983,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 return specificChunks;
 
             case SPECIFIC_CHAPTER:
-                List<DocumentChunk> chapterChunks = allChunks.stream()
-                        .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
+                assert allChunks != null;
+                return allChunks.stream()
+                        .filter(chunk1 -> matchesChapter(chunk1, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                return chapterChunks;
 
             case SPECIFIC_SECTION:
                 List<DocumentChunk> sectionChunks = allChunks.stream()
@@ -1156,4 +1143,4 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             throw new AiServiceException("Interrupted while waiting for rate limit", ie);
         }
     }
-} 
+}

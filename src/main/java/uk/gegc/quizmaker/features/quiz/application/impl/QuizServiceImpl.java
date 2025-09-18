@@ -41,6 +41,7 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
@@ -74,6 +75,7 @@ public class QuizServiceImpl implements QuizService {
     private final DocumentProcessingService documentProcessingService;
     private final QuizHashCalculator quizHashCalculator;
     private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
     private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
     private final AppPermissionEvaluator appPermissionEvaluator;
@@ -664,7 +666,7 @@ public class QuizServiceImpl implements QuizService {
                             if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
                                 try {
                                     String releaseIdempotencyKey = "quiz:" + event.getJobId() + ":release";
-                                    billingService.release(
+                                    internalBillingService.release(
                                         job.getBillingReservationId(),
                                         "Quiz creation failed: " + e.getMessage(),
                                         event.getJobId().toString(),
@@ -1213,7 +1215,7 @@ public class QuizServiceImpl implements QuizService {
                     tokensToCommit, jobId, actualBillingTokens, reservedTokens, inputPromptTokens, allQuestions.size(), correlationId);
 
             // Write both COMMIT and RELEASE ledger rows with reservationId, jobId, idempotencyKey, and reason
-            var commitResult = billingService.commit(
+            var commitResult = internalBillingService.commit(
                     lockedJob.getBillingReservationId(),
                     tokensToCommit,
                     "quiz-generation",
@@ -1227,7 +1229,7 @@ public class QuizServiceImpl implements QuizService {
                 try {
                     log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", 
                             remainder, jobId, correlationId);
-                    billingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
+                    internalBillingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
                 } catch (Exception ex) {
                     log.warn("Failed to explicitly release remainder {} for reservation {}: {} [correlationId={}]", 
                             remainder, lockedJob.getBillingReservationId(), ex.getMessage(), correlationId);
@@ -1318,7 +1320,8 @@ public class QuizServiceImpl implements QuizService {
             if (job.getBillingIdempotencyKeys() == null || job.getBillingIdempotencyKeys().trim().isEmpty()) {
                 return false;
             }
-            Map<String, String> keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+            Map<String, String> keys = objectMapper.readValue(
+                    job.getBillingIdempotencyKeys(),
                     objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
             return keys.containsKey(operation);
         } catch (Exception e) {
@@ -1326,6 +1329,4 @@ public class QuizServiceImpl implements QuizService {
             return false;
         }
     }
-
-
 }
