@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.features.quiz.application;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,8 +19,8 @@ import uk.gegc.quizmaker.features.document.application.DocumentProcessingService
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
-import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -36,6 +35,8 @@ import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -44,6 +45,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Quiz Service Reservation Tests")
@@ -78,6 +80,10 @@ class QuizServiceReservationTest {
     private BillingService billingService;
     @Mock
     private EstimationService estimationService;
+    @Mock
+    private TransactionTemplate transactionTemplate;
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -144,6 +150,13 @@ class QuizServiceReservationTest {
     @Test
     @DisplayName("startQuizGeneration should reserve tokens and create job successfully")
     void startQuizGeneration_ShouldReserveTokensAndCreateJob() throws Exception {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
@@ -182,13 +195,20 @@ class QuizServiceReservationTest {
                    savedJob.getReservationExpiresAt() != null;
         }));
 
-        // Verify async generation was started
-        verify(aiQuizGenerationService).generateQuizFromDocumentAsync(testJob.getId(), testRequest);
+        // Verify event was published to start async generation
+        verify(applicationEventPublisher).publishEvent(any(QuizGenerationRequestedEvent.class));
     }
 
     @Test
     @DisplayName("startQuizGeneration should include zero-balance details when user has no available tokens")
     void startQuizGeneration_ShouldIncludeZeroBalanceDetails() throws Exception {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
 
@@ -219,6 +239,13 @@ class QuizServiceReservationTest {
     @Test
     @DisplayName("startQuizGeneration should throw InsufficientTokensException with details when insufficient balance")
     void startQuizGeneration_ShouldThrowInsufficientTokensException() throws Exception {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
@@ -254,6 +281,13 @@ class QuizServiceReservationTest {
     @Test
     @DisplayName("startQuizGeneration should handle idempotency correctly for duplicate requests")
     void startQuizGeneration_ShouldHandleIdempotencyCorrectly() throws Exception {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
@@ -290,6 +324,13 @@ class QuizServiceReservationTest {
     @Test
     @DisplayName("startQuizGeneration should isolate reservations across different users")
     void startQuizGeneration_ShouldIsolateReservationsAcrossDifferentUsers() throws Exception {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         User secondUser = new User();
         secondUser.setId(UUID.fromString("650e8400-e29b-41d4-a716-446655440004"));
         secondUser.setUsername("user-two");
@@ -374,14 +415,21 @@ class QuizServiceReservationTest {
                 eq("quiz:" + secondUser.getId() + ":" + secondRequest.documentId() + ":ENTIRE_DOCUMENT")
         );
 
-        verify(aiQuizGenerationService).generateQuizFromDocumentAsync(jobUser1.getId(), testRequest);
-        verify(aiQuizGenerationService).generateQuizFromDocumentAsync(jobUser2.getId(), secondRequest);
+        // Verify events were published to start async generation for both users
+        verify(applicationEventPublisher, times(2)).publishEvent(any(QuizGenerationRequestedEvent.class));
     }
 
 
     @Test
     @DisplayName("startQuizGeneration should throw ValidationException when user has active job")
     void startQuizGeneration_ShouldThrowValidationExceptionWhenActiveJobExists() {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         // Given
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
         when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
