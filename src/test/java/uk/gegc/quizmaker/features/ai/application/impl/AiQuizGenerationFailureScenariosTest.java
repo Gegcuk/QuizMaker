@@ -12,6 +12,9 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionCallbackWithoutResult;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
@@ -68,6 +71,8 @@ class AiQuizGenerationFailureScenariosTest {
     private AiRateLimitConfig rateLimitConfig;
     @Mock
     private InternalBillingService internalBillingService;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     private AiQuizGenerationServiceImpl service;
 
@@ -85,8 +90,20 @@ class AiQuizGenerationFailureScenariosTest {
                 objectMapper,
                 eventPublisher,
                 rateLimitConfig,
-                internalBillingService
+                internalBillingService,
+                transactionTemplate
         ));
+        lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
+                .thenAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    return callback.doInTransaction(null);
+                });
+        lenient().doAnswer(invocation -> {
+                    TransactionCallbackWithoutResult callback = invocation.getArgument(0);
+                    callback.doInTransactionWithoutResult(null);
+                    return null;
+                })
+                .when(transactionTemplate).executeWithoutResult(any());
         lenient().doReturn(10L).when(service).calculateBackoffDelay(anyInt());
         lenient().doNothing().when(service).sleepForRateLimit(anyLong());
 
