@@ -10,6 +10,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
@@ -94,19 +95,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
 
         try {
-            // Get the job from database in this transaction
+            // Get the job from database and update status in a short transaction
             log.info("Attempting to find job {} in database from thread {}", jobId, Thread.currentThread().getName());
             
-            // First, let's see what jobs are available
-            List<QuizGenerationJob> allJobs = jobRepository.findAll();
-            log.info("Available jobs in database: {}", allJobs.stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
-            
-            QuizGenerationJob freshJob = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            
-            log.info("Retrieved job from database, updating status to PROCESSING for job: {}", jobId);
-            freshJob.setStatus(GenerationStatus.PROCESSING);
-            jobRepository.save(freshJob);
+            QuizGenerationJob freshJob = updateJobStatusToProcessing(jobId);
 
             // Initialize progress tracking
             GenerationProgress progress = new GenerationProgress();
@@ -116,15 +108,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             validateDocumentForGeneration(request.documentId(), freshJob.getUser().getUsername());
 
             // Get document and chunks
-            Document document = documentRepository.findByIdWithChunks(request.documentId())
+            Document document = documentRepository.findByIdWithChunksAndUser(request.documentId())
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + request.documentId()));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             progress.setTotalChunks(chunks.size());
 
-            // Update job with total chunks
-            freshJob.setTotalChunks(chunks.size());
-            jobRepository.save(freshJob);
+            // Update job with total chunks in a short transaction
+            updateJobTotalChunks(jobId, chunks.size());
 
             log.info("Processing {} chunks for document {}", chunks.size(), request.documentId());
 
@@ -761,8 +752,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public void validateDocumentForGeneration(UUID documentId, String username) {
-        Document document = documentRepository.findByIdWithChunks(documentId)
+        Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
         // Check if document belongs to user
@@ -856,7 +848,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             job.setRequestData(requestData);
 
             // Calculate estimated completion time
-            Document document = documentRepository.findByIdWithChunks(documentId)
+            Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
@@ -1100,5 +1092,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Thread.currentThread().interrupt();
             throw new AiServiceException("Interrupted while waiting for rate limit", ie);
         }
+    }
+
+    /**
+     * Update job status to PROCESSING in a short transaction
+     */
+    @Transactional
+    public QuizGenerationJob updateJobStatusToProcessing(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        
+        // Initialize lazy relationships we will need outside the transaction
+        job.getUser().getId();
+        job.getUser().getUsername();
+        
+        job.setStatus(GenerationStatus.PROCESSING);
+        return jobRepository.save(job);
+    }
+
+    /**
+     * Update job total chunks in a short transaction
+     */
+    @Transactional
+    public void updateJobTotalChunks(UUID jobId, int totalChunks) {
+        QuizGenerationJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        job.setTotalChunks(totalChunks);
+        jobRepository.save(job);
     }
 }
