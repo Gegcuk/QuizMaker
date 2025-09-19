@@ -13,7 +13,6 @@ import org.mockito.quality.Strictness;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
@@ -42,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -93,14 +93,17 @@ class AiQuizGenerationFailureScenariosTest {
                 internalBillingService,
                 transactionTemplate
         ));
-        lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
+        lenient().when(transactionTemplate.execute(any()))
                 .thenAnswer(invocation -> {
-                    TransactionCallback<?> callback = invocation.getArgument(0);
-                    return callback.doInTransaction(null);
+                    @SuppressWarnings("unchecked")
+                    TransactionCallback<Object> callback = (TransactionCallback<Object>) invocation.getArgument(0);
+                    org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+                    return callback.doInTransaction(mockStatus);
                 });
         lenient().doAnswer(invocation -> {
-                    TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-                    callback.doInTransactionWithoutResult(null);
+                    Consumer<org.springframework.transaction.TransactionStatus> callback = invocation.getArgument(0);
+                    org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+                    callback.accept(mockStatus);
                     return null;
                 })
                 .when(transactionTemplate).executeWithoutResult(any());
