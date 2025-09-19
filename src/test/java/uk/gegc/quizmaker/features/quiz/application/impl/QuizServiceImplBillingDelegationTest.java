@@ -25,7 +25,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
-import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -36,6 +36,9 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -76,6 +79,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private EstimationService estimationService;
     @Mock private FeatureFlags featureFlags;
     @Mock private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock private TransactionTemplate transactionTemplate;
 
     private QuizServiceImpl quizService;
 
@@ -98,8 +102,18 @@ class QuizServiceImplBillingDelegationTest {
                 internalBillingService,
                 estimationService,
                 featureFlags,
-                appPermissionEvaluator
+                appPermissionEvaluator,
+                transactionTemplate
         );
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        lenient().doAnswer(invocation -> {
+            TransactionCallbackWithoutResult callback = invocation.getArgument(0);
+            callback.doInTransactionWithoutResult(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
     }
 
     @Test

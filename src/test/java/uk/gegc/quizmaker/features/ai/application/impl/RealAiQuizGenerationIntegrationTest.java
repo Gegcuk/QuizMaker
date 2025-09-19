@@ -57,6 +57,9 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionCallbackWithoutResult;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -71,6 +74,8 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -136,6 +141,16 @@ class RealAiQuizGenerationIntegrationTest {
         UserRepository userRepository = mock(UserRepository.class);
         ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
         internalBillingService = mock(InternalBillingService.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        doAnswer(invocation -> {
+            TransactionCallbackWithoutResult callback = invocation.getArgument(0);
+            callback.doInTransactionWithoutResult(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
 
         AiRateLimitConfig rateLimitConfig = new AiRateLimitConfig();
         rateLimitConfig.setMaxRetries(3);
@@ -153,7 +168,8 @@ class RealAiQuizGenerationIntegrationTest {
                 new ObjectMapper(),
                 eventPublisher,
                 rateLimitConfig,
-                internalBillingService
+                internalBillingService,
+                transactionTemplate
         );
 
         BillingProperties billingProperties = new BillingProperties();

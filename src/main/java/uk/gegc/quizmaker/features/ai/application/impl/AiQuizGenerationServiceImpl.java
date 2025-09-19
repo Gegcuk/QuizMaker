@@ -7,9 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
@@ -21,7 +20,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
-import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -59,46 +58,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final ApplicationEventPublisher eventPublisher;
     private final AiRateLimitConfig rateLimitConfig;
     private final InternalBillingService internalBillingService;
+    private final TransactionTemplate transactionTemplate;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request) {
-        // First try to get the job from the database
-        QuizGenerationJob job = null;
-        try {
-            job = jobRepository.findById(jobId).orElse(null);
-        } catch (Exception e) {
-            log.warn("Failed to find job {} in database, will retry: {}", jobId, e.getMessage());
-        }
-        
-        // If job not found, retry with delay
+        QuizGenerationJob job = transactionTemplate.execute(status -> {
+            QuizGenerationJob managedJob = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            managedJob.setStatus(GenerationStatus.PROCESSING);
+            jobRepository.save(managedJob);
+            // initialize lazy relationships we will need outside the transaction
+            managedJob.getUser().getId();
+            managedJob.getUser().getUsername();
+            return managedJob;
+        });
+
         if (job == null) {
-            try {
-                Thread.sleep(200);
-                job = jobRepository.findById(jobId).orElse(null);
-            } catch (Exception e) {
-                log.warn("Failed to find job {} after retry: {}", jobId, e.getMessage());
-            }
+            return;
         }
-        
-        // If still not found, throw exception
-        if (job == null) {
-            log.error("Job {} not found in database after retries. Available jobs: {}", jobId, 
-                    jobRepository.findAll().stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
-            throw new ResourceNotFoundException("Generation job not found: " + jobId);
-        }
-        
-        // Call the method that accepts the job directly
+
         generateQuizFromDocumentAsync(job, request);
     }
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public void generateQuizFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest request) {
         UUID jobId = job.getId();
         Instant startTime = Instant.now();
@@ -239,38 +224,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         } catch (Exception e) {
             log.error("Quiz generation failed for job {}", jobId, e);
 
-            // Update job status to failed
-            try {
+            transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
                 if (failedJob != null) {
                     failedJob.markFailed("Generation failed: " + e.getMessage());
-                    
-                        // Release billing reservation if it exists
-                        if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
-                            try {
-                                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                                internalBillingService.release(
+
+                    if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
+                        try {
+                            String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                            internalBillingService.release(
                                     failedJob.getBillingReservationId(),
                                     "Generation failed: " + e.getMessage(),
                                     jobId.toString(),
                                     releaseIdempotencyKey
-                                );
-                                failedJob.setBillingState(BillingState.RELEASED);
-                                // Store release idempotency key for audit trail
-                                failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
-                                log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
-                            } catch (Exception billingError) {
-                                log.error("Failed to release billing reservation for job {}", jobId, billingError);
-                                // Store billing error but don't fail the job update
-                                failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
-                            }
+                            );
+                            failedJob.setBillingState(BillingState.RELEASED);
+                            failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                            log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
+                        } catch (Exception billingError) {
+                            log.error("Failed to release billing reservation for job {}", jobId, billingError);
+                            failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
                         }
-                    
+                    }
+
                     jobRepository.save(failedJob);
                 }
-            } catch (Exception saveError) {
-                log.error("Failed to update job status to failed for job {}", jobId, saveError);
-            }
+            });
 
             GenerationProgress progress = generationProgress.get(jobId);
             if (progress != null) {
@@ -283,8 +262,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public CompletableFuture<List<Question>> generateQuestionsFromChunk(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
@@ -296,8 +273,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Enhanced version with job status updates
      */
-    @Async("aiTaskExecutor")
-    @Transactional
     public CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
