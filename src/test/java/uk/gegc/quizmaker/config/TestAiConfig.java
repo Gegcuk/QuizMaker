@@ -16,7 +16,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @TestConfiguration
-@Profile("test")
+@Profile({"test", "!real-ai"})
 public class TestAiConfig {
 
     private final AtomicReference<String> lastUserMessage = new AtomicReference<>();
@@ -80,11 +80,11 @@ public class TestAiConfig {
         String lowerMessage = userMessage.toLowerCase();
 
         if (lowerMessage.contains("joke")) {
-            return "Why don't scientists trust atoms? Because they make up everything! 😄";
+            return "Why don't scientists trust atoms? Because they make up everything! ????";
         } else if (lowerMessage.contains("2+2") || lowerMessage.contains("what is 2+2")) {
             return "2+2 equals 4! It's a basic mathematical fact.";
         } else if (lowerMessage.contains("computer")) {
-            return "A computer is an electronic device that processes data and performs calculations. It can store, retrieve, and process information. 🖥️";
+            return "A computer is an electronic device that processes data and performs calculations. It can store, retrieve, and process information. ???????";
         } else if (lowerMessage.contains("artificial intelligence") || lowerMessage.contains("ai")) {
             return "Artificial Intelligence (AI) is technology that enables machines to simulate human intelligence. It can learn, reason, and make decisions based on data.";
         } else if (lowerMessage.contains("capital") && lowerMessage.contains("france")) {
