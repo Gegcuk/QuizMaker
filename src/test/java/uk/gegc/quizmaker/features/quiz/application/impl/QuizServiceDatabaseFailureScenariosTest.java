@@ -166,7 +166,7 @@ class QuizServiceDatabaseFailureScenariosTest {
         });
         lenient().doAnswer(invocation -> {
             TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransactionWithoutResult(null);
+            callback.doInTransaction(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
     }

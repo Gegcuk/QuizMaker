@@ -8,6 +8,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
@@ -53,11 +54,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class QuizServiceImplBillingDelegationTest {
@@ -81,6 +78,9 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private AppPermissionEvaluator appPermissionEvaluator;
     @Mock private TransactionTemplate transactionTemplate;
 
+    private ApplicationEventPublisher applicationEventPublisher;
+
+
     private QuizServiceImpl quizService;
 
     @BeforeEach
@@ -103,6 +103,7 @@ class QuizServiceImplBillingDelegationTest {
                 estimationService,
                 featureFlags,
                 appPermissionEvaluator,
+                applicationEventPublisher,
                 transactionTemplate
         );
         lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
@@ -111,7 +112,7 @@ class QuizServiceImplBillingDelegationTest {
         });
         lenient().doAnswer(invocation -> {
             TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransactionWithoutResult(null);
+            callback.doInTransaction(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
     }

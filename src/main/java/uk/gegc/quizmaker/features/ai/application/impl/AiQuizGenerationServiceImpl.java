@@ -2,7 +2,9 @@ package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -1013,10 +1015,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     public static class GenerationProgress {
         private final AtomicInteger processedChunks = new AtomicInteger(0);
+        @Setter
+        @Getter
         private int totalChunks;
+        @Setter
+        @Getter
         private boolean completed = false;
+        @Setter
+        @Getter
         private List<Question> generatedQuestions = new ArrayList<>();
+        @Getter
         private List<String> errors = new ArrayList<>();
+        @Getter
         private final Instant startTime = Instant.now();
 
         public void incrementProcessedChunks() {
@@ -1041,37 +1051,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             return processedChunks.get();
         }
 
-        public int getTotalChunks() {
-            return totalChunks;
-        }
-
-        public void setTotalChunks(int totalChunks) {
-            this.totalChunks = totalChunks;
-        }
-
-        public boolean isCompleted() {
-            return completed;
-        }
-
-        public void setCompleted(boolean completed) {
-            this.completed = completed;
-        }
-
-        public List<Question> getGeneratedQuestions() {
-            return generatedQuestions;
-        }
-
-        public void setGeneratedQuestions(List<Question> generatedQuestions) {
-            this.generatedQuestions = generatedQuestions;
-        }
-
-        public List<String> getErrors() {
-            return errors;
-        }
-
-        public Instant getStartTime() {
-            return startTime;
-        }
     }
 
     /**

@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.service.ai;
 
 import ch.qos.logback.classic.Logger;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
@@ -11,13 +10,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
-import org.springframework.transaction.support.TransactionCallback;
-import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,21 +30,6 @@ class AiRateLimitTest {
 
     @Mock
     private TransactionTemplate transactionTemplate;
-
-    @BeforeEach
-    void configureTransactionTemplate() {
-        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(invocation -> {
-            TransactionCallback<?> callback = invocation.getArgument(0);
-            return callback.doInTransaction(null);
-        });
-        doAnswer(invocation -> {
-            TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransactionWithoutResult(null);
-            return null;
-        }).when(transactionTemplate).executeWithoutResult(any());
-    }
-
-
 
     @Test
     void testIsRateLimitError_With429Error() {
