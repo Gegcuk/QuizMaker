@@ -38,6 +38,7 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -412,10 +413,77 @@ class EndToEndQuizGenerationIntegrationTest {
     }
 
     @Test
+    void shouldTransitionFromPendingToProcessingCorrectly() throws Exception {
+        // Given - Use isolated test data to avoid conflicts with other tests
+        GenerateQuizFromDocumentRequest isolatedRequest = new GenerateQuizFromDocumentRequest(
+                testDocument.getId(),
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Isolated Status Transition Test",
+                "Testing PENDING to PROCESSING transition",
+                Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM,
+                null,
+                null,
+                null
+        );
+        
+        UUID isolatedJobId = createJobOnly(testUser.getUsername(), isolatedRequest);
+
+        // Verify initial PENDING status
+        QuizGenerationJob job = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedJobId).orElseThrow()
+        );
+        assertEquals(GenerationStatus.PENDING, job.getStatus());
+
+        // When - Manually trigger the async method to test the updateJobStatusToProcessing method
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedJobId).orElseThrow()
+        );
+        
+        // Start the async processing in a separate thread to avoid blocking
+        CompletableFuture<Void> asyncFuture = CompletableFuture.runAsync(() -> {
+            aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, isolatedRequest);
+        });
+
+        // Wait a short time for the status update to occur
+        Thread.sleep(2000);
+
+        // Then - Check if status changed to PROCESSING (it might complete too quickly)
+        job = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedJobId).orElseThrow()
+        );
+        
+        // The status should be either PROCESSING or COMPLETED (depending on timing)
+        assertTrue(job.getStatus() == GenerationStatus.PROCESSING || job.getStatus() == GenerationStatus.COMPLETED);
+        
+        if (job.getStatus() == GenerationStatus.PROCESSING) {
+            // If still processing, verify the processing state
+            assertNotNull(job.getStartedAt());
+            assertTrue(job.getProgressPercentage() >= 0.0);
+        } else {
+            // If completed, verify completion state
+            assertEquals(GenerationStatus.COMPLETED, job.getStatus());
+            assertNotNull(job.getCompletedAt());
+        }
+        
+        // Verify that the user relationship was properly initialized (no LazyInitializationException)
+        assertNotNull(job.getUser());
+        assertNotNull(job.getUser().getId());
+        assertNotNull(job.getUser().getUsername());
+        
+        // Don't wait for completion - just verify the status transition worked
+        // The test passes if we can access the user relationship without LazyInitializationException
+    }
+
+    @Test
     void shouldHandleErrorScenariosGracefully() throws Exception {
-        // Given - Invalid document ID
+        // Given - Invalid document ID that doesn't exist
+        UUID nonExistentDocumentId = UUID.randomUUID();
         GenerateQuizFromDocumentRequest invalidRequest = new GenerateQuizFromDocumentRequest(
-                UUID.randomUUID(), // Non-existent document
+                nonExistentDocumentId,
                 QuizScope.ENTIRE_DOCUMENT,
                 null,
                 null,
@@ -429,10 +497,51 @@ class EndToEndQuizGenerationIntegrationTest {
                 null
         );
 
-        // When & Then - Should handle gracefully
-        // Note: This test is disabled temporarily to avoid async method interference
-        // The error handling is tested in unit tests instead
-        assertTrue(true); // Placeholder assertion
+        // When - Create job and trigger async processing
+        UUID isolatedErrorJobId = createJobOnly(testUser.getUsername(), invalidRequest);
+        
+        // Verify job was created with PENDING status
+        QuizGenerationJob job = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedErrorJobId).orElseThrow()
+        );
+        assertEquals(GenerationStatus.PENDING, job.getStatus());
+
+        // Manually trigger the async method - it should handle the error gracefully
+        QuizGenerationJob jobToProcess = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedErrorJobId).orElseThrow()
+        );
+        
+        // Start the async processing in a separate thread to avoid blocking
+        CompletableFuture<Void> asyncFuture = CompletableFuture.runAsync(() -> {
+            try {
+                aiQuizGenerationService.generateQuizFromDocumentAsync(jobToProcess, invalidRequest);
+            } catch (Exception e) {
+                // Expected - the async method should handle this gracefully
+                // The job status should be updated to FAILED by the error handling
+            }
+        });
+
+        // Wait for the async processing to complete (with timeout)
+        try {
+            asyncFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            // If it times out, that's also acceptable - the job should still be in FAILED status
+        }
+
+        // Verify job failed gracefully
+        job = transactionTemplate.execute(status -> 
+            jobRepository.findById(isolatedErrorJobId).orElseThrow()
+        );
+        
+        // Job should be in FAILED status (either from the async method or from timeout)
+        assertEquals(GenerationStatus.FAILED, job.getStatus());
+        assertNotNull(job.getErrorMessage());
+        assertNotNull(job.getCompletedAt());
+        
+        // Verify error message indicates document not found
+        assertTrue(job.getErrorMessage().contains("not found") || 
+                  job.getErrorMessage().contains("Invalid") ||
+                  job.getErrorMessage().contains("error"));
     }
 
     @Test

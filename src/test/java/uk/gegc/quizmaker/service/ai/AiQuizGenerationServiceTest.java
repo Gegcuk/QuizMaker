@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +40,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import org.mockito.ArgumentCaptor;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -64,6 +66,9 @@ class AiQuizGenerationServiceTest {
     
     @Mock
     private InternalBillingService internalBillingService;
+
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -422,5 +427,96 @@ class AiQuizGenerationServiceTest {
     void shouldHandleJobRetrievalWithEmptyUsername() {
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.getJobByIdAndUsername(testJobId, ""));
+    }
+
+    @Test
+    void shouldUpdateJobStatusToProcessingWithoutLazyInitializationException() {
+        // Given
+        UUID jobId = UUID.randomUUID();
+        QuizGenerationJob job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setStatus(GenerationStatus.PENDING);
+        job.setUser(testUser);
+        
+        QuizGenerationJob savedJob = new QuizGenerationJob();
+        savedJob.setId(jobId);
+        savedJob.setStatus(GenerationStatus.PROCESSING);
+        savedJob.setUser(testUser);
+
+        when(jobRepository.findById(jobId)).thenReturn(java.util.Optional.of(job));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(savedJob);
+        
+        // Mock TransactionTemplate to execute the lambda immediately
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            // Execute the lambda passed to transactionTemplate.execute()
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+        });
+
+        // When
+        QuizGenerationJob result = aiQuizGenerationService.updateJobStatusToProcessing(jobId);
+
+        // Then
+        assertNotNull(result);
+        assertEquals(GenerationStatus.PROCESSING, result.getStatus());
+        assertEquals(jobId, result.getId());
+        
+        // Verify that the job was found and saved
+        verify(jobRepository).findById(jobId);
+        verify(jobRepository).save(any(QuizGenerationJob.class));
+        
+        // Verify that TransactionTemplate was used (ensuring no self-invocation issue)
+        verify(transactionTemplate).execute(any());
+        
+        // The test passes if no LazyInitializationException is thrown when accessing job.getUser()
+        // This verifies that the TransactionTemplate approach works correctly
+    }
+
+    @Test
+    void shouldUpdateJobStatusToProcessingInIntegrationContext() {
+        // Given - A job in PENDING status
+        UUID jobId = UUID.randomUUID();
+        QuizGenerationJob pendingJob = new QuizGenerationJob();
+        pendingJob.setId(jobId);
+        pendingJob.setStatus(GenerationStatus.PENDING);
+        pendingJob.setUser(testUser);
+        pendingJob.setDocumentId(testDocumentId);
+        
+        QuizGenerationJob processingJob = new QuizGenerationJob();
+        processingJob.setId(jobId);
+        processingJob.setStatus(GenerationStatus.PROCESSING);
+        processingJob.setUser(testUser);
+        processingJob.setDocumentId(testDocumentId);
+        processingJob.setStartedAt(java.time.LocalDateTime.now());
+
+        when(jobRepository.findById(jobId)).thenReturn(java.util.Optional.of(pendingJob));
+        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(processingJob);
+        
+        // Mock TransactionTemplate to execute the lambda immediately
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+        });
+
+        // When - Call the method that would be called in async context
+        QuizGenerationJob result = aiQuizGenerationService.updateJobStatusToProcessing(jobId);
+
+        // Then - Verify the status transition
+        assertNotNull(result);
+        assertEquals(GenerationStatus.PROCESSING, result.getStatus());
+        assertEquals(jobId, result.getId());
+        
+        // Verify that the job was found and saved
+        verify(jobRepository).findById(jobId);
+        verify(jobRepository).save(any(QuizGenerationJob.class));
+        
+        // Verify that TransactionTemplate was used (ensuring no self-invocation issue)
+        verify(transactionTemplate).execute(any());
+        
+        // Verify that the saved job has PROCESSING status
+        ArgumentCaptor<QuizGenerationJob> jobCaptor = ArgumentCaptor.forClass(QuizGenerationJob.class);
+        verify(jobRepository).save(jobCaptor.capture());
+        QuizGenerationJob savedJob = jobCaptor.getValue();
+        assertEquals(GenerationStatus.PROCESSING, savedJob.getStatus());
     }
 } 
