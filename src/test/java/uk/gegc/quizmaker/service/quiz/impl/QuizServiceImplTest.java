@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.quiz.impl;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -8,6 +9,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.context.ApplicationEventPublisher;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -47,6 +50,8 @@ import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionCallback;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -57,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -95,13 +101,17 @@ class QuizServiceImplTest {
     private FeatureFlags featureFlags;
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock
+    private TransactionTemplate transactionTemplate;
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @InjectMocks
     private QuizServiceImpl quizService;
 
     private User adminUser;
 
-    @org.junit.jupiter.api.BeforeEach
+    @BeforeEach
     void setUp() {
         adminUser = createAdminUser();
         setupUserRepositoryMock();
@@ -480,6 +490,13 @@ class QuizServiceImplTest {
     @Test
     @DisplayName("generateQuizFromText: Should process text and start quiz generation successfully")
     void generateQuizFromText_shouldProcessTextAndStartGeneration() {
+        // Setup TransactionTemplate mock for this test
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
+            return callback.doInTransaction(mockStatus);
+        });
+        
         // Given
         String username = "testuser";
         String sampleText = "This is a sample text for quiz generation. It contains enough content to be processed.";

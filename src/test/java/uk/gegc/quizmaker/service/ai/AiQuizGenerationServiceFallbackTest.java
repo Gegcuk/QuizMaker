@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
@@ -46,6 +47,9 @@ class AiQuizGenerationServiceFallbackTest {
 
     @Mock
     private Logger aiResponseLogger;
+    
+    @Mock
+    private InternalBillingService internalBillingService;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;

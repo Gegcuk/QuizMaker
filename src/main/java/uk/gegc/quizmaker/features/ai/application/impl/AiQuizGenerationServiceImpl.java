@@ -2,14 +2,16 @@ package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
@@ -21,14 +23,13 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
-import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
@@ -55,52 +56,37 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final PromptTemplateService promptTemplateService;
     private final QuestionResponseParser questionResponseParser;
     private final QuizGenerationJobRepository jobRepository;
-    private final QuizGenerationJobService jobService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final AiRateLimitConfig rateLimitConfig;
-    private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
+    private final TransactionTemplate transactionTemplate;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request) {
-        // First try to get the job from the database
-        QuizGenerationJob job = null;
-        try {
-            job = jobRepository.findById(jobId).orElse(null);
-        } catch (Exception e) {
-            log.warn("Failed to find job {} in database, will retry: {}", jobId, e.getMessage());
-        }
-        
-        // If job not found, retry with delay
+        QuizGenerationJob job = transactionTemplate.execute(status -> {
+            QuizGenerationJob managedJob = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            managedJob.setStatus(GenerationStatus.PROCESSING);
+            jobRepository.save(managedJob);
+            // initialize lazy relationships we will need outside the transaction
+            managedJob.getUser().getId();
+            managedJob.getUser().getUsername();
+            return managedJob;
+        });
+
         if (job == null) {
-            try {
-                Thread.sleep(200);
-                job = jobRepository.findById(jobId).orElse(null);
-            } catch (Exception e) {
-                log.warn("Failed to find job {} after retry: {}", jobId, e.getMessage());
-            }
+            return;
         }
-        
-        // If still not found, throw exception
-        if (job == null) {
-            log.error("Job {} not found in database after retries. Available jobs: {}", jobId, 
-                    jobRepository.findAll().stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
-            throw new ResourceNotFoundException("Generation job not found: " + jobId);
-        }
-        
-        // Call the method that accepts the job directly
+
         generateQuizFromDocumentAsync(job, request);
     }
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public void generateQuizFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest request) {
         UUID jobId = job.getId();
         Instant startTime = Instant.now();
@@ -109,19 +95,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
 
         try {
-            // Get the job from database in this transaction
+            // Get the job from database and update status in a short transaction
             log.info("Attempting to find job {} in database from thread {}", jobId, Thread.currentThread().getName());
             
-            // First, let's see what jobs are available
-            List<QuizGenerationJob> allJobs = jobRepository.findAll();
-            log.info("Available jobs in database: {}", allJobs.stream().map(QuizGenerationJob::getId).collect(Collectors.toList()));
-            
-            QuizGenerationJob freshJob = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            
-            log.info("Retrieved job from database, updating status to PROCESSING for job: {}", jobId);
-            freshJob.setStatus(GenerationStatus.PROCESSING);
-            jobRepository.save(freshJob);
+            QuizGenerationJob freshJob = updateJobStatusToProcessing(jobId);
 
             // Initialize progress tracking
             GenerationProgress progress = new GenerationProgress();
@@ -131,22 +108,21 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             validateDocumentForGeneration(request.documentId(), freshJob.getUser().getUsername());
 
             // Get document and chunks
-            Document document = documentRepository.findByIdWithChunks(request.documentId())
+            Document document = documentRepository.findByIdWithChunksAndUser(request.documentId())
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + request.documentId()));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             progress.setTotalChunks(chunks.size());
 
-            // Update job with total chunks
-            freshJob.setTotalChunks(chunks.size());
-            jobRepository.save(freshJob);
+            // Update job with total chunks in a short transaction
+            updateJobTotalChunks(jobId, chunks.size());
 
             log.info("Processing {} chunks for document {}", chunks.size(), request.documentId());
 
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
                     .map(chunk -> generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId))
-                    .collect(Collectors.toList());
+                    .toList();
 
             // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
@@ -193,6 +169,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 }
             }
 
+            if (allQuestions.isEmpty()) {
+                throw new AiServiceException("Failed to generate any questions for job " + jobId + ". All generation attempts failed.");
+            }
+
             // Analyze coverage and attempt to fill gaps
             Map<QuestionType, Integer> missingTypes = findMissingQuestionTypes(requestedByType, generatedByType);
             
@@ -237,38 +217,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         } catch (Exception e) {
             log.error("Quiz generation failed for job {}", jobId, e);
 
-            // Update job status to failed
-            try {
+            transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
                 if (failedJob != null) {
                     failedJob.markFailed("Generation failed: " + e.getMessage());
-                    
-                        // Release billing reservation if it exists
-                        if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
-                            try {
-                                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                                billingService.release(
+
+                    if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
+                        try {
+                            String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                            internalBillingService.release(
                                     failedJob.getBillingReservationId(),
                                     "Generation failed: " + e.getMessage(),
                                     jobId.toString(),
                                     releaseIdempotencyKey
-                                );
-                                failedJob.setBillingState(BillingState.RELEASED);
-                                // Store release idempotency key for audit trail
-                                failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
-                                log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
-                            } catch (Exception billingError) {
-                                log.error("Failed to release billing reservation for job {}", jobId, billingError);
-                                // Store billing error but don't fail the job update
-                                failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
-                            }
+                            );
+                            failedJob.setBillingState(BillingState.RELEASED);
+                            failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                            log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
+                        } catch (Exception billingError) {
+                            log.error("Failed to release billing reservation for job {}", jobId, billingError);
+                            failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
                         }
-                    
+                    }
+
                     jobRepository.save(failedJob);
                 }
-            } catch (Exception saveError) {
-                log.error("Failed to update job status to failed for job {}", jobId, saveError);
-            }
+            });
 
             GenerationProgress progress = generationProgress.get(jobId);
             if (progress != null) {
@@ -281,8 +255,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
-    @Async("aiTaskExecutor")
-    @Transactional
     public CompletableFuture<List<Question>> generateQuestionsFromChunk(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
@@ -294,8 +266,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Enhanced version with job status updates
      */
-    @Async("aiTaskExecutor")
-    @Transactional
     public CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
@@ -303,8 +273,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId
     ) {
         return CompletableFuture.supplyAsync(() -> {
-            Instant startTime = Instant.now();
-
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
 
@@ -449,7 +417,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (retryCount < maxRetries - 1) {
                     retryCount++;
                     log.info("Retrying due to parsing error for type {}", questionType);
-                    continue;
                 } else {
                     throw new AiServiceException("Failed to parse AI response after " + maxRetries + " attempts", e);
                 }
@@ -477,7 +444,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (retryCount < maxRetries - 1) {
                     retryCount++;
                     log.info("Retrying due to error for type {}", questionType);
-                    continue;
                 } else {
                     throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts: " + e.getMessage(), e);
                 }
@@ -646,14 +612,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     private QuestionType findAlternativeQuestionType(QuestionType original) {
         return switch (original) {
-            case ORDERING -> QuestionType.MCQ_SINGLE;
-            case HOTSPOT -> QuestionType.MCQ_SINGLE;
-            case COMPLIANCE -> QuestionType.TRUE_FALSE;
+            case ORDERING, HOTSPOT, TRUE_FALSE, MCQ_MULTI -> QuestionType.MCQ_SINGLE;
+            case COMPLIANCE, OPEN, MCQ_SINGLE -> QuestionType.TRUE_FALSE;
             case FILL_GAP -> QuestionType.OPEN;
-            case OPEN -> QuestionType.TRUE_FALSE;
-            case TRUE_FALSE -> QuestionType.MCQ_SINGLE;
-            case MCQ_SINGLE -> QuestionType.TRUE_FALSE;
-            case MCQ_MULTI -> QuestionType.MCQ_SINGLE;
             default -> null;
         };
     }
@@ -700,7 +661,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         chunkQuestions.get(b.getChunkIndex()).size(),
                         chunkQuestions.get(a.getChunkIndex()).size()))
                 .limit(Math.min(5, chunks.size())) // Try up to 5 best chunks
-                .collect(Collectors.toList());
+                .toList();
 
         log.debug("Attempting redistribution using {} good chunks", goodChunks.size());
         updateJobStatusSafely(jobId, "Redistribution: Found " + goodChunks.size() + " suitable chunks for missing types");
@@ -791,8 +752,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public void validateDocumentForGeneration(UUID documentId, String username) {
-        Document document = documentRepository.findByIdWithChunks(documentId)
+        Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
         // Check if document belongs to user
@@ -820,9 +782,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         // Additional time per question type
         int timePerQuestionType = 10; // seconds
-
-        // Calculate total questions
-        int totalQuestions = questionsPerType.values().stream().mapToInt(Integer::intValue).sum();
 
         // Estimate: base time per chunk + additional time for question types
         int estimatedTime = (totalChunks * baseTimePerChunk) + (questionsPerType.size() * timePerQuestionType);
@@ -889,7 +848,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             job.setRequestData(requestData);
 
             // Calculate estimated completion time
-            Document document = documentRepository.findByIdWithChunks(documentId)
+            Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                     .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
@@ -989,6 +948,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 if (request.chunkIndices() == null || request.chunkIndices().isEmpty()) {
                     throw new IllegalArgumentException("Chunk indices must be specified for SPECIFIC_CHUNKS scope");
                 }
+                assert allChunks != null;
                 List<DocumentChunk> specificChunks = allChunks.stream()
                         .filter(chunk -> request.chunkIndices().contains(chunk.getChunkIndex()))
                         .collect(Collectors.toList());
@@ -996,10 +956,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 return specificChunks;
 
             case SPECIFIC_CHAPTER:
-                List<DocumentChunk> chapterChunks = allChunks.stream()
-                        .filter(chunk -> matchesChapter(chunk, request.chapterTitle(), request.chapterNumber()))
+                assert allChunks != null;
+                return allChunks.stream()
+                        .filter(chunk1 -> matchesChapter(chunk1, request.chapterTitle(), request.chapterNumber()))
                         .collect(Collectors.toList());
-                return chapterChunks;
 
             case SPECIFIC_SECTION:
                 List<DocumentChunk> sectionChunks = allChunks.stream()
@@ -1047,10 +1007,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     public static class GenerationProgress {
         private final AtomicInteger processedChunks = new AtomicInteger(0);
+        @Setter
+        @Getter
         private int totalChunks;
+        @Setter
+        @Getter
         private boolean completed = false;
+        @Setter
+        @Getter
         private List<Question> generatedQuestions = new ArrayList<>();
+        @Getter
         private List<String> errors = new ArrayList<>();
+        @Getter
         private final Instant startTime = Instant.now();
 
         public void incrementProcessedChunks() {
@@ -1075,37 +1043,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             return processedChunks.get();
         }
 
-        public int getTotalChunks() {
-            return totalChunks;
-        }
-
-        public void setTotalChunks(int totalChunks) {
-            this.totalChunks = totalChunks;
-        }
-
-        public boolean isCompleted() {
-            return completed;
-        }
-
-        public void setCompleted(boolean completed) {
-            this.completed = completed;
-        }
-
-        public List<Question> getGeneratedQuestions() {
-            return generatedQuestions;
-        }
-
-        public void setGeneratedQuestions(List<Question> generatedQuestions) {
-            this.generatedQuestions = generatedQuestions;
-        }
-
-        public List<String> getErrors() {
-            return errors;
-        }
-
-        public Instant getStartTime() {
-            return startTime;
-        }
     }
 
     /**
@@ -1156,4 +1093,31 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             throw new AiServiceException("Interrupted while waiting for rate limit", ie);
         }
     }
-} 
+
+    /**
+     * Update job status to PROCESSING in a short transaction
+     */
+    @Transactional
+    public QuizGenerationJob updateJobStatusToProcessing(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        
+        // Initialize lazy relationships we will need outside the transaction
+        job.getUser().getId();
+        job.getUser().getUsername();
+        
+        job.setStatus(GenerationStatus.PROCESSING);
+        return jobRepository.save(job);
+    }
+
+    /**
+     * Update job total chunks in a short transaction
+     */
+    @Transactional
+    public void updateJobTotalChunks(UUID jobId, int totalChunks) {
+        QuizGenerationJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        job.setTotalChunks(totalChunks);
+        jobRepository.save(job);
+    }
+}

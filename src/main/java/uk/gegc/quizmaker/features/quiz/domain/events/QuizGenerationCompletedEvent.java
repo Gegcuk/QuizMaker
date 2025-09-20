@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.features.quiz.domain.event;
+package uk.gegc.quizmaker.features.quiz.domain.events;
 
 import lombok.Getter;
 import org.springframework.context.ApplicationEvent;

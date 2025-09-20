@@ -8,7 +8,9 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
@@ -22,13 +24,17 @@ class AiRateLimitTest {
     
     @Mock
     private Logger aiResponseLogger;
+    
+    @Mock
+    private InternalBillingService internalBillingService;
 
-
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @Test
     void testIsRateLimitError_With429Error() {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         Exception rateLimitException = new RuntimeException("429 - Rate limit exceeded");
@@ -38,7 +44,7 @@ class AiRateLimitTest {
     @Test
     void testIsRateLimitError_WithRateLimitMessage() {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         Exception rateLimitException = new RuntimeException("rate_limit_exceeded");
@@ -48,7 +54,7 @@ class AiRateLimitTest {
     @Test
     void testIsRateLimitError_WithTPMMessage() {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         Exception rateLimitException = new RuntimeException("TPM limit reached");
@@ -58,7 +64,7 @@ class AiRateLimitTest {
     @Test
     void testIsRateLimitError_WithRegularError() {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         Exception regularException = new RuntimeException("Connection timeout");
@@ -68,7 +74,7 @@ class AiRateLimitTest {
     @Test
     void testIsRateLimitError_WithNullMessage() {
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         Exception nullMessageException = new RuntimeException();
@@ -83,7 +89,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         long delay = aiService.calculateBackoffDelay(0);
@@ -99,7 +105,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         long delay = aiService.calculateBackoffDelay(1);
@@ -115,7 +121,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         long delay = aiService.calculateBackoffDelay(2);
@@ -131,7 +137,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
 
         long delay = aiService.calculateBackoffDelay(10); // Very high retry count
@@ -147,7 +153,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.0);
 
         AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, null, rateLimitConfig, null
+                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate
         );
         
         long delay = aiService.calculateBackoffDelay(1);

@@ -6,6 +6,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -14,6 +15,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
@@ -30,7 +32,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
-import uk.gegc.quizmaker.features.quiz.domain.event.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
@@ -41,6 +44,7 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
@@ -53,6 +57,7 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -74,9 +79,12 @@ public class QuizServiceImpl implements QuizService {
     private final DocumentProcessingService documentProcessingService;
     private final QuizHashCalculator quizHashCalculator;
     private final BillingService billingService;
+    private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
     private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
     private final AppPermissionEvaluator appPermissionEvaluator;
+    private final ApplicationEventPublisher applicationEventPublisher;
+    private final TransactionTemplate transactionTemplate;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -442,7 +450,7 @@ public class QuizServiceImpl implements QuizService {
             log.info("Starting text processing for user: {}", username);
             
             // Convert text to UTF-8 bytes and use synthetic filename
-            byte[] textBytes = request.text().getBytes("UTF-8");
+            byte[] textBytes = request.text().getBytes(StandardCharsets.UTF_8);
             String filename = "text-input.txt";
             
             // Process text as document in its own transaction
@@ -462,100 +470,73 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    @Transactional
     public QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request) {
-        // Validate user exists
         User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
 
-        try {
-            // Step 1: Get estimation for token requirements
-            EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
-            long estimatedTokens = estimation.estimatedBillingTokens();
-            
-            log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, username);
-
-            // Step 2: Create simple idempotency key based on user + document + scope
-            // This ensures concurrent identical requests share the same reservation
-            String stableIdempotencyKey = "quiz:" + user.getId() + ":" + request.documentId() + ":" + 
-                (request.quizScope() != null ? request.quizScope().name() : "default");
-
-            // Step 3: Reserve tokens first with stable idempotency key
-            // This will either succeed or fail with InsufficientTokensException
-            // If it fails due to idempotency, it means another identical request is already processing
-            ReservationDto reservation;
+        return transactionTemplate.execute(status -> {
             try {
-                reservation = billingService.reserve(user.getId(), estimatedTokens, "quiz-generation", stableIdempotencyKey);
-                log.info("Successfully reserved {} tokens for user {} with reservation ID {} using stable key {}", 
-                        estimatedTokens, username, reservation.id(), stableIdempotencyKey);
-            } catch (InsufficientTokensException e) {
-                // Re-throw with the detailed information from BillingService
-                throw new InsufficientTokensException(
-                    "Insufficient tokens to start quiz generation. " + e.getMessage(),
-                    e.getEstimatedTokens(),
-                    e.getAvailableTokens(),
-                    e.getShortfall(),
-                    e.getReservationTtl()
-                );
-            }
+                EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
+                long estimatedTokens = estimation.estimatedBillingTokens();
 
-            // Step 4: Calculate total chunks and estimated time after successful reservation
-            int totalChunks = aiQuizGenerationService.calculateTotalChunks(request.documentId(), request);
-            int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
-                    totalChunks, request.questionsPerType());
+                log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, username);
 
-            // Step 5: Create generation job after successful reservation
-            QuizGenerationJob job;
-            try {
-                job = jobService.createJob(user, request.documentId(),
-                        objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
-            } catch (org.springframework.dao.DataIntegrityViolationException e) {
-                // If job creation fails, we need to release the reservation
-                log.warn("Failed to create job after successful reservation, releasing reservation {}", reservation.id());
+                String stableIdempotencyKey = "quiz:" + user.getId() + ":" + request.documentId() + ":" +
+                        (request.quizScope() != null ? request.quizScope().name() : "default");
+
+                ReservationDto reservation;
                 try {
-                    billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
-                } catch (Exception releaseEx) {
-                    log.error("Failed to release reservation {} after job creation failure: {}", 
-                            reservation.id(), releaseEx.getMessage(), releaseEx);
+                    reservation = billingService.reserve(user.getId(), estimatedTokens, "quiz-generation", stableIdempotencyKey);
+                    log.info("Reserved {} tokens for user {} (reservationId={}, key={})",
+                            estimatedTokens, username, reservation.id(), stableIdempotencyKey);
+                } catch (InsufficientTokensException e) {
+                    throw new InsufficientTokensException(
+                            "Insufficient tokens to start quiz generation. " + e.getMessage(),
+                            e.getEstimatedTokens(), e.getAvailableTokens(), e.getShortfall(), e.getReservationTtl());
                 }
-                
-                // Check if this is due to the unique constraint on active jobs
-                if (e.getMessage() != null && e.getMessage().contains("active_user_id")) {
-                    throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+
+                int totalChunks = aiQuizGenerationService.calculateTotalChunks(request.documentId(), request);
+                int estimatedSeconds = aiQuizGenerationService.calculateEstimatedGenerationTime(
+                        totalChunks, request.questionsPerType());
+
+                QuizGenerationJob job;
+                try {
+                    job = jobService.createJob(user, request.documentId(),
+                            objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
+                } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                    log.warn("Job creation failed; releasing reservation {}", reservation.id());
+                    try {
+                        billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
+                    } catch (Exception releaseEx) {
+                        log.error("Failed to release reservation {} after job creation failure", reservation.id(), releaseEx);
+                    }
+                    if (e.getMessage() != null && e.getMessage().contains("active_user_id")) {
+                        throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+                    }
+                    throw e;
                 }
-                throw e; // Re-throw if it's a different constraint violation
+
+                job.setBillingReservationId(reservation.id());
+                job.setReservationExpiresAt(reservation.expiresAt());
+                job.setBillingEstimatedTokens(estimatedTokens);
+                job.setBillingState(BillingState.RESERVED);
+                job.setInputPromptTokens(estimation.estimatedLlmTokens());
+                job.setEstimationVersion("v1.0");
+                job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(
+                        Map.of("reserve", stableIdempotencyKey)));
+                jobRepository.save(job);
+
+                log.info("Updated job {} for user {} with reservation {}, starting async generation",
+                        job.getId(), username, reservation.id());
+
+                applicationEventPublisher.publishEvent(new QuizGenerationRequestedEvent(this, job.getId(), request));
+
+                return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
+            } catch (JsonProcessingException e) {
+                throw new ValidationException("Failed to serialize request data: " + e.getMessage());
             }
-
-            // Step 6: Update job with reservation details
-            job.setBillingReservationId(reservation.id());
-            job.setReservationExpiresAt(reservation.expiresAt());
-            job.setBillingEstimatedTokens(estimatedTokens);
-            job.setBillingState(BillingState.RESERVED);
-            
-            // Store input prompt tokens for commit calculation
-            job.setInputPromptTokens(estimation.estimatedLlmTokens());
-            
-            // Store estimation version for audit trail
-            job.setEstimationVersion("v1.0");
-            
-            // Store idempotency key for later use
-            Map<String, String> idempotencyKeys = new HashMap<>();
-            idempotencyKeys.put("reserve", stableIdempotencyKey);
-            job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(idempotencyKeys));
-            
-            jobRepository.save(job);
-            
-            log.info("Updated job {} for user {} with reservation {}, starting async generation", 
-                    job.getId(), username, reservation.id());
-
-            // Step 7: Start async generation
-            aiQuizGenerationService.generateQuizFromDocumentAsync(job.getId(), request);
-
-            return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
-
-        } catch (JsonProcessingException e) {
-            throw new ValidationException("Failed to serialize request data: " + e.getMessage());
-        }
+        });
     }
 
     @Override
@@ -664,7 +645,7 @@ public class QuizServiceImpl implements QuizService {
                             if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
                                 try {
                                     String releaseIdempotencyKey = "quiz:" + event.getJobId() + ":release";
-                                    billingService.release(
+                                    internalBillingService.release(
                                         job.getBillingReservationId(),
                                         "Quiz creation failed: " + e.getMessage(),
                                         event.getJobId().toString(),
@@ -1213,7 +1194,7 @@ public class QuizServiceImpl implements QuizService {
                     tokensToCommit, jobId, actualBillingTokens, reservedTokens, inputPromptTokens, allQuestions.size(), correlationId);
 
             // Write both COMMIT and RELEASE ledger rows with reservationId, jobId, idempotencyKey, and reason
-            var commitResult = billingService.commit(
+            var commitResult = internalBillingService.commit(
                     lockedJob.getBillingReservationId(),
                     tokensToCommit,
                     "quiz-generation",
@@ -1227,7 +1208,7 @@ public class QuizServiceImpl implements QuizService {
                 try {
                     log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", 
                             remainder, jobId, correlationId);
-                    billingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
+                    internalBillingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
                 } catch (Exception ex) {
                     log.warn("Failed to explicitly release remainder {} for reservation {}: {} [correlationId={}]", 
                             remainder, lockedJob.getBillingReservationId(), ex.getMessage(), correlationId);
@@ -1318,7 +1299,8 @@ public class QuizServiceImpl implements QuizService {
             if (job.getBillingIdempotencyKeys() == null || job.getBillingIdempotencyKeys().trim().isEmpty()) {
                 return false;
             }
-            Map<String, String> keys = objectMapper.readValue(job.getBillingIdempotencyKeys(), 
+            Map<String, String> keys = objectMapper.readValue(
+                    job.getBillingIdempotencyKeys(),
                     objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
             return keys.containsKey(operation);
         } catch (Exception e) {
@@ -1326,6 +1308,4 @@ public class QuizServiceImpl implements QuizService {
             return false;
         }
     }
-
-
 }

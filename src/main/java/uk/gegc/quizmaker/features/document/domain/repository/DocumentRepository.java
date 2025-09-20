@@ -32,4 +32,10 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
      */
     @Query("SELECT d FROM Document d LEFT JOIN FETCH d.chunks WHERE d.id = :id")
     Optional<Document> findByIdWithChunks(@Param("id") UUID id);
+
+    /**
+     * Find document by ID with chunks and user eagerly loaded
+     */
+    @Query("SELECT d FROM Document d LEFT JOIN FETCH d.chunks LEFT JOIN FETCH d.uploadedBy WHERE d.id = :id")
+    Optional<Document> findByIdWithChunksAndUser(@Param("id") UUID id);
 } 

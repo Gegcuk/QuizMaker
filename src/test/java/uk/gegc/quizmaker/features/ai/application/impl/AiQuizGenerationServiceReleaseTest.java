@@ -9,6 +9,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
@@ -35,6 +36,9 @@ class AiQuizGenerationServiceReleaseTest {
 
     @Mock
     private BillingService billingService;
+    
+    @Mock
+    private InternalBillingService internalBillingService;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -56,7 +60,7 @@ class AiQuizGenerationServiceReleaseTest {
         ReleaseResultDto releaseResult = new ReleaseResultDto(reservationId, 1000L);
 
         when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
-        when(billingService.release(eq(reservationId), anyString(), eq(jobId.toString()), anyString()))
+        when(internalBillingService.release(eq(reservationId), anyString(), eq(jobId.toString()), anyString()))
                 .thenReturn(releaseResult);
 
         // When
@@ -74,7 +78,7 @@ class AiQuizGenerationServiceReleaseTest {
                     if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
                         try {
                             String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                            billingService.release(
+                            internalBillingService.release(
                                 failedJob.getBillingReservationId(),
                                 "Generation failed: " + e.getMessage(),
                                 jobId.toString(),
@@ -96,7 +100,7 @@ class AiQuizGenerationServiceReleaseTest {
 
         // Then
         verify(jobRepository).findById(jobId);
-        verify(billingService).release(
+        verify(internalBillingService).release(
                 eq(reservationId),
                 eq("Generation failed: " + errorMessage),
                 eq(jobId.toString()),
@@ -123,7 +127,7 @@ class AiQuizGenerationServiceReleaseTest {
         job.setStatus(GenerationStatus.PROCESSING);
 
         when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
-        when(billingService.release(any(), anyString(), anyString(), anyString()))
+        when(internalBillingService.release(any(), anyString(), anyString(), anyString()))
                 .thenThrow(new RuntimeException(billingError));
 
         // When
@@ -141,7 +145,7 @@ class AiQuizGenerationServiceReleaseTest {
                     if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
                         try {
                             String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                            billingService.release(
+                            internalBillingService.release(
                                 failedJob.getBillingReservationId(),
                                 "Generation failed: " + e.getMessage(),
                                 jobId.toString(),
@@ -163,7 +167,7 @@ class AiQuizGenerationServiceReleaseTest {
 
         // Then
         verify(jobRepository).findById(jobId);
-        verify(billingService).release(any(), anyString(), anyString(), anyString());
+        verify(internalBillingService).release(any(), anyString(), anyString(), anyString());
         verify(jobRepository).save(argThat(savedJob -> 
             savedJob.getBillingState() == BillingState.RESERVED && // State not changed due to billing error
             savedJob.getStatus() == GenerationStatus.FAILED &&
@@ -200,7 +204,7 @@ class AiQuizGenerationServiceReleaseTest {
                     if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
                         try {
                             String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                            billingService.release(
+                            internalBillingService.release(
                                 failedJob.getBillingReservationId(),
                                 "Generation failed: " + e.getMessage(),
                                 jobId.toString(),
@@ -222,7 +226,7 @@ class AiQuizGenerationServiceReleaseTest {
 
         // Then
         verify(jobRepository).findById(jobId);
-        verify(billingService, never()).release(any(), anyString(), anyString(), anyString());
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
         verify(jobRepository).save(argThat(savedJob -> 
             savedJob.getBillingState() == BillingState.NONE && // State unchanged
             savedJob.getStatus() == GenerationStatus.FAILED));
@@ -259,7 +263,7 @@ class AiQuizGenerationServiceReleaseTest {
                     if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
                         try {
                             String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                            billingService.release(
+                            internalBillingService.release(
                                 failedJob.getBillingReservationId(),
                                 "Generation failed: " + e.getMessage(),
                                 jobId.toString(),
@@ -281,7 +285,7 @@ class AiQuizGenerationServiceReleaseTest {
 
         // Then
         verify(jobRepository).findById(jobId);
-        verify(billingService, never()).release(any(), anyString(), anyString(), anyString());
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
         verify(jobRepository).save(argThat(savedJob -> 
             savedJob.getBillingState() == BillingState.COMMITTED && // State unchanged
             savedJob.getStatus() == GenerationStatus.FAILED));

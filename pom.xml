@@ -343,6 +343,7 @@
                         <exclude>**/HotspotQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
+                        <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>

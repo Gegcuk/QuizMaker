@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
@@ -60,6 +61,9 @@ class AiQuizGenerationServiceTest {
 
     @Mock
     private AiRateLimitConfig rateLimitConfig;
+    
+    @Mock
+    private InternalBillingService internalBillingService;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -157,7 +161,7 @@ class AiQuizGenerationServiceTest {
     @Test
     void shouldValidateDocumentForGenerationSuccessfully() {
         // Given
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertDoesNotThrow(() -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
@@ -166,7 +170,7 @@ class AiQuizGenerationServiceTest {
     @Test
     void shouldThrowDocumentNotFoundExceptionWhenDocumentNotFound() {
         // Given
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.empty());
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.empty());
 
         // When & Then
         assertThrows(DocumentNotFoundException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
@@ -179,7 +183,7 @@ class AiQuizGenerationServiceTest {
         otherUser.setUsername("otheruser");
         testDocument.setUploadedBy(otherUser);
 
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
@@ -191,7 +195,7 @@ class AiQuizGenerationServiceTest {
         String serializedRequest = "{\"documentId\":\"" + testDocumentId + "\"}";
         when(objectMapper.writeValueAsString(testRequest)).thenReturn(serializedRequest);
         when(userRepository.findByUsername("testuser")).thenReturn(java.util.Optional.of(testUser));
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
         when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(testJob);
 
         // When
@@ -339,7 +343,7 @@ class AiQuizGenerationServiceTest {
     void shouldValidateDocumentWithNullChunks() {
         // Given
         testDocument.setChunks(null);
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
@@ -349,7 +353,7 @@ class AiQuizGenerationServiceTest {
     void shouldValidateDocumentWithEmptyChunks() {
         // Given
         testDocument.setChunks(List.of());
-        when(documentRepository.findByIdWithChunks(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
+        when(documentRepository.findByIdWithChunksAndUser(testDocumentId)).thenReturn(java.util.Optional.of(testDocument));
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> aiQuizGenerationService.validateDocumentForGeneration(testDocumentId, "testuser"));
