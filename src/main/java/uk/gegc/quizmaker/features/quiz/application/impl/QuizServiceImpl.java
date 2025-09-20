@@ -719,7 +719,8 @@ public class QuizServiceImpl implements QuizService {
             // Calculate total questions
             int totalQuestions = allQuestions.size();
 
-            // Update job with consolidated quiz ID and total questions
+            // Mark job as completed with consolidated quiz ID and total questions
+            // This is now the ONLY place where the job is marked as completed
             job.markCompleted(consolidatedQuiz.getId(), totalQuestions);
             jobRepository.save(job);
 

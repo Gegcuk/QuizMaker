@@ -204,11 +204,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     allQuestions.size(), chunkQuestions.size(), formatCoverageSummary(generatedByType, requestedByType));
 
             // Publish event to trigger quiz creation
+            // The event handler will mark the job as completed atomically with quiz creation
             eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
                     this, jobId, chunkQuestions, request, allQuestions));
-
-            // Don't mark job as completed here - let the event handler do it after quiz creation
-            // The event handler will call markCompleted with the actual generatedQuizId
 
             progress.setCompleted(true);
             progress.setGeneratedQuestions(allQuestions);
