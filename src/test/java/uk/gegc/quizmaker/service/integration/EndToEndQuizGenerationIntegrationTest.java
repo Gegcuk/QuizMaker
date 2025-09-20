@@ -187,6 +187,9 @@ class EndToEndQuizGenerationIntegrationTest {
         // Wait for async processing to complete (with timeout)
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
 
+        // Wait for event handler to complete (quiz creation)
+        waitForEventHandlerCompletion(testJobId, Duration.ofMinutes(1));
+
         // Verify job completion
         job = jobRepository.findById(testJobId).orElseThrow();
         assertEquals(GenerationStatus.COMPLETED, job.getStatus());
@@ -298,6 +301,9 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // When - Wait for event processing
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
+        
+        // Wait for event handler to complete (quiz creation)
+        waitForEventHandlerCompletion(testJobId, Duration.ofMinutes(1));
 
         // Then - Verify event was processed and quiz created
         QuizGenerationJob job = transactionTemplate.execute(status -> 
@@ -583,6 +589,9 @@ class EndToEndQuizGenerationIntegrationTest {
 
         // Then
         waitForJobCompletion(testJobId, Duration.ofMinutes(2));
+        
+        // Wait for event handler to complete (quiz creation)
+        waitForEventHandlerCompletion(testJobId, Duration.ofMinutes(1));
 
         QuizGenerationJob job = transactionTemplate.execute(status -> 
             jobRepository.findById(testJobId).orElseThrow()
@@ -657,6 +666,23 @@ class EndToEndQuizGenerationIntegrationTest {
             Thread.sleep(1000); // Wait 1 second before checking again
         }
         throw new RuntimeException("Job did not complete within timeout: " + timeout);
+    }
+
+    private void waitForEventHandlerCompletion(UUID jobId, Duration timeout) throws InterruptedException {
+        Instant startTime = Instant.now();
+        while (Duration.between(startTime, Instant.now()).compareTo(timeout) < 0) {
+            // Use a separate transaction for each check to avoid holding connections
+            QuizGenerationJob job = transactionTemplate.execute(status -> 
+                jobRepository.findById(jobId).orElse(null)
+            );
+            
+            if (job != null && job.getStatus() == GenerationStatus.COMPLETED && job.getGeneratedQuizId() != null) {
+                // Event handler has completed - job has generatedQuizId
+                return;
+            }
+            Thread.sleep(500); // Wait 500ms before checking again
+        }
+        throw new RuntimeException("Event handler did not complete within timeout: " + timeout);
     }
 
     public UUID createJobOnly(String username, GenerateQuizFromDocumentRequest request) throws JsonProcessingException {
