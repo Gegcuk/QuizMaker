@@ -207,9 +207,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
                     this, jobId, chunkQuestions, request, allQuestions));
 
-            // Mark job as completed with total questions count
-            freshJob.markCompleted(null, allQuestions.size());
-            jobRepository.save(freshJob);
+            // Don't mark job as completed here - let the event handler do it after quiz creation
+            // The event handler will call markCompleted with the actual generatedQuizId
 
             progress.setCompleted(true);
             progress.setGeneratedQuestions(allQuestions);
@@ -1097,17 +1096,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Update job status to PROCESSING in a short transaction
      */
-    @Transactional
     public QuizGenerationJob updateJobStatusToProcessing(UUID jobId) {
-        QuizGenerationJob job = jobRepository.findById(jobId)
-                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-        
-        // Initialize lazy relationships we will need outside the transaction
-        job.getUser().getId();
-        job.getUser().getUsername();
-        
-        job.setStatus(GenerationStatus.PROCESSING);
-        return jobRepository.save(job);
+        return transactionTemplate.execute(status -> {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            
+            // Initialize lazy relationships we will need outside the transaction
+            job.getUser().getId();
+            job.getUser().getUsername();
+            
+            job.setStatus(GenerationStatus.PROCESSING);
+            return jobRepository.save(job);
+        });
     }
 
     /**
