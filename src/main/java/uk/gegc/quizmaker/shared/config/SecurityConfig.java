@@ -49,6 +49,7 @@ public class SecurityConfig {
                         ).permitAll()
                         // Stripe webhook must be callable by Stripe without authentication
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/billing/webhooks").permitAll()
                         // Billing config endpoint should be public for frontend integration
                         .requestMatchers(HttpMethod.GET, "/api/v1/billing/config").permitAll()
                         // Billing endpoints require authentication and billing permissions (handled by @PreAuthorize)

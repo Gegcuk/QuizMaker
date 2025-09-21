@@ -15,17 +15,32 @@ import org.springframework.http.HttpStatus;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/billing/stripe")
+@RequestMapping("/api/v1/billing")
 @RequiredArgsConstructor
 public class StripeWebhookController {
 
     private final StripeWebhookService webhookService;
     private final FeatureFlags featureFlags;
 
-    @PostMapping("/webhook")
-    public ResponseEntity<String> handleWebhook(
+    @PostMapping("/stripe/webhook")
+    public ResponseEntity<String> handleStripeWebhook(
             @RequestBody String payload,
             @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
+    ) {
+        return handleWebhook(payload, sigHeader);
+    }
+
+    @PostMapping("/webhooks")
+    public ResponseEntity<String> handleWebhooks(
+            @RequestBody String payload,
+            @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
+    ) {
+        return handleWebhook(payload, sigHeader);
+    }
+
+    private ResponseEntity<String> handleWebhook(
+            String payload,
+            String sigHeader
     ) {
         if (!featureFlags.isBilling()) {
             log.warn("Billing feature is disabled, rejecting webhook");
