@@ -133,6 +133,9 @@ jobs:
             # Set proper permissions
             chmod 600 .env
             
+            # Make MySQL init scripts executable
+            chmod +x mysql-init/*.sh 2>/dev/null || true
+            
             echo "✅ Environment file created"
             echo "📋 Environment file structure (without sensitive values):"
             grep -E "^[A-Z_]+=.*" .env | sed 's/=.*/=[HIDDEN]/' || true
