@@ -13,16 +13,14 @@ CREATE TABLE `document_nodes` (
   `depth` SMALLINT NOT NULL,
   `ai_confidence` DECIMAL(4,3),
   `meta_json` JSON,
-  `parent_key` BINARY(16) GENERATED ALWAYS AS (IFNULL(`parent_id`, 0x00000000000000000000000000000000)) STORED,
   CONSTRAINT `fk_document_nodes_document`
     FOREIGN KEY (`document_id`) REFERENCES `normalized_documents`(`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_document_nodes_parent`
     FOREIGN KEY (`parent_id`) REFERENCES `document_nodes`(`id`) ON DELETE CASCADE,
   KEY `ix_doc_start` (`document_id`, `start_offset`),
-  KEY `ix_parent_idx` (`document_id`, `parent_id`, `idx`),
   KEY `ix_parent_id` (`parent_id`),
   KEY `ix_document_id` (`document_id`),
-  CONSTRAINT `uq_doc_parentkey_idx` UNIQUE (`document_id`, `parent_key`, `idx`)
+  CONSTRAINT `uq_doc_parent_idx` UNIQUE (`document_id`, `parent_id`, `idx`)
 ) ENGINE=InnoDB;
 
 -- Update documents table to support STRUCTURED status
