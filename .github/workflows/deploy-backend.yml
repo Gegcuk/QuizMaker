@@ -155,8 +155,39 @@ jobs:
             echo "🔨 Building backend container..."
             docker compose build --no-cache
             
-            echo "🚀 Starting services..."
-            docker compose up -d
+            echo "🚀 Starting MySQL first..."
+            docker compose up -d mysql
+            
+            echo "⏳ Waiting for MySQL to be ready before starting backend..."
+            # Wait for MySQL to be healthy before starting backend
+            for i in {1..60}; do
+              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
+                echo "✅ MySQL is ready! Starting backend..."
+                break
+              fi
+              
+              # Show MySQL logs every 10 attempts
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "📋 MySQL status (attempt $i/60):"
+                docker compose ps mysql
+                echo "📋 Recent MySQL logs:"
+                docker compose logs --tail=10 mysql
+              fi
+              
+              if [ $i -eq 60 ]; then
+                echo "❌ MySQL failed to start after 2 minutes"
+                echo "📋 Final MySQL logs:"
+                docker compose logs mysql
+                echo "📋 MySQL environment variables:"
+                docker compose exec mysql env | grep MYSQL || true
+                exit 1
+              fi
+              echo "⏳ MySQL not ready yet, waiting... ($i/60)"
+              sleep 2
+            done
+            
+            echo "🚀 Starting backend service..."
+            docker compose up -d quizmaker-backend
             
             echo "📋 Initial container status:"
             docker compose ps
@@ -167,53 +198,24 @@ jobs:
             echo "DB_ROOT_PASSWORD: [HIDDEN]"
             echo "MYSQL_ROOT_PASSWORD: [HIDDEN]"
             
-            echo "⏳ Waiting for MySQL to be ready..."
-            # Wait for MySQL to be healthy (increased timeout for first-time setup)
-            for i in {1..60}; do
-              # Check if container is running first
-              if ! docker compose ps mysql | grep -q "Up"; then
-                echo "⚠️  MySQL container is not running, checking logs..."
-                echo "📋 Container status:"
-                docker compose ps
-                echo "📋 MySQL logs:"
-                docker compose logs mysql
-                if [ $i -eq 60 ]; then
-                  exit 1
-                fi
-                echo "⏳ Container not running yet, waiting... ($i/60)"
-                sleep 2
-                continue
-              fi
-              
-              # Try to ping MySQL
-              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
-                echo "✅ MySQL is ready!"
+            echo "⏳ Waiting for backend to be ready..."
+            # Wait for backend to be healthy
+            for i in {1..30}; do
+              if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Backend is ready!"
                 break
               fi
               
-              # Show detailed info every 10 attempts
-              if [ $((i % 10)) -eq 0 ]; then
-                echo "📋 Debug info (attempt $i/60):"
-                echo "Container status:"
-                docker compose ps mysql
-                echo "Recent MySQL logs:"
-                docker compose logs --tail=10 mysql
-              fi
-              
-              if [ $i -eq 60 ]; then
-                echo "❌ MySQL failed to start after 2 minutes"
-                echo "📋 Final container status:"
+              if [ $i -eq 30 ]; then
+                echo "❌ Backend failed to start"
+                echo "📋 Container status:"
                 docker compose ps
-                echo "📋 Full MySQL logs:"
-                docker compose logs mysql
-                echo "📋 MySQL environment variables:"
-                docker compose exec mysql env | grep MYSQL || true
-                echo "📋 MySQL process list:"
-                docker compose exec mysql ps aux || true
+                echo "📋 Backend logs:"
+                docker compose logs --tail=50 quizmaker-backend
                 exit 1
               fi
-              echo "⏳ MySQL not ready yet, waiting... ($i/60)"
-              sleep 2
+              echo "⏳ Backend not ready yet, waiting... ($i/30)"
+              sleep 5
             done
             
             echo "✅ Backend containers started"
