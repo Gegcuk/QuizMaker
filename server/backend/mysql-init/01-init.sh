@@ -5,17 +5,37 @@ log() {
   printf '[mysql-init] %s\n' "$1"
 }
 
+# Helpers for debugging secrets (safe-by-default)
+show_val() {
+  key="$1"; val="$2"
+  len=$(printf '%s' "$val" | wc -c | tr -d ' ')
+  if [ "${MYSQL_INIT_SHOW_SECRETS:-0}" = "1" ]; then
+    printf '[mysql-init] %s: [%s]\n' "$key" "$val"
+  else
+    start=$(printf '%s' "$val" | cut -c1-3)
+    end=$(printf '%s' "$val" | awk '{print substr($0, length($0)-1)}')
+    printf '[mysql-init] %s: [%s...%s] (len=%s)\n' "$key" "$start" "$end" "$len"
+  fi
+}
+
 # Prefer the local UNIX socket during init; TCP may be disabled (port 0)
 MYSQL_SOCKET="${MYSQL_SOCKET:-/var/run/mysqld/mysqld.sock}"
-MYSQL_PING="mysqladmin --silent --socket=${MYSQL_SOCKET} ping"
-MYSQL_BASE="mysql --protocol=SOCKET --socket=${MYSQL_SOCKET} -uroot"
 
-log "Starting MySQL initialization..."
+step=1
+log "STEP ${step}: Start MySQL initialization"
 
-# Wait for MySQL to be ready (temporary server uses socket only)
-log "Waiting for MySQL to be ready..."
+step=$((step+1))
+log "STEP ${step}: Debug environment variables"
+show_val MYSQL_DATABASE "${MYSQL_DATABASE:-}"
+show_val MYSQL_USER "${MYSQL_USER:-}"
+show_val MYSQL_PASSWORD "${MYSQL_PASSWORD:-}"
+show_val MYSQL_ROOT_PASSWORD "${MYSQL_ROOT_PASSWORD:-}"
+log "Note: set MYSQL_INIT_SHOW_SECRETS=1 to show full values"
+
+step=$((step+1))
+log "STEP ${step}: Wait for MySQL (socket: ${MYSQL_SOCKET})"
 for i in $(seq 1 60); do
-  if ${MYSQL_PING} 2>/dev/null; then
+  if mysqladmin --silent --socket="${MYSQL_SOCKET}" ping 2>/dev/null; then
     log "MySQL is ready!"
     break
   fi
@@ -27,33 +47,43 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
-# Check if we need to set root password (connect via socket)
-log "Checking root password status..."
+# Decide authentication mode but do NOT change root password here
+step=$((step+1))
+log "STEP ${step}: Determine root authentication"
 
-# Try using provided password first
-if ${MYSQL_BASE} -p"${MYSQL_ROOT_PASSWORD:-}" -e "SELECT 1;" >/dev/null 2>&1; then
-  log "Root password already set and working"
-else
-  log "Cannot connect with provided password, trying without password..."
+MYSQL_AUTH_MODE="none"
+if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
+  if mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot -p"${MYSQL_ROOT_PASSWORD}" -e "SELECT 1;" >/dev/null 2>&1; then
+    MYSQL_AUTH_MODE="password"
+    log "Root authentication: using provided password"
+  fi
+fi
 
-  # Try without password (fresh MySQL initialization case)
-  if ${MYSQL_BASE} -e "SELECT 1;" >/dev/null 2>&1; then
-    log "Setting root password..."
-    ${MYSQL_BASE} -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
-    ${MYSQL_BASE} -e "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
-    ${MYSQL_BASE} -e "FLUSH PRIVILEGES;"
-    log "Root password set successfully"
+if [ "$MYSQL_AUTH_MODE" = "none" ]; then
+  if mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot -e "SELECT 1;" >/dev/null 2>&1; then
+    MYSQL_AUTH_MODE="no_password"
+    log "Root authentication: no password (fresh init)"
   else
-    log "ERROR: Cannot connect to MySQL with or without password"
-    log "This may indicate different credentials or MySQL not fully ready"
+    log "ERROR: Cannot authenticate as root with or without password"
     exit 1
   fi
 fi
 
-# Root-authenticated command helper (use socket to avoid networking issues)
-MYSQL_CMD="mysql --protocol=SOCKET --socket=${MYSQL_SOCKET} -uroot -p${MYSQL_ROOT_PASSWORD:-defaultpass}"
+# Define a wrapper for executing as root via socket
+mysql_root() {
+  if [ "$MYSQL_AUTH_MODE" = "password" ]; then
+    mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot -p"${MYSQL_ROOT_PASSWORD}" "$@"
+  else
+    mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot "$@"
+  fi
+}
 
-log "Configuring database and application user access..."
+step=$((step+1))
+log "STEP ${step}: Configure database and application user"
+show_val MYSQL_DATABASE "${MYSQL_DATABASE:-}"
+show_val MYSQL_USER "${MYSQL_USER:-}"
+show_val MYSQL_PASSWORD "${MYSQL_PASSWORD:-}"
+show_val MYSQL_ROOT_PASSWORD "${MYSQL_ROOT_PASSWORD:-}"
 
 if [ -z "${MYSQL_USER:-}" ]; then
   log "MYSQL_USER is not set; skipping user configuration"
@@ -70,33 +100,31 @@ if [ -z "${MYSQL_DATABASE:-}" ]; then
   MYSQL_DATABASE="quizmakerdb"
 fi
 
-# Create database if it doesn't exist
 log "Creating database '${MYSQL_DATABASE}' if it doesn't exist..."
-${MYSQL_CMD} -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql_root -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# Check if the user already has a '%' host entry
-has_wildcard_host=$(${MYSQL_CMD} -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User='${MYSQL_USER}' AND Host='%';" 2>/dev/null | tr -d '\r' || echo "0")
+has_wildcard_host=$(mysql_root -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User='${MYSQL_USER}' AND Host='%';" 2>/dev/null | tr -d '\r' || echo "0")
 
 if [ "${has_wildcard_host}" = "0" ]; then
-  log "No '%' host entry found for user '${MYSQL_USER}'. Creating remote access grant."
-  ${MYSQL_CMD} <<EOF_SQL
+  log "No '%' host entry for '${MYSQL_USER}'. Creating user and grants."
+  mysql_root <<EOF_SQL
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF_SQL
 else
   log "User '${MYSQL_USER}' already has '%' host entry. Refreshing credentials and privileges."
-  ${MYSQL_CMD} <<EOF_SQL
+  mysql_root <<EOF_SQL
 ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF_SQL
 fi
 
-# Verify the user was created successfully
-user_hosts=$(${MYSQL_CMD} -N -B -e "SELECT CONCAT(User, '@', Host) FROM mysql.user WHERE User='${MYSQL_USER}';" 2>/dev/null || true)
+step=$((step+1))
+log "STEP ${step}: Verify user host mappings"
+user_hosts=$(mysql_root -N -B -e "SELECT CONCAT(User, '@', Host) FROM mysql.user WHERE User='${MYSQL_USER}';" 2>/dev/null || true)
 if [ -n "${user_hosts}" ]; then
-  log "Verified host mappings for '${MYSQL_USER}':"
   old_ifs="$IFS"; IFS='\n'
   for host in ${user_hosts}; do log "  - ${host}"; done
   IFS="$old_ifs"
@@ -104,4 +132,5 @@ else
   log "Warning: Unable to confirm host entries for user '${MYSQL_USER}'"
 fi
 
-log "MySQL initialization completed successfully!"
+step=$((step+1))
+log "STEP ${step}: Initialization completed"

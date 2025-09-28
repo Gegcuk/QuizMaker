@@ -315,7 +315,7 @@ jobs:
             echo "⏳ Waiting for MySQL to be ready before starting backend..."
             # Wait for MySQL to be healthy before starting backend
             for i in {1..60}; do
-              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
+              if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysqladmin ping -h localhost -u root --silent 2>/dev/null; then
                 echo "✅ MySQL is ready! Starting backend..."
                 
                 # Check if init scripts were copied and are executable
@@ -324,7 +324,7 @@ jobs:
                 
                 # Check MySQL initialization logs
                 echo "🔍 Checking MySQL initialization logs..."
-                docker compose logs mysql | grep -E "\[mysql-init\]|DEBUG:|ERROR:|initdb|entrypoint" || echo "No init logs found"
+                docker compose logs mysql | grep -Ei "\[mysql-init\]|DEBUG:|ERROR:|initdb|Entrypoint" || echo "No init logs found"
                 
                 # Check MySQL container environment variables
                 echo "🔍 Checking MySQL container environment variables..."
@@ -334,7 +334,7 @@ jobs:
                 echo "🔍 Checking if MySQL initialization is needed..."
                 
                 # Try to connect with root password
-                if ! docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT 1;" >/dev/null 2>&1; then
+                if ! docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT 1;" >/dev/null 2>&1; then
                   echo "⚠️ Cannot connect with root password, running initialization script manually..."
                   
                   # Try running the init script
@@ -366,15 +366,15 @@ jobs:
                 
                 # Check MySQL users after initialization
                 echo "🔍 Checking MySQL users after initialization..."
-                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('mysql.session', 'mysql.sys', 'mysql.infoschema', '');" 2>/dev/null || echo "Could not check users"
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('mysql.session', 'mysql.sys', 'mysql.infoschema', '');" 2>/dev/null || echo "Could not check users"
                 
                 # Verify application user exists with % host
-                app_user_check=$(docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
+                app_user_check=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
                 
                 if [ "$app_user_check" = "0" ]; then
                   echo "⚠️ Application user '$DB_USERNAME' not found with % host access!"
                   echo "🔧 Creating application user manually..."
-                  docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "
+                  docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
                     CREATE DATABASE IF NOT EXISTS \`quizmakerdb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
                     CREATE USER IF NOT EXISTS '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
                     GRANT ALL PRIVILEGES ON \`quizmakerdb\`.* TO '$DB_USERNAME'@'%';
@@ -382,7 +382,7 @@ jobs:
                   " || echo "Manual user creation failed"
                   
                   # Verify again
-                  app_user_check=$(docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
+                  app_user_check=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
                   if [ "$app_user_check" = "0" ]; then
                     echo "❌ Failed to create application user. Aborting deployment."
                     exit 1
@@ -395,16 +395,16 @@ jobs:
                 
                 # Check if Flyway schema history exists and clean it if corrupted
                 echo "🔍 Checking Flyway schema history..."
-                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; SHOW TABLES LIKE 'flyway_schema_history';" 2>/dev/null || echo "Cannot check Flyway history"
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; SHOW TABLES LIKE 'flyway_schema_history';" 2>/dev/null || echo "Cannot check Flyway history"
                 
                 # If Flyway history exists, drop it to start fresh
                 echo "🧹 Cleaning Flyway schema history if exists..."
-                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Cannot clean Flyway history"
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Cannot clean Flyway history"
                 
                 # Also clean any other Flyway-related tables
                 echo "🧹 Cleaning all Flyway-related tables..."
-                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; SHOW TABLES;" 2>/dev/null || echo "Cannot list tables"
-                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP DATABASE IF EXISTS quizmakerdb; CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot recreate database"
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; SHOW TABLES;" 2>/dev/null || echo "Cannot list tables"
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; DROP DATABASE IF EXISTS quizmakerdb; CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot recreate database"
                 
                 break
               fi
@@ -454,7 +454,7 @@ jobs:
               
               # Method 3: Manual cleanup as fallback
               echo "Manual Flyway schema history cleanup as fallback..."
-              docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Manual cleanup failed"
+              docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Manual cleanup failed"
               
               # Restart backend after repair
               echo "🔄 Restarting backend after Flyway repair..."
