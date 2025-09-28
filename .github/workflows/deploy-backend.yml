@@ -311,6 +311,11 @@ jobs:
             # Force remove any lingering volumes
             docker volume prune -f || true
             
+            # Force restart MySQL to ensure clean state
+            echo "🔄 Restarting MySQL container for clean state..."
+            docker compose restart mysql || true
+            sleep 5  # Wait for MySQL to restart
+            
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
             
@@ -402,9 +407,25 @@ jobs:
                  # Clean Flyway schema history for fresh start
                  echo "[STEP 9] 🧹 Cleaning Flyway schema history for fresh start..."
                  
+                 # First, check if the database exists and what's in it
+                 echo "[STEP 9A] 🔍 Checking current database state..."
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
+                 
                  # Drop the entire database and recreate it to ensure clean state
+                 echo "[STEP 9B] 🗑️ Dropping quizmakerdb database..."
                  docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP DATABASE IF EXISTS quizmakerdb;" 2>/dev/null || echo "Cannot drop database"
+                 
+                 # Verify database was dropped
+                 echo "[STEP 9C] 🔍 Verifying database was dropped..."
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
+                 
+                 # Recreate the database
+                 echo "[STEP 9D] 🏗️ Creating fresh quizmakerdb database..."
                  docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot create database"
+                 
+                 # Verify database was created
+                 echo "[STEP 9E] 🔍 Verifying fresh database was created..."
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
                  
                  echo "[STEP 9] ✅ Database recreated cleanly for Flyway"
                 
