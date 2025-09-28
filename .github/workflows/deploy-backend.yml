@@ -140,8 +140,13 @@ jobs:
             echo "🔍 Debug: Checking specific variables:"
             echo "DB_USERNAME length: $(echo -n "$DB_USERNAME" | wc -c)"
             echo "DB_PASSWORD length: $(echo -n "$DB_PASSWORD" | wc -c)"
+            echo "DB_ROOT_PASSWORD length: $(echo -n "$DB_ROOT_PASSWORD" | wc -c)"
             echo "DB_USERNAME value: '$DB_USERNAME'"
-            echo "DB_PASSWORD value: '$DB_PASSWORD'"
+            echo "DB_PASSWORD first 3 chars: '$(echo "$DB_PASSWORD" | cut -c1-3)...'"
+            echo "DB_ROOT_PASSWORD first 3 chars: '$(echo "$DB_ROOT_PASSWORD" | cut -c1-3)...'"
+            
+            echo "🔍 Debug: Environment file contents (sanitized):"
+            cat .env | sed 's/=.*/=[REDACTED]/' | head -10
 
       - name: Build and start backend
         uses: appleboy/ssh-action@v1.0.3
@@ -203,10 +208,13 @@ jobs:
             docker compose ps
             
             echo "📋 Environment variables check:"
-            echo "DB_USERNAME: ${DB_USERNAME}"
-            echo "DB_PASSWORD: [HIDDEN]"
-            echo "DB_ROOT_PASSWORD: [HIDDEN]"
-            echo "MYSQL_ROOT_PASSWORD: [HIDDEN]"
+            echo "DB_USERNAME: '${DB_USERNAME}'"
+            echo "DB_PASSWORD: [HIDDEN - length: $(echo -n "$DB_PASSWORD" | wc -c)]"
+            echo "DB_ROOT_PASSWORD: [HIDDEN - length: $(echo -n "$DB_ROOT_PASSWORD" | wc -c)]"
+            echo "MYSQL_ROOT_PASSWORD: [HIDDEN - length: $(echo -n "$MYSQL_ROOT_PASSWORD" | wc -c)]"
+            
+            echo "🔍 Debug: Docker Compose environment variable resolution:"
+            docker compose config | grep -A 20 -B 5 "SPRING_DATASOURCE_USERNAME\|MYSQL_USER" || true
             
             echo "⏳ Waiting for backend to be ready..."
             # Wait for backend to be healthy
