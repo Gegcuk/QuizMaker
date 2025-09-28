@@ -306,6 +306,9 @@ jobs:
             echo "🧹 Ensuring clean database state for Flyway..."
             docker volume rm quizmaker-backend_mysql_data 2>/dev/null || true
             
+            # Force remove any lingering volumes
+            docker volume prune -f || true
+            
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
             
@@ -342,6 +345,11 @@ jobs:
                 # If Flyway history exists, drop it to start fresh
                 echo "🧹 Cleaning Flyway schema history if exists..."
                 docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Cannot clean Flyway history"
+                
+                # Also clean any other Flyway-related tables
+                echo "🧹 Cleaning all Flyway-related tables..."
+                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; SHOW TABLES;" 2>/dev/null || echo "Cannot list tables"
+                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP DATABASE IF EXISTS quizmakerdb; CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot recreate database"
                 
                 break
               fi
