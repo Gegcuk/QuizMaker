@@ -444,10 +444,10 @@ jobs:
             
             if ! docker compose ps quizmaker-backend | grep -q "Up.*healthy"; then
               echo "⚠️ Backend not healthy. Skipping Flyway CLI repair (not available)."
-              echo "📋 Backend logs (last 80 lines):"
-              docker compose logs --tail=80 quizmaker-backend || true
-              echo "📋 MySQL logs (last 80 lines):"
-              docker compose logs --tail=80 mysql || true
+              echo "📋 Backend logs (last 200 lines):"
+              docker compose logs --tail=200 quizmaker-backend || true
+              echo "📋 MySQL logs (last 200 lines):"
+              docker compose logs --tail=200 mysql || true
               echo "🔄 Restarting backend once to retry..."
               docker compose restart quizmaker-backend || true
             else
