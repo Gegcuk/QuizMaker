@@ -435,6 +435,13 @@ jobs:
                  docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
                  
                  echo "[STEP 9] ✅ Database recreated cleanly for Flyway"
+                 
+                 # Additional step: Manually clean any Flyway schema history that might persist
+                 echo "[STEP 9F] 🧹 Manually cleaning any remaining Flyway schema history..."
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP TABLE IF EXISTS quizmakerdb.flyway_schema_history;" 2>/dev/null || echo "No flyway_schema_history table to drop"
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP SCHEMA IF EXISTS flyway_schema_history;" 2>/dev/null || echo "No flyway_schema_history schema to drop"
+                 
+                 echo "[STEP 9F] ✅ Flyway schema history manually cleaned"
                 
                 break
               fi
