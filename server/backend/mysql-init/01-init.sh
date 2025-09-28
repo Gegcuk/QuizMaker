@@ -22,7 +22,7 @@ if [ -z "${MYSQL_DATABASE:-}" ]; then
   MYSQL_DATABASE="quizmakerdb"
 fi
 
-set -- mysql --protocol=socket -uroot
+set -- mysql --protocol=socket -uroot --batch --skip-column-names
 if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
   set -- "$@" -p"${MYSQL_ROOT_PASSWORD}"
 else
@@ -37,3 +37,15 @@ FLUSH PRIVILEGES;
 EOF_SQL
 
 log "Network access configured for user '${MYSQL_USER}' on database '${MYSQL_DATABASE}'"
+
+user_hosts=$("$@" -e "SELECT Host FROM mysql.user WHERE User='${MYSQL_USER}'") || user_hosts=""
+if [ -n "${user_hosts}" ]; then
+  old_ifs="$IFS"
+  IFS='\n'
+  for host in ${user_hosts}; do
+    log "User '${MYSQL_USER}' allowed host entry: ${host}"
+  done
+  IFS="$old_ifs"
+else
+  log "Warning: Unable to confirm host entries for user '${MYSQL_USER}'"
+fi
