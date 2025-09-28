@@ -103,46 +103,46 @@ jobs:
             # Create .env file from secrets
             cat > .env <<'EOF'
             # Database Configuration
-            DB_USERNAME=${{ secrets.DB_PROD_USERNAME || 'quizmaker_user' }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
-            MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+            DB_USERNAME="${{ secrets.DB_PROD_USERNAME || 'quizmaker_user' }}"
+            DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+            DB_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
+            MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
             
             # JWT Configuration
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            JWT_SECRET="${{ secrets.JWT_SECRET }}"
             
             # Security Peppers
-            TOKEN_PEPPER_SECRET=${{ secrets.TOKEN_PEPPER_SECRET }}
-            RESET_TOKEN_PEPPER=${{ secrets.RESET_TOKEN_PEPPER }}
-            VERIFICATION_TOKEN_PEPPER=${{ secrets.VERIFICATION_TOKEN_PEPPER }}
+            TOKEN_PEPPER_SECRET="${{ secrets.TOKEN_PEPPER_SECRET }}"
+            RESET_TOKEN_PEPPER="${{ secrets.RESET_TOKEN_PEPPER }}"
+            VERIFICATION_TOKEN_PEPPER="${{ secrets.VERIFICATION_TOKEN_PEPPER }}"
             
             # OpenAI Configuration
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+            OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            OPENAI_MODEL="${{ secrets.OPENAI_MODEL }}"
             
             # Stripe Configuration
-            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
-            STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
-            STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-            STRIPE_PRICE_SMALL=${{ secrets.STRIPE_PRICE_SMALL }}
-            STRIPE_PRICE_MEDIUM=${{ secrets.STRIPE_PRICE_MEDIUM }}
-            STRIPE_PRICE_LARGE=${{ secrets.STRIPE_PRICE_LARGE }}
-            STRIPE_PRICE_SUBSCRIPTION=${{ secrets.STRIPE_PRICE_SUBSCRIPTION }}
+            STRIPE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY }}"
+            STRIPE_WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+            STRIPE_PUBLISHABLE_KEY="${{ secrets.STRIPE_PUBLISHABLE_KEY }}"
+            STRIPE_PRICE_SMALL="${{ secrets.STRIPE_PRICE_SMALL }}"
+            STRIPE_PRICE_MEDIUM="${{ secrets.STRIPE_PRICE_MEDIUM }}"
+            STRIPE_PRICE_LARGE="${{ secrets.STRIPE_PRICE_LARGE }}"
+            STRIPE_PRICE_SUBSCRIPTION="${{ secrets.STRIPE_PRICE_SUBSCRIPTION }}"
             
             # Email Configuration
-            SMTP_HOST=${{ secrets.SMTP_HOST }}
-            SMTP_PORT=${{ secrets.SMTP_PORT }}
-            SMTP_USERNAME=${{ secrets.SMTP_USERNAME }}
-            SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
+            SMTP_HOST="${{ secrets.SMTP_HOST }}"
+            SMTP_PORT="${{ secrets.SMTP_PORT }}"
+            SMTP_USERNAME="${{ secrets.SMTP_USERNAME }}"
+            SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}"
             
             # Frontend Configuration
-            FRONTEND_BASE_URL=${{ secrets.FRONTEND_BASE_URL }}
+            FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"
             
             # Billing Configuration (optional)
-            BILLING_TOKEN_TO_LLM_RATIO=${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1.0' }}
-            BILLING_RESERVATION_TTL_MINUTES=${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}
-            BILLING_SAFETY_FACTOR=${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}
-            BILLING_CURRENCY=${{ secrets.BILLING_CURRENCY || 'USD' }}
+            BILLING_TOKEN_TO_LLM_RATIO="${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1.0' }}"
+            BILLING_RESERVATION_TTL_MINUTES="${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}"
+            BILLING_SAFETY_FACTOR="${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}"
+            BILLING_CURRENCY="${{ secrets.BILLING_CURRENCY || 'USD' }}"
             EOF
             
             # Verify .env file was created successfully
