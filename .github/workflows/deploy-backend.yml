@@ -311,9 +311,13 @@ jobs:
               if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
                 echo "✅ MySQL is ready! Starting backend..."
                 
+                # Check if init scripts were copied and are executable
+                echo "🔍 Checking MySQL init scripts in container..."
+                docker compose exec mysql ls -la /docker-entrypoint-initdb.d/ || echo "Cannot access init directory"
+                
                 # Check MySQL initialization logs
                 echo "🔍 Checking MySQL initialization logs..."
-                docker compose logs mysql | grep -E "\[mysql-init\]|DEBUG:|ERROR:" || echo "No init logs found"
+                docker compose logs mysql | grep -E "\[mysql-init\]|DEBUG:|ERROR:|initdb|entrypoint" || echo "No init logs found"
                 
                 # Check MySQL users to see if our script ran
                 echo "🔍 Checking MySQL users..."
