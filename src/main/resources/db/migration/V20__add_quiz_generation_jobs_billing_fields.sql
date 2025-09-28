@@ -37,17 +37,117 @@ CREATE TABLE IF NOT EXISTS quiz_generation_jobs (
   CONSTRAINT chk_billing_state CHECK (billing_state IN ('NONE','RESERVED','COMMITTED','RELEASED'))
 ) ENGINE=InnoDB;
 
--- 2) Add columns (no-op if table creation above already added them)
-ALTER TABLE quiz_generation_jobs 
-  ADD COLUMN IF NOT EXISTS billing_reservation_id BINARY(16) NULL,
-  ADD COLUMN IF NOT EXISTS reservation_expires_at TIMESTAMP NULL,
-  ADD COLUMN IF NOT EXISTS billing_estimated_tokens BIGINT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS billing_committed_tokens BIGINT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS billing_state VARCHAR(24) NOT NULL DEFAULT 'NONE',
-  ADD COLUMN IF NOT EXISTS billing_idempotency_keys JSON NULL,
-  ADD COLUMN IF NOT EXISTS last_billing_error JSON NULL,
-  ADD COLUMN IF NOT EXISTS input_prompt_tokens BIGINT NULL,
-  ADD COLUMN IF NOT EXISTS estimation_version VARCHAR(32) NULL;
+-- 2) Add columns (conditionally via information_schema to support all MySQL 8.x variants)
+SET @schema := DATABASE();
+SET @tbl := 'quiz_generation_jobs';
+
+-- billing_reservation_id
+SET @col := 'billing_reservation_id';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN billing_reservation_id BINARY(16) NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- reservation_expires_at
+SET @col := 'reservation_expires_at';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN reservation_expires_at TIMESTAMP NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- billing_estimated_tokens
+SET @col := 'billing_estimated_tokens';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN billing_estimated_tokens BIGINT NOT NULL DEFAULT 0',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- billing_committed_tokens
+SET @col := 'billing_committed_tokens';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN billing_committed_tokens BIGINT NOT NULL DEFAULT 0',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- billing_state
+SET @col := 'billing_state';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN billing_state VARCHAR(24) NOT NULL DEFAULT ''NONE''',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- billing_idempotency_keys
+SET @col := 'billing_idempotency_keys';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN billing_idempotency_keys JSON NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- last_billing_error
+SET @col := 'last_billing_error';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN last_billing_error JSON NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- input_prompt_tokens
+SET @col := 'input_prompt_tokens';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN input_prompt_tokens BIGINT NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- estimation_version
+SET @col := 'estimation_version';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN estimation_version VARCHAR(32) NULL',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 3) Add CHECK constraint for billing_state if missing (MySQL lacks IF NOT EXISTS for constraints)
 SET @schema := DATABASE();
