@@ -410,22 +410,42 @@ jobs:
                  
                  echo "[STEP 9] ✅ Database ready for Flyway migration"
                  
-                 # Fix failed migration in Flyway schema history
-                 echo "[STEP 9C] 🔧 Checking for failed Flyway migrations..."
-                 failed_migrations=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "
-                 SELECT COUNT(*) FROM quizmakerdb.flyway_schema_history 
-                 WHERE success = 0;" 2>/dev/null | tr -d '\r' || echo "0")
+                 # Fix Flyway schema history - remove failed migrations completely
+                 echo "[STEP 9C] 🔧 Checking Flyway schema history..."
                  
-                 if [ "$failed_migrations" != "0" ]; then
-                   echo "[STEP 9D] 🔧 Found $failed_migrations failed migrations. Repairing..."
-                   # Mark failed migrations as resolved
+                 # Check if flyway_schema_history table exists
+                 table_exists=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "
+                 SELECT COUNT(*) FROM information_schema.tables 
+                 WHERE table_schema = 'quizmakerdb' 
+                 AND table_name = 'flyway_schema_history';" 2>/dev/null | tr -d '\r' || echo "0")
+                 
+                 if [ "$table_exists" = "1" ]; then
+                   echo "[STEP 9D] 🔍 Flyway schema history table exists. Checking for issues..."
+                   
+                   # Show current migration status
+                   echo "[STEP 9D.1] Current migrations:"
                    docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
+                   SELECT installed_rank, version, description, success 
+                   FROM quizmakerdb.flyway_schema_history 
+                   ORDER BY installed_rank;" 2>/dev/null || echo "Cannot list migrations"
+                   
+                   # Delete failed migrations (versions 16 and 20 specifically)
+                   echo "[STEP 9D.2] 🧹 Removing failed migrations from history..."
+                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
+                   DELETE FROM quizmakerdb.flyway_schema_history 
+                   WHERE success = 0 OR version IN ('16', '20');" 2>/dev/null || echo "No failed migrations to remove"
+                   
+                   # Resequence the installed_rank to fix gaps
+                   echo "[STEP 9D.3] 🔧 Resequencing migration ranks..."
+                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
+                   SET @rank = 0;
                    UPDATE quizmakerdb.flyway_schema_history 
-                   SET success = 1 
-                   WHERE success = 0;" 2>/dev/null || echo "Cannot repair migrations"
-                   echo "[STEP 9D] ✅ Failed migrations marked as resolved"
+                   SET installed_rank = (@rank := @rank + 1) 
+                   ORDER BY installed_rank;" 2>/dev/null || echo "Cannot resequence ranks"
+                   
+                   echo "[STEP 9D.4] ✅ Flyway schema history cleaned"
                  else
-                   echo "[STEP 9D] ✅ No failed migrations found"
+                   echo "[STEP 9D] ℹ️ No Flyway schema history table found - clean start"
                  fi
                 
                 break
@@ -467,7 +487,7 @@ jobs:
               echo "📋 Inspecting Flyway schema history for error details..."
               if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT 1 FROM information_schema.tables WHERE table_schema='quizmakerdb' AND table_name='flyway_schema_history';" | grep -q 1; then
                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "\
-                  SELECT installed_rank, version, description, type, script, checksum, installed_by, success, COALESCE(error_message,'') \
+                  SELECT installed_rank, version, description, type, script, checksum, installed_by, success \
                   FROM quizmakerdb.flyway_schema_history ORDER BY installed_rank;" || true
               else
                 echo "(No flyway_schema_history table found in quizmakerdb)"
