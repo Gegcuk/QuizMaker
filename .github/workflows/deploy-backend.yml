@@ -300,28 +300,11 @@ jobs:
             echo "🔨 Building backend container..."
             docker compose build --no-cache
             
-            echo "🧹 PHASE 2: Clearing MySQL data volume for proper Flyway migration..."
-            docker compose down -v || true
-            docker volume rm quizmaker-backend_mysql_data || true
-            
-            # PHASE 2: Clean database state for proper Flyway migration with indexes
-            echo "🧹 PHASE 2: Ensuring clean database state for Flyway migration..."
-            
-            # Stop all containers first
-            echo "🛑 Stopping all containers..."
-            docker compose down -v || true
-            
-            # Remove the specific MySQL data volume
-            echo "🗑️ Removing MySQL data volume..."
-            docker volume rm quizmaker-backend_mysql_data 2>/dev/null || true
-            docker volume rm quizmaker-backend_uploads_data 2>/dev/null || true
-            
-            # Force remove any lingering volumes
-            docker volume prune -f || true
-            
-            # Remove any existing containers
-            echo "🗑️ Removing existing containers..."
-            docker compose rm -f || true
+            echo "🧹 PHASE 2: Preparing for Flyway migration (preserving data)..."
+            # Note: We're NOT dropping volumes to preserve user data
+            # Only stop backend containers, leave frontend running
+            echo "🛑 Stopping backend containers only (preserving frontend and data)..."
+            docker compose stop quizmaker-backend mysql || true
             
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
@@ -411,37 +394,21 @@ jobs:
                   echo "[STEP 8] ✅ Application user '$DB_USERNAME' found with % host access!"
                 fi
                 
-                 # Clean Flyway schema history for fresh start
-                 echo "[STEP 9] 🧹 Cleaning Flyway schema history for fresh start..."
+                 # Check if database exists and ensure it's ready for Flyway
+                 echo "[STEP 9] 🔍 Checking database state for Flyway migration..."
                  
-                 # First, check if the database exists and what's in it
-                 echo "[STEP 9A] 🔍 Checking current database state..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
+                 # Check if the database exists
+                 echo "[STEP 9A] 🔍 Checking if quizmakerdb exists..."
+                 db_exists=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'quizmakerdb';" 2>/dev/null | tr -d '\r' || echo "0")
                  
-                 # Drop the entire database and recreate it to ensure clean state
-                 echo "[STEP 9B] 🗑️ Dropping quizmakerdb database..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP DATABASE IF EXISTS quizmakerdb;" 2>/dev/null || echo "Cannot drop database"
+                 if [ "$db_exists" = "0" ]; then
+                   echo "[STEP 9B] 🏗️ Creating quizmakerdb database..."
+                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot create database"
+                 else
+                   echo "[STEP 9B] ✅ Database quizmakerdb already exists"
+                 fi
                  
-                 # Verify database was dropped
-                 echo "[STEP 9C] 🔍 Verifying database was dropped..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
-                 
-                 # Recreate the database
-                 echo "[STEP 9D] 🏗️ Creating fresh quizmakerdb database..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot create database"
-                 
-                 # Verify database was created
-                 echo "[STEP 9E] 🔍 Verifying fresh database was created..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SHOW DATABASES LIKE 'quizmakerdb';" 2>/dev/null || echo "Cannot check databases"
-                 
-                 echo "[STEP 9] ✅ Database recreated cleanly for Flyway"
-                 
-                 # Additional step: Manually clean any Flyway schema history that might persist
-                 echo "[STEP 9F] 🧹 Manually cleaning any remaining Flyway schema history..."
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP TABLE IF EXISTS quizmakerdb.flyway_schema_history;" 2>/dev/null || echo "No flyway_schema_history table to drop"
-                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP SCHEMA IF EXISTS flyway_schema_history;" 2>/dev/null || echo "No flyway_schema_history schema to drop"
-                 
-                 echo "[STEP 9F] ✅ Flyway schema history manually cleaned"
+                 echo "[STEP 9] ✅ Database ready for Flyway migration"
                 
                 break
               fi
@@ -466,7 +433,7 @@ jobs:
               sleep 2
             done
             
-            echo "[STEP 10] 🚀 Starting backend service..."
+            echo "[STEP 10] 🚀 Starting backend service with Flyway repair..."
             docker compose up -d quizmaker-backend
             
             # If backend fails due to Flyway issues, try to repair
