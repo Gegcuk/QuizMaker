@@ -136,6 +136,12 @@ jobs:
             echo "✅ Environment file created"
             echo "📋 Environment file structure (without sensitive values):"
             grep -E "^[A-Z_]+=.*" .env | sed 's/=.*/=[HIDDEN]/' || true
+            
+            echo "🔍 Debug: Checking specific variables:"
+            echo "DB_USERNAME length: $(echo -n "$DB_USERNAME" | wc -c)"
+            echo "DB_PASSWORD length: $(echo -n "$DB_PASSWORD" | wc -c)"
+            echo "DB_USERNAME value: '$DB_USERNAME'"
+            echo "DB_PASSWORD value: '$DB_PASSWORD'"
 
       - name: Build and start backend
         uses: appleboy/ssh-action@v1.0.3
