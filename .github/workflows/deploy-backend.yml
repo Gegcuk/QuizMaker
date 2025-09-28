@@ -155,6 +155,10 @@ jobs:
             echo "🔨 Building backend container..."
             docker compose build --no-cache
             
+            echo "🧹 Clearing MySQL data volume (version compatibility issue)..."
+            docker compose down -v || true
+            docker volume rm quizmaker-backend_mysql_data || true
+            
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
             
