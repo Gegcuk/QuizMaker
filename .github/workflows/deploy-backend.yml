@@ -57,7 +57,7 @@ jobs:
             cd /var/www/quizmaker-backend
             
             # Stop existing containers
-            docker compose down || docker-compose down || true
+            docker compose down || true
             
             # Clean up old images to save space
             docker image prune -f || true
@@ -145,8 +145,28 @@ jobs:
             cd /var/www/quizmaker-backend
             
             # Build and start services
-            docker compose build --no-cache || docker-compose build --no-cache
-            docker compose up -d || docker-compose up -d
+            echo "🔨 Building backend container..."
+            docker compose build --no-cache
+            
+            echo "🚀 Starting services..."
+            docker compose up -d
+            
+            echo "⏳ Waiting for MySQL to be ready..."
+            # Wait for MySQL to be healthy
+            for i in {1..30}; do
+              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent; then
+                echo "✅ MySQL is ready!"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "❌ MySQL failed to start"
+                echo "📋 MySQL logs:"
+                docker compose logs mysql
+                exit 1
+              fi
+              echo "⏳ MySQL not ready yet, waiting... ($i/30)"
+              sleep 2
+            done
             
             echo "✅ Backend containers started"
 
@@ -172,9 +192,11 @@ jobs:
               if [ $i -eq 60 ]; then
                 echo "❌ Backend health check timeout"
                 echo "📋 Container status:"
-                docker compose ps || docker-compose ps
+                docker compose ps
                 echo "📋 Backend logs:"
-                docker compose logs --tail=50 quizmaker-backend || docker-compose logs --tail=50 quizmaker-backend
+                docker compose logs --tail=50 quizmaker-backend
+                echo "📋 MySQL logs:"
+                docker compose logs --tail=50 mysql
                 exit 1
               fi
               
@@ -186,7 +208,7 @@ jobs:
             
             # Show final status
             echo "📊 Final container status:"
-            docker compose ps || docker-compose ps
+            docker compose ps
             
             echo "🌐 Backend should be available at:"
             echo "   - Health: https://quizzence.com/actuator/health"
