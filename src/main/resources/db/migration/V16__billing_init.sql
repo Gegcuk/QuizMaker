@@ -30,8 +30,34 @@ CREATE TABLE IF NOT EXISTS token_transactions (
   CONSTRAINT fk_tx_user FOREIGN KEY (user_id) REFERENCES users(user_id)
 ) ENGINE=InnoDB;
 
-CREATE INDEX idx_tx_user_created_at ON token_transactions(user_id, created_at);
-CREATE UNIQUE INDEX idx_tx_idempotency_key ON token_transactions(idempotency_key);
+-- Create indexes idempotently (safe re-run)
+SET @schema := DATABASE();
+
+-- idx_tx_user_created_at
+SET @idx_name := 'idx_tx_user_created_at';
+SET @tbl := 'token_transactions';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+  WHERE table_schema=@schema AND table_name=@tbl AND index_name=@idx_name
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_tx_user_created_at ON token_transactions(user_id, created_at)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- idx_tx_idempotency_key (unique)
+SET @idx_name := 'idx_tx_idempotency_key';
+SET @tbl := 'token_transactions';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+  WHERE table_schema=@schema AND table_name=@tbl AND index_name=@idx_name
+);
+SET @sql := IF(@exists=0,
+  'CREATE UNIQUE INDEX idx_tx_idempotency_key ON token_transactions(idempotency_key)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- reservations: token reservation lifecycle for jobs
 CREATE TABLE IF NOT EXISTS reservations (
@@ -52,8 +78,30 @@ CREATE TABLE IF NOT EXISTS reservations (
   CHECK (committed_tokens >= 0)
 ) ENGINE=InnoDB;
 
-CREATE INDEX idx_res_user_state ON reservations(user_id, state);
-CREATE INDEX idx_res_expires_at ON reservations(expires_at);
+-- reservations indexes
+SET @idx_name := 'idx_res_user_state';
+SET @tbl := 'reservations';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+  WHERE table_schema=@schema AND table_name=@tbl AND index_name=@idx_name
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_res_user_state ON reservations(user_id, state)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEAlLOCATE PREPARE stmt;
+
+SET @idx_name := 'idx_res_expires_at';
+SET @tbl := 'reservations';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+  WHERE table_schema=@schema AND table_name=@tbl AND index_name=@idx_name
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_res_expires_at ON reservations(expires_at)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- product_packs: purchasable token packs
 CREATE TABLE IF NOT EXISTS product_packs (
@@ -90,7 +138,18 @@ CREATE TABLE IF NOT EXISTS payments (
   CHECK (credited_tokens >= 0)
 ) ENGINE=InnoDB;
 
-CREATE INDEX idx_pay_user_created_at ON payments(user_id, created_at);
+-- payments index
+SET @idx_name := 'idx_pay_user_created_at';
+SET @tbl := 'payments';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+  WHERE table_schema=@schema AND table_name=@tbl AND index_name=@idx_name
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_pay_user_created_at ON payments(user_id, created_at)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- processed_stripe_events: webhook dedupe
 CREATE TABLE IF NOT EXISTS processed_stripe_events (
