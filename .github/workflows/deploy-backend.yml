@@ -56,6 +56,13 @@ jobs:
             mkdir -p /var/www/quizmaker-backend
             cd /var/www/quizmaker-backend
             
+            # Load environment variables if .env exists
+            if [ -f .env ]; then
+              set -a
+              source .env
+              set +a
+            fi
+            
             # Stop existing containers
             docker compose down || true
             
@@ -150,6 +157,21 @@ jobs:
             
             echo "🔍 Debug: Environment file contents (sanitized):"
             cat .env | sed 's/=.*/=[REDACTED]/' | head -10
+            
+            echo "🔍 Debug: Checking if .env file exists and is readable:"
+            ls -la .env || echo "❌ .env file not found!"
+            
+            echo "🔍 Debug: First 5 lines of .env file:"
+            head -5 .env || echo "❌ Cannot read .env file!"
+            
+            echo "🔍 Debug: Loading .env file and checking variables:"
+            set -a
+            source .env
+            set +a
+            echo "After loading .env:"
+            echo "DB_USERNAME: '${DB_USERNAME:-NOT_SET}'"
+            echo "DB_PASSWORD length: $(echo -n "${DB_PASSWORD:-}" | wc -c)"
+            echo "DB_ROOT_PASSWORD length: $(echo -n "${DB_ROOT_PASSWORD:-}" | wc -c)"
 
       - name: Build and start backend
         uses: appleboy/ssh-action@v1.0.3
@@ -160,6 +182,17 @@ jobs:
           script: |
             set -e
             cd /var/www/quizmaker-backend
+            
+            # Load environment variables from .env file
+            echo "🔍 Loading environment variables from .env file..."
+            set -a
+            source .env
+            set +a
+            
+            echo "🔍 Environment variables loaded:"
+            echo "DB_USERNAME: '${DB_USERNAME:-NOT_SET}'"
+            echo "DB_PASSWORD length: $(echo -n "${DB_PASSWORD:-}" | wc -c)"
+            echo "DB_ROOT_PASSWORD length: $(echo -n "${DB_ROOT_PASSWORD:-}" | wc -c)"
             
             # Verify docker-compose.yml syntax
             echo "🔍 Verifying Docker Compose configuration..."
@@ -251,6 +284,11 @@ jobs:
             set -e
             cd /var/www/quizmaker-backend
             
+            # Load environment variables from .env file
+            set -a
+            source .env
+            set +a
+            
             echo "⏳ Waiting for backend to be healthy..."
             
             # Wait up to 5 minutes for the backend to be healthy
@@ -292,6 +330,15 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
+            cd /var/www/quizmaker-backend
+            
+            # Load environment variables if .env exists
+            if [ -f .env ]; then
+              set -a
+              source .env
+              set +a
+            fi
+            
             # Clean up old Docker images to save space
             docker image prune -f || true
             echo "✅ Cleanup completed"
