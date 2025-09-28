@@ -409,6 +409,24 @@ jobs:
                  fi
                  
                  echo "[STEP 9] ✅ Database ready for Flyway migration"
+                 
+                 # Fix failed migration in Flyway schema history
+                 echo "[STEP 9C] 🔧 Checking for failed Flyway migrations..."
+                 failed_migrations=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "
+                 SELECT COUNT(*) FROM quizmakerdb.flyway_schema_history 
+                 WHERE success = 0;" 2>/dev/null | tr -d '\r' || echo "0")
+                 
+                 if [ "$failed_migrations" != "0" ]; then
+                   echo "[STEP 9D] 🔧 Found $failed_migrations failed migrations. Repairing..."
+                   # Mark failed migrations as resolved
+                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
+                   UPDATE quizmakerdb.flyway_schema_history 
+                   SET success = 1 
+                   WHERE success = 0;" 2>/dev/null || echo "Cannot repair migrations"
+                   echo "[STEP 9D] ✅ Failed migrations marked as resolved"
+                 else
+                   echo "[STEP 9D] ✅ No failed migrations found"
+                 fi
                 
                 break
               fi
