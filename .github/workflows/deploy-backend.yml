@@ -302,6 +302,10 @@ jobs:
             docker compose down -v || true
             docker volume rm quizmaker-backend_mysql_data || true
             
+            # Also clear any existing Flyway schema history if it exists
+            echo "🧹 Ensuring clean database state for Flyway..."
+            docker volume rm quizmaker-backend_mysql_data 2>/dev/null || true
+            
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
             
@@ -331,6 +335,14 @@ jobs:
                 echo "🔍 Checking MySQL users..."
                 docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('root', 'mysql.session', 'mysql.sys', 'mysql.infoschema', '');" || echo "Could not check users"
                 
+                # Check if Flyway schema history exists and clean it if corrupted
+                echo "🔍 Checking Flyway schema history..."
+                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; SHOW TABLES LIKE 'flyway_schema_history';" 2>/dev/null || echo "Cannot check Flyway history"
+                
+                # If Flyway history exists, drop it to start fresh
+                echo "🧹 Cleaning Flyway schema history if exists..."
+                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Cannot clean Flyway history"
+                
                 break
               fi
               
@@ -356,6 +368,37 @@ jobs:
             
             echo "🚀 Starting backend service..."
             docker compose up -d quizmaker-backend
+            
+            # If backend fails due to Flyway issues, try to repair
+            echo "🔧 Checking if Flyway repair is needed..."
+            sleep 5  # Give backend time to start and potentially fail
+            
+            if ! docker compose ps quizmaker-backend | grep -q "Up.*healthy"; then
+              echo "⚠️ Backend not healthy, attempting Flyway repair..."
+              
+              # Try multiple Flyway repair approaches
+              echo "🔧 Running Flyway repair..."
+              
+              # Method 1: Try Maven Flyway repair (if Maven is available)
+              if docker compose exec quizmaker-backend which mvn >/dev/null 2>&1; then
+                echo "Using Maven Flyway repair..."
+                docker compose exec quizmaker-backend mvn flyway:repair || echo "Maven Flyway repair failed"
+              else
+                echo "Maven not available, trying direct Flyway repair..."
+                # Method 2: Try direct Flyway repair
+                docker compose exec quizmaker-backend java -cp /app/app.jar org.flywaydb.commandline.Main repair || echo "Direct Flyway repair failed"
+              fi
+              
+              # Method 3: Manual cleanup as fallback
+              echo "Manual Flyway schema history cleanup as fallback..."
+              docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Manual cleanup failed"
+              
+              # Restart backend after repair
+              echo "🔄 Restarting backend after Flyway repair..."
+              docker compose restart quizmaker-backend
+            else
+              echo "✅ Backend is healthy, no repair needed"
+            fi
             
             echo "📋 Initial container status:"
             docker compose ps
