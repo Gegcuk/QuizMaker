@@ -235,14 +235,41 @@ jobs:
             # Load environment variables from .env file
             echo "🔍 Loading environment variables from .env file..."
             sed -i 's/\r$//' .env
-            set -a
-            if ! source .env 2>/dev/null; then
-              echo "⚠️ Warning: Failed to load .env file. Docker Compose will still use the .env file directly."
-              echo "📋 Checking for syntax errors in .env file:"
-              cat -n .env | head -20
+
+            # Try to load with verbose error output first
+            echo "🔍 Attempting to source .env file with verbose output:"
+            if ! source .env; then
+              echo "❌ Failed to source .env file. Checking for specific issues..."
+              
+              # Check for problematic characters
+              echo "📋 Checking for non-printable characters:"
+              hexdump -C .env | head -10
+              
+              # Check for specific problematic patterns
+              echo "📋 Checking for problematic patterns:"
+              grep -n '[[:space:]]$' .env || echo "No trailing whitespace found"
+              grep -n '^[[:space:]]' .env || echo "No leading whitespace found"
+              grep -n '=' .env | head -5 || echo "No equals signs found"
+              
+              # Try loading line by line to find the problematic line
+              echo "📋 Testing .env file line by line:"
+              line_num=0
+              while IFS= read -r line; do
+                line_num=$((line_num + 1))
+                if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
+                  echo "Line $line_num: OK (comment/empty): $line"
+                elif [[ "$line" =~ ^[A-Z_]+= ]]; then
+                  echo "Line $line_num: OK (variable): ${line%%=*}=[HIDDEN]"
+                else
+                  echo "Line $line_num: PROBLEMATIC: '$line'"
+                  break
+                fi
+              done < .env
+              
               exit 1
             fi
-            set +a
+
+            echo "✅ Successfully loaded .env file"
             
             if [ -z "${MYSQL_ROOT_PASSWORD:-}" ] && [ -n "${DB_ROOT_PASSWORD:-}" ]; then
               export MYSQL_ROOT_PASSWORD="${DB_ROOT_PASSWORD}"
