@@ -234,6 +234,7 @@ jobs:
             
             # Load environment variables from .env file
             echo "🔍 Loading environment variables from .env file..."
+            sed -i 's/\r$//' .env
             set -a
             if ! source .env 2>/dev/null; then
               echo "⚠️ Warning: Failed to load .env file. Docker Compose will still use the .env file directly."
