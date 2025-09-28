@@ -3,10 +3,22 @@
 
 -- Add a computed column that is username when status is active, NULL otherwise
 -- This allows us to create a unique constraint that only applies to active jobs
-ALTER TABLE quiz_generation_jobs 
-  ADD COLUMN IF NOT EXISTS active_username VARCHAR(50) GENERATED ALWAYS AS (
-    CASE WHEN status IN ('PENDING', 'PROCESSING') THEN username ELSE NULL END
-  ) STORED;
+-- Check if column exists before adding it
+SET @schema := DATABASE();
+SET @tbl := 'quiz_generation_jobs';
+SET @col_name := 'active_username';
+SET @col_exists := (
+  SELECT COUNT(1) FROM information_schema.columns
+  WHERE table_schema=@schema AND table_name=@tbl AND column_name=@col_name
+);
+
+SET @sql := IF(@col_exists=0,
+  'ALTER TABLE quiz_generation_jobs ADD COLUMN active_username VARCHAR(50) GENERATED ALWAYS AS (
+    CASE WHEN status IN (''PENDING'', ''PROCESSING'') THEN username ELSE NULL END
+  ) STORED',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- Create unique index on the computed column (idempotent)
 SET @schema := DATABASE();
