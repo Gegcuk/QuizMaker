@@ -22,12 +22,9 @@ CREATE TABLE `document_nodes` (
   KEY `ix_parent_idx` (`document_id`, `parent_id`, `idx`),
   KEY `ix_parent_id` (`parent_id`),
   KEY `ix_document_id` (`document_id`),
-  CONSTRAINT `uq_doc_parentkey_idx` UNIQUE (`document_id`, `parent_key`, `idx`),
-  CONSTRAINT `chk_offsets` CHECK (`start_offset` >= 0 AND `end_offset` > `start_offset`),
-  CONSTRAINT `chk_depth` CHECK (`depth` >= 0),
-  CONSTRAINT `chk_confidence` CHECK (`ai_confidence` IS NULL OR (`ai_confidence` >= 0 AND `ai_confidence` <= 1))
+  CONSTRAINT `uq_doc_parentkey_idx` UNIQUE (`document_id`, `parent_key`, `idx`)
 ) ENGINE=InnoDB;
 
 -- Update documents table to support STRUCTURED status
-ALTER TABLE normalized_documents 
-MODIFY COLUMN status ENUM('PENDING','NORMALIZED','FAILED','STRUCTURED') NOT NULL;
+ALTER TABLE `normalized_documents`
+MODIFY COLUMN `status` ENUM('PENDING','NORMALIZED','FAILED','STRUCTURED') NOT NULL;

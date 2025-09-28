@@ -72,7 +72,7 @@ fi
 # Define a wrapper for executing as root via socket
 mysql_root() {
   if [ "$MYSQL_AUTH_MODE" = "password" ]; then
-    mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot -p"${MYSQL_ROOT_PASSWORD}" "$@"
+    MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot "$@"
   else
     mysql --protocol=SOCKET --socket="${MYSQL_SOCKET}" -uroot "$@"
   fi

@@ -448,6 +448,14 @@ jobs:
               docker compose logs --tail=200 quizmaker-backend || true
               echo "📋 MySQL logs (last 200 lines):"
               docker compose logs --tail=200 mysql || true
+              echo "📋 Inspecting Flyway schema history for error details..."
+              if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT 1 FROM information_schema.tables WHERE table_schema='quizmakerdb' AND table_name='flyway_schema_history';" | grep -q 1; then
+                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "\
+                  SELECT installed_rank, version, description, type, script, checksum, installed_by, success, COALESCE(error_message,'') \
+                  FROM quizmakerdb.flyway_schema_history ORDER BY installed_rank;" || true
+              else
+                echo "(No flyway_schema_history table found in quizmakerdb)"
+              fi
               echo "🔄 Restarting backend once to retry..."
               docker compose restart quizmaker-backend || true
             else
