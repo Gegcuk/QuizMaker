@@ -1,0 +1,204 @@
+name: Deploy Backend to Production
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'server/backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Build application
+        run: |
+          ./mvnw clean package -DskipTests -B
+          echo "✅ Application built successfully"
+
+      - name: Prepare deployment bundle
+        run: |
+          rm -rf deployment && mkdir -p deployment
+          
+          # Copy backend deployment files
+          cp -r server/backend/* deployment/
+          
+          # Copy application files (target/ not needed as Dockerfile rebuilds from source)
+          cp pom.xml deployment/
+          cp -r src deployment/
+          
+          # Create production properties
+          cp server/backend/application-prod.properties deployment/src/main/resources/
+          
+          echo "✅ Deployment bundle prepared"
+
+      - name: Stop old backend (ignore if first run)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            mkdir -p /var/www/quizmaker-backend
+            cd /var/www/quizmaker-backend
+            
+            # Stop existing containers
+            docker compose down || docker-compose down || true
+            
+            # Clean up old images to save space
+            docker image prune -f || true
+            
+            echo "✅ Old backend stopped"
+
+      - name: Copy deployment files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "deployment/*"
+          target: "/var/www/quizmaker-backend/"
+          strip_components: 1
+          overwrite: true
+
+      - name: Create environment file and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/quizmaker-backend
+            
+            # Create .env file from secrets
+            cat > .env << EOF
+            # Database Configuration
+            DB_USERNAME=${{ secrets.DB_USERNAME }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+            
+            # JWT Configuration
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            
+            # Security Peppers
+            TOKEN_PEPPER_SECRET=${{ secrets.TOKEN_PEPPER_SECRET }}
+            RESET_TOKEN_PEPPER=${{ secrets.RESET_TOKEN_PEPPER }}
+            VERIFICATION_TOKEN_PEPPER=${{ secrets.VERIFICATION_TOKEN_PEPPER }}
+            
+            # OpenAI Configuration
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            OPENAI_MODEL=${{ secrets.OPENAI_MODEL }}
+            
+            # Stripe Configuration
+            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+            STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
+            STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+            STRIPE_PRICE_SMALL=${{ secrets.STRIPE_PRICE_SMALL }}
+            STRIPE_PRICE_MEDIUM=${{ secrets.STRIPE_PRICE_MEDIUM }}
+            STRIPE_PRICE_LARGE=${{ secrets.STRIPE_PRICE_LARGE }}
+            STRIPE_PRICE_SUBSCRIPTION=${{ secrets.STRIPE_PRICE_SUBSCRIPTION }}
+            
+            # Email Configuration
+            SMTP_HOST=${{ secrets.SMTP_HOST }}
+            SMTP_PORT=${{ secrets.SMTP_PORT }}
+            SMTP_USERNAME=${{ secrets.SMTP_USERNAME }}
+            SMTP_PASSWORD=${{ secrets.SMTP_PASSWORD }}
+            
+            # Frontend Configuration
+            FRONTEND_BASE_URL=${{ secrets.FRONTEND_BASE_URL }}
+            
+            # Billing Configuration
+            BILLING_TOKEN_TO_LLM_RATIO=${{ secrets.BILLING_TOKEN_TO_LLM_RATIO }}
+            BILLING_RESERVATION_TTL_MINUTES=${{ secrets.BILLING_RESERVATION_TTL_MINUTES }}
+            BILLING_SAFETY_FACTOR=${{ secrets.BILLING_SAFETY_FACTOR }}
+            BILLING_CURRENCY=${{ secrets.BILLING_CURRENCY }}
+            EOF
+            
+            # Set proper permissions
+            chmod 600 .env
+            
+            echo "✅ Environment file created"
+
+      - name: Build and start backend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/quizmaker-backend
+            
+            # Build and start services
+            docker compose build --no-cache || docker-compose build --no-cache
+            docker compose up -d || docker-compose up -d
+            
+            echo "✅ Backend containers started"
+
+      - name: Wait for backend to be healthy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/quizmaker-backend
+            
+            echo "⏳ Waiting for backend to be healthy..."
+            
+            # Wait up to 5 minutes for the backend to be healthy
+            for i in {1..60}; do
+              if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Backend is healthy!"
+                break
+              fi
+              
+              if [ $i -eq 60 ]; then
+                echo "❌ Backend health check timeout"
+                echo "📋 Container status:"
+                docker compose ps || docker-compose ps
+                echo "📋 Backend logs:"
+                docker compose logs --tail=50 quizmaker-backend || docker-compose logs --tail=50 quizmaker-backend
+                exit 1
+              fi
+              
+              echo "⏳ Attempt $i/60: Backend not ready yet, waiting..."
+              sleep 5
+            done
+            
+            echo "🎉 Backend deployment completed successfully!"
+            
+            # Show final status
+            echo "📊 Final container status:"
+            docker compose ps || docker-compose ps
+            
+            echo "🌐 Backend should be available at:"
+            echo "   - Health: https://quizzence.com/actuator/health"
+            echo "   - API Docs: https://quizzence.com/api/v1/docs/swagger-ui.html"
+
+      - name: Cleanup deployment files
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # Clean up old Docker images to save space
+            docker image prune -f || true
+            echo "✅ Cleanup completed"
