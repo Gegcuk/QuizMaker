@@ -42,7 +42,7 @@ services:
       - quizmaker-network
 
   mysql:
-    image: mysql:8.4
+    image: mysql:8.0
     environment:
       - MYSQL_DATABASE=quizmakerdb
       - MYSQL_USER=${DB_USERNAME}
@@ -62,7 +62,7 @@ services:
       start_period: 60s
     networks:
       - quizmaker-network
-    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=128M --max-connections=200
+    command: --innodb-buffer-pool-size=128M --max-connections=200
 
 volumes:
   mysql_data:
