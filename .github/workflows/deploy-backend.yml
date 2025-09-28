@@ -43,6 +43,11 @@ jobs:
           # Create production properties
           cp server/backend/application-prod.properties deployment/src/main/resources/
           
+          echo "🔍 Debug: Checking deployment bundle contents:"
+          ls -la deployment/ || echo "Deployment directory not found"
+          echo "🔍 Debug: Checking if mysql-init directory was copied:"
+          ls -la deployment/mysql-init/ || echo "mysql-init directory not found in deployment"
+          
           echo "✅ Deployment bundle prepared"
 
       - name: Stop old backend (ignore if first run)
@@ -150,6 +155,8 @@ jobs:
             ls -la mysql-init/ || echo "mysql-init directory not found"
             echo "🔍 Debug: Checking if init scripts are executable:"
             find mysql-init/ -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
+            echo "🔍 Debug: Checking all files in mysql-init directory:"
+            find mysql-init/ -type f -exec ls -la {} \; 2>/dev/null || echo "mysql-init directory not accessible"
             
             echo "✅ Environment file created"
             echo "📋 Environment file structure (without sensitive values):"
