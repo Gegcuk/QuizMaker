@@ -399,18 +399,14 @@ jobs:
                   echo "[STEP 8] ✅ Application user '$DB_USERNAME' found with % host access!"
                 fi
                 
-                # Check if Flyway schema history exists and clean it if corrupted
-                echo "[STEP 9] 🔍 Checking Flyway schema history..."
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; SHOW TABLES LIKE 'flyway_schema_history';" 2>/dev/null || echo "Cannot check Flyway history"
-                
-                # If Flyway history exists, drop it to start fresh
-                echo "[STEP 9] 🧹 Cleaning Flyway schema history if exists..."
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; DROP TABLE IF EXISTS flyway_schema_history;" 2>/dev/null || echo "Cannot clean Flyway history"
-                
-                # Also clean any other Flyway-related tables
-                echo "[STEP 9] 🧹 Cleaning all Flyway-related tables..."
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; SHOW TABLES;" 2>/dev/null || echo "Cannot list tables"
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "USE quizmakerdb; DROP DATABASE IF EXISTS quizmakerdb; CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot recreate database"
+                 # Clean Flyway schema history for fresh start
+                 echo "[STEP 9] 🧹 Cleaning Flyway schema history for fresh start..."
+                 
+                 # Drop the entire database and recreate it to ensure clean state
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "DROP DATABASE IF EXISTS quizmakerdb;" 2>/dev/null || echo "Cannot drop database"
+                 docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot create database"
+                 
+                 echo "[STEP 9] ✅ Database recreated cleanly for Flyway"
                 
                 break
               fi
