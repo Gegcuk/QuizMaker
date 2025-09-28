@@ -319,6 +319,14 @@ jobs:
                 echo "🔍 Checking MySQL initialization logs..."
                 docker compose logs mysql | grep -E "\[mysql-init\]|DEBUG:|ERROR:|initdb|entrypoint" || echo "No init logs found"
                 
+                # Check MySQL container environment variables
+                echo "🔍 Checking MySQL container environment variables..."
+                docker compose exec mysql env | grep MYSQL || echo "No MYSQL environment variables found"
+                
+                # Try to connect to MySQL without password to see what users exist
+                echo "🔍 Checking MySQL users without password..."
+                docker compose exec mysql mysql -uroot -e "SELECT User, Host FROM mysql.user;" 2>/dev/null || echo "Cannot connect without password"
+                
                 # Check MySQL users to see if our script ran
                 echo "🔍 Checking MySQL users..."
                 docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('root', 'mysql.session', 'mysql.sys', 'mysql.infoschema', '');" || echo "Could not check users"
