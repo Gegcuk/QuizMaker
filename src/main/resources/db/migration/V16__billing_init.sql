@@ -89,7 +89,7 @@ SET @sql := IF(@exists=0,
   'CREATE INDEX idx_res_user_state ON reservations(user_id, state)',
   'DO 0'
 );
-PREPARE stmt FROM @sql; EXECUTE stmt; DEAlLOCATE PREPARE stmt;
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @idx_name := 'idx_res_expires_at';
 SET @tbl := 'reservations';
