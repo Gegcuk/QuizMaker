@@ -306,15 +306,22 @@ jobs:
             
             # Also clear any existing Flyway schema history if it exists
             echo "🧹 Ensuring clean database state for Flyway..."
+            
+            # Stop all containers first
+            echo "🛑 Stopping all containers..."
+            docker compose down -v || true
+            
+            # Remove the specific MySQL data volume
+            echo "🗑️ Removing MySQL data volume..."
             docker volume rm quizmaker-backend_mysql_data 2>/dev/null || true
+            docker volume rm quizmaker-backend_uploads_data 2>/dev/null || true
             
             # Force remove any lingering volumes
             docker volume prune -f || true
             
-            # Force restart MySQL to ensure clean state
-            echo "🔄 Restarting MySQL container for clean state..."
-            docker compose restart mysql || true
-            sleep 5  # Wait for MySQL to restart
+            # Remove any existing containers
+            echo "🗑️ Removing existing containers..."
+            docker compose rm -f || true
             
             echo "🚀 Starting MySQL first..."
             docker compose up -d mysql
