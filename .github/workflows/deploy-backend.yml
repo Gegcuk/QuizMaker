@@ -334,6 +334,15 @@ jobs:
                 echo "🔍 Checking MySQL users without password..."
                 docker compose exec mysql mysql -uroot -e "SELECT User, Host FROM mysql.user;" 2>/dev/null || echo "Cannot connect without password"
                 
+                # If we can connect without password, set the root password
+                if docker compose exec mysql mysql -uroot -e "SELECT 1;" >/dev/null 2>&1; then
+                  echo "🔧 Root user has no password, setting it now..."
+                  docker compose exec mysql mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';" || echo "Failed to set root password"
+                  docker compose exec mysql mysql -uroot -e "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';" || echo "Failed to set root password for %"
+                  docker compose exec mysql mysql -uroot -e "FLUSH PRIVILEGES;" || echo "Failed to flush privileges"
+                  echo "✅ Root password set successfully"
+                fi
+                
                 # Check MySQL users to see if our script ran
                 echo "🔍 Checking MySQL users..."
                 docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('root', 'mysql.session', 'mysql.sys', 'mysql.infoschema', '');" || echo "Could not check users"
