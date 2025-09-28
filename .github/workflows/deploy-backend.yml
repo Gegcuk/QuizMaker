@@ -88,7 +88,7 @@ jobs:
             # Create .env file from secrets
             cat > .env << EOF
             # Database Configuration
-            DB_USERNAME=${{ secrets.DB_USERNAME }}
+            DB_USERNAME=${{ secrets.DB_PROD_USERNAME || 'quizmaker_user' }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
             MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
