@@ -146,6 +146,11 @@ jobs:
             # Make MySQL init scripts executable
             chmod +x mysql-init/*.sh 2>/dev/null || true
             
+            echo "🔍 Debug: MySQL init scripts status:"
+            ls -la mysql-init/ || echo "mysql-init directory not found"
+            echo "🔍 Debug: Checking if init scripts are executable:"
+            find mysql-init/ -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
+            
             echo "✅ Environment file created"
             echo "📋 Environment file structure (without sensitive values):"
             grep -E "^[A-Z_]+=.*" .env | sed 's/=.*/=[HIDDEN]/' || true
@@ -221,6 +226,15 @@ jobs:
             for i in {1..60}; do
               if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
                 echo "✅ MySQL is ready! Starting backend..."
+                
+                # Check MySQL initialization logs
+                echo "🔍 Checking MySQL initialization logs..."
+                docker compose logs mysql | grep -E "\[mysql-init\]|DEBUG:|ERROR:" || echo "No init logs found"
+                
+                # Check MySQL users to see if our script ran
+                echo "🔍 Checking MySQL users..."
+                docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('root', 'mysql.session', 'mysql.sys', 'mysql.infoschema', '');" || echo "Could not check users"
+                
                 break
               fi
               
