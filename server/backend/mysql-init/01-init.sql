@@ -10,7 +10,5 @@ CREATE DATABASE IF NOT EXISTS quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_
 -- Set timezone
 SET GLOBAL time_zone = '+00:00';
 
--- Optimize MySQL for production
-SET GLOBAL innodb_buffer_pool_size = 134217728; -- 128MB
-SET GLOBAL max_connections = 200;
-SET GLOBAL innodb_log_file_size = 50331648; -- 48MB
+-- Basic MySQL optimization (some settings moved to command line)
+-- Note: innodb_buffer_pool_size and max_connections are set via command line

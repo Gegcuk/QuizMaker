@@ -123,11 +123,11 @@ jobs:
             # Frontend Configuration
             FRONTEND_BASE_URL=${{ secrets.FRONTEND_BASE_URL }}
             
-            # Billing Configuration
-            BILLING_TOKEN_TO_LLM_RATIO=${{ secrets.BILLING_TOKEN_TO_LLM_RATIO }}
-            BILLING_RESERVATION_TTL_MINUTES=${{ secrets.BILLING_RESERVATION_TTL_MINUTES }}
-            BILLING_SAFETY_FACTOR=${{ secrets.BILLING_SAFETY_FACTOR }}
-            BILLING_CURRENCY=${{ secrets.BILLING_CURRENCY }}
+            # Billing Configuration (optional)
+            BILLING_TOKEN_TO_LLM_RATIO=${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1.0' }}
+            BILLING_RESERVATION_TTL_MINUTES=${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}
+            BILLING_SAFETY_FACTOR=${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}
+            BILLING_CURRENCY=${{ secrets.BILLING_CURRENCY || 'USD' }}
             EOF
             
             # Set proper permissions
@@ -153,19 +153,23 @@ jobs:
             docker compose up -d
             
             echo "⏳ Waiting for MySQL to be ready..."
-            # Wait for MySQL to be healthy
-            for i in {1..30}; do
-              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent; then
+            # Wait for MySQL to be healthy (increased timeout for first-time setup)
+            for i in {1..60}; do
+              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent 2>/dev/null; then
                 echo "✅ MySQL is ready!"
                 break
               fi
-              if [ $i -eq 30 ]; then
-                echo "❌ MySQL failed to start"
+              if [ $i -eq 60 ]; then
+                echo "❌ MySQL failed to start after 2 minutes"
+                echo "📋 Container status:"
+                docker compose ps
                 echo "📋 MySQL logs:"
                 docker compose logs mysql
+                echo "📋 Environment check:"
+                docker compose exec mysql env | grep MYSQL || true
                 exit 1
               fi
-              echo "⏳ MySQL not ready yet, waiting... ($i/30)"
+              echo "⏳ MySQL not ready yet, waiting... ($i/60)"
               sleep 2
             done
             
