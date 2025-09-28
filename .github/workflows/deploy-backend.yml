@@ -330,9 +330,46 @@ jobs:
                 echo "🔍 Checking MySQL container environment variables..."
                 docker compose exec mysql env | grep MYSQL || echo "No MYSQL environment variables found"
                 
+                # Check if initialization scripts ran, and run them manually if needed
+                echo "🔍 Checking if MySQL initialization is needed..."
+                
+                # Try to connect with root password
+                if ! docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT 1;" >/dev/null 2>&1; then
+                  echo "⚠️ Cannot connect with root password, running initialization script manually..."
+                  docker compose exec mysql /docker-entrypoint-initdb.d/01-init.sh || echo "Manual init script execution failed"
+                  
+                  # Wait a moment for initialization to complete
+                  sleep 3
+                fi
+                
                 # Check MySQL users after initialization
                 echo "🔍 Checking MySQL users after initialization..."
                 docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('mysql.session', 'mysql.sys', 'mysql.infoschema', '');" 2>/dev/null || echo "Could not check users"
+                
+                # Verify application user exists with % host
+                app_user_check=$(docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
+                
+                if [ "$app_user_check" = "0" ]; then
+                  echo "⚠️ Application user '$DB_USERNAME' not found with % host access!"
+                  echo "🔧 Creating application user manually..."
+                  docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "
+                    CREATE DATABASE IF NOT EXISTS \`quizmakerdb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                    CREATE USER IF NOT EXISTS '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
+                    GRANT ALL PRIVILEGES ON \`quizmakerdb\`.* TO '$DB_USERNAME'@'%';
+                    FLUSH PRIVILEGES;
+                  " || echo "Manual user creation failed"
+                  
+                  # Verify again
+                  app_user_check=$(docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
+                  if [ "$app_user_check" = "0" ]; then
+                    echo "❌ Failed to create application user. Aborting deployment."
+                    exit 1
+                  else
+                    echo "✅ Application user created successfully!"
+                  fi
+                else
+                  echo "✅ Application user '$DB_USERNAME' found with % host access!"
+                fi
                 
                 # Check if Flyway schema history exists and clean it if corrupted
                 echo "🔍 Checking Flyway schema history..."

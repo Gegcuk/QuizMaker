@@ -26,10 +26,18 @@ done
 log "Checking root password status..."
 if ! mysql -uroot -p"${MYSQL_ROOT_PASSWORD:-}" -e "SELECT 1;" >/dev/null 2>&1; then
   log "Setting root password..."
-  mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
-  mysql -uroot -e "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
-  mysql -uroot -e "FLUSH PRIVILEGES;"
-  log "Root password set successfully"
+  # Try without password first (fresh MySQL installation)
+  if mysql -uroot -e "SELECT 1;" >/dev/null 2>&1; then
+    mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
+    mysql -uroot -e "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
+    mysql -uroot -e "FLUSH PRIVILEGES;"
+    log "Root password set successfully"
+  else
+    log "ERROR: Cannot connect to MySQL without password and with password"
+    exit 1
+  fi
+else
+  log "Root password already set and working"
 fi
 
 # Now use root password for subsequent operations
