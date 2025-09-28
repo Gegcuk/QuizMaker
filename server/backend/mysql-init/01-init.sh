@@ -5,6 +5,36 @@ log() {
   printf '[mysql-init] %s\n' "$1"
 }
 
+log "Starting MySQL initialization..."
+
+# Wait for MySQL to be ready
+log "Waiting for MySQL to be ready..."
+for i in $(seq 1 30); do
+  if mysqladmin ping -h localhost --silent 2>/dev/null; then
+    log "MySQL is ready!"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    log "ERROR: MySQL failed to start within 30 seconds"
+    exit 1
+  fi
+  log "Waiting for MySQL... ($i/30)"
+  sleep 1
+done
+
+# Check if we need to set root password
+log "Checking root password status..."
+if ! mysql -uroot -p"${MYSQL_ROOT_PASSWORD:-}" -e "SELECT 1;" >/dev/null 2>&1; then
+  log "Setting root password..."
+  mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
+  mysql -uroot -e "ALTER USER 'root'@'%' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD:-defaultpass}';"
+  mysql -uroot -e "FLUSH PRIVILEGES;"
+  log "Root password set successfully"
+fi
+
+# Now use root password for subsequent operations
+MYSQL_CMD="mysql -uroot -p${MYSQL_ROOT_PASSWORD:-defaultpass}"
+
 log "Configuring network access for application user..."
 
 if [ -z "${MYSQL_USER:-}" ]; then
@@ -22,34 +52,31 @@ if [ -z "${MYSQL_DATABASE:-}" ]; then
   MYSQL_DATABASE="quizmakerdb"
 fi
 
-set -- mysql --protocol=socket -uroot --batch --skip-column-names
-if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
-  set -- "$@" -p"${MYSQL_ROOT_PASSWORD}"
-else
-  log "MYSQL_ROOT_PASSWORD is not set; attempting to connect without password"
-fi
+# Create database if it doesn't exist
+log "Creating database '${MYSQL_DATABASE}' if it doesn't exist..."
+$MYSQL_CMD -e "CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-has_wildcard_host=$("$@" -e "SELECT COUNT(*) FROM mysql.user WHERE User='${MYSQL_USER}' AND Host='%';" 2>/dev/null | tr -d '\r' || true)
-if [ -z "${has_wildcard_host}" ]; then
-  has_wildcard_host="0"
-fi
+# Check if the user already has a '%' host entry
+has_wildcard_host=$($MYSQL_CMD -e "SELECT COUNT(*) FROM mysql.user WHERE User='${MYSQL_USER}' AND Host='%';" 2>/dev/null | tail -1 | tr -d '\r' || echo "0")
+
 if [ "${has_wildcard_host}" = "0" ]; then
   log "No '%' host entry found for user '${MYSQL_USER}'. Creating remote access grant."
-  "$@" <<EOF_SQL
+  $MYSQL_CMD <<EOF_SQL
 CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF_SQL
 else
   log "User '${MYSQL_USER}' already has '%' host entry. Refreshing credentials and privileges."
-  "$@" <<EOF_SQL
+  $MYSQL_CMD <<EOF_SQL
 ALTER USER '${MYSQL_USER}'@'%' IDENTIFIED BY '${MYSQL_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF_SQL
 fi
 
-user_hosts=$("$@" -e "SELECT CONCAT(User, '@', Host) FROM mysql.user WHERE User='${MYSQL_USER}';" 2>/dev/null || true)
+# Verify the user was created successfully
+user_hosts=$($MYSQL_CMD -e "SELECT CONCAT(User, '@', Host) FROM mysql.user WHERE User='${MYSQL_USER}';" 2>/dev/null || true)
 if [ -n "${user_hosts}" ]; then
   log "Verified host mappings for '${MYSQL_USER}':"
   old_ifs="$IFS"
@@ -61,3 +88,5 @@ if [ -n "${user_hosts}" ]; then
 else
   log "Warning: Unable to confirm host entries for user '${MYSQL_USER}'"
 fi
+
+log "MySQL initialization completed successfully!"
