@@ -300,12 +300,12 @@ jobs:
             echo "🔨 Building backend container..."
             docker compose build --no-cache
             
-            echo "🧹 Clearing MySQL data volume (version compatibility issue)..."
+            echo "🧹 PHASE 2: Clearing MySQL data volume for proper Flyway migration..."
             docker compose down -v || true
             docker volume rm quizmaker-backend_mysql_data || true
             
-            # Also clear any existing Flyway schema history if it exists
-            echo "🧹 Ensuring clean database state for Flyway..."
+            # PHASE 2: Clean database state for proper Flyway migration with indexes
+            echo "🧹 PHASE 2: Ensuring clean database state for Flyway migration..."
             
             # Stop all containers first
             echo "🛑 Stopping all containers..."
