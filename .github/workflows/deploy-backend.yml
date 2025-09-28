@@ -336,10 +336,32 @@ jobs:
                 # Try to connect with root password
                 if ! docker compose exec mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT 1;" >/dev/null 2>&1; then
                   echo "⚠️ Cannot connect with root password, running initialization script manually..."
-                  docker compose exec mysql /docker-entrypoint-initdb.d/01-init.sh || echo "Manual init script execution failed"
+                  
+                  # Try running the init script
+                  if docker compose exec mysql /docker-entrypoint-initdb.d/01-init.sh; then
+                    echo "✅ Initialization script completed successfully"
+                  else
+                    echo "⚠️ Initialization script failed, trying manual setup..."
+                    
+                    # Try to connect without password and set the password manually
+                    if docker compose exec mysql mysql -uroot -e "SELECT 1;" >/dev/null 2>&1; then
+                      echo "🔧 Setting root password manually..."
+                      docker compose exec mysql mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';"
+                      docker compose exec mysql mysql -uroot -e "ALTER USER 'root'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';"
+                      docker compose exec mysql mysql -uroot -e "FLUSH PRIVILEGES;"
+                      echo "✅ Root password set manually"
+                    else
+                      echo "❌ Cannot connect to MySQL with or without password"
+                      echo "📋 MySQL container logs:"
+                      docker compose logs --tail=20 mysql
+                      exit 1
+                    fi
+                  fi
                   
                   # Wait a moment for initialization to complete
                   sleep 3
+                else
+                  echo "✅ Root password connection successful"
                 fi
                 
                 # Check MySQL users after initialization
