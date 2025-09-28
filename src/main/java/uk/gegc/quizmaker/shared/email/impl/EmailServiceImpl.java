@@ -19,7 +19,7 @@ public class EmailServiceImpl implements EmailService {
 
     private final JavaMailSender mailSender;
 
-    @Value("${spring.mail.username}")
+    @Value("${spring.mail.username:}")
     private String fromEmail;
 
     @Value("${app.email.password-reset.subject:Password Reset Request}")
@@ -40,12 +40,19 @@ public class EmailServiceImpl implements EmailService {
     @PostConstruct
     void verifyEmailConfiguration() {
         if (fromEmail == null || fromEmail.isBlank()) {
-            throw new IllegalStateException("spring.mail.username is not configured");
+            log.warn("Email service disabled: spring.mail.username is not configured");
+        } else {
+            log.info("Email service enabled with sender: {}", fromEmail);
         }
     }
 
     @Override
     public void sendPasswordResetEmail(String email, String resetToken) {
+        if (fromEmail == null || fromEmail.isBlank()) {
+            log.warn("Email service disabled - skipping password reset email to: {}", maskEmail(email));
+            return;
+        }
+        
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromEmail);
@@ -63,6 +70,11 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public void sendEmailVerificationEmail(String email, String verificationToken) {
+        if (fromEmail == null || fromEmail.isBlank()) {
+            log.warn("Email service disabled - skipping email verification to: {}", maskEmail(email));
+            return;
+        }
+        
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromEmail);
