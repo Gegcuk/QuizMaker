@@ -91,6 +91,7 @@ jobs:
             DB_USERNAME=${{ secrets.DB_USERNAME }}
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
+            MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
             
             # JWT Configuration
             JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -154,7 +155,7 @@ jobs:
             echo "⏳ Waiting for MySQL to be ready..."
             # Wait for MySQL to be healthy
             for i in {1..30}; do
-              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD --silent; then
+              if docker compose exec mysql mysqladmin ping -h localhost -u root -p$DB_ROOT_PASSWORD --silent; then
                 echo "✅ MySQL is ready!"
                 break
               fi
