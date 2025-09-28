@@ -145,8 +145,20 @@ jobs:
             BILLING_CURRENCY=${{ secrets.BILLING_CURRENCY || 'USD' }}
             EOF
             
+            # Verify .env file was created successfully
+            if [ ! -f .env ]; then
+              echo "❌ Failed to create .env file!"
+              exit 1
+            fi
+            
             # Set proper permissions
             chmod 600 .env
+            
+            # Verify .env file is readable and has content
+            if [ ! -s .env ]; then
+              echo "❌ .env file is empty!"
+              exit 1
+            fi
             
             # Make MySQL init scripts executable
             chmod +x mysql-init/*.sh 2>/dev/null || true
@@ -205,11 +217,29 @@ jobs:
             set -e
             cd /var/www/quizmaker-backend
             
+            # Check if .env file exists first
+            echo "🔍 Checking if .env file exists..."
+            if [ ! -f .env ]; then
+              echo "❌ .env file does not exist! Cannot proceed."
+              echo "📋 Current directory contents:"
+              ls -la
+              exit 1
+            fi
+            
+            echo "✅ .env file exists. Checking its contents..."
+            echo "📋 .env file size: $(wc -c < .env) bytes"
+            echo "📋 .env file line count: $(wc -l < .env) lines"
+            echo "📋 First 10 lines of .env file:"
+            head -10 .env || echo "Cannot read .env file"
+            
             # Load environment variables from .env file
             echo "🔍 Loading environment variables from .env file..."
             set -a
             if ! source .env 2>/dev/null; then
               echo "⚠️ Warning: Failed to load .env file. Docker Compose will still use the .env file directly."
+              echo "📋 Checking for syntax errors in .env file:"
+              cat -n .env | head -20
+              exit 1
             fi
             set +a
             
