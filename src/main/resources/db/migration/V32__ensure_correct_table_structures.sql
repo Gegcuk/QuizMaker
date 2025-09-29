@@ -1,6 +1,7 @@
 -- Ensure tables have correct column names for Hibernate naming strategy
 
--- Drop and recreate documents table if it exists with wrong structure
+-- Drop and recreate tables in correct order (child tables first)
+DROP TABLE IF EXISTS document_chunks;
 DROP TABLE IF EXISTS documents;
 CREATE TABLE documents (
     id BINARY(16) NOT NULL,
@@ -26,8 +27,7 @@ CREATE INDEX idx_documents_user_id ON documents(user_id);
 CREATE INDEX idx_documents_status ON documents(status);
 CREATE INDEX idx_documents_uploaded_at ON documents(uploaded_at);
 
--- Drop and recreate document_chunks table if it exists with wrong structure
-DROP TABLE IF EXISTS document_chunks;
+-- Recreate document_chunks table with correct structure
 CREATE TABLE document_chunks (
     id BINARY(16) NOT NULL,
     document_id BINARY(16) NOT NULL,
