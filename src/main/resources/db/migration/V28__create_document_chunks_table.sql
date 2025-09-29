@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     section_title VARCHAR(255) NULL,
     chapter_number INT NULL,
     section_number INT NULL,
-    chunk_type VARCHAR(20) NULL,
+            chunk_type TINYINT NULL,
     PRIMARY KEY (id),
     CONSTRAINT fk_document_chunks_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
