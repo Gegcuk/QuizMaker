@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
   is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
   deleted_at TIMESTAMP NULL,
   PRIMARY KEY (quiz_id),
+  UNIQUE KEY uq_quiz_creator_title (creator_id, title),
   CONSTRAINT fk_quiz_creator FOREIGN KEY (creator_id) REFERENCES users(user_id),
   CONSTRAINT fk_quiz_category FOREIGN KEY (category_id) REFERENCES categories(category_id),
   CONSTRAINT fk_quiz_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(user_id)
@@ -166,3 +167,16 @@ CREATE TABLE IF NOT EXISTS share_link_usage (
   CONSTRAINT fk_slu_share_link FOREIGN KEY (share_link_id) REFERENCES share_links(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Quiz moderation audit
+CREATE TABLE IF NOT EXISTS quiz_moderation_audit (
+  id BINARY(16) NOT NULL,
+  quiz_id BINARY(16) NOT NULL,
+  moderator_id BINARY(16) NULL,
+  action VARCHAR(20) NOT NULL,
+  reason TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  correlation_id VARCHAR(100) NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_qma_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
+  CONSTRAINT fk_qma_moderator FOREIGN KEY (moderator_id) REFERENCES users(user_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
