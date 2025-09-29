@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS quiz_moderation_audit (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     correlation_id VARCHAR(100) NULL,
     PRIMARY KEY (id),
-    CONSTRAINT fk_quiz_moderation_audit_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_quiz_moderation_audit_quiz FOREIGN KEY (quiz_id) REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
     CONSTRAINT fk_quiz_moderation_audit_moderator FOREIGN KEY (moderator_id) REFERENCES users(user_id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
