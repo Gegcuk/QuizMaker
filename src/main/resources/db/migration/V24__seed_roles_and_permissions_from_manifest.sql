@@ -1,5 +1,13 @@
--- Seed roles and permissions from canonical policy manifest
 -- This migration ensures consistent role/permission setup across environments
+
+-- Ensure permissions table exists (for fresh installs where only core tables exist)
+CREATE TABLE IF NOT EXISTS permissions (
+    permission_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    permission_name VARCHAR(100) NOT NULL UNIQUE,
+    description VARCHAR(255) NULL,
+    resource VARCHAR(50) NOT NULL,
+    action VARCHAR(50) NOT NULL
+) ENGINE=InnoDB;
 
 -- First, ensure all permissions exist
 INSERT IGNORE INTO permissions (permission_name, description, resource, action) VALUES
