@@ -1,5 +1,4 @@
--- Create role_permission_audit table for immutable audit trail
-CREATE TABLE role_permission_audit (
+CREATE TABLE IF NOT EXISTS role_permission_audit (
     id BINARY(16) NOT NULL PRIMARY KEY,
     actor_id BINARY(16) NOT NULL,
     target_user_id BINARY(16) NULL,
@@ -30,16 +29,83 @@ CREATE TABLE role_permission_audit (
     INDEX idx_role_permission_audit_created (created_at DESC)
 );
 
--- Add check constraint for action enum values
-ALTER TABLE role_permission_audit 
-ADD CONSTRAINT chk_role_permission_audit_action 
-CHECK (action IN (
-    'ROLE_ASSIGNED', 
-    'ROLE_REMOVED', 
-    'ROLE_CREATED', 
-    'ROLE_UPDATED', 
-    'ROLE_DELETED', 
-    'PERMISSION_ADDED', 
-    'PERMISSION_REMOVED', 
-    'POLICY_RECONCILED'
-));
+-- Idempotently add CHECK constraint for action enum values
+SET @schema := DATABASE();
+SET @tbl := 'role_permission_audit';
+SET @chk := 'chk_role_permission_audit_action';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.table_constraints
+  WHERE table_schema=@schema AND table_name=@tbl AND constraint_type='CHECK' AND constraint_name=@chk
+);
+SET @sql := IF(@exists=0,
+  'ALTER TABLE role_permission_audit ADD CONSTRAINT chk_role_permission_audit_action CHECK (action IN (\'ROLE_ASSIGNED\', \'ROLE_REMOVED\', \'ROLE_CREATED\', \'ROLE_UPDATED\', \'ROLE_DELETED\', \'PERMISSION_ADDED\', \'PERMISSION_REMOVED\', \'POLICY_RECONCILED\'))',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Ensure indexes exist if table pre-existed without them
+SET @ensure_index = 'idx_role_permission_audit_actor_created';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_actor_created ON role_permission_audit (actor_id, created_at DESC)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ensure_index = 'idx_role_permission_audit_target_created';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_target_created ON role_permission_audit (target_user_id, created_at DESC)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ensure_index = 'idx_role_permission_audit_role_created';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_role_created ON role_permission_audit (role_id, created_at DESC)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ensure_index = 'idx_role_permission_audit_action_created';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_action_created ON role_permission_audit (action, created_at DESC)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ensure_index = 'idx_role_permission_audit_correlation';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_correlation ON role_permission_audit (correlation_id)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ensure_index = 'idx_role_permission_audit_created';
+SET @exists := (
+  SELECT COUNT(1) FROM information_schema.statistics
+   WHERE table_schema=@schema AND table_name=@tbl AND index_name=@ensure_index
+);
+SET @sql := IF(@exists=0,
+  'CREATE INDEX idx_role_permission_audit_created ON role_permission_audit (created_at DESC)',
+  'DO 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
