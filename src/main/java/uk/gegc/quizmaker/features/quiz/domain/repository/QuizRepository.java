@@ -50,4 +50,5 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificat
     List<Quiz> findAllByStatusOrderByCreatedAtDesc(QuizStatus status);
 
     List<Quiz> findByCreatorId(UUID creatorId);
+    boolean existsByCreatorIdAndTitle(UUID creatorId, String title);
 }
