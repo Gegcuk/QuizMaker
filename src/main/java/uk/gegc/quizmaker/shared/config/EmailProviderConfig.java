@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.shared.config;
 
 import lombok.extern.slf4j.Slf4j;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,9 +41,10 @@ public class EmailProviderConfig {
     @Bean
     @Primary
     @ConditionalOnProperty(name = "app.email.provider", havingValue = "ses")
-    public EmailService awsSesEmailService(SesV2Client sesV2Client) {
+    public EmailService awsSesEmailService(SesV2Client sesV2Client,
+                                          ObjectProvider<MeterRegistry> meterRegistryProvider) {
         log.info("Activating AWS SES email service as primary provider");
-        return new AwsSesEmailService(sesV2Client);
+        return new AwsSesEmailService(sesV2Client, meterRegistryProvider.getIfAvailable());
     }
 
     /**

@@ -1,14 +1,18 @@
 package uk.gegc.quizmaker.shared.email.impl;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.util.StreamUtils;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.*;
 import uk.gegc.quizmaker.shared.email.EmailService;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
  * AWS SES-based email service implementation using SESv2 API over HTTPS.
@@ -27,7 +31,11 @@ import java.nio.charset.StandardCharsets;
 @Slf4j
 public class AwsSesEmailService implements EmailService {
 
+    private static final String EMAIL_TYPE_PASSWORD_RESET = "password-reset";
+    private static final String EMAIL_TYPE_VERIFICATION = "email-verification";
+
     private final SesV2Client sesClient;
+    private final MeterRegistry meterRegistry;
     
     @Value("${app.email.from}")
     private String fromEmail;
@@ -50,19 +58,57 @@ public class AwsSesEmailService implements EmailService {
     @Value("${app.email.ses.configuration-set:#{null}}")
     private String configurationSetName;
 
-    public AwsSesEmailService(SesV2Client sesClient) {
+    @Value("${app.email.templates.password-reset:classpath:email/password-reset-email.txt}")
+    private Resource passwordResetTemplateResource;
+
+    @Value("${app.email.templates.verification:classpath:email/email-verification-email.txt}")
+    private Resource verificationTemplateResource;
+
+    private String passwordResetTemplate;
+    private String verificationTemplate;
+
+    public AwsSesEmailService(SesV2Client sesClient, MeterRegistry meterRegistry) {
         this.sesClient = sesClient;
+        this.meterRegistry = meterRegistry;
         log.info("AWS SES Email Service created (configuration will be injected)");
     }
 
     @PostConstruct
-    void validateConfiguration() {
+    void initialize() {
+        validateSenderConfiguration();
+        loadTemplates();
+    }
+
+    private void validateSenderConfiguration() {
         if (fromEmail == null || fromEmail.isBlank() || fromEmail.equals("noreply@example.com")) {
             log.warn("AWS SES Email Service: fromEmail is not configured or using default placeholder. " +
                     "Ensure app.email.from is set to a verified identity in SES.");
         } else {
             log.info("AWS SES Email Service initialized with sender: {} | Region: configured via AWS SDK | " +
                     "Retry mode: Standard (AWS SDK default with exponential backoff)", fromEmail);
+        }
+    }
+
+    private void loadTemplates() {
+        this.passwordResetTemplate = loadTemplate(passwordResetTemplateResource, "password reset");
+        this.verificationTemplate = loadTemplate(verificationTemplateResource, "email verification");
+    }
+
+    private String loadTemplate(Resource resource, String templateName) {
+        if (resource == null) {
+            throw new IllegalStateException("Missing resource for " + templateName + " email template");
+        }
+        try {
+            try (var inputStream = resource.getInputStream()) {
+                String content = StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
+                if (content == null || content.isBlank()) {
+                    throw new IllegalStateException(templateName + " template is empty: " + resource.getDescription());
+                }
+                return content;
+            }
+        } catch (Exception ex) {
+            log.error("Failed to load {} email template from resource: {}", templateName, resource.getDescription(), ex);
+            throw new IllegalStateException("Cannot load " + templateName + " email template", ex);
         }
     }
 
@@ -80,12 +126,14 @@ public class AwsSesEmailService implements EmailService {
             SendEmailResponse response = sesClient.sendEmail(request);
             log.info("Password reset email sent to: {} | SES MessageId: {}", 
                     maskEmail(email), response.messageId());
+            recordSuccess(EMAIL_TYPE_PASSWORD_RESET);
             
         } catch (SesV2Exception e) {
-            handleSesException("password reset", email, e);
+            handleSesException("password reset", EMAIL_TYPE_PASSWORD_RESET, email, e);
         } catch (Exception e) {
             // Catch any other unexpected exceptions to prevent information leakage
             log.error("Unexpected error sending password reset email to: {}", maskEmail(email), e);
+            recordFailure(EMAIL_TYPE_PASSWORD_RESET, "unexpected");
         }
     }
 
@@ -103,12 +151,14 @@ public class AwsSesEmailService implements EmailService {
             SendEmailResponse response = sesClient.sendEmail(request);
             log.info("Email verification email sent to: {} | SES MessageId: {}", 
                     maskEmail(email), response.messageId());
+            recordSuccess(EMAIL_TYPE_VERIFICATION);
             
         } catch (SesV2Exception e) {
-            handleSesException("email verification", email, e);
+            handleSesException("email verification", EMAIL_TYPE_VERIFICATION, email, e);
         } catch (Exception e) {
             // Catch any other unexpected exceptions to prevent information leakage
             log.error("Unexpected error sending email verification to: {}", maskEmail(email), e);
+            recordFailure(EMAIL_TYPE_VERIFICATION, "unexpected");
         }
     }
 
@@ -157,7 +207,7 @@ public class AwsSesEmailService implements EmailService {
      * - Server errors (5xx): log with higher severity (SES service issues)
      * - Never expose recipient details in logs to prevent enumeration
      */
-    private void handleSesException(String emailType, String email, SesV2Exception e) {
+    private void handleSesException(String emailType, String metricType, String email, SesV2Exception e) {
         String maskedEmail = maskEmail(email);
         
         // Check for specific error conditions
@@ -165,15 +215,22 @@ public class AwsSesEmailService implements EmailService {
             // Client errors: invalid recipient, suppressed address, configuration issue
             log.warn("Failed to send {} email to: {} | SES Error: {} (status: {})", 
                     emailType, maskedEmail, e.awsErrorDetails().errorMessage(), e.statusCode());
+            recordFailure(metricType, "client" + statusSuffix(e.statusCode()));
         } else if (e.statusCode() >= 500) {
             // Server errors: SES service issues, should be retried by infrastructure
             log.error("SES service error sending {} email to: {} | Error: {} (status: {})", 
                     emailType, maskedEmail, e.awsErrorDetails().errorMessage(), e.statusCode());
+            recordFailure(metricType, "server" + statusSuffix(e.statusCode()));
         } else {
             // Other errors
             log.error("Failed to send {} email to: {} | SES Error: {}", 
                     emailType, maskedEmail, e.awsErrorDetails().errorMessage(), e);
+            recordFailure(metricType, "unknown");
         }
+    }
+
+    private String statusSuffix(int statusCode) {
+        return statusCode > 0 ? ("-" + statusCode) : "";
     }
 
     private String maskEmail(String email) {
@@ -193,22 +250,7 @@ public class AwsSesEmailService implements EmailService {
         
         String timeDescription = formatTimeDescription(resetTokenTtlMinutes);
 
-        return String.format("""
-            Hello,
-
-            You have requested to reset your password for your QuizMaker account.
-
-            To reset your password, please click on the following link:
-            %s
-
-            This link will expire in %s for security reasons.
-
-            If you did not request this password reset, please ignore this email.
-            Your password will remain unchanged.
-
-            Best regards,
-            The QuizMaker Team
-            """, resetUrl, timeDescription);
+        return String.format(passwordResetTemplate, resetUrl, timeDescription);
     }
 
     private String createEmailVerificationContent(String verificationToken) {
@@ -217,21 +259,7 @@ public class AwsSesEmailService implements EmailService {
         
         String timeDescription = formatTimeDescription(verificationTokenTtlMinutes);
 
-        return String.format("""
-            Hello,
-
-            Thank you for registering with QuizMaker!
-
-            To complete your registration and verify your email address, please click on the following link:
-            %s
-
-            This link will expire in %s for security reasons.
-
-            If you did not create a QuizMaker account, please ignore this email.
-
-            Best regards,
-            The QuizMaker Team
-            """, verificationUrl, timeDescription);
+        return String.format(verificationTemplate, verificationUrl, timeDescription);
     }
     
     private String formatTimeDescription(long minutes) {
@@ -247,6 +275,19 @@ public class AwsSesEmailService implements EmailService {
             } else {
                 return hours + " hour" + (hours > 1 ? "s" : "") + " and " + remainingMinutes + " minutes";
             }
+        }
+    }
+
+    private void recordSuccess(String type) {
+        if (meterRegistry != null) {
+            meterRegistry.counter("email.sent", "provider", "ses", "type", type).increment();
+        }
+    }
+
+    private void recordFailure(String type, String reason) {
+        if (meterRegistry != null) {
+            String sanitizedReason = reason == null ? "unknown" : reason.toLowerCase(Locale.ENGLISH);
+            meterRegistry.counter("email.failed", "provider", "ses", "type", type, "reason", sanitizedReason).increment();
         }
     }
 }
