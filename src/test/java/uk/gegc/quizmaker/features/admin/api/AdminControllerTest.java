@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.api.dto.RoleDto;
+import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.List;
@@ -43,6 +44,9 @@ class AdminControllerTest {
 
     @MockitoBean
     private PolicyReconciliationService policyReconciliationService;
+
+    @MockitoBean
+    private EmailService emailService;
 
     @Test
     @DisplayName("GET /api/v1/admin/roles/paginated: when called then returns paginated roles")

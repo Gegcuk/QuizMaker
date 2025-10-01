@@ -30,6 +30,10 @@ required_vars=(
     "JWT_SECRET"
     "TOKEN_PEPPER_SECRET"
     "OPENAI_API_KEY"
+    "APP_EMAIL_PROVIDER"
+    "APP_EMAIL_FROM"
+    "AWS_ACCESS_KEY_ID"
+    "AWS_SECRET_ACCESS_KEY"
 )
 
 for var in "${required_vars[@]}"; do

@@ -277,6 +277,20 @@
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
+        <!-- AWS SDK v2 for SES email delivery via HTTPS API -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sesv2</artifactId>
+            <version>2.20.26</version>
+        </dependency>
+
+        <!-- AWS SDK Apache HTTP client (configurable timeouts, pooling) -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+            <version>2.20.26</version>
+        </dependency>
+
         <!-- Stripe SDK for payments (aligns with Spring Boot 3.x / Java 17+) -->
         <dependency>
             <groupId>com.stripe</groupId>

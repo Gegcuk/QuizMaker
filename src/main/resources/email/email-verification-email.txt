@@ -1,0 +1,13 @@
+Hello,
+
+Thank you for registering with QuizMaker!
+
+To complete your registration and verify your email address, please click on the following link:
+%s
+
+This link will expire in %s for security reasons.
+
+If you did not create a QuizMaker account, please ignore this email.
+
+Best regards,
+The QuizMaker Team
