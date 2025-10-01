@@ -130,6 +130,8 @@ jobs:
             STRIPE_PRICE_MEDIUM="${{ secrets.STRIPE_PRICE_MEDIUM }}"
             STRIPE_PRICE_LARGE="${{ secrets.STRIPE_PRICE_LARGE }}"
             STRIPE_PRICE_SUBSCRIPTION="${{ secrets.STRIPE_PRICE_SUBSCRIPTION }}"
+            STRIPE_SUCCESS_URL="${{ secrets.STRIPE_SUCCESS_URL }}"
+            STRIPE_CANCEL_URL="${{ secrets.STRIPE_CANCEL_URL }}"
             
             # Email Configuration
             SMTP_HOST="${{ secrets.SMTP_HOST }}"
