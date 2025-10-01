@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 
@@ -37,6 +38,7 @@ public class AdminController {
     private final PermissionService permissionService;
     private final PermissionUtil permissionUtil;
     private final PolicyReconciliationService policyReconciliationService;
+    private final EmailService emailService;
 
     @Value("${app.admin.system-initialization.enabled:true}")
     private boolean systemInitializationEnabled;
@@ -277,6 +279,52 @@ public class AdminController {
         return ResponseEntity.ok().build();
     }
 
+    // Email testing endpoints for development/admin purposes
+    @PostMapping("/email/test-verification")
+    @Operation(summary = "Test email verification email sending")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<String> testEmailVerification(@RequestParam String email) {
+        try {
+            log.info("Admin email test: sending verification email to: {}", email);
+            emailService.sendEmailVerificationEmail(email, "test-token-123");
+            return ResponseEntity.ok("Email verification test sent successfully to: " + email);
+        } catch (Exception e) {
+            log.error("Failed to send email verification test to: {}", email, e);
+            return ResponseEntity.badRequest().body("Failed to send test email: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/email/test-password-reset")
+    @Operation(summary = "Test password reset email sending")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<String> testPasswordResetEmail(@RequestParam String email) {
+        try {
+            log.info("Admin email test: sending password reset email to: {}", email);
+            emailService.sendPasswordResetEmail(email, "test-reset-token-456");
+            return ResponseEntity.ok("Password reset test sent successfully to: " + email);
+        } catch (Exception e) {
+            log.error("Failed to send password reset test to: {}", email, e);
+            return ResponseEntity.badRequest().body("Failed to send test email: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/email/provider-status")
+    @Operation(summary = "Get current email provider status and configuration")
+    @RequirePermission(PermissionName.SYSTEM_ADMIN)
+    public ResponseEntity<EmailProviderStatus> getEmailProviderStatus() {
+        String providerClass = emailService.getClass().getSimpleName();
+        boolean isNoop = providerClass.equals("NoopEmailService");
+        boolean isSes = providerClass.equals("AwsSesEmailService");
+        boolean isSmtp = providerClass.equals("EmailServiceImpl");
+        
+        return ResponseEntity.ok(new EmailProviderStatus(
+                providerClass,
+                isNoop,
+                isSes,
+                isSmtp
+        ));
+    }
+
     // DTOs for permission operations
     public record CreatePermissionRequest(
         @NotBlank String permissionName,
@@ -289,5 +337,13 @@ public class AdminController {
         String description,
         String resource,
         String action
+    ) {}
+
+    // Email provider status DTO
+    public record EmailProviderStatus(
+        String providerClass,
+        boolean isNoop,
+        boolean isSes,
+        boolean isSmtp
     ) {}
 }

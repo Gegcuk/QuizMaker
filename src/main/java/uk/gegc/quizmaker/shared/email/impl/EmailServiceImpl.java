@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -12,8 +14,19 @@ import uk.gegc.quizmaker.shared.email.EmailService;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * SMTP-based email service implementation (legacy).
+ * 
+ * This implementation uses Spring's JavaMailSender for SMTP email delivery.
+ * It's activated when app.email.provider=smtp.
+ * 
+ * For production, prefer AWS SES (app.email.provider=ses) which works better
+ * in cloud environments where SMTP ports may be blocked.
+ */
 @Slf4j
 @Service
+@Primary
+@ConditionalOnProperty(name = "app.email.provider", havingValue = "smtp")
 @RequiredArgsConstructor
 public class EmailServiceImpl implements EmailService {
 
