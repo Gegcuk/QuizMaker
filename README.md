@@ -270,7 +270,7 @@ The application now uses a dual-DTO approach:
 - `QuestionDto` - Full question data for admins/management
 - `QuestionForAttemptDto` - Safe question data for users taking quizzes
 
-This ensures that sensitive information like correct answers, explanations, and metadata are never exposed to users
+This ensures that sensitive information like correct answers and metadata are never exposed to users
 during active quiz attempts.
 
 ## Running the Application
