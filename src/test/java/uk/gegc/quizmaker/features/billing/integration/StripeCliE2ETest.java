@@ -345,10 +345,10 @@ class StripeCliE2ETest {
         mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"test\": \"connectivity\"}"))
-                .andExpect(status().isInternalServerError()); // Expected due to JSON parsing error
+                .andExpect(status().isUnauthorized()); // Expected due to missing signature header
         
         // Then - Verify the endpoint is accessible
-        // The 500 error is expected because the webhook service tries to parse JSON before signature validation
+        // The 401 error is expected because the webhook service validates signature header before JSON parsing
         // This confirms the endpoint is working and processing requests
     }
 }

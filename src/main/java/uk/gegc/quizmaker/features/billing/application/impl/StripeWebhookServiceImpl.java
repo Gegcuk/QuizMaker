@@ -30,6 +30,7 @@ import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
 import uk.gegc.quizmaker.features.billing.application.WebhookLoggingContext;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
+import uk.gegc.quizmaker.features.billing.domain.exception.LargePayloadSecurityException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
@@ -65,6 +66,26 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         if (!StringUtils.hasText(webhookSecret)) {
             log.warn("Stripe webhook secret not configured; rejecting request");
             throw new StripeWebhookInvalidSignatureException("Webhook secret not configured");
+        }
+
+        // Validate signature header presence (map to 401)
+        if (!StringUtils.hasText(signatureHeader)) {
+            log.warn("Missing Stripe-Signature header on webhook request");
+            throw new StripeWebhookInvalidSignatureException("Missing Stripe signature");
+        }
+
+        // Check for large payloads first (security concern)
+        if (payload.length() > 1024 * 1024) { // 1MB threshold
+            log.error("Large payload detected in webhook request: {} bytes", payload.length());
+            throw new LargePayloadSecurityException("Payload too large for security reasons");
+        }
+        
+        // Validate payload is well-formed JSON (map to 400 via IllegalArgumentException)
+        try {
+            objectMapper.readTree(payload);
+        } catch (Exception e) {
+            log.warn("Malformed JSON payload for Stripe webhook: {}", e.getMessage());
+            throw new IllegalArgumentException("Malformed JSON payload");
         }
 
         final Event event;

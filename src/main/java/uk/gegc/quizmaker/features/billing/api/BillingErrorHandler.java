@@ -4,16 +4,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
+import uk.gegc.quizmaker.features.billing.domain.exception.LargePayloadSecurityException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
@@ -32,9 +35,22 @@ import java.util.Map;
 public class BillingErrorHandler {
 
     @ExceptionHandler(InvalidCheckoutSessionException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(InvalidCheckoutSessionException ex) {
+    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(InvalidCheckoutSessionException ex, WebRequest request) {
         log.warn("Invalid checkout session: {}", ex.getMessage());
         
+        // Check if this is a webhook request - webhook failures should return 500 so Stripe retries
+        if (isWebhookRequest(request)) {
+            log.error("Webhook processing failed due to invalid checkout session: {}", ex.getMessage());
+            
+            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                    HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+            problemDetail.setType(URI.create("https://api.quizmaker.com/problems/webhook-processing-error"));
+            problemDetail.setTitle("Webhook Processing Error");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+        }
+        
+        // For non-webhook requests, return 404 as before
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
                 HttpStatus.NOT_FOUND, ex.getMessage());
         problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-checkout-session"));
@@ -42,6 +58,12 @@ public class BillingErrorHandler {
         
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail);
     }
+    
+    private boolean isWebhookRequest(WebRequest request) {
+        String requestUri = request.getDescription(false);
+        return requestUri != null && requestUri.contains("/stripe/webhook");
+    }
+    
 
     @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<ProblemDetail> handleIdempotencyConflict(IdempotencyConflictException ex) {
@@ -167,6 +189,18 @@ public class BillingErrorHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail);
     }
 
+    @ExceptionHandler(LargePayloadSecurityException.class)
+    public ResponseEntity<ProblemDetail> handleLargePayloadSecurity(LargePayloadSecurityException ex) {
+        log.error("Large payload security violation: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/security-error"));
+        problemDetail.setTitle("Security Error");
+        
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+    }
+
     @ExceptionHandler(StripeException.class)
     public ResponseEntity<ProblemDetail> handleStripeException(StripeException ex) {
         log.error("Stripe API error: {}", ex.getMessage(), ex);
@@ -226,6 +260,18 @@ public class BillingErrorHandler {
         problemDetail.setTitle("Internal Error");
         
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ProblemDetail> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Invalid request body: {}", ex.getMessage());
+        
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Invalid request body");
+        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-request-body"));
+        problemDetail.setTitle("Invalid Request Body");
+        
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
     }
 
     @ExceptionHandler(Exception.class)

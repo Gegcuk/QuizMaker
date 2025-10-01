@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.billing.application.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
@@ -50,7 +51,7 @@ class MetricsAndLoggingTest {
             null, // subscriptionService
             null, // processedStripeEventRepository
             null, // paymentRepository
-            null  // objectMapper
+            new ObjectMapper()  // objectMapper
         );
     }
 

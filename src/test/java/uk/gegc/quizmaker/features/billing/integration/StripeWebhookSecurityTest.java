@@ -126,7 +126,7 @@ class StripeWebhookSecurityTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(invalidJson)
                 .header("Stripe-Signature", "t=1234567890,v1=invalid_signature"))
-                .andExpect(status().isInternalServerError()); // 500 due to JSON parsing error in webhook processing
+                .andExpect(status().isBadRequest()); // 400 due to malformed JSON
 
         // Then - No events should be processed
         assertThat(processedStripeEventRepository.count()).isEqualTo(0);
@@ -163,7 +163,7 @@ class StripeWebhookSecurityTest {
         mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validPayload))
-                .andExpect(status().isInternalServerError()); // 500 due to missing signature causing processing error
+                .andExpect(status().isUnauthorized()); // 401 due to missing signature
 
         // Then - No events should be processed
         assertThat(processedStripeEventRepository.count()).isEqualTo(0);
@@ -306,8 +306,8 @@ class StripeWebhookSecurityTest {
         StringBuilder largePayload = new StringBuilder();
         largePayload.append("{\"id\":\"evt_test_webhook\",\"object\":\"event\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_session\",\"metadata\":{");
         
-        // Add large metadata to make payload very large
-        for (int i = 0; i < 10000; i++) {
+        // Add large metadata to make payload very large (exceed 1MB threshold)
+        for (int i = 0; i < 100000; i++) {
             largePayload.append("\"key").append(i).append("\":\"value").append(i).append("\",");
         }
         largePayload.append("\"pack_id\":\"").append(testPackId).append("\"}}}");

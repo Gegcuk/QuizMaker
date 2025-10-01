@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.billing.api;
 
+import com.stripe.exception.StripeException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -26,7 +27,7 @@ public class StripeWebhookController {
     public ResponseEntity<String> handleStripeWebhook(
             @RequestBody String payload,
             @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
-    ) {
+    ) throws StripeException {
         return handleWebhook(payload, sigHeader);
     }
 
@@ -34,30 +35,22 @@ public class StripeWebhookController {
     public ResponseEntity<String> handleWebhooks(
             @RequestBody String payload,
             @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
-    ) {
+    ) throws StripeException {
         return handleWebhook(payload, sigHeader);
     }
 
     private ResponseEntity<String> handleWebhook(
             String payload,
             String sigHeader
-    ) {
+    ) throws StripeException {
         if (!featureFlags.isBilling()) {
             log.warn("Billing feature is disabled, rejecting webhook");
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("");
         }
         
-        try {
-            var res = webhookService.process(payload, sigHeader);
-            return ResponseEntity.ok(switch (res) {
-                case OK, DUPLICATE, IGNORED -> "";
-            });
-        } catch (StripeWebhookInvalidSignatureException e) {
-            log.warn("Invalid Stripe signature: {}", e.getMessage());
-            return ResponseEntity.status(401).body("");
-        } catch (Exception e) {
-            log.error("Error processing Stripe webhook: {}", e.getMessage(), e);
-            return ResponseEntity.status(500).body("");
-        }
+        var res = webhookService.process(payload, sigHeader);
+        return ResponseEntity.ok(switch (res) {
+            case OK, DUPLICATE, IGNORED -> "";
+        });
     }
 }

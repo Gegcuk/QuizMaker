@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.lang.NonNull;
@@ -19,6 +20,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import uk.gegc.quizmaker.features.billing.domain.exception.*;
 import uk.gegc.quizmaker.shared.exception.*;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
@@ -223,8 +225,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
-    public ResponseEntity<ProblemDetail> handleOptimisticLock(org.springframework.dao.OptimisticLockingFailureException ex) {
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ProblemDetail> handleOptimisticLock(OptimisticLockingFailureException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Quiz has been modified by another user. Please refresh and try again.");
         problem.setTitle("Conflict");
         problem.setProperty("errorCode", "QUIZ_VERSION_CONFLICT");
@@ -232,8 +234,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     // ===================== Billing-specific errors (ProblemDetail) =====================
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientTokens(uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException ex, HttpServletRequest r) {
+    @ExceptionHandler(InsufficientTokensException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientTokens(InsufficientTokensException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
         pd.setTitle("Insufficient Tokens");
         pd.setDetail(ex.getMessage());
@@ -247,7 +249,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException.class)
+    @ExceptionHandler(InsufficientAvailableTokensException.class)
+    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        pd.setTitle("Insufficient Available Tokens");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://example.com/problems/insufficient-available-tokens"));
+        pd.setProperty("errorCode", "INSUFFICIENT_AVAILABLE_TOKENS");
+        pd.setProperty("requestedTokens", ex.getRequestedTokens());
+        pd.setProperty("availableTokens", ex.getAvailableTokens());
+        pd.setProperty("shortfall", ex.getShortfall());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    }
+
+    @ExceptionHandler(ReservationNotActiveException.class)
     public ResponseEntity<ProblemDetail> handleReservationNotActive(RuntimeException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
         pd.setTitle("Reservation not active");
@@ -257,7 +273,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException.class)
+    @ExceptionHandler(CommitExceedsReservedException.class)
     public ResponseEntity<ProblemDetail> handleCommitExceedsReserved(RuntimeException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
         pd.setTitle("Commit exceeds reserved");
@@ -267,7 +283,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.PackNotFoundException.class)
+    @ExceptionHandler(PackNotFoundException.class)
     public ResponseEntity<ProblemDetail> handlePackNotFound(RuntimeException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
         pd.setTitle("Pack not found");
@@ -277,17 +293,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
-        pd.setTitle("Invalid checkout session");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/invalid-checkout-session"));
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
-    }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException.class)
+    @ExceptionHandler(StripeWebhookInvalidSignatureException.class)
     public ResponseEntity<ProblemDetail> handleStripeInvalidSignature(RuntimeException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
         pd.setTitle("Stripe webhook invalid signature");
@@ -297,7 +304,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException.class)
+    @ExceptionHandler(IdempotencyConflictException.class)
     public ResponseEntity<ProblemDetail> handleIdempotencyConflict(RuntimeException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
         pd.setTitle("Idempotency conflict");
@@ -307,8 +314,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
     }
 
-    @ExceptionHandler(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException ex, HttpServletRequest r) {
+    @ExceptionHandler(InvalidJobStateForCommitException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(InvalidJobStateForCommitException ex, HttpServletRequest r) {
         var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         pd.setTitle("Invalid Job State for Commit");
         pd.setType(URI.create("https://api.quizmaker.com/problems/invalid-job-state-for-commit"));

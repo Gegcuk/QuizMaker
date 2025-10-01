@@ -69,7 +69,7 @@ class BillingIntegrationTest extends BaseIntegrationTest {
                 .contentType(MediaType.TEXT_PLAIN)
                 .content("test payload")
                 .header("Stripe-Signature", "t=1234567890,v1=test_signature"))
-                .andExpect(status().isInternalServerError()); // 500 Internal Server Error (JSON parsing fails)
+                .andExpect(status().isBadRequest()); // 400 due to malformed JSON
     }
 
     @Test
@@ -79,7 +79,7 @@ class BillingIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Stripe-Signature", "t=1234567890,v1=test_signature"))
-                .andExpect(status().isInternalServerError()); // 500 Internal Server Error (handled by error handler)
+                .andExpect(status().isBadRequest()); // 400 due to malformed/empty JSON
     }
 
     @Test

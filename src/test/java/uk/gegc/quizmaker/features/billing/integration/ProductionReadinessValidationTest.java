@@ -448,7 +448,7 @@ class ProductionReadinessValidationTest {
             }
 
             // Then - Send webhook to application endpoint
-            // Note: This will return 500 because the session ID doesn't exist in Stripe
+            // Note: This will typically return 500 because the session ID doesn't exist in Stripe
             mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
@@ -676,13 +676,13 @@ class ProductionReadinessValidationTest {
                     // Missing closing brace
                 """;
 
-            // When & Then - Should return 500 Internal Server Error for malformed JSON (webhook service fails to parse)
+            // When & Then - Should return 400 Bad Request for malformed JSON
             mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Stripe-Signature", "t=1609459200,v1=signature")
                     .content(malformedPayload))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isBadRequest());
         }
 
         @Test
@@ -697,12 +697,12 @@ class ProductionReadinessValidationTest {
                 }
                 """;
 
-            // When & Then - Should return 500 Internal Server Error for missing signature (webhook service fails to parse null signature)
+            // When & Then - Should return 401 Unauthorized for missing signature
             mockMvc.perform(post("/api/v1/billing/stripe/webhook")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(payload))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isUnauthorized());
         }
 
         @Test
