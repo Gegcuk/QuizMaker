@@ -137,6 +137,15 @@ jobs:
             SMTP_USERNAME="${{ secrets.SMTP_USERNAME }}"
             SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}"
             
+            # AWS SES Email Configuration
+            APP_EMAIL_PROVIDER="${{ secrets.APP_EMAIL_PROVIDER }}"
+            APP_EMAIL_FROM="${{ secrets.APP_EMAIL_FROM }}"
+            APP_EMAIL_REGION="${{ secrets.APP_EMAIL_REGION }}"
+            APP_EMAIL_SES_CONFIGURATION_SET="${{ secrets.APP_EMAIL_SES_CONFIGURATION_SET || '' }}"
+            AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
+            AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+            AWS_REGION="${{ secrets.AWS_REGION }}"
+            
             # Frontend Configuration
             FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"
             
