@@ -91,10 +91,10 @@ if docker ps | grep -q quizmaker-backend; then
     
     # Test health endpoint
     echo "🏥 Testing health endpoint..."
-    if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+    if curl -f http://localhost:8080/actuator/health/startup > /dev/null 2>&1; then
         echo "✅ Health check passed!"
         echo "🌐 Backend API should be available at: http://localhost:8080"
-        echo "📊 Health endpoint: http://localhost:8080/actuator/health"
+        echo "📊 Health endpoint: http://localhost:8080/actuator/health/startup"
         echo "📚 API docs: http://localhost:8080/api/v1/docs/swagger-ui.html"
     else
         echo "⚠️  Health check failed, but container is running. Check logs:"

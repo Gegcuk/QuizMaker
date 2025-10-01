@@ -525,7 +525,7 @@ jobs:
             echo "⏳ Waiting for backend to be ready..."
             # Wait for backend to be healthy
             for i in {1..30}; do
-              if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              if curl -f http://localhost:8080/actuator/health/startup > /dev/null 2>&1; then
                 echo "✅ Backend is ready!"
                 break
               fi
@@ -565,7 +565,7 @@ jobs:
             
             # Wait up to 5 minutes for the backend to be healthy
             for i in {1..60}; do
-              if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+              if curl -f http://localhost:8080/actuator/health/startup > /dev/null 2>&1; then
                 echo "✅ Backend is healthy!"
                 break
               fi
