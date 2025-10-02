@@ -1127,9 +1127,13 @@ public class QuizServiceImpl implements QuizService {
             throw new ForbiddenException("Not allowed to change quiz status");
         }
         
-        // Additional restriction: only moderators/admins can set status to PUBLISHED
+        // Refined publishing rules: owners can publish PRIVATE quizzes, but PUBLIC requires moderation
         if (status == QuizStatus.PUBLISHED && !hasModerationPermissions) {
-            throw new ForbiddenException("Only moderators can publish quizzes");
+            // Owners can only publish when visibility is PRIVATE
+            if (quiz.getVisibility() == Visibility.PUBLIC) {
+                throw new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation.");
+            }
+            // Owner publishing privately - allowed
         }
 
         if (status == QuizStatus.PUBLISHED) {

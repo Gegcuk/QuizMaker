@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.api;
 
-import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import org.springframework.web.bind.annotation.*;
@@ -25,27 +25,27 @@ public class ModerationController {
     @PostMapping("/{quizId}/approve")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> approveQuiz(@PathVariable UUID quizId,
-                                            @RequestParam @NotNull UUID moderatorId,
-                                            @RequestParam(required = false) String reason) {
-        moderationService.approveQuiz(quizId, moderatorId, reason);
+                                            @RequestParam(required = false) String reason,
+                                            Authentication authentication) {
+        moderationService.approveQuiz(quizId, authentication.getName(), reason);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{quizId}/reject")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> rejectQuiz(@PathVariable UUID quizId,
-                                           @RequestParam @NotNull UUID moderatorId,
-                                           @RequestParam String reason) {
-        moderationService.rejectQuiz(quizId, moderatorId, reason);
+                                           @RequestParam String reason,
+                                           Authentication authentication) {
+        moderationService.rejectQuiz(quizId, authentication.getName(), reason);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{quizId}/unpublish")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
     public ResponseEntity<Void> unpublishQuiz(@PathVariable UUID quizId,
-                                              @RequestParam @NotNull UUID moderatorId,
-                                              @RequestParam(required = false) String reason) {
-        moderationService.unpublishQuiz(quizId, moderatorId, reason);
+                                              @RequestParam(required = false) String reason,
+                                              Authentication authentication) {
+        moderationService.unpublishQuiz(quizId, authentication.getName(), reason);
         return ResponseEntity.noContent().build();
     }
 
