@@ -88,6 +88,7 @@ public class QuizServiceImpl implements QuizService {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
+    private static final int QUIZ_TITLE_MAX_LENGTH = 100;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -758,7 +759,8 @@ public class QuizServiceImpl implements QuizService {
             UUID documentId
     ) {
         String chunkTitle = getChunkTitle(chunkIndex, questions);
-        String quizTitle = String.format("Quiz: %s", chunkTitle);
+        String baseTitle = String.format("Quiz: %s", chunkTitle);
+        String quizTitle = ensureUniqueQuizTitle(user, baseTitle);
         String quizDescription = String.format("Quiz covering %s from the document", chunkTitle);
 
         int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES,
@@ -797,8 +799,9 @@ public class QuizServiceImpl implements QuizService {
             UUID documentId,
             int chunkCount
     ) {
-        String quizTitle = request.quizTitle() != null ? request.quizTitle() :
+        String requestedTitle = request.quizTitle() != null ? request.quizTitle() :
                 "Complete Document Quiz";
+        String quizTitle = ensureUniqueQuizTitle(user, requestedTitle);
         String quizDescription = request.quizDescription() != null ? request.quizDescription() :
                 String.format("Comprehensive quiz covering all %d sections of the document", chunkCount);
 
@@ -853,6 +856,86 @@ public class QuizServiceImpl implements QuizService {
                 .map(id -> tagRepository.findById(id).orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Generate a unique quiz title for the creator by appending numeric suffixes when collisions occur.
+     */
+    private String ensureUniqueQuizTitle(User user, String requestedTitle) {
+        Objects.requireNonNull(user, "Creator must be provided for unique title generation");
+        String baseTitle = Optional.ofNullable(requestedTitle)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .orElse("Untitled Quiz");
+
+        String normalized = truncateToLength(baseTitle, QUIZ_TITLE_MAX_LENGTH);
+        if (!titleExistsForUser(user, normalized)) {
+            return normalized;
+        }
+
+        String baseForSuffix = deriveSuffixBase(normalized);
+        if (baseForSuffix.isBlank()) {
+            baseForSuffix = normalized;
+        }
+
+        int suffix = 2;
+        while (true) {
+            String numericSuffix = "-" + suffix;
+            int maxBaseLength = QUIZ_TITLE_MAX_LENGTH - numericSuffix.length();
+            if (maxBaseLength <= 0) {
+                throw new IllegalStateException("Unable to generate unique quiz title");
+            }
+
+            String candidateBase = baseForSuffix.length() > maxBaseLength
+                    ? truncateToLength(baseForSuffix, maxBaseLength)
+                    : baseForSuffix;
+
+            candidateBase = removeTrailingHyphen(candidateBase);
+            if (candidateBase.isBlank()) {
+                candidateBase = truncateToLength("Quiz", maxBaseLength);
+                if (candidateBase.isBlank()) {
+                    candidateBase = "Q";
+                }
+            }
+
+            String candidate = candidateBase + numericSuffix;
+            if (!titleExistsForUser(user, candidate)) {
+                return candidate;
+            }
+
+            suffix++;
+        }
+    }
+
+    private boolean titleExistsForUser(User user, String title) {
+        return quizRepository.existsByCreatorIdAndTitle(user.getId(), title);
+    }
+
+    private String truncateToLength(String value, int maxLength) {
+        if (value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength).stripTrailing();
+    }
+
+    private String deriveSuffixBase(String title) {
+        int hyphenIndex = title.lastIndexOf('-');
+        if (hyphenIndex > 0) {
+            String suffixCandidate = title.substring(hyphenIndex + 1);
+            if (!suffixCandidate.isBlank() && suffixCandidate.chars().allMatch(Character::isDigit)) {
+                return title.substring(0, hyphenIndex).stripTrailing();
+            }
+        }
+        return title;
+    }
+
+    private String removeTrailingHyphen(String value) {
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '-') {
+            end--;
+        }
+        String trimmed = value.substring(0, end);
+        return trimmed.stripTrailing();
     }
 
     /**
@@ -1310,3 +1393,4 @@ public class QuizServiceImpl implements QuizService {
         }
     }
 }
+
