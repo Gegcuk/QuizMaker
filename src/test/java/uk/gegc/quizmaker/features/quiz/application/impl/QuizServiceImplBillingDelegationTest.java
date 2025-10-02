@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
@@ -77,6 +78,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private FeatureFlags featureFlags;
     @Mock private AppPermissionEvaluator appPermissionEvaluator;
     @Mock private TransactionTemplate transactionTemplate;
+    @Mock private QuizJobProperties quizJobProperties;
 
     private ApplicationEventPublisher applicationEventPublisher;
 
@@ -104,7 +106,8 @@ class QuizServiceImplBillingDelegationTest {
                 featureFlags,
                 appPermissionEvaluator,
                 applicationEventPublisher,
-                transactionTemplate
+                transactionTemplate,
+                quizJobProperties
         );
         lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
             TransactionCallback<?> callback = invocation.getArgument(0);

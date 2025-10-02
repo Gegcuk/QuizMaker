@@ -121,7 +121,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
-                    .map(chunk -> generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId))
+                    .map(chunk -> {
+                        // Check for cancellation before scheduling chunk processing
+                        if (isJobCancelled(jobId)) {
+                            log.info("Job {} cancelled before chunk processing", jobId);
+                            return CompletableFuture.completedFuture(List.<Question>of());
+                        }
+                        return generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId);
+                    })
                     .toList();
 
             // Collect all generated questions with enhanced tracking
@@ -210,6 +217,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             progress.setCompleted(true);
             progress.setGeneratedQuestions(allQuestions);
+            
+            // Clean up progress map to prevent memory leaks
+            generationProgress.remove(jobId);
 
         } catch (Exception e) {
             log.error("Quiz generation failed for job {}", jobId, e);
@@ -246,6 +256,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 progress.setCompleted(true);
                 progress.addError("Generation failed: " + e.getMessage());
             }
+            
+            // Clean up progress map to prevent memory leaks
+            generationProgress.remove(jobId);
 
             throw new AiServiceException("Failed to generate quiz: " + e.getMessage(), e);
         }
@@ -337,6 +350,19 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             int questionCount,
             Difficulty difficulty
     ) {
+        return generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, null);
+    }
+
+    /**
+     * Internal version that accepts jobId for cancellation checks and token tracking
+     */
+    private List<Question> generateQuestionsByTypeWithJobId(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty,
+            UUID jobId
+    ) {
         // Input validation
         if (chunkContent == null || chunkContent.trim().isEmpty()) {
             throw new IllegalArgumentException("Chunk content cannot be null or empty");
@@ -363,10 +389,21 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         while (retryCount < maxRetries) {
             try {
+                // Check for cancellation before each LLM call
+                if (jobId != null && isJobCancelled(jobId)) {
+                    log.info("Job {} cancelled before LLM call, stopping question generation", jobId);
+                    return new ArrayList<>(); // Return empty list on cancellation
+                }
+
                 // Build prompt for this question type
                 String prompt = promptTemplateService.buildPromptForChunk(
                         chunkContent, questionType, questionCount, difficulty
                 );
+
+                // Record that AI calls have started (idempotent)
+                if (jobId != null) {
+                    recordAiCallStarted(jobId);
+                }
 
                 // Send to AI with timeout
                 ChatResponse response = chatClient.prompt()
@@ -376,6 +413,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 if (response == null || response.getResult() == null) {
                     throw new AiServiceException("No response received from AI service");
+                }
+
+                // Track token usage if available
+                if (jobId != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
+                    long tokensUsed = response.getMetadata().getUsage().getTotalTokens();
+                    trackTokenUsage(jobId, tokensUsed);
                 }
 
                 String aiResponse = response.getResult().getOutput().getText();
@@ -471,7 +514,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             try {
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + "/3");
                 
-                List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, difficulty);
+                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, jobId);
                 if (questions.size() >= questionCount) {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
@@ -507,7 +550,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}", 
                             reducedCount, attempt, questionType, chunkIndex);
                     
-                    List<Question> questions = generateQuestionsByType(chunkContent, questionType, reducedCount, difficulty);
+                    List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, reducedCount, difficulty, jobId);
                     if (!questions.isEmpty()) {
                         log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
                                 attempt, questions.size(), questionCount, questionType, chunkIndex);
@@ -532,7 +575,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}", 
                         easierDifficulty, questionType, chunkIndex);
                 
-                List<Question> questions = generateQuestionsByType(chunkContent, questionType, questionCount, easierDifficulty);
+                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, easierDifficulty, jobId);
                 if (!questions.isEmpty()) {
                     log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}", 
                             questions.size(), questionCount, questionType, chunkIndex);
@@ -554,7 +597,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}", 
                         alternativeType, questionType, chunkIndex);
                 
-                List<Question> questions = generateQuestionsByType(chunkContent, alternativeType, questionCount, difficulty);
+                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, alternativeType, questionCount, difficulty, jobId);
                 if (!questions.isEmpty()) {
                     log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}", 
                             questions.size(), alternativeType, questionType, chunkIndex);
@@ -574,7 +617,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             try {
                 log.debug("Strategy 5: Last resort - trying MCQ_SINGLE for chunk {}", chunkIndex);
                 
-                List<Question> questions = generateQuestionsByType(chunkContent, QuestionType.MCQ_SINGLE, questionCount, difficulty);
+                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, QuestionType.MCQ_SINGLE, questionCount, difficulty, jobId);
                 if (!questions.isEmpty()) {
                     log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})", 
                             questions.size(), chunkIndex, questionType);
@@ -1117,5 +1160,80 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
         job.setTotalChunks(totalChunks);
         jobRepository.save(job);
+    }
+
+    /**
+     * Check if a job has been cancelled.
+     * Used for cooperative cancellation - the generator checks this before each LLM call
+     * and stops processing if the job is cancelled.
+     */
+    private boolean isJobCancelled(UUID jobId) {
+        if (jobId == null) {
+            return false;
+        }
+        
+        try {
+            Optional<QuizGenerationJob> job = jobRepository.findById(jobId);
+            if (job.isEmpty()) {
+                return false;
+            }
+            
+            GenerationStatus status = job.get().getStatus();
+            boolean cancelled = status == GenerationStatus.CANCELLED;
+            if (cancelled) {
+                log.info("Job {} detected as cancelled (status: {})", jobId, status);
+            }
+            return cancelled;
+        } catch (Exception e) {
+            log.error("Error checking cancellation status for job {}", jobId, e);
+            return false; // On error, continue processing rather than aborting
+        }
+    }
+
+    /**
+     * Record that AI calls have started for this job (for billing on cancel).
+     * This is idempotent - only sets the flag and timestamp on the first call.
+     */
+    @Transactional
+    public void recordAiCallStarted(UUID jobId) {
+        if (jobId == null) {
+            return;
+        }
+        
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+            if (job != null && !Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
+                job.setHasStartedAiCalls(true);
+                job.setFirstAiCallAt(java.time.LocalDateTime.now());
+                jobRepository.save(job);
+                log.debug("Recorded first AI call for job {}", jobId);
+            }
+        } catch (Exception e) {
+            log.error("Error recording AI call start for job {}", jobId, e);
+            // Don't fail the generation if tracking fails
+        }
+    }
+
+    /**
+     * Track token usage for a job. Accumulates actualTokens from LLM responses.
+     */
+    @Transactional
+    public void trackTokenUsage(UUID jobId, long tokensUsed) {
+        if (jobId == null || tokensUsed <= 0) {
+            return;
+        }
+        
+        try {
+            QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+            if (job != null) {
+                long currentTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
+                job.setActualTokens(currentTokens + tokensUsed);
+                jobRepository.save(job);
+                log.debug("Tracked {} tokens for job {} (total: {})", tokensUsed, jobId, job.getActualTokens());
+            }
+        } catch (Exception e) {
+            log.error("Error tracking token usage for job {}", jobId, e);
+            // Don't fail the generation if tracking fails
+        }
     }
 }
