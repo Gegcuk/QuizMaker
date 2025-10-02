@@ -140,9 +140,9 @@ class ModerationServiceImplTest {
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PUBLISHED);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
 
-        moderationService.unpublishQuiz(quizId, modId, "policy change");
+        moderationService.unpublishQuiz(quizId, moderator.getUsername(), "policy change");
 
         assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
         assertThat(quiz.getReviewedAt()).isNotNull();
@@ -160,9 +160,9 @@ class ModerationServiceImplTest {
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.DRAFT);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
 
-        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, moderator.getUsername(), "r"))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot unpublish unless PUBLISHED");
         verify(quizRepository, never()).saveAndFlush(any());
@@ -172,9 +172,9 @@ class ModerationServiceImplTest {
     @DisplayName("unpublishQuiz: Quiz not found")
     void unpublish_quizNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modUsername, "r"))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
@@ -182,14 +182,14 @@ class ModerationServiceImplTest {
     @DisplayName("unpublishQuiz: Moderator not found")
     void unpublish_moderatorNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PUBLISHED);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.empty());
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.unpublishQuiz(quizId, modUsername, "r"))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).save(any());
     }
@@ -200,15 +200,15 @@ class ModerationServiceImplTest {
     @DisplayName("rejectQuiz: PENDING_REVIEW → REJECTED sets reviewed fields and rejectionReason")
     void reject_fromPendingReview_success() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PENDING_REVIEW);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.of(moderator));
 
-        moderationService.rejectQuiz(quizId, modId, "Not sufficient quality");
+        moderationService.rejectQuiz(quizId, modUsername, "Not sufficient quality");
 
         assertThat(quiz.getStatus()).isEqualTo(QuizStatus.REJECTED);
         assertThat(quiz.getReviewedAt()).isNotNull();
@@ -221,14 +221,14 @@ class ModerationServiceImplTest {
     @DisplayName("rejectQuiz: Non-PENDING_REVIEW state throws ValidationException")
     void reject_fromInvalidState_throwsValidation() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.DRAFT);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.of(moderator));
 
-        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modUsername, "r"))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot reject");
         verify(quizRepository, never()).saveAndFlush(any());
@@ -238,23 +238,23 @@ class ModerationServiceImplTest {
     @DisplayName("rejectQuiz: Quiz not found")
     void reject_quizNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modUsername, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     @DisplayName("rejectQuiz: Moderator not found")
     void reject_moderatorNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PENDING_REVIEW);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.empty());
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.rejectQuiz(quizId, modUsername, "r"))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }
@@ -265,16 +265,16 @@ class ModerationServiceImplTest {
     @DisplayName("approveQuiz: PENDING_REVIEW → PUBLISHED sets reviewed fields and saves")
     void approve_fromPendingReview_success() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PENDING_REVIEW);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.of(moderator));
         when(quizRepository.saveAndFlush(any(Quiz.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        moderationService.approveQuiz(quizId, modId, "Looks good");
+        moderationService.approveQuiz(quizId, modUsername, "Looks good");
 
         assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
         assertThat(quiz.getReviewedAt()).isNotNull();
@@ -287,15 +287,15 @@ class ModerationServiceImplTest {
     @DisplayName("approveQuiz: Non-PENDING_REVIEW state throws ValidationException")
     void approve_fromInvalidState_throwsValidation() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.DRAFT);
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.of(moderator));
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.of(moderator));
 
-        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "reason"))
+        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modUsername, "reason"))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("cannot approve");
         verify(quizRepository, never()).saveAndFlush(any());
@@ -305,23 +305,23 @@ class ModerationServiceImplTest {
     @DisplayName("approveQuiz: Quiz not found")
     void approve_quizNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         when(quizRepository.findById(quizId)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r")).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modUsername, "r")).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     @DisplayName("approveQuiz: Moderator not found")
     void approve_moderatorNotFound() {
         UUID quizId = this.quizId;
-        UUID modId = moderator.getId();
+        String modUsername = moderator.getUsername();
         Quiz quiz = new Quiz();
         quiz.setId(quizId);
         quiz.setStatus(QuizStatus.PENDING_REVIEW);
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findById(modId)).thenReturn(Optional.empty());
+        when(userRepository.findByUsername(modUsername)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modId, "r"))
+        assertThatThrownBy(() -> moderationService.approveQuiz(quizId, modUsername, "r"))
                 .isInstanceOf(ResourceNotFoundException.class);
         verify(quizRepository, never()).saveAndFlush(any());
     }

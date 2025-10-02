@@ -365,7 +365,7 @@ public class QuizController {
 
     @Operation(
             summary = "Toggle quiz visibility",
-            description = "Switch a quiz between PUBLIC and PRIVATE. Requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
+            description = "Switch a quiz between PUBLIC and PRIVATE. Owners can set PRIVATE; PUBLIC requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -392,7 +392,7 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "403",
-                            description = "Authenticated but not an ADMIN",
+                            description = "Forbidden – owner trying to set PUBLIC or non-owner/non-moderator trying to change visibility",
                             content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
                     ),
                     @ApiResponse(
@@ -403,7 +403,7 @@ public class QuizController {
             }
     )
     @PatchMapping("/{quizId}/visibility")
-    @RequirePermission(value = {PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
+    @RequirePermission(value = {PermissionName.QUIZ_UPDATE, PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
     public ResponseEntity<QuizDto> updateQuizVisibility(
             @Parameter(description = "UUID of the quiz to update", required = true)
             @PathVariable UUID quizId,
@@ -420,7 +420,7 @@ public class QuizController {
 
     @Operation(
             summary = "Change quiz status",
-            description = "Switch a quiz between DRAFT and PUBLISHED. Requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
+            description = "Switch a quiz status. Owners can publish privately (PRIVATE visibility) and unpublish to DRAFT. Publishing a PUBLIC quiz requires QUIZ_MODERATE or QUIZ_ADMIN permissions.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -433,14 +433,14 @@ public class QuizController {
                             content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
                     @ApiResponse(responseCode = "401", description = "Unauthenticated",
                             content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
-                    @ApiResponse(responseCode = "403", description = "Authenticated but not ADMIN",
+                    @ApiResponse(responseCode = "403", description = "Forbidden – owner trying to publish PUBLIC quiz or non-owner/non-moderator trying to change status",
                             content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
                     @ApiResponse(responseCode = "404", description = "Quiz not found",
                             content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class)))
             }
     )
     @PatchMapping("/{quizId}/status")
-    @RequirePermission(value = {PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
+    @RequirePermission(value = {PermissionName.QUIZ_UPDATE, PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN}, operator = RequirePermission.LogicalOperator.OR)
     public ResponseEntity<QuizDto> updateQuizStatus(
             @Parameter(description = "UUID of the quiz to update", required = true)
             @PathVariable UUID quizId,

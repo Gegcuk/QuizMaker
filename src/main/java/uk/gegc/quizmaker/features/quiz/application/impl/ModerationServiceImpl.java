@@ -75,12 +75,13 @@ public class ModerationServiceImpl implements ModerationService {
 
     @Override
     @Transactional
-    public void approveQuiz(UUID quizId, UUID moderatorId, String reason) {
+    public void approveQuiz(UUID quizId, String moderatorUsername, String reason) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        User moderator = userRepository.findById(moderatorId)
-                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorId + " not found"));
+        User moderator = userRepository.findByUsername(moderatorUsername)
+                .or(() -> userRepository.findByEmail(moderatorUsername))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorUsername + " not found"));
 
         // Only PENDING_REVIEW can move to PUBLISHED
         if (quiz.getStatus() != QuizStatus.PENDING_REVIEW) {
@@ -109,12 +110,13 @@ public class ModerationServiceImpl implements ModerationService {
 
     @Override
     @Transactional
-    public void rejectQuiz(UUID quizId, UUID moderatorId, String reason) {
+    public void rejectQuiz(UUID quizId, String moderatorUsername, String reason) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        User moderator = userRepository.findById(moderatorId)
-                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorId + " not found"));
+        User moderator = userRepository.findByUsername(moderatorUsername)
+                .or(() -> userRepository.findByEmail(moderatorUsername))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorUsername + " not found"));
 
         // Only PENDING_REVIEW can move to REJECTED
         if (quiz.getStatus() != QuizStatus.PENDING_REVIEW) {
@@ -140,12 +142,13 @@ public class ModerationServiceImpl implements ModerationService {
 
     @Override
     @Transactional
-    public void unpublishQuiz(UUID quizId, UUID moderatorId, String reason) {
+    public void unpublishQuiz(UUID quizId, String moderatorUsername, String reason) {
         Quiz quiz = quizRepository.findById(quizId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
 
-        User moderator = userRepository.findById(moderatorId)
-                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorId + " not found"));
+        User moderator = userRepository.findByUsername(moderatorUsername)
+                .or(() -> userRepository.findByEmail(moderatorUsername))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + moderatorUsername + " not found"));
 
         // Only PUBLISHED can move to DRAFT via unpublish per plan
         if (quiz.getStatus() != QuizStatus.PUBLISHED) {
