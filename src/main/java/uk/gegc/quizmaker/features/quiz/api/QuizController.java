@@ -542,6 +542,9 @@ public class QuizController {
             @RequestBody @Valid GenerateQuizFromDocumentRequest request,
             Authentication authentication
     ) {
+        // Rate limit quiz generation starts: 3 per minute per user
+        rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
+        
         QuizGenerationResponse response = quizService.startQuizGeneration(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
@@ -632,6 +635,9 @@ public class QuizController {
             );
 
             // Process document and start quiz generation
+            // Rate limit quiz generation starts: 3 per minute per user
+            rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
+            
             QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
 
@@ -690,6 +696,9 @@ public class QuizController {
             @RequestBody @Valid GenerateQuizFromTextRequest request,
             Authentication authentication
     ) {
+        // Rate limit quiz generation starts: 3 per minute per user
+        rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
+        
         QuizGenerationResponse response = quizService.generateQuizFromText(authentication.getName(), request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
@@ -821,6 +830,9 @@ public class QuizController {
             @PathVariable UUID jobId,
             Authentication authentication
     ) {
+        // Rate limit cancellations: 5 per minute per user to prevent abuse
+        rateLimitService.checkRateLimit("quiz-generation-cancel", authentication.getName(), 5);
+        
         QuizGenerationStatus status = quizService.cancelGenerationJob(jobId, authentication.getName());
         return ResponseEntity.ok(status);
     }

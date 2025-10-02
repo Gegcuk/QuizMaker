@@ -97,6 +97,15 @@ public interface QuizGenerationJobService {
     void cleanupStalePendingJobs();
 
     /**
+     * Find and cancel stale pending job for a specific user if it exists and is older than the activation timeout.
+     * Used for self-healing in the start generation path.
+     * 
+     * @param username the username to check
+     * @return the cancelled job if one was found and cancelled, empty otherwise
+     */
+    Optional<QuizGenerationJob> findAndCancelStaleJobForUser(String username);
+
+    /**
      * DTO for job statistics
      */
     record JobStatistics(

@@ -7,9 +7,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
@@ -30,6 +33,8 @@ import java.util.UUID;
 public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
     private final QuizGenerationJobRepository jobRepository;
+    private final BillingService billingService;
+    private final QuizJobProperties quizJobProperties;
 
     @Override
     public QuizGenerationJob createJob(User user, UUID documentId, String requestData, int totalChunks, int estimatedTimeSeconds) {
@@ -254,8 +259,9 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
     @Override
     @Transactional
     public void cleanupStalePendingJobs() {
-        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(10); // 10 minutes timeout
-        log.info("Cleaning up stale pending jobs older than: {}", cutoffTime);
+        int timeoutMinutes = quizJobProperties.getPendingActivationTimeoutMinutes();
+        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(timeoutMinutes);
+        log.info("Cleaning up stale pending jobs older than: {} ({} minutes)", cutoffTime, timeoutMinutes);
         
         // First, let's see all pending jobs
         List<QuizGenerationJob> allPendingJobs = jobRepository.findByStatus(GenerationStatus.PENDING);
@@ -266,14 +272,37 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         }
         
         List<QuizGenerationJob> staleJobs = jobRepository.findByStatusAndStartedAtBefore(GenerationStatus.PENDING, cutoffTime);
-        log.info("Found {} stale pending jobs (older than {} minutes)", staleJobs.size(), 10);
+        log.info("Found {} stale pending jobs (older than {} minutes)", staleJobs.size(), timeoutMinutes);
         
         if (!staleJobs.isEmpty()) {
             log.warn("Found {} stale pending jobs, marking them as failed", staleJobs.size());
             for (QuizGenerationJob job : staleJobs) {
                 log.info("Marking stale job {} (started at: {}) as failed", job.getId(), job.getStartedAt());
+                
+                // Release billing reservation if present
+                if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+                    try {
+                        String releaseIdempotencyKey = "quiz:" + job.getId() + ":release";
+                        billingService.release(
+                            job.getBillingReservationId(),
+                            "Job timed out before processing could start",
+                            job.getId().toString(),
+                            releaseIdempotencyKey
+                        );
+                        job.setBillingState(BillingState.RELEASED);
+                        job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                        log.info("Released billing reservation {} for stale job {}", 
+                                job.getBillingReservationId(), job.getId());
+                    } catch (Exception billingError) {
+                        log.error("Failed to release billing reservation for stale job {}", job.getId(), billingError);
+                        // Store billing error but don't abort cleanup
+                        job.setLastBillingError("{\"error\":\"Failed to release reservation: " + 
+                                billingError.getMessage() + "\"}");
+                    }
+                }
+                
                 job.setStatus(GenerationStatus.FAILED);
-                job.setErrorMessage("Job timed out - was pending for too long");
+                job.setErrorMessage("Job timed out before processing could start");
                 job.setCompletedAt(LocalDateTime.now());
                 jobRepository.save(job);
                 log.info("Marked stale job {} as failed", job.getId());
@@ -389,5 +418,66 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         log.debug("Finding stuck jobs running longer than {} hours", maxDurationHours);
         LocalDateTime cutoffTime = LocalDateTime.now().minusHours(maxDurationHours);
         return jobRepository.findStuckJobs(cutoffTime);
+    }
+
+    @Override
+    @Transactional
+    public Optional<QuizGenerationJob> findAndCancelStaleJobForUser(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be null or empty");
+        }
+
+        log.debug("Looking for stale pending jobs for user: {}", username);
+        
+        List<QuizGenerationJob> activeJobs = jobRepository.findActiveJobsByUsername(username);
+        if (activeJobs.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int timeoutMinutes = quizJobProperties.getPendingActivationTimeoutMinutes();
+        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(timeoutMinutes);
+
+        // Find PENDING jobs older than the timeout
+        Optional<QuizGenerationJob> staleJob = activeJobs.stream()
+                .filter(job -> job.getStatus() == GenerationStatus.PENDING)
+                .filter(job -> job.getStartedAt().isBefore(cutoffTime))
+                .findFirst();
+
+        if (staleJob.isPresent()) {
+            QuizGenerationJob job = staleJob.get();
+            log.info("Found stale pending job {} for user {}, started at: {}. Cancelling it.",
+                    job.getId(), username, job.getStartedAt());
+
+            // Release billing reservation if present
+            if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+                try {
+                    String releaseIdempotencyKey = "quiz:" + job.getId() + ":auto-cancel-release";
+                    billingService.release(
+                        job.getBillingReservationId(),
+                        "Job auto-cancelled due to activation timeout",
+                        job.getId().toString(),
+                        releaseIdempotencyKey
+                    );
+                    job.setBillingState(BillingState.RELEASED);
+                    job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                    log.info("Released billing reservation {} for auto-cancelled job {}",
+                            job.getBillingReservationId(), job.getId());
+                } catch (Exception billingError) {
+                    log.error("Failed to release billing reservation for auto-cancelled job {}", job.getId(), billingError);
+                    job.setLastBillingError("{\"error\":\"Failed to release reservation: " +
+                            billingError.getMessage() + "\"}");
+                }
+            }
+
+            // Mark as failed with clear message
+            job.setStatus(GenerationStatus.FAILED);
+            job.setErrorMessage("Job timed out before processing could start (auto-cancelled to allow new job)");
+            job.setCompletedAt(LocalDateTime.now());
+            jobRepository.save(job);
+
+            return Optional.of(job);
+        }
+
+        return Optional.empty();
     }
 } 

@@ -46,6 +46,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
@@ -85,6 +86,7 @@ public class QuizServiceImpl implements QuizService {
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
+    private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -506,16 +508,48 @@ public class QuizServiceImpl implements QuizService {
                     job = jobService.createJob(user, request.documentId(),
                             objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
                 } catch (org.springframework.dao.DataIntegrityViolationException e) {
-                    log.warn("Job creation failed; releasing reservation {}", reservation.id());
-                    try {
-                        billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
-                    } catch (Exception releaseEx) {
-                        log.error("Failed to release reservation {} after job creation failure", reservation.id(), releaseEx);
-                    }
+                    log.warn("Job creation failed due to constraint violation; checking for stale job");
+                    
+                    // Self-healing: check if there's a stale pending job and auto-cancel it
                     if (e.getMessage() != null && e.getMessage().contains("active_user_id")) {
-                        throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+                        Optional<QuizGenerationJob> staleCancelled = jobService.findAndCancelStaleJobForUser(username);
+                        
+                        if (staleCancelled.isPresent()) {
+                            log.info("Auto-cancelled stale job {}, retrying job creation", staleCancelled.get().getId());
+                            // Retry job creation once after cancelling stale job
+                            try {
+                                job = jobService.createJob(user, request.documentId(),
+                                        objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
+                                log.info("Successfully created job after auto-cancelling stale job");
+                            } catch (Exception retryEx) {
+                                log.error("Retry of job creation failed after auto-cancel", retryEx);
+                                // Release the new reservation since we can't create the job
+                                try {
+                                    billingService.release(reservation.id(), "job-creation-retry-failed", "quiz-generation", null);
+                                } catch (Exception releaseEx) {
+                                    log.error("Failed to release reservation {} after retry failure", reservation.id(), releaseEx);
+                                }
+                                throw new ValidationException("User already has an active generation job. Please try again.");
+                            }
+                        } else {
+                            // No stale job found, active job is legitimately running
+                            log.info("No stale job found; user has a legitimately active job");
+                            try {
+                                billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
+                            } catch (Exception releaseEx) {
+                                log.error("Failed to release reservation {} after job creation failure", reservation.id(), releaseEx);
+                            }
+                            throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
+                        }
+                    } else {
+                        // Other constraint violation, release and rethrow
+                        try {
+                            billingService.release(reservation.id(), "job-creation-failed", "quiz-generation", null);
+                        } catch (Exception releaseEx) {
+                            log.error("Failed to release reservation {} after job creation failure", reservation.id(), releaseEx);
+                        }
+                        throw e;
                     }
-                    throw e;
                 }
 
                 job.setBillingReservationId(reservation.id());
@@ -585,26 +619,84 @@ public class QuizServiceImpl implements QuizService {
         // Refresh job from database
         job = jobRepository.findById(jobId).orElseThrow();
         
-        // Release billing reservation if it exists
+        // Set clear error message for user visibility
+        job.setErrorMessage("Cancelled by user");
+        jobRepository.save(job);
+        
+        // Handle billing based on whether AI work has started
         if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
-            try {
-                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                billingService.release(
-                    job.getBillingReservationId(),
-                    "Job cancelled by user",
-                    jobId.toString(),
-                    releaseIdempotencyKey
-                );
-                job.setBillingState(BillingState.RELEASED);
-                // Store release idempotency key for audit trail
-                job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
-                jobRepository.save(job);
-                log.info("Released billing reservation {} for cancelled job {}", job.getBillingReservationId(), jobId);
-            } catch (Exception billingError) {
-                log.error("Failed to release billing reservation for cancelled job {}", jobId, billingError);
-                // Store billing error but don't fail the cancellation
-                job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
-                jobRepository.save(job);
+            boolean hasStartedWork = Boolean.TRUE.equals(job.getHasStartedAiCalls());
+            boolean commitOnCancel = quizJobProperties.getCancellation().isCommitOnCancel();
+            
+            if (hasStartedWork && featureFlags.isBilling() && commitOnCancel) {
+                // Work has started - commit tokens used so far
+                try {
+                    long actualTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
+                    long estimatedTokens = job.getBillingEstimatedTokens();
+                    long minStartFeeTokens = quizJobProperties.getCancellation().getMinStartFeeTokens();
+                    
+                    // Commit at least minStartFeeTokens if configured, but cap at estimated
+                    long tokensToCommit = Math.max(actualTokens, minStartFeeTokens);
+                    tokensToCommit = Math.min(tokensToCommit, estimatedTokens);
+                    
+                    if (tokensToCommit > 0) {
+                        String commitIdempotencyKey = "quiz:" + jobId + ":commit-cancel";
+                        CommitResultDto commitResult = internalBillingService.commit(
+                            job.getBillingReservationId(),
+                            tokensToCommit,
+                            jobId.toString(),
+                            commitIdempotencyKey
+                        );
+                        job.setBillingCommittedTokens(tokensToCommit);
+                        job.setBillingState(BillingState.COMMITTED);
+                        job.addBillingIdempotencyKey("commit-cancel", commitIdempotencyKey);
+                        log.info("Committed {} tokens for cancelled job {} (actual tokens used: {})",
+                                tokensToCommit, jobId, actualTokens);
+                        
+                        // Release any remainder
+                        if (commitResult.releasedTokens() > 0) {
+                            log.info("Released {} tokens back to user after cancel commit", commitResult.releasedTokens());
+                        }
+                    } else {
+                        // No tokens used yet, just release
+                        String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                        billingService.release(
+                            job.getBillingReservationId(),
+                            "Job cancelled by user (no work completed)",
+                            jobId.toString(),
+                            releaseIdempotencyKey
+                        );
+                        job.setBillingState(BillingState.RELEASED);
+                        job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                        log.info("Released billing reservation {} for cancelled job {} (no tokens used)",
+                                job.getBillingReservationId(), jobId);
+                    }
+                    jobRepository.save(job);
+                } catch (Exception billingError) {
+                    log.error("Failed to commit/release billing for cancelled job {}", jobId, billingError);
+                    job.setLastBillingError("{\"error\":\"Failed to process billing on cancel: " +
+                            billingError.getMessage() + "\"}");
+                    jobRepository.save(job);
+                }
+            } else {
+                // No work started - just release the reservation
+                try {
+                    String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                    billingService.release(
+                        job.getBillingReservationId(),
+                        "Job cancelled by user",
+                        jobId.toString(),
+                        releaseIdempotencyKey
+                    );
+                    job.setBillingState(BillingState.RELEASED);
+                    job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                    jobRepository.save(job);
+                    log.info("Released billing reservation {} for cancelled job {}", job.getBillingReservationId(), jobId);
+                } catch (Exception billingError) {
+                    log.error("Failed to release billing reservation for cancelled job {}", jobId, billingError);
+                    job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                    jobRepository.save(job);
+                }
             }
         }
         
@@ -681,6 +773,12 @@ public class QuizServiceImpl implements QuizService {
         try {
             QuizGenerationJob job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+            // Guard against event/finish race: if job is already in terminal state (cancelled/failed), skip
+            if (job.isTerminal()) {
+                log.info("Job {} already in terminal state {}, skipping quiz creation", jobId, job.getStatus());
+                return;
+            }
 
             User user = job.getUser();
             UUID documentId = originalRequest.documentId();

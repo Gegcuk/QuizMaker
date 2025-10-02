@@ -10,8 +10,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizGenerationJobServiceImpl;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -34,6 +36,12 @@ class QuizGenerationJobServiceTest {
 
     @Mock
     private QuizGenerationJobRepository jobRepository;
+
+    @Mock
+    private BillingService billingService;
+
+    @Mock
+    private QuizJobProperties quizJobProperties;
 
     @InjectMocks
     private QuizGenerationJobServiceImpl jobService;

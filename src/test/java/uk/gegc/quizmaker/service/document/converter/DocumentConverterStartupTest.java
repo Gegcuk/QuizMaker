@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.service.document.converter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
 import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
@@ -13,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class DocumentConverterStartupTest {
 
     @Autowired

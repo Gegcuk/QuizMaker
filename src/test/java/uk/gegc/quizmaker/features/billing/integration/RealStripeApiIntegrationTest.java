@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
@@ -46,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create",
     "stripe.secret-key=${STRIPE_SECRET_KEY:sk_test_mock_key_for_testing}",

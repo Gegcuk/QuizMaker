@@ -104,6 +104,12 @@ public class QuizGenerationJob {
     @Column(name = "was_capped")
     private Boolean wasCappedAtReserved = false;
 
+    @Column(name = "has_started_ai_calls")
+    private Boolean hasStartedAiCalls = false;
+
+    @Column(name = "first_ai_call_at")
+    private LocalDateTime firstAiCallAt;
+
     @PrePersist
     protected void onCreate() {
         if (startedAt == null) {
