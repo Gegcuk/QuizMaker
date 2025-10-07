@@ -60,7 +60,7 @@ public record GenerateQuizFromDocumentRequest(
 ) {
     public GenerateQuizFromDocumentRequest {
         // Set default values
-        estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 2 : estimatedTimePerQuestion;
+        estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
 
         // Set default scope if not provided - MUST be done before validation

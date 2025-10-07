@@ -75,8 +75,8 @@ public record GenerateQuizFromTextRequest(
     public GenerateQuizFromTextRequest {
         // Set default values
         chunkingStrategy = (chunkingStrategy == null) ? ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED : chunkingStrategy;
-        maxChunkSize = (maxChunkSize == null) ? 50000 : maxChunkSize;
-        estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 2 : estimatedTimePerQuestion;
+        maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
+        estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
 
         // Set default scope if not provided - MUST be done before validation
