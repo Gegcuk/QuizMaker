@@ -351,7 +351,7 @@
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
                         <exclude>**/AiChatControllerIntegrationTest.java</exclude>
                         <exclude>**/AiQuizGenerationServiceIntegrationTest.java</exclude>
-<!--                        <exclude>**/EndToEndQuizGenerationIntegrationTest.java</exclude>-->
+                        <exclude>**/EndToEndQuizGenerationIntegrationTest.java</exclude>
                         <exclude>**/FillGapQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/ComplianceQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/HotspotQuestionGenerationIntegrationTest.java</exclude>

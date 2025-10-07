@@ -19,4 +19,6 @@ Return JSON with the schema shown in the format instructions. Each question must
 - optional hint and explanation fields when they add value
 - confidence: number between 0 and 1 indicating model confidence
 
+CRITICAL: Generate ALL content (questions, answers, options, hints, explanations) in the SAME LANGUAGE as the document excerpt above.
+
 If a question type cannot be produced, omit it from the list instead of fabricating information.

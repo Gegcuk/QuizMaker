@@ -15,4 +15,7 @@ For {difficulty} difficulty:
 - MEDIUM: Application and analysis questions  
 - HARD: Synthesis and evaluation questions
 
+LANGUAGE REQUIREMENT:
+Generate all questions, answers, options, hints, and explanations in the SAME LANGUAGE as the source content above.
+
 IMPORTANT: Respond with valid JSON only, following the exact structure for {questionType} questions. 
