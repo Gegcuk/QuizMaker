@@ -71,9 +71,15 @@ class StripeCliE2ETest {
     }
     
     private String findStripeCliPath() {
+        // Detect OS and use appropriate command
+        String os = System.getProperty("os.name").toLowerCase();
+        boolean isWindows = os.contains("win");
+        String findCommand = isWindows ? "where" : "which";
+        String stripeCommand = isWindows ? "stripe.exe" : "stripe";
+        
         // First try to find stripe in system PATH
         try {
-            ProcessBuilder pb = new ProcessBuilder("where", "stripe");
+            ProcessBuilder pb = new ProcessBuilder(findCommand, stripeCommand);
             Process process = pb.start();
             int exitCode = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
             
@@ -81,6 +87,7 @@ class StripeCliE2ETest {
                 java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()));
                 String path = reader.readLine();
                 if (path != null && !path.trim().isEmpty()) {
+                    System.out.println("Found Stripe CLI in PATH: " + path.trim());
                     return path.trim();
                 }
             }
@@ -88,8 +95,31 @@ class StripeCliE2ETest {
             // Ignore and try fallback
         }
         
-        // Fallback to hardcoded path
-        String fallbackPath = "C:\\Users\\HYPERPC\\Downloads\\stripe_1.30.0_windows_x86_64\\stripe.exe";
+        // Try common fallback locations based on OS
+        String fallbackPath;
+        if (isWindows) {
+            fallbackPath = "C:\\Users\\HYPERPC\\Downloads\\stripe_1.30.0_windows_x86_64\\stripe.exe";
+        } else {
+            // Try common macOS/Linux locations
+            String[] commonPaths = {
+                "/usr/local/bin/stripe",
+                "/opt/homebrew/bin/stripe",
+                System.getProperty("user.home") + "/.local/bin/stripe"
+            };
+            
+            fallbackPath = null;
+            for (String path : commonPaths) {
+                if (new java.io.File(path).exists()) {
+                    fallbackPath = path;
+                    break;
+                }
+            }
+            
+            if (fallbackPath == null) {
+                fallbackPath = "stripe"; // Hope it's in PATH
+            }
+        }
+        
         System.out.println("Stripe CLI not found in PATH, using fallback: " + fallbackPath);
         return fallbackPath;
     }

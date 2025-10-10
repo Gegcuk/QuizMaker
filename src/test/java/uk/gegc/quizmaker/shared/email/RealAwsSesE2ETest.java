@@ -272,7 +272,7 @@ class RealAwsSesE2ETest {
     @Test
     @DisplayName("E2E: Handle unverified recipient in sandbox (expected SES rejection)")
     void shouldHandleUnverifiedRecipientInSandbox() {
-        // Given - Unverified email (will be rejected by SES sandbox)
+        // Given - Unverified email (will be rejected by SES sandbox, or sent in production mode)
         String unverifiedEmail = "unverified-test-" + System.currentTimeMillis() + "@example.com";
 
         // When / Then - Should not throw to caller (graceful degradation)
@@ -280,20 +280,36 @@ class RealAwsSesE2ETest {
             emailService.sendPasswordResetEmail(unverifiedEmail, "token123")
         );
 
-        // Verify error was logged (SES will reject with 400/403)
+        // Verify behavior based on SES mode (sandbox vs production)
         List<String> warnLogs = getLogMessages(Level.WARN);
+        List<String> infoLogs = getLogMessages(Level.INFO);
         
-        // SES sandbox will reject unverified recipients
-        boolean hasExpectedError = warnLogs.stream()
+        // In sandbox mode: SES will reject unverified recipients and log a warning
+        boolean hasErrorLog = warnLogs.stream()
             .anyMatch(msg -> msg.contains("Failed to send password reset email"));
+        
+        // In production mode: SES will accept and send the email successfully
+        boolean hasSuccessLog = infoLogs.stream()
+            .anyMatch(msg -> msg.contains("Password reset email sent to") && msg.contains("SES MessageId"));
 
-        assertThat(hasExpectedError).isTrue();
+        // Either sandbox rejection OR production success is acceptable
+        assertThat(hasErrorLog || hasSuccessLog)
+            .withFailMessage("Expected either sandbox rejection (WARN log) or production success (INFO log), but neither was found")
+            .isTrue();
 
-        System.out.println("\n✅ UNVERIFIED RECIPIENT HANDLED GRACEFULLY!");
-        System.out.println("   ⚠️  Unverified email: " + unverifiedEmail);
-        System.out.println("   ✓ SES sandbox rejected (expected behavior)");
-        System.out.println("   ✓ Error logged appropriately");
-        System.out.println("   ✓ No exception thrown to caller");
+        if (hasErrorLog) {
+            System.out.println("\n✅ UNVERIFIED RECIPIENT REJECTED (SANDBOX MODE)!");
+            System.out.println("   ⚠️  Unverified email: " + unverifiedEmail);
+            System.out.println("   ✓ SES sandbox rejected (expected behavior)");
+            System.out.println("   ✓ Error logged appropriately");
+            System.out.println("   ✓ No exception thrown to caller");
+        } else {
+            System.out.println("\n✅ EMAIL SENT SUCCESSFULLY (PRODUCTION MODE)!");
+            System.out.println("   📧 Unverified email: " + unverifiedEmail);
+            System.out.println("   ✓ SES production mode allows any recipient");
+            System.out.println("   ✓ Email sent successfully");
+            System.out.println("   ✓ No exception thrown to caller");
+        }
     }
 
     @Test
