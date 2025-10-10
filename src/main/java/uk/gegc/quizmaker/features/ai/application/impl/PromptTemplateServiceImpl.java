@@ -30,7 +30,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             String chunkContent,
             QuestionType questionType,
             int questionCount,
-            Difficulty difficulty
+            Difficulty difficulty,
+            String targetLanguage
     ) {
         // Input validation
         if (chunkContent == null) {
@@ -48,6 +49,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (questionType == null) {
             throw new IllegalArgumentException("Question type cannot be null");
         }
+
+        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
         try {
             // Load system prompt
@@ -70,7 +73,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                     .replace("{content}", chunkContent)
                     .replace("{questionType}", questionType.name())
                     .replace("{questionCount}", String.valueOf(questionCount))
-                    .replace("{difficulty}", difficulty.name());
+                    .replace("{difficulty}", difficulty.name())
+                    .replace("{language}", language);
 
             return finalPrompt;
 
@@ -78,12 +82,12 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             log.error("Error building prompt for question type: {}", questionType, e);
             // Fallback to simple prompt
             return String.format("""
-                    Generate %d %s questions with %s difficulty based on the following content:
+                    Generate %d %s questions with %s difficulty in %s based on the following content:
                     
                     %s
                     
                     Please provide the questions in JSON format.
-                    """, questionCount, questionType, difficulty, chunkContent);
+                    """, questionCount, questionType, difficulty, language, chunkContent);
         }
     }
 

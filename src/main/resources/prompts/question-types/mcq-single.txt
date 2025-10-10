@@ -23,6 +23,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every question, option, hint, explanation, and feedback in {language}; translate faithfully if the source content differs.
 - Each question must have exactly 4 options (A, B, C, D)
 - Only ONE option must be marked as correct: true
 - All other options must be marked as correct: false

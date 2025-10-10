@@ -21,6 +21,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every sentence, gap text, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question should have 1-3 gaps to fill
 - Gaps should be marked with underscores (___)
 - Provide the correct answer for each gap

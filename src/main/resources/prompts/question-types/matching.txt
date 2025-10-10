@@ -7,6 +7,7 @@ Constraints:
 - Each right item has: id (int), text (string).
 - Do not include any answer exposure beyond the left.matchId mapping.
 - Ensure ids are unique within left and right lists.
+- Write every question, item text, hint, and explanation in {language}; translate faithfully when the source content differs.
 
 Output JSON schema:
 {
@@ -37,5 +38,4 @@ Output JSON schema:
 
 Context to base questions on:
 {content}
-
 

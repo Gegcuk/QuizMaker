@@ -78,6 +78,7 @@ public record GenerateQuizFromTextRequest(
         maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
+        language = (language == null || language.isBlank()) ? "en" : language.trim();
 
         // Set default scope if not provided - MUST be done before validation
         quizScope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
@@ -155,7 +156,8 @@ public record GenerateQuizFromTextRequest(
                 difficulty,
                 estimatedTimePerQuestion,
                 categoryId,
-                tagIds
+                tagIds,
+                language
         );
     }
 }

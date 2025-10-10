@@ -608,6 +608,7 @@ public class QuizController {
             @RequestParam(value = "estimatedTimePerQuestion", required = false) Integer estimatedTimePerQuestion,
             @RequestParam(value = "categoryId", required = false) UUID categoryId,
             @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
+            @RequestParam(value = "language", required = false) String language,
             Authentication authentication
     ) {
         try {
@@ -631,7 +632,8 @@ public class QuizController {
                     Difficulty.valueOf(difficulty.toUpperCase()),
                     estimatedTimePerQuestion,
                     categoryId,
-                    tagIds
+                    tagIds,
+                    language
             );
 
             // Process document and start quiz generation

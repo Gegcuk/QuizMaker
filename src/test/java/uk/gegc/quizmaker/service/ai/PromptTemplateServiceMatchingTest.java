@@ -52,19 +52,18 @@ class PromptTemplateServiceMatchingTest {
         when(resourceLoader.getResource("classpath:prompts/base/context-template.txt"))
                 .thenReturn(contextTemplateResource);
         when(contextTemplateResource.getInputStream())
-                .thenReturn(new ByteArrayInputStream("CTX {content}".getBytes()));
+                .thenReturn(new ByteArrayInputStream("CTX {content} {language}".getBytes()));
 
         when(resourceLoader.getResource("classpath:prompts/question-types/matching.txt"))
                 .thenReturn(matchingTemplateResource);
         when(matchingTemplateResource.getInputStream())
                 .thenReturn(new ByteArrayInputStream("Generate {questionType} questions with {difficulty} difficulty.".getBytes()));
 
-        String prompt = service.buildPromptForChunk("ABC", QuestionType.MATCHING, 2, Difficulty.EASY);
+        String prompt = service.buildPromptForChunk("ABC", QuestionType.MATCHING, 2, Difficulty.EASY, "fr");
         assertNotNull(prompt);
         assertTrue(prompt.contains("MATCHING"));
         assertTrue(prompt.contains("EASY"));
         assertTrue(prompt.contains("ABC"));
+        assertTrue(prompt.contains("fr"));
     }
 }
-
-

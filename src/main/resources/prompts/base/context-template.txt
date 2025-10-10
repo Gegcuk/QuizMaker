@@ -16,6 +16,6 @@ For {difficulty} difficulty:
 - HARD: Synthesis and evaluation questions
 
 LANGUAGE REQUIREMENT:
-Generate all questions, answers, options, hints, and explanations in the SAME LANGUAGE as the source content above.
+Produce every element (questions, answers, options, hints, explanations) in {language}. If the excerpt is in another language, translate the ideas faithfully into {language} before writing the final output.
 
 IMPORTANT: Respond with valid JSON only, following the exact structure for {questionType} questions. 
