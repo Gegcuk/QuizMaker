@@ -369,6 +369,9 @@ public class QuizServiceImpl implements QuizService {
             // Step 4: Start generation and return job ID immediately
             return startQuizGeneration(username, quizRequest);
             
+        } catch (InsufficientTokensException e) {
+            // Let billing exceptions propagate to be handled by GlobalExceptionHandler
+            throw e;
         } catch (Exception e) {
             log.error("Failed to start quiz generation from upload for user: {}", username, e);
             throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
@@ -392,6 +395,9 @@ public class QuizServiceImpl implements QuizService {
             // Step 4: Start generation and return job ID immediately
             return startQuizGeneration(username, quizRequest);
             
+        } catch (InsufficientTokensException e) {
+            // Let billing exceptions propagate to be handled by GlobalExceptionHandler
+            throw e;
         } catch (Exception e) {
             log.error("Failed to start quiz generation from text for user: {}", username, e);
             throw new RuntimeException("Failed to generate quiz from text: " + e.getMessage(), e);
