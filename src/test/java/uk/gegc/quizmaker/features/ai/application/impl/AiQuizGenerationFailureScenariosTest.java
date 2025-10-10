@@ -123,7 +123,7 @@ class AiQuizGenerationFailureScenariosTest {
 
         doThrow(new AiServiceException("OpenAI service unavailable"))
                 .when(service)
-                .generateQuestionsFromChunkWithJob(any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()));
+                .generateQuestionsFromChunkWithJob(any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()), anyString());
 
         assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, request))
                 .isInstanceOf(AiServiceException.class)
@@ -148,7 +148,7 @@ class AiQuizGenerationFailureScenariosTest {
     @DisplayName("Scenario 3.2: rate limiting retries and fails cleanly when exhausted")
     void rateLimitingRetriesThenFails() {
         when(rateLimitConfig.getMaxRetries()).thenReturn(3);
-        when(promptTemplateService.buildPromptForChunk(anyString(), any(QuestionType.class), anyInt(), any(Difficulty.class)))
+        when(promptTemplateService.buildPromptForChunk(anyString(), any(QuestionType.class), anyInt(), any(Difficulty.class), anyString()))
                 .thenReturn("prompt");
         when(chatClient.prompt()).thenThrow(new AiServiceException("429 Too Many Requests"));
 
@@ -169,7 +169,7 @@ class AiQuizGenerationFailureScenariosTest {
 
         doThrow(new AiServiceException("Rate limit exceeded after retries"))
                 .when(service)
-                .generateQuestionsFromChunkWithJob(any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()));
+                .generateQuestionsFromChunkWithJob(any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()), anyString());
 
         assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, request))
                 .isInstanceOf(AiServiceException.class)
@@ -313,8 +313,6 @@ class AiQuizGenerationFailureScenariosTest {
     private record Fixture(QuizGenerationJob job, GenerateQuizFromDocumentRequest request, UUID reservationId) {
     }
 }
-
-
 
 
 

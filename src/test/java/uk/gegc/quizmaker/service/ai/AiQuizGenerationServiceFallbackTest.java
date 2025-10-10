@@ -232,7 +232,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategy 1 succeeds on first attempt
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
             
             // Mock successful AI response
@@ -240,16 +240,16 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 3, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(3, result.size());
-            verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -257,7 +257,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategy 1 fails initially but returns partial results after retries
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             // Strategy 1: First 3 attempts fail, then internal retries return partial results (2 questions)
@@ -278,17 +278,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 4, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 4, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(2, result.size()); // Should return partial results from Strategy 1
             // Strategy 1: 3 failed attempts + 6 internal retries = 9 calls total
-            verify(promptTemplateService, times(9)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(9)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -296,7 +296,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategy 1 completely fails (no partial results), Strategy 2 succeeds
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             // Strategy 1 completely fails (all attempts throw exceptions)
@@ -319,17 +319,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 4, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 4, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(2, result.size());
             // Strategy 1: 9 failed attempts (3 fallback attempts × 3 internal retries each) + Strategy 2: 1 successful attempt = 10 calls total
-            verify(promptTemplateService, times(10)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(10)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -337,7 +337,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategy 1 and 2 fail, Strategy 3 succeeds with easier difficulty
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
@@ -365,17 +365,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 2, Difficulty.HARD, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 2, Difficulty.HARD, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(2, result.size());
             // Strategy 1: 3×3 + Strategy 2: 2×3 + Strategy 3: 1×1 (succeeds on first try) = 16 calls total
-            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -383,7 +383,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategies 1-3 fail, Strategy 4 succeeds with alternative type
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
@@ -415,18 +415,18 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(1, result.size());
             assertEquals(QuestionType.MCQ_SINGLE, result.get(0).getType());
             // Strategy 1: 3×3 + Strategy 2: SKIPPED + Strategy 3: 1×3 + Strategy 4: 1×1 (succeeds on first try) = 13 calls total
-            verify(promptTemplateService, times(13)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(13)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -434,7 +434,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Strategies 1-4 fail, Strategy 5 (last resort MCQ) succeeds
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
@@ -470,18 +470,18 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(1, result.size());
             assertEquals(QuestionType.MCQ_SINGLE, result.get(0).getType());
             // Strategy 1: 3×3 + Strategy 2: SKIPPED + Strategy 3: 1×3 + Strategy 4: 1×3 + Strategy 5: 1×1 (succeeds on first try) = 16 calls total
-            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -489,7 +489,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - All strategies fail
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             // All strategies fail completely (24 total calls)
@@ -532,17 +532,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
             // Then
             assertTrue(result.isEmpty());
             // Should try all strategies: 3×3 + SKIPPED + 1×3 + 1×3 + 1×3 = 18 attempts (each strategy × 3 internal retries)
-            verify(promptTemplateService, times(18)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(18)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -550,7 +550,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Single question request should skip strategy 2 (reduced count)
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
@@ -572,17 +572,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 1, Difficulty.HARD, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 1, Difficulty.HARD, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(1, result.size());
             // Should try: 3×3 (strategy 1) + 0 (strategy 2 skipped) + 1×1 (strategy 3 succeeds on first try) = 10 attempts
-            verify(promptTemplateService, times(10)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(10)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
 
         @Test
@@ -590,7 +590,7 @@ class AiQuizGenerationServiceFallbackTest {
             // Given - Easy difficulty should skip strategy 3 (easier difficulty)
             setupRateLimitConfig();
             setupLoggerStubbing();
-            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any()))
+            when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                     .thenReturn("test prompt");
 
             when(questionResponseParser.parseQuestionsFromAIResponse(anyString(), any()))
@@ -619,17 +619,17 @@ class AiQuizGenerationServiceFallbackTest {
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class);
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
             method.setAccessible(true);
 
             @SuppressWarnings("unchecked")
             List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 2, Difficulty.EASY, 1, UUID.randomUUID());
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 2, Difficulty.EASY, 1, UUID.randomUUID(), "en");
 
             // Then
             assertEquals(2, result.size());
             // Should try: 3×3 (strategy 1) + 2×3 (strategy 2) + 0 (strategy 3 skipped) + 1×1 (strategy 4 succeeds on first try) = 16 attempts
-            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any());
+            verify(promptTemplateService, times(16)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
         }
     }
 

@@ -22,6 +22,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every question, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question should have 2-4 clickable regions
 - At least one region must be marked as correct
 - Image URL must be valid and accessible

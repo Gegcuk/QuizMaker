@@ -23,6 +23,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every question, item text, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question should have 3-5 items to order
 - Items should be clearly related and have a logical sequence
 - Include appropriate hints and explanations

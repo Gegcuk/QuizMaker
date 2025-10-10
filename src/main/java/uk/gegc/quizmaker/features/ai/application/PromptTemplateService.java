@@ -15,14 +15,28 @@ public interface PromptTemplateService {
      * @param questionType  The type of questions to generate
      * @param questionCount The number of questions to generate
      * @param difficulty    The difficulty level for the questions
+     * @param targetLanguage The language the AI should use for generated content
      * @return Formatted prompt string for AI
      */
     String buildPromptForChunk(
             String chunkContent,
             QuestionType questionType,
             int questionCount,
-            Difficulty difficulty
+            Difficulty difficulty,
+            String targetLanguage
     );
+
+    /**
+     * Backwards-compatible overload that defaults to English when no explicit language is provided.
+     */
+    default String buildPromptForChunk(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty
+    ) {
+        return buildPromptForChunk(chunkContent, questionType, questionCount, difficulty, "en");
+    }
 
     /**
      * Load a prompt template from resources

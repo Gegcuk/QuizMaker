@@ -56,12 +56,16 @@ public record GenerateQuizFromDocumentRequest(
         UUID categoryId,
 
         @Schema(description = "List of tag IDs for the quiz", example = "[\"a1b2c3d4-...\", \"e5f6g7h8-...\"]")
-        List<UUID> tagIds
+        List<UUID> tagIds,
+
+        @Schema(description = "Language for generated quiz content (ISO 639-1 code)", example = "en")
+        String language
 ) {
     public GenerateQuizFromDocumentRequest {
         // Set default values
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
+        language = (language == null || language.isBlank()) ? "en" : language.trim();
 
         // Set default scope if not provided - MUST be done before validation
         quizScope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
@@ -110,4 +114,35 @@ public record GenerateQuizFromDocumentRequest(
                 break;
         }
     }
-} 
+
+    public GenerateQuizFromDocumentRequest(
+            UUID documentId,
+            QuizScope quizScope,
+            List<Integer> chunkIndices,
+            String chapterTitle,
+            Integer chapterNumber,
+            String quizTitle,
+            String quizDescription,
+            Map<QuestionType, Integer> questionsPerType,
+            Difficulty difficulty,
+            Integer estimatedTimePerQuestion,
+            UUID categoryId,
+            List<UUID> tagIds
+    ) {
+        this(
+                documentId,
+                quizScope,
+                chunkIndices,
+                chapterTitle,
+                chapterNumber,
+                quizTitle,
+                quizDescription,
+                questionsPerType,
+                difficulty,
+                estimatedTimePerQuestion,
+                categoryId,
+                tagIds,
+                null
+        );
+    }
+}

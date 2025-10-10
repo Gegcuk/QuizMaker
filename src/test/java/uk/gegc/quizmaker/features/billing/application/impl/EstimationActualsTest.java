@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -106,7 +107,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -158,7 +159,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -195,7 +196,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -236,7 +237,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -295,7 +296,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -334,7 +335,7 @@ class EstimationActualsTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When

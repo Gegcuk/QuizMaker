@@ -26,6 +26,7 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -93,7 +94,7 @@ class SafetyFactorTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -136,7 +137,7 @@ class SafetyFactorTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When
@@ -173,7 +174,7 @@ class SafetyFactorTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // Test different safety factors
@@ -219,7 +220,7 @@ class SafetyFactorTest {
             );
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(Optional.of(document));
-            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any())).thenReturn("Test prompt");
+            lenient().when(promptTemplateService.buildPromptForChunk(any(), any(), anyInt(), any(), anyString())).thenReturn("Test prompt");
             lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
 
             // When

@@ -61,7 +61,10 @@ public record GenerateQuizFromUploadRequest(
         UUID categoryId,
 
         @Schema(description = "List of tag IDs for the quiz", example = "[\"a1b2c3d4-...\", \"e5f6g7h8-...\"]")
-        List<UUID> tagIds
+        List<UUID> tagIds,
+
+        @Schema(description = "Language for generated quiz content (ISO 639-1 code)", example = "en")
+        String language
 ) {
     public GenerateQuizFromUploadRequest {
         // Set default values
@@ -69,6 +72,7 @@ public record GenerateQuizFromUploadRequest(
         maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
+        language = (language == null || language.isBlank()) ? "en" : language.trim();
 
         // Set default scope if not provided - MUST be done before validation
         quizScope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
@@ -146,7 +150,41 @@ public record GenerateQuizFromUploadRequest(
                 difficulty,
                 estimatedTimePerQuestion,
                 categoryId,
-                tagIds
+                tagIds,
+                language
         );
     }
-} 
+
+    public GenerateQuizFromUploadRequest(
+            ProcessDocumentRequest.ChunkingStrategy chunkingStrategy,
+            Integer maxChunkSize,
+            QuizScope quizScope,
+            List<Integer> chunkIndices,
+            String chapterTitle,
+            Integer chapterNumber,
+            String quizTitle,
+            String quizDescription,
+            Map<QuestionType, Integer> questionsPerType,
+            Difficulty difficulty,
+            Integer estimatedTimePerQuestion,
+            UUID categoryId,
+            List<UUID> tagIds
+    ) {
+        this(
+                chunkingStrategy,
+                maxChunkSize,
+                quizScope,
+                chunkIndices,
+                chapterTitle,
+                chapterNumber,
+                quizTitle,
+                quizDescription,
+                questionsPerType,
+                difficulty,
+                estimatedTimePerQuestion,
+                categoryId,
+                tagIds,
+                null
+        );
+    }
+}

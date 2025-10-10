@@ -21,6 +21,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every statement, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question should have 2-4 statements to evaluate
 - Statements should be clearly compliant or non-compliant
 - Include appropriate hints and explanations

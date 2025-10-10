@@ -127,7 +127,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                             log.info("Job {} cancelled before chunk processing", jobId);
                             return CompletableFuture.completedFuture(List.<Question>of());
                         }
-                        return generateQuestionsFromChunkWithJob(chunk, request.questionsPerType(), request.difficulty(), jobId);
+                        return generateQuestionsFromChunkWithJob(
+                                chunk,
+                                request.questionsPerType(),
+                                request.difficulty(),
+                                jobId,
+                                request.language()
+                        );
                     })
                     .toList();
 
@@ -192,8 +198,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 jobRepository.save(freshJob);
                 
                 // Attempt to generate missing types from successful chunks
-                redistributeMissingQuestions(chunks, missingTypes, request.difficulty(), 
-                                           chunkQuestions, allQuestions, generatedByType, jobId);
+                redistributeMissingQuestions(
+                        chunks,
+                        missingTypes,
+                        request.difficulty(),
+                        chunkQuestions,
+                        allQuestions,
+                        generatedByType,
+                        jobId,
+                        request.language()
+                );
                         
                 // Update progress after redistribution
                 String finalCoverage = formatCoverageSummary(generatedByType, requestedByType);
@@ -270,7 +284,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Map<QuestionType, Integer> questionsPerType,
             Difficulty difficulty
     ) {
-        return generateQuestionsFromChunkWithJob(chunk, questionsPerType, difficulty, null);
+        return generateQuestionsFromChunkWithJob(chunk, questionsPerType, difficulty, null, "en");
     }
 
     /**
@@ -280,11 +294,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             DocumentChunk chunk,
             Map<QuestionType, Integer> questionsPerType,
             Difficulty difficulty,
-            UUID jobId
+            UUID jobId,
+            String targetLanguage
     ) {
         return CompletableFuture.supplyAsync(() -> {
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
+            String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
             try {
                 // Validate chunk content
@@ -309,7 +325,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                 questionCount,
                                 difficulty,
                                 chunk.getChunkIndex(),
-                                jobId
+                                jobId,
+                                language
                         );
                         
                         if (!questions.isEmpty()) {
@@ -343,6 +360,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         });
     }
 
+    public CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
+            DocumentChunk chunk,
+            Map<QuestionType, Integer> questionsPerType,
+            Difficulty difficulty,
+            UUID jobId
+    ) {
+        return generateQuestionsFromChunkWithJob(chunk, questionsPerType, difficulty, jobId, "en");
+    }
+
     @Override
     public List<Question> generateQuestionsByType(
             String chunkContent,
@@ -350,7 +376,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             int questionCount,
             Difficulty difficulty
     ) {
-        return generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, null);
+        return generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, null, "en");
     }
 
     /**
@@ -361,7 +387,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             QuestionType questionType,
             int questionCount,
             Difficulty difficulty,
-            UUID jobId
+            UUID jobId,
+            String targetLanguage
     ) {
         // Input validation
         if (chunkContent == null || chunkContent.trim().isEmpty()) {
@@ -384,6 +411,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             throw new IllegalArgumentException("Difficulty cannot be null");
         }
 
+        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
         int maxRetries = rateLimitConfig.getMaxRetries();
         int retryCount = 0;
 
@@ -397,7 +425,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 // Build prompt for this question type
                 String prompt = promptTemplateService.buildPromptForChunk(
-                        chunkContent, questionType, questionCount, difficulty
+                        chunkContent, questionType, questionCount, difficulty, language
                 );
 
                 // Record that AI calls have started (idempotent)
@@ -493,6 +521,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts");
     }
 
+    private List<Question> generateQuestionsByTypeWithJobId(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty,
+            UUID jobId
+    ) {
+        return generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, jobId, "en");
+    }
+
     /**
      * Enhanced question generation with multiple fallback strategies
      */
@@ -502,8 +540,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             int questionCount,
             Difficulty difficulty,
             Integer chunkIndex,
-            UUID jobId
+            UUID jobId,
+            String targetLanguage
     ) {
+        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
         // Update job status to show fallback attempt
         updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
@@ -514,7 +554,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             try {
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + "/3");
                 
-                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, jobId);
+                List<Question> questions = generateQuestionsByTypeWithJobId(
+                        chunkContent,
+                        questionType,
+                        questionCount,
+                        difficulty,
+                        jobId,
+                        language
+                );
                 if (questions.size() >= questionCount) {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
@@ -550,7 +597,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}", 
                             reducedCount, attempt, questionType, chunkIndex);
                     
-                    List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, reducedCount, difficulty, jobId);
+                    List<Question> questions = generateQuestionsByTypeWithJobId(
+                            chunkContent,
+                            questionType,
+                            reducedCount,
+                            difficulty,
+                            jobId,
+                            language
+                    );
                     if (!questions.isEmpty()) {
                         log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
                                 attempt, questions.size(), questionCount, questionType, chunkIndex);
@@ -575,7 +629,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}", 
                         easierDifficulty, questionType, chunkIndex);
                 
-                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, easierDifficulty, jobId);
+                List<Question> questions = generateQuestionsByTypeWithJobId(
+                        chunkContent,
+                        questionType,
+                        questionCount,
+                        easierDifficulty,
+                        jobId,
+                        language
+                );
                 if (!questions.isEmpty()) {
                     log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}", 
                             questions.size(), questionCount, questionType, chunkIndex);
@@ -597,7 +658,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}", 
                         alternativeType, questionType, chunkIndex);
                 
-                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, alternativeType, questionCount, difficulty, jobId);
+                List<Question> questions = generateQuestionsByTypeWithJobId(
+                        chunkContent,
+                        alternativeType,
+                        questionCount,
+                        difficulty,
+                        jobId,
+                        language
+                );
                 if (!questions.isEmpty()) {
                     log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}", 
                             questions.size(), alternativeType, questionType, chunkIndex);
@@ -617,7 +685,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             try {
                 log.debug("Strategy 5: Last resort - trying MCQ_SINGLE for chunk {}", chunkIndex);
                 
-                List<Question> questions = generateQuestionsByTypeWithJobId(chunkContent, QuestionType.MCQ_SINGLE, questionCount, difficulty, jobId);
+                List<Question> questions = generateQuestionsByTypeWithJobId(
+                        chunkContent,
+                        QuestionType.MCQ_SINGLE,
+                        questionCount,
+                        difficulty,
+                        jobId,
+                        language
+                );
                 if (!questions.isEmpty()) {
                     log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})", 
                             questions.size(), chunkIndex, questionType);
@@ -691,7 +766,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Map<Integer, List<Question>> chunkQuestions,
             List<Question> allQuestions,
             Map<QuestionType, Integer> generatedByType,
-            UUID jobId) {
+            UUID jobId,
+            String targetLanguage) {
+        
+        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
         
         // Find chunks that generated questions successfully (have more than average content)
         List<DocumentChunk> goodChunks = chunks.stream()
@@ -728,7 +806,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                             countToTry,
                             difficulty,
                             chunk.getChunkIndex(),
-                            jobId
+                            jobId,
+                            language
                     );
 
                     if (!redistributedQuestions.isEmpty()) {

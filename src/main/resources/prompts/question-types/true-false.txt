@@ -18,6 +18,7 @@ JSON STRUCTURE:
 
 REQUIREMENTS:
 - Exactly {questionCount} questions
+- Write every statement, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question must have a clear, unambiguous statement
 - The statement must be definitively true or false based on the content
 - Include appropriate hints and explanations

@@ -52,8 +52,11 @@ class PromptTemplateServiceTest {
     private PromptTemplateServiceImpl promptTemplateService;
 
     private static final String SYSTEM_PROMPT = "You are an expert quiz generator.";
-    private static final String CONTEXT_TEMPLATE = "Document content: {content}\nGenerate {questionCount} questions.";
-    private static final String MCQ_TEMPLATE = "Generate {questionType} questions with {difficulty} difficulty.";
+    private static final String CONTEXT_TEMPLATE = "Document content: {content}\nTarget language: {language}\nGenerate {questionCount} questions.";
+    private static final String MCQ_TEMPLATE = """
+            Generate {questionType} questions with {difficulty} difficulty.
+            - Use {language} for all text sections.
+            """;
 
     @BeforeEach
     void setUp() {
@@ -119,12 +122,13 @@ class PromptTemplateServiceTest {
         QuestionType questionType = QuestionType.MCQ_SINGLE;
         int questionCount = 3;
         Difficulty difficulty = Difficulty.MEDIUM;
+        String language = "fr";
 
         setupMcqTemplatesOnly();
 
         // When
         String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, questionType, questionCount, difficulty
+                chunkContent, questionType, questionCount, difficulty, language
         );
 
         // Then
@@ -133,6 +137,7 @@ class PromptTemplateServiceTest {
         assertTrue(result.contains("Generate MCQ_SINGLE questions with MEDIUM difficulty."));
         assertTrue(result.contains("3"));
         assertTrue(result.contains("MEDIUM"));
+        assertTrue(result.contains(language));
     }
 
     @Test
@@ -152,7 +157,7 @@ class PromptTemplateServiceTest {
     void shouldHandleNullChunkContent() {
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
-                null, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
+                null, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "en"
         ));
     }
 
@@ -160,7 +165,7 @@ class PromptTemplateServiceTest {
     void shouldHandleEmptyChunkContent() {
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
-                "", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY
+                "", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "en"
         ));
     }
 
@@ -172,7 +177,7 @@ class PromptTemplateServiceTest {
 
         // When
         String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.MCQ_SINGLE, 0, Difficulty.EASY
+                chunkContent, QuestionType.MCQ_SINGLE, 0, Difficulty.EASY, "en"
         );
 
         // Then
@@ -187,7 +192,7 @@ class PromptTemplateServiceTest {
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.MCQ_SINGLE, -1, Difficulty.EASY
+                chunkContent, QuestionType.MCQ_SINGLE, -1, Difficulty.EASY, "en"
         ));
     }
 
@@ -198,7 +203,7 @@ class PromptTemplateServiceTest {
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () -> promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.MCQ_SINGLE, 1, null
+                chunkContent, QuestionType.MCQ_SINGLE, 1, null, "en"
         ));
     }
 
@@ -210,7 +215,7 @@ class PromptTemplateServiceTest {
 
         // When
         String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.TRUE_FALSE, 2, Difficulty.MEDIUM
+                chunkContent, QuestionType.TRUE_FALSE, 2, Difficulty.MEDIUM, "en"
         );
 
         // Then
@@ -229,7 +234,7 @@ class PromptTemplateServiceTest {
 
         // When
         String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.OPEN, 1, Difficulty.HARD
+                chunkContent, QuestionType.OPEN, 1, Difficulty.HARD, "en"
         );
 
         // Then
@@ -315,7 +320,8 @@ class PromptTemplateServiceTest {
                             "Thread " + threadId + " content", 
                             QuestionType.MCQ_SINGLE, 
                             2, 
-                            Difficulty.MEDIUM
+                            Difficulty.MEDIUM,
+                            "en"
                     );
                     assertNotNull(result);
                     assertTrue(result.contains("Thread " + threadId + " content"));
