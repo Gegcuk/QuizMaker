@@ -786,6 +786,16 @@ public class QuizServiceImpl implements QuizService {
                 return;
             }
 
+            int chunkCount = (int) chunkQuestions.values().stream()
+                    .filter(Objects::nonNull)
+                    .filter(list -> !list.isEmpty())
+                    .count();
+
+            List<Question> allQuestions = chunkQuestions.values().stream()
+                    .filter(Objects::nonNull)
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList());
+
             User user = job.getUser();
             UUID documentId = originalRequest.documentId();
 
@@ -795,30 +805,25 @@ public class QuizServiceImpl implements QuizService {
 
             // Create individual chunk quizzes
             List<Quiz> chunkQuizzes = new ArrayList<>();
-            Map<Integer, String> chunkTitles = new HashMap<>();
 
-            for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
-                int chunkIndex = entry.getKey();
-                List<Question> questions = entry.getValue();
+            if (chunkCount > 1) {
+                for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
+                    int chunkIndex = entry.getKey();
+                    List<Question> questions = entry.getValue();
 
-                if (!questions.isEmpty()) {
+                    if (questions == null || questions.isEmpty()) {
+                        continue;
+                    }
+
                     Quiz chunkQuiz = createChunkQuiz(
                             user, questions, chunkIndex, originalRequest, category, tags, documentId
                     );
                     chunkQuizzes.add(chunkQuiz);
-
-                    // Store chunk title for metadata
-                    chunkTitles.put(chunkIndex, getChunkTitle(chunkIndex, questions));
                 }
             }
 
-            // Create consolidated quiz with all questions
-            List<Question> allQuestions = chunkQuestions.values().stream()
-                    .flatMap(List::stream)
-                    .collect(Collectors.toList());
-
             Quiz consolidatedQuiz = createConsolidatedQuiz(
-                    user, allQuestions, originalRequest, category, tags, documentId, chunkQuizzes.size()
+                    user, allQuestions, originalRequest, category, tags, documentId, chunkCount
             );
 
             // Calculate total questions
@@ -1501,4 +1506,3 @@ public class QuizServiceImpl implements QuizService {
         }
     }
 }
-
