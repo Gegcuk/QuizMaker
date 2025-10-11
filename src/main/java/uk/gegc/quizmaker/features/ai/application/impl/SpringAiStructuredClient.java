@@ -64,6 +64,17 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         int retryCount = 0;
         
         while (retryCount < maxRetries) {
+            // Check for cancellation before each attempt (Phase 3 fix)
+            if (request.getCancellationChecker() != null && request.getCancellationChecker().get()) {
+                log.info("Generation cancelled before attempt {} for {} type {}",
+                        retryCount + 1, request.getQuestionCount(), request.getQuestionType());
+                return StructuredQuestionResponse.builder()
+                        .questions(List.of())
+                        .warnings(List.of("Generation cancelled by user"))
+                        .tokensUsed(0L)
+                        .build();
+            }
+            
             try {
                 return attemptGeneration(request);
             } catch (Exception e) {

@@ -12,6 +12,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Request DTO for structured question generation.
@@ -72,5 +73,16 @@ public class StructuredQuestionRequest {
      */
     @Builder.Default
     private Map<String, String> metadata = Map.of();
+    
+    /**
+     * Optional cancellation checker - called before each retry attempt.
+     * If returns true, generation is aborted and empty response returned.
+     * 
+     * Example: () -> jobRepository.isJobCancelled(jobId)
+     * 
+     * Phase 3 fix: Allows cancellation during retries to prevent wasting tokens
+     * on already-cancelled jobs.
+     */
+    private Supplier<Boolean> cancellationChecker;
 }
 

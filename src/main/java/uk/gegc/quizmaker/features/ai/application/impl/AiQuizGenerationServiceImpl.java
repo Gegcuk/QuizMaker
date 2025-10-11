@@ -431,7 +431,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 recordAiCallStarted(jobId);
             }
 
-            // Build structured request
+            // Build structured request with cancellation checker
             StructuredQuestionRequest structuredRequest = StructuredQuestionRequest.builder()
                     .chunkContent(chunkContent)
                     .questionType(questionType)
@@ -439,6 +439,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     .difficulty(difficulty)
                     .language(language)
                     .metadata(jobId != null ? Map.of("jobId", jobId.toString()) : Map.of())
+                    .cancellationChecker(jobId != null ? () -> isJobCancelled(jobId) : null)
                     .build();
 
             // Use structured AI client (handles retries internally)
