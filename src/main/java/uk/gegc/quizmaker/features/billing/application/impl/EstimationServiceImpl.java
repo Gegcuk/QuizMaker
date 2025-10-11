@@ -202,6 +202,12 @@ public class EstimationServiceImpl implements EstimationService {
 
     private long estimateTokens(int charCount) {
         // Rough heuristic: ~4 chars per token in English; ceil to avoid under-estimation.
+        // TODO: Phase 3+ - Add schema overhead for structured output
+        //  With structured output (Phase 3), JSON schema is appended to system prompt per request.
+        //  Schema size varies by question type (~300-800 tokens per type).
+        //  Consider adding: schemaOverhead = questionTypes.size() * AVG_SCHEMA_TOKENS_PER_TYPE
+        //  where AVG_SCHEMA_TOKENS_PER_TYPE ≈ 500 tokens (measured from QuestionSchemaRegistry).
+        //  This will prevent under-estimation and billing surprises.
         return (long) Math.ceil(charCount / 4.0);
     }
 

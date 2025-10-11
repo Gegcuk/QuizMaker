@@ -12,8 +12,12 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
@@ -62,6 +66,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final AiRateLimitConfig rateLimitConfig;
     private final InternalBillingService internalBillingService;
     private final TransactionTemplate transactionTemplate;
+    private final StructuredAiClient structuredAiClient;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -380,7 +385,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     /**
-     * Internal version that accepts jobId for cancellation checks and token tracking
+     * Internal version that accepts jobId for cancellation checks and token tracking.
+     * Uses structured AI client for schema-validated responses.
      */
     private List<Question> generateQuestionsByTypeWithJobId(
             String chunkContent,
@@ -412,113 +418,89 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
 
         String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
-        int maxRetries = rateLimitConfig.getMaxRetries();
-        int retryCount = 0;
 
-        while (retryCount < maxRetries) {
-            try {
-                // Check for cancellation before each LLM call
-                if (jobId != null && isJobCancelled(jobId)) {
-                    log.info("Job {} cancelled before LLM call, stopping question generation", jobId);
-                    return new ArrayList<>(); // Return empty list on cancellation
-                }
-
-                // Build prompt for this question type
-                String prompt = promptTemplateService.buildPromptForChunk(
-                        chunkContent, questionType, questionCount, difficulty, language
-                );
-
-                // Record that AI calls have started (idempotent)
-                if (jobId != null) {
-                    recordAiCallStarted(jobId);
-                }
-
-                // Send to AI with timeout
-                ChatResponse response = chatClient.prompt()
-                        .user(prompt)
-                        .call()
-                        .chatResponse();
-
-                if (response == null || response.getResult() == null) {
-                    throw new AiServiceException("No response received from AI service");
-                }
-
-                // Track token usage if available
-                if (jobId != null && response.getMetadata() != null && response.getMetadata().getUsage() != null) {
-                    long tokensUsed = response.getMetadata().getUsage().getTotalTokens();
-                    trackTokenUsage(jobId, tokensUsed);
-                }
-
-                String aiResponse = response.getResult().getOutput().getText();
-
-                // AI response logging disabled to avoid generating per-run files
-
-                // Validate AI response is not empty
-                if (aiResponse == null || aiResponse.trim().isEmpty()) {
-                    throw new AiServiceException("Empty response received from AI service");
-                }
-
-                // Parse AI response into questions
-                List<Question> questions = questionResponseParser.parseQuestionsFromAIResponse(
-                        aiResponse, questionType
-                );
-
-                // Validate we got the expected number of questions
-                if (questions.size() != questionCount) {
-                    log.warn("Expected {} questions but got {} for type {}",
-                            questionCount, questions.size(), questionType);
-
-                    // If we got fewer questions than expected, try to generate more
-                    if (questions.size() < questionCount && retryCount < maxRetries - 1) {
-                        log.info("Retrying to generate additional questions for type {}", questionType);
-                        retryCount++;
-                        continue;
-                    }
-                }
-
-                return questions;
-
-            } catch (AIResponseParseException e) {
-                log.error("AI response parsing failed for {} questions of type {} (attempt {})",
-                        questionCount, questionType, retryCount + 1, e);
-
-                if (retryCount < maxRetries - 1) {
-                    retryCount++;
-                    log.info("Retrying due to parsing error for type {}", questionType);
-                } else {
-                    throw new AiServiceException("Failed to parse AI response after " + maxRetries + " attempts", e);
-                }
-
-            } catch (Exception e) {
-                log.error("Error generating {} questions of type {} (attempt {})",
-                        questionCount, questionType, retryCount + 1, e);
-
-                // Check if this is a rate limit error (429)
-                if (isRateLimitError(e)) {
-                    long delayMs = calculateBackoffDelay(retryCount);
-                    log.warn("Rate limit hit for {} questions of type {} (attempt {}). Waiting {} ms before retry.",
-                            questionCount, questionType, retryCount + 1, delayMs);
-                    
-                    if (retryCount < maxRetries - 1) {
-                        sleepForRateLimit(delayMs);
-                        retryCount++;
-                        log.info("Retrying after rate limit delay for type {}", questionType);
-                        continue;
-                    } else {
-                        throw new AiServiceException("Rate limit exceeded after " + maxRetries + " attempts. Please try again later.", e);
-                    }
-                }
-
-                if (retryCount < maxRetries - 1) {
-                    retryCount++;
-                    log.info("Retrying due to error for type {}", questionType);
-                } else {
-                    throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts: " + e.getMessage(), e);
-                }
+        try {
+            // Check for cancellation before LLM call
+            if (jobId != null && isJobCancelled(jobId)) {
+                log.info("Job {} cancelled before LLM call, stopping question generation", jobId);
+                return new ArrayList<>();
             }
-        }
 
-        throw new AiServiceException("Failed to generate questions after " + maxRetries + " attempts");
+            // Record that AI calls have started (idempotent)
+            if (jobId != null) {
+                recordAiCallStarted(jobId);
+            }
+
+            // Build structured request with cancellation checker
+            StructuredQuestionRequest structuredRequest = StructuredQuestionRequest.builder()
+                    .chunkContent(chunkContent)
+                    .questionType(questionType)
+                    .questionCount(questionCount)
+                    .difficulty(difficulty)
+                    .language(language)
+                    .metadata(jobId != null ? Map.of("jobId", jobId.toString()) : Map.of())
+                    .cancellationChecker(jobId != null ? () -> isJobCancelled(jobId) : null)
+                    .build();
+
+            // Use structured AI client (handles retries internally)
+            StructuredQuestionResponse structuredResponse = structuredAiClient.generateQuestions(structuredRequest);
+
+            // Validate response
+            if (structuredResponse == null) {
+                throw new AiServiceException("Structured AI client returned null response");
+            }
+
+            // Track token usage if available
+            if (jobId != null && structuredResponse.getTokensUsed() != null && structuredResponse.getTokensUsed() > 0) {
+                trackTokenUsage(jobId, structuredResponse.getTokensUsed());
+            }
+
+            // Log warnings if any
+            if (structuredResponse.getWarnings() != null && !structuredResponse.getWarnings().isEmpty()) {
+                log.warn("Structured generation completed with {} warnings for {} type {}: {}",
+                        structuredResponse.getWarnings().size(), questionCount, questionType,
+                        structuredResponse.getWarnings());
+            }
+
+            // Convert StructuredQuestion to domain Question
+            List<Question> questions = convertStructuredQuestions(structuredResponse.getQuestions());
+
+            // Validate we got the expected number of questions
+            if (questions.size() < questionCount) {
+                log.warn("Expected {} questions but got {} for type {} (based on diagnostics: {})",
+                        questionCount, questions.size(), questionType, 
+                        structuredResponse.getWarnings() != null ? structuredResponse.getWarnings() : List.of());
+            }
+
+            return questions;
+
+        } catch (Exception e) {
+            log.error("Error generating {} questions of type {} using structured client",
+                    questionCount, questionType, e);
+            throw new AiServiceException("Failed to generate questions: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Convert StructuredQuestion DTOs to domain Question entities.
+     * Phase 3: Maps from structured output to domain model.
+     */
+    private List<Question> convertStructuredQuestions(List<StructuredQuestion> structuredQuestions) {
+        List<Question> questions = new ArrayList<>();
+        
+        for (StructuredQuestion sq : structuredQuestions) {
+            Question question = new Question();
+            question.setQuestionText(sq.getQuestionText());
+            question.setType(sq.getType());
+            question.setDifficulty(sq.getDifficulty());
+            question.setContent(sq.getContent());  // Already JSON string
+            question.setHint(sq.getHint());
+            question.setExplanation(sq.getExplanation());
+            
+            questions.add(question);
+        }
+        
+        return questions;
     }
 
     private List<Question> generateQuestionsByTypeWithJobId(
