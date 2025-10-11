@@ -223,6 +223,9 @@ public class QuestionSchemaRegistry {
      * Schema for MCQ content (options with correctness)
      * Prompt template shows: {"id": "a", "text": "...", "correct": false}
      * Parser validates: text and correct (id is optional but recommended)
+     * 
+     * MCQ_SINGLE: Exactly 4 options (aligned with prompt template requirement)
+     * MCQ_MULTI: 4-6 options (flexible for multiple correct answers)
      */
     private ObjectNode createMcqContentSchema(boolean multipleCorrect) {
         ObjectNode content = objectMapper.createObjectNode();
@@ -237,11 +240,18 @@ public class QuestionSchemaRegistry {
         // options array
         ObjectNode options = objectMapper.createObjectNode();
         options.put("type", "array");
-        options.put("minItems", 2);
-        options.put("maxItems", 6);
-        options.put("description", multipleCorrect ? 
-                "Options for MCQ_MULTI (at least 2 correct)" : 
-                "Options for MCQ_SINGLE (exactly 1 correct)");
+        
+        // MCQ_SINGLE: exactly 4 options to match prompt
+        // MCQ_MULTI: 4-6 options for flexibility
+        if (multipleCorrect) {
+            options.put("minItems", 4);
+            options.put("maxItems", 6);
+            options.put("description", "Options for MCQ_MULTI (4-6 options, at least 2 correct)");
+        } else {
+            options.put("minItems", 4);
+            options.put("maxItems", 4);
+            options.put("description", "Options for MCQ_SINGLE (exactly 4 options, exactly 1 correct)");
+        }
         
         ObjectNode optionItem = objectMapper.createObjectNode();
         optionItem.put("type", "object");

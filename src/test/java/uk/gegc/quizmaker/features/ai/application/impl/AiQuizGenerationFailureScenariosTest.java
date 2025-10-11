@@ -15,6 +15,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
@@ -73,6 +74,8 @@ class AiQuizGenerationFailureScenariosTest {
     private InternalBillingService internalBillingService;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private StructuredAiClient structuredAiClient;
 
     private AiQuizGenerationServiceImpl service;
 
@@ -91,7 +94,8 @@ class AiQuizGenerationFailureScenariosTest {
                 eventPublisher,
                 rateLimitConfig,
                 internalBillingService,
-                transactionTemplate
+                transactionTemplate,
+                structuredAiClient
         ));
         lenient().when(transactionTemplate.execute(any()))
                 .thenAnswer(invocation -> {
@@ -148,19 +152,21 @@ class AiQuizGenerationFailureScenariosTest {
     @DisplayName("Scenario 3.2: rate limiting retries and fails cleanly when exhausted")
     void rateLimitingRetriesThenFails() {
         when(rateLimitConfig.getMaxRetries()).thenReturn(3);
-        when(promptTemplateService.buildPromptForChunk(anyString(), any(QuestionType.class), anyInt(), any(Difficulty.class), anyString()))
-                .thenReturn("prompt");
-        when(chatClient.prompt()).thenThrow(new AiServiceException("429 Too Many Requests"));
+        
+        // Phase 3: StructuredAiClient handles retries internally and throws after exhaustion
+        when(structuredAiClient.generateQuestions(any()))
+                .thenThrow(new AiServiceException("Rate limit exceeded after 3 attempts"));
 
         String chunkContent = "This chunk contains enough text to simulate realistic generation input." + "x".repeat(400);
 
         assertThatThrownBy(() -> service.generateQuestionsByType(chunkContent, QuestionType.MCQ_SINGLE, 1, Difficulty.MEDIUM))
                 .isInstanceOf(AiServiceException.class)
-                .hasMessageContaining("Rate limit exceeded");
+                .hasMessageContaining("Failed to generate questions");
 
-        verify(service, atLeastOnce()).sleepForRateLimit(anyLong());
+        // Phase 3: Rate limit retries handled by StructuredAiClient (not service)
+        // Service no longer calls sleepForRateLimit directly - that's in StructuredAiClient
         clearInvocations(service);
-        reset(chatClient);
+        reset(structuredAiClient);
 
         Fixture fixture = prepareFixture();
         QuizGenerationJob job = fixture.job();

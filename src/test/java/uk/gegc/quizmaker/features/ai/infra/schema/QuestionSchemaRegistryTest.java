@@ -179,12 +179,12 @@ class QuestionSchemaRegistryTest {
         // Then
         JsonNode content = extractContentSchema(schema);
         
-        // Verify options array
+        // Verify options array (MCQ_SINGLE requires exactly 4 options)
         assertThat(content.has("options")).isTrue();
         JsonNode options = content.get("options");
         assertThat(options.get("type").asText()).isEqualTo("array");
-        assertThat(options.get("minItems").asInt()).isEqualTo(2);
-        assertThat(options.get("maxItems").asInt()).isEqualTo(6);
+        assertThat(options.get("minItems").asInt()).isEqualTo(4);  // Exactly 4 for MCQ_SINGLE
+        assertThat(options.get("maxItems").asInt()).isEqualTo(4);  // Exactly 4 for MCQ_SINGLE
         
         // Verify option structure
         JsonNode optionItem = options.get("items");

@@ -18,7 +18,9 @@ import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
+import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.ai.infra.parser.ComplianceQuestionParser;
 import uk.gegc.quizmaker.features.ai.infra.parser.FillGapQuestionParser;
 import uk.gegc.quizmaker.features.ai.infra.parser.HotspotQuestionParser;
@@ -158,6 +160,17 @@ class RealAiQuizGenerationIntegrationTest {
         rateLimitConfig.setMaxDelayMs(1_000);
         rateLimitConfig.setJitterFactor(0.1d);
 
+        // Create structured AI client for Phase 3
+        ObjectMapper objectMapper = new ObjectMapper();
+        QuestionSchemaRegistry schemaRegistry = new QuestionSchemaRegistry(objectMapper);
+        StructuredAiClient structuredAiClient = new SpringAiStructuredClient(
+                chatClient,
+                schemaRegistry,
+                promptTemplateService,
+                objectMapper,
+                rateLimitConfig
+        );
+
         service = new AiQuizGenerationServiceImpl(
                 chatClient,
                 documentRepository,
@@ -165,11 +178,12 @@ class RealAiQuizGenerationIntegrationTest {
                 questionResponseParser,
                 jobRepository,
                 userRepository,
-                new ObjectMapper(),
+                objectMapper,
                 eventPublisher,
                 rateLimitConfig,
                 internalBillingService,
-                transactionTemplate
+                transactionTemplate,
+                structuredAiClient
         );
 
         BillingProperties billingProperties = new BillingProperties();

@@ -37,6 +37,13 @@ import java.util.List;
  * - Captures raw response + validation errors for observability
  * - Implements retry logic with exponential backoff for rate limits
  * - Falls back to legacy parsing if structured output fails (future enhancement)
+ * 
+ * TODO: Timeout Configuration
+ *   ChatClient calls use default timeout from Spring AI properties.
+ *   For production, consider explicit timeout via ChatOptions to avoid indefinite waits.
+ *   Example: chatClient.prompt(...).options(ChatOptions.builder().timeout(Duration.ofSeconds(30)).build())
+ *   Recommended: Configure via application.properties:
+ *     spring.ai.openai.chat.options.timeout=30s
  */
 @Service
 @RequiredArgsConstructor
