@@ -121,4 +121,70 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      * Find job by billing reservation ID
      */
     Optional<QuizGenerationJob> findByBillingReservationId(UUID billingReservationId);
+
+    /**
+     * Atomically increment completed tasks counter for a job
+     * This method performs a single atomic UPDATE query without loading the entity,
+     * avoiding long-lived locks during LLM calls.
+     * Also increments version for optimistic locking consistency.
+     * 
+     * @param jobId The job ID
+     * @param increment Number of tasks to increment (usually 1)
+     * @param statusMessage Human-readable status message for currentChunk field
+     * @return Number of rows updated (1 if successful, 0 if job not found)
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+        UPDATE QuizGenerationJob j 
+        SET j.completedTasks = COALESCE(j.completedTasks, 0) + :increment,
+            j.currentChunk = :statusMessage,
+            j.progressPercentage = CASE 
+                WHEN j.totalTasks IS NOT NULL AND j.totalTasks > 0 
+                THEN (COALESCE(j.completedTasks, 0) + :increment) * 100.0 / j.totalTasks
+                WHEN j.totalChunks IS NOT NULL AND j.totalChunks > 0 
+                THEN COALESCE(j.processedChunks, 0) * 100.0 / j.totalChunks
+                ELSE 0.0
+            END,
+            j.version = COALESCE(j.version, 0) + 1
+        WHERE j.id = :jobId
+    """)
+    int incrementCompletedTasks(
+        @Param("jobId") UUID jobId, 
+        @Param("increment") int increment, 
+        @Param("statusMessage") String statusMessage
+    );
+
+    /**
+     * Update total tasks for a job
+     * Called once at the start of generation after computing total tasks
+     * 
+     * @param jobId The job ID
+     * @param totalTasks Total number of tasks
+     * @return Number of rows updated
+     */
+    @Modifying
+    @Query("UPDATE QuizGenerationJob j SET j.totalTasks = :totalTasks WHERE j.id = :jobId")
+    int updateTotalTasks(@Param("jobId") UUID jobId, @Param("totalTasks") int totalTasks);
+
+    /**
+     * Atomically update chunk-level progress without touching task-based progress percentage.
+     * This prevents stale entity saves from overwriting atomic task increments.
+     * 
+     * @param jobId The job ID
+     * @param processedChunks Number of chunks processed
+     * @param statusMessage Human-readable status message
+     * @return Number of rows updated
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+        UPDATE QuizGenerationJob j 
+        SET j.processedChunks = :processedChunks,
+            j.currentChunk = :statusMessage
+        WHERE j.id = :jobId
+    """)
+    int updateProcessedChunksAndStatus(
+        @Param("jobId") UUID jobId,
+        @Param("processedChunks") int processedChunks,
+        @Param("statusMessage") String statusMessage
+    );
 } 
