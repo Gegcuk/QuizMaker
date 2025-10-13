@@ -1327,8 +1327,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Compute total tasks for a generation job.
      * Total tasks = number of chunks × number of requested question types (with count > 0)
+     * Package-private for testing.
      */
-    private int computeTotalTasks(int chunkCount, Map<QuestionType, Integer> questionsPerType) {
+    int computeTotalTasks(int chunkCount, Map<QuestionType, Integer> questionsPerType) {
         if (questionsPerType == null || questionsPerType.isEmpty()) {
             return chunkCount; // Default: one task per chunk
         }
