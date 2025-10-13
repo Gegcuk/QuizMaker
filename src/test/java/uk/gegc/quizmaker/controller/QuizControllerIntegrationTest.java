@@ -25,6 +25,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.result.domain.model.QuizAnalyticsSnapshot;
+import uk.gegc.quizmaker.features.result.domain.repository.QuizAnalyticsSnapshotRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
@@ -36,6 +38,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -74,6 +77,8 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
     PermissionRepository permissionRepository;
     @Autowired
     RoleRepository roleRepository;
+    @Autowired
+    QuizAnalyticsSnapshotRepository snapshotRepository;
 
     private UUID categoryId;
     private UUID tagId;
@@ -1018,6 +1023,20 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isOk());
+
+        // Manually create snapshot for testing (in @Transactional tests, REQUIRES_NEW can't see uncommitted data)
+        entityManager.flush();
+        Attempt completedAttempt = attemptRepository.findById(attemptId).orElseThrow();
+        QuizAnalyticsSnapshot snapshot = new QuizAnalyticsSnapshot();
+        snapshot.setQuizId(quizId);
+        snapshot.setAttemptsCount(1);
+        snapshot.setAverageScore(completedAttempt.getTotalScore());
+        snapshot.setBestScore(completedAttempt.getTotalScore());
+        snapshot.setWorstScore(completedAttempt.getTotalScore());
+        snapshot.setPassRate(100.0); // 1 question, answered correctly
+        snapshot.setUpdatedAt(Instant.now());
+        snapshotRepository.save(snapshot);
+        entityManager.flush();
 
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", quizId)
                         .with(user(adminUserDetails)))
