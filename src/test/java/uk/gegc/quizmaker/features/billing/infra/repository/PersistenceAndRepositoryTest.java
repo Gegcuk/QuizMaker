@@ -118,13 +118,17 @@ class PersistenceAndRepositoryTest {
             CompletableFuture<ProcessedStripeEvent> future1 = CompletableFuture.supplyAsync(() -> {
                 ProcessedStripeEvent event = new ProcessedStripeEvent();
                 event.setEventId(sharedEventId);
-                return processedStripeEventRepository.save(event);
+                ProcessedStripeEvent saved = processedStripeEventRepository.save(event);
+                processedStripeEventRepository.flush(); // Force immediate DB write
+                return saved;
             }, executor);
 
             CompletableFuture<ProcessedStripeEvent> future2 = CompletableFuture.supplyAsync(() -> {
                 ProcessedStripeEvent event = new ProcessedStripeEvent();
                 event.setEventId(sharedEventId); // Same eventId
-                return processedStripeEventRepository.save(event);
+                ProcessedStripeEvent saved = processedStripeEventRepository.save(event);
+                processedStripeEventRepository.flush(); // Force immediate DB write
+                return saved;
             }, executor);
 
             // Then - one should succeed, one should fail

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
+import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
@@ -72,6 +74,8 @@ public class AttemptServiceImpl implements AttemptService {
     private final CorrectAnswerExtractor correctAnswerExtractor;
     private final SafeQuestionContentBuilder safeQuestionContentBuilder;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
+    private final uk.gegc.quizmaker.features.result.application.QuizAnalyticsService quizAnalyticsService;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -406,12 +410,22 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Cannot complete attempt with status " + attempt.getStatus());
         }
 
-        double totalScore = scoringService.computeAndPersistScore(attempt);
+        scoringService.computeAndPersistScore(attempt);
         long correctCount = scoringService.countCorrect(attempt);
         int totalQ = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         attempt.setStatus(AttemptStatus.COMPLETED);
-        attempt.setCompletedAt(Instant.now());
+        Instant completedAt = Instant.now();
+        attempt.setCompletedAt(completedAt);
+
+        // Publish event for analytics snapshot update (and future subscribers)
+        eventPublisher.publishEvent(new AttemptCompletedEvent(
+                this,
+                attempt.getId(),
+                attempt.getQuiz().getId(),
+                attempt.getUser().getId(),
+                completedAt
+        ));
 
         return attemptMapper.toResultDto(attempt, correctCount, totalQ);
     }
@@ -425,32 +439,17 @@ public class AttemptServiceImpl implements AttemptService {
         // Access control: allow access if quiz is public, user is owner, or user has moderation permissions
         checkQuizAccessPermission(quiz, authentication);
 
-        List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
-        Object[] agg = rows.isEmpty()
-                ? new Object[]{0L, null, null, null}
-                : rows.get(0);
+        // Use analytics snapshot for summary statistics (fast path)
+        var snapshot = quizAnalyticsService.getOrComputeSnapshot(quizId);
+        long attemptsCount = snapshot.getAttemptsCount();
+        double averageScore = snapshot.getAverageScore();
+        double bestScore = snapshot.getBestScore();
+        double worstScore = snapshot.getWorstScore();
+        double passRate = snapshot.getPassRate();
 
-        long attemptsCount = ((Number) agg[0]).longValue();
-        double averageScore = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
-        double bestScore = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
-        double worstScore = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
-
-        List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
-                .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
-                .toList();
-
-        long passing = completed.stream()
-                .filter(a -> {
-                    long correct = a.getAnswers().stream()
-                            .filter(ans -> Boolean.TRUE.equals(ans.getIsCorrect()))
-                            .count();
-                    int totalQ = (int) questionRepository.countByQuizId_Id(quiz.getId());
-                    return totalQ > 0 && ((double) correct / totalQ) >= 0.5;
-                })
-                .count();
-        double passRate = attemptsCount > 0
-                ? ((double) passing / attemptsCount) * 100.0
-                : 0.0;
+        // Compute per-question stats from raw data (not cached in snapshot)
+        // Use eager loading to avoid N+1 when accessing answers
+        List<Attempt> completed = attemptRepository.findCompletedWithAnswersByQuizId(quizId);
 
         List<QuestionStatsDto> questionStats = questionRepository.findAllByQuizId_IdOrderById(quiz.getId()).stream()
                 .map(q -> {

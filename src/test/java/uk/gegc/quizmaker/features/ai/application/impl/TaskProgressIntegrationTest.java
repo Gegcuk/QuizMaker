@@ -1,15 +1,13 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
@@ -61,10 +59,10 @@ class TaskProgressIntegrationTest {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
-    @MockBean
+    @MockitoBean
     private StructuredAiClient structuredAiClient;
 
-    @MockBean
+    @MockitoBean
     private ApplicationEventPublisher eventPublisher;
 
     private User testUser;

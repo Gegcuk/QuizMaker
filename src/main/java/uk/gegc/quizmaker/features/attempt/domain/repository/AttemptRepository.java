@@ -68,6 +68,16 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
 
     List<Attempt> findByQuiz_Id(UUID quizId);
 
+    @Query("""
+            SELECT DISTINCT a
+            FROM Attempt a
+            LEFT JOIN FETCH a.answers ans
+            LEFT JOIN FETCH ans.question q
+            WHERE a.quiz.id = :quizId
+              AND a.status = 'COMPLETED'
+            """)
+    List<Attempt> findCompletedWithAnswersByQuizId(@Param("quizId") UUID quizId);
+
     @EntityGraph(attributePaths = {
             "answers",
             "answers.question",

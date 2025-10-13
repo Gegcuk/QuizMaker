@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -73,6 +74,9 @@ class QuizControllerGenerateFromTextTest {
     private DocumentRepository documentRepository;
 
     @Autowired
+    private DocumentChunkRepository documentChunkRepository;
+
+    @Autowired
     private uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository jobRepository;
 
     private GenerateQuizFromTextRequest validRequest;
@@ -80,15 +84,18 @@ class QuizControllerGenerateFromTextTest {
     @BeforeEach
     void setUp() {
         // Clean up existing data first - need to handle foreign key constraints
+        // Use deleteAllInBatch() to bypass optimistic locking checks (avoids issues with stale entities)
         // Delete generation jobs first as they reference users (FK on username)
-        jobRepository.deleteAll();
+        jobRepository.deleteAllInBatch();
         // Then balances (may reference users)
-        balanceRepository.deleteAll();
-        // Delete documents before users to avoid FK violations
-        documentRepository.deleteAll();
-        userRepository.deleteAll();
-        roleRepository.deleteAll();
-        permissionRepository.deleteAll();
+        balanceRepository.deleteAllInBatch();
+        // Delete document chunks before documents (FK constraint)
+        documentChunkRepository.deleteAllInBatch();
+        documentRepository.deleteAllInBatch();
+        // Finally delete users and roles/permissions
+        userRepository.deleteAllInBatch();
+        roleRepository.deleteAllInBatch();
+        permissionRepository.deleteAllInBatch();
 
         // Create billing permissions
         Permission billingReadPermission = new Permission();
