@@ -11,9 +11,11 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.features.attempt.api.dto.AnswerReviewDto;
-import uk.gegc.quizmaker.features.attempt.api.dto.AttemptReviewDto;
+import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.exception.AttemptNotCompletedException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -26,6 +28,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AttemptController.class)
@@ -444,6 +447,181 @@ class AttemptControllerReviewTest {
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/answer-key", attemptId)
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ========== Tests verifying existing endpoints remain safe (no leaks) ==========
+
+    @Test
+    @DisplayName("GET /api/v1/attempts/{id}/current-question: does not leak correct answers")
+    @WithMockUser(username = "testuser")
+    void getCurrentQuestion_doesNotLeakCorrectAnswers() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        
+        ObjectNode safeContent = objectMapper.createObjectNode();
+        ArrayNode options = objectMapper.createArrayNode();
+        ObjectNode option = objectMapper.createObjectNode();
+        option.put("id", "opt_1");
+        option.put("text", "Paris");
+        // NOTE: No "correct" field in safe content
+        options.add(option);
+        safeContent.set("options", options);
+
+        QuestionForAttemptDto safeQuestion = new QuestionForAttemptDto();
+        safeQuestion.setId(UUID.randomUUID());
+        safeQuestion.setType(QuestionType.MCQ_SINGLE);
+        safeQuestion.setDifficulty(Difficulty.MEDIUM);
+        safeQuestion.setQuestionText("What is the capital of France?");
+        safeQuestion.setSafeContent(safeContent);
+
+        CurrentQuestionDto currentQuestion = new CurrentQuestionDto(
+                safeQuestion,
+                1,
+                5,
+                AttemptStatus.IN_PROGRESS
+        );
+
+        when(attemptService.getCurrentQuestion(eq("testuser"), eq(attemptId)))
+                .thenReturn(currentQuestion);
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.question").exists())
+                .andExpect(jsonPath("$.question.safeContent").exists())
+                .andExpect(jsonPath("$.question.safeContent.options[0].id").value("opt_1"))
+                .andExpect(jsonPath("$.question.safeContent.options[0].text").value("Paris"))
+                // Verify NO "correct" field is leaked
+                .andExpect(jsonPath("$.question.safeContent.options[0].correct").doesNotExist())
+                // Verify NO "correctAnswer" or "userResponse" fields
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist())
+                .andExpect(jsonPath("$.userResponse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: does not leak correct answers or user response content")
+    @WithMockUser(username = "testuser")
+    void submitAnswer_doesNotLeakAnswers() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID questionId = UUID.randomUUID();
+        
+        String requestBody = """
+                {
+                    "questionId": "%s",
+                    "response": {"selectedOptionId": "opt_1"}
+                }
+                """.formatted(questionId);
+
+        AnswerSubmissionDto submissionDto = new AnswerSubmissionDto(
+                UUID.randomUUID(),
+                questionId,
+                true,
+                1.0,
+                Instant.now(),
+                null  // nextQuestion
+        );
+
+        when(attemptService.submitAnswer(eq("testuser"), eq(attemptId), any()))
+                .thenReturn(submissionDto);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerId").exists())
+                .andExpect(jsonPath("$.questionId").value(questionId.toString()))
+                .andExpect(jsonPath("$.isCorrect").value(true))
+                .andExpect(jsonPath("$.score").value(1.0))
+                // Verify NO "correctAnswer" field is leaked
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist())
+                // Verify NO "userResponse" field is leaked (only isCorrect/score)
+                .andExpect(jsonPath("$.userResponse").doesNotExist())
+                .andExpect(jsonPath("$.response").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/complete: does not leak correct answers or user responses")
+    @WithMockUser(username = "testuser")
+    void completeAttempt_doesNotLeakAnswers() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID quizId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        AnswerSubmissionDto answerSubmission = new AnswerSubmissionDto(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                true,
+                1.0,
+                Instant.now(),
+                null
+        );
+
+        AttemptResultDto resultDto = new AttemptResultDto(
+                attemptId,
+                quizId,
+                userId,
+                Instant.now().minusSeconds(300),
+                Instant.now(),
+                5.0,
+                5,
+                5,
+                List.of(answerSubmission)
+        );
+
+        when(attemptService.completeAttempt(eq("testuser"), eq(attemptId)))
+                .thenReturn(resultDto);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/attempts/{attemptId}/complete", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attemptId").value(attemptId.toString()))
+                .andExpect(jsonPath("$.totalScore").value(5.0))
+                .andExpect(jsonPath("$.answers").isArray())
+                .andExpect(jsonPath("$.answers[0].isCorrect").value(true))
+                .andExpect(jsonPath("$.answers[0].score").value(1.0))
+                // Verify NO "correctAnswer" or detailed "userResponse" leaked
+                .andExpect(jsonPath("$.answers[0].correctAnswer").doesNotExist())
+                .andExpect(jsonPath("$.answers[0].userResponse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/attempts/{id}: does not leak correct answers or user responses")
+    @WithMockUser(username = "testuser")
+    void getAttemptDetails_doesNotLeakAnswers() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+
+        AttemptDetailsDto detailsDto = new AttemptDetailsDto(
+                attemptId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                null,
+                AttemptStatus.IN_PROGRESS,
+                AttemptMode.ALL_AT_ONCE,
+                List.of()  // No detailed answers in AttemptDetailsDto
+        );
+
+        when(attemptService.getAttemptDetail(eq("testuser"), eq(attemptId)))
+                .thenReturn(detailsDto);
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/attempts/{attemptId}", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attemptId").value(attemptId.toString()))
+                // Verify NO "correctAnswer" or "userResponse" fields in response
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist())
+                .andExpect(jsonPath("$.userResponse").doesNotExist());
     }
 }
 

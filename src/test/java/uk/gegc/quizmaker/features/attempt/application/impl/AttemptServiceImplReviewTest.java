@@ -243,6 +243,48 @@ class AttemptServiceImplReviewTest {
     }
 
     @Test
+    @DisplayName("getAttemptReview: when attempt is PAUSED then throws AttemptNotCompletedException")
+    void getAttemptReview_paused_throwsAttemptNotCompleted() {
+        // Given
+        testAttempt.setStatus(AttemptStatus.PAUSED);
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+
+        // When & Then
+        assertThatThrownBy(() -> service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                true
+        ))
+                .isInstanceOf(AttemptNotCompletedException.class)
+                .hasMessageContaining("not completed yet");
+    }
+
+    @Test
+    @DisplayName("getAttemptReview: when attempt is ABANDONED then throws AttemptNotCompletedException")
+    void getAttemptReview_abandoned_throwsAttemptNotCompleted() {
+        // Given
+        testAttempt.setStatus(AttemptStatus.ABANDONED);
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+
+        // When & Then
+        assertThatThrownBy(() -> service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                true
+        ))
+                .isInstanceOf(AttemptNotCompletedException.class)
+                .hasMessageContaining("not completed yet");
+    }
+
+    @Test
     @DisplayName("getAttemptReview: when attempt not found then throws ResourceNotFoundException")
     void getAttemptReview_notFound_throwsResourceNotFound() {
         // Given
@@ -491,6 +533,179 @@ class AttemptServiceImplReviewTest {
         assertThat(answerReview.userResponse()).isNull();  // No user responses
         assertThat(answerReview.correctAnswer()).isNotNull();  // Has correct answers
         assertThat(answerReview.questionSafeContent()).isNotNull();  // Has question context
+    }
+
+    @Test
+    @DisplayName("getAttemptReview: when zero answers then returns empty list")
+    void getAttemptReview_zeroAnswers_returnsEmptyList() {
+        // Given
+        testAttempt.setAnswers(new ArrayList<>());  // No answers
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(5L);
+
+        // When
+        AttemptReviewDto result = service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                true
+        );
+
+        // Then
+        assertThat(result.answers()).isEmpty();
+        assertThat(result.correctCount()).isEqualTo(0);
+        assertThat(result.totalQuestions()).isEqualTo(5);
+        assertThat(result.totalScore()).isEqualTo(1.0);  // Still has the score from attempt
+
+        verify(correctAnswerExtractor, never()).extractCorrectAnswer(any());
+    }
+
+    @Test
+    @DisplayName("getAttemptReview: partial answers with mixed correctness")
+    void getAttemptReview_partialAnswers_mixedCorrectness() throws Exception {
+        // Given
+        Answer wrongAnswer = new Answer();
+        wrongAnswer.setId(UUID.randomUUID());
+        wrongAnswer.setQuestion(testQuestion);
+        wrongAnswer.setResponse("{\"selectedOptionId\":\"opt_2\"}");
+        wrongAnswer.setIsCorrect(false);
+        wrongAnswer.setScore(0.0);
+        wrongAnswer.setAnsweredAt(Instant.now().plusSeconds(1));
+
+        testAttempt.setAnswers(List.of(testAnswer, wrongAnswer));  // 1 correct, 1 wrong
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(5L);  // 5 total, only 2 answered
+
+        JsonNode userResponse1 = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
+        JsonNode userResponse2 = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_2\"}");
+        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponse1);
+        when(objectMapper.readTree(wrongAnswer.getResponse())).thenReturn(userResponse2);
+
+        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
+        when(correctAnswerExtractor.extractCorrectAnswer(any())).thenReturn(correctAnswer);
+
+        JsonNode safeContent = realObjectMapper.readTree("{}");
+        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
+                .thenReturn(safeContent);
+
+        // When
+        AttemptReviewDto result = service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                true
+        );
+
+        // Then
+        assertThat(result.answers()).hasSize(2);  // Partial answers
+        assertThat(result.correctCount()).isEqualTo(1);  // Only 1 correct
+        assertThat(result.totalQuestions()).isEqualTo(5);  // But quiz has 5 total
+        
+        // Verify mixed correctness
+        assertThat(result.answers().get(0).isCorrect()).isTrue();
+        assertThat(result.answers().get(1).isCorrect()).isFalse();
+    }
+
+    @Test
+    @DisplayName("getAttemptReview: malformed Answer.response JSON gracefully handled")
+    void getAttemptReview_malformedAnswerResponse_gracefullyHandled() throws Exception {
+        // Given
+        testAnswer.setResponse("{invalid json");  // Malformed JSON
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
+
+        // Mock ObjectMapper to throw JsonProcessingException for malformed JSON
+        when(objectMapper.readTree("{invalid json"))
+                .thenThrow(new com.fasterxml.jackson.core.JsonParseException(null, "Unexpected character"));
+
+        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
+        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
+
+        JsonNode safeContent = realObjectMapper.readTree("{}");
+        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
+                .thenReturn(safeContent);
+
+        // Mock error node creation for graceful error handling
+        when(objectMapper.createObjectNode()).thenReturn(realObjectMapper.createObjectNode());
+
+        // When
+        AttemptReviewDto result = service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                true
+        );
+
+        // Then
+        assertThat(result.answers()).hasSize(1);
+        AnswerReviewDto answerReview = result.answers().get(0);
+        
+        // User response should have error message instead of throwing
+        assertThat(answerReview.userResponse()).isNotNull();
+        assertThat(answerReview.userResponse().has("error")).isTrue();
+        assertThat(answerReview.userResponse().get("error").asText())
+                .contains("Failed to parse user response");
+        
+        // But other fields should still work
+        assertThat(answerReview.correctAnswer()).isNotNull();
+        assertThat(answerReview.isCorrect()).isTrue();
+    }
+
+    @Test
+    @DisplayName("getAttemptReview: malformed Question.content JSON gracefully handled")
+    void getAttemptReview_malformedQuestionContent_gracefullyHandled() throws Exception {
+        // Given
+        testQuestion.setContent("{invalid json");  // Malformed JSON
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(attemptRepository.findByIdWithAnswersAndQuestion(testAttempt.getId()))
+                .thenReturn(Optional.of(testAttempt));
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
+
+        // Mock JSON parsing for user response
+        JsonNode userResponseJson = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
+        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponseJson);
+
+        // Mock extractor to throw for malformed content
+        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion))
+                .thenThrow(new IllegalArgumentException("Failed to parse question content"));
+
+        // Mock error node creation for graceful error handling
+        when(objectMapper.createObjectNode()).thenReturn(realObjectMapper.createObjectNode());
+
+        // When
+        AttemptReviewDto result = service.getAttemptReview(
+                "testuser",
+                testAttempt.getId(),
+                true,
+                true,
+                false  // Don't include question context to avoid safe content builder issues
+        );
+
+        // Then
+        assertThat(result.answers()).hasSize(1);
+        AnswerReviewDto answerReview = result.answers().get(0);
+        
+        // Correct answer should have error message instead of throwing
+        assertThat(answerReview.correctAnswer()).isNotNull();
+        assertThat(answerReview.correctAnswer().has("error")).isTrue();
+        assertThat(answerReview.correctAnswer().get("error").asText())
+                .contains("Failed to extract correct answer");
+        
+        // But other fields should still work
+        assertThat(answerReview.userResponse()).isNotNull();
+        assertThat(answerReview.isCorrect()).isTrue();
     }
 
     @Test
