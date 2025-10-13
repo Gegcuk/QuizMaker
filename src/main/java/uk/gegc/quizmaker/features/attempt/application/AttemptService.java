@@ -2,11 +2,14 @@ package uk.gegc.quizmaker.features.attempt.application;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
+import uk.gegc.quizmaker.shared.exception.AttemptNotCompletedException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -93,4 +96,37 @@ public interface AttemptService {
      * Returns 404 if the attempt does not belong to the quiz to avoid information leakage.
      */
     AttemptStatsDto getAttemptStatsForQuizOwner(String username, UUID quizId, UUID attemptId);
+
+    /**
+     * Get a comprehensive review of a completed attempt with user answers and correct answers.
+     * Only available to the attempt owner and only for completed attempts.
+     *
+     * @param username              the username of the authenticated user
+     * @param attemptId             the UUID of the attempt to review
+     * @param includeUserAnswers    whether to include user's submitted responses
+     * @param includeCorrectAnswers whether to include correct answer payloads
+     * @param includeQuestionContext whether to include safe question context for rendering
+     * @return AttemptReviewDto with detailed answer review data
+     * @throws ResourceNotFoundException if the attempt is not found
+     * @throws AccessDeniedException if the user doesn't own the attempt
+     * @throws AttemptNotCompletedException if the attempt is not completed
+     */
+    AttemptReviewDto getAttemptReview(String username, UUID attemptId,
+                                      boolean includeUserAnswers,
+                                      boolean includeCorrectAnswers,
+                                      boolean includeQuestionContext);
+
+    /**
+     * Get an answer key for a completed attempt (correct answers only, no user responses).
+     * This is a convenience method that calls getAttemptReview with fixed flags:
+     * includeUserAnswers=false, includeCorrectAnswers=true, includeQuestionContext=true.
+     *
+     * @param username  the username of the authenticated user
+     * @param attemptId the UUID of the attempt
+     * @return AttemptReviewDto with correct answers only
+     * @throws ResourceNotFoundException if the attempt is not found
+     * @throws AccessDeniedException if the user doesn't have permission
+     * @throws AttemptNotCompletedException if the attempt is not completed
+     */
+    AttemptReviewDto getAttemptAnswerKey(String username, UUID attemptId);
 }

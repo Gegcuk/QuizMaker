@@ -17,7 +17,28 @@ public class SafeQuestionContentBuilder {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * Build safe content without correct answers.
+     * For attempt contexts (during quiz taking), shuffling provides variety.
+     * For review contexts (post-completion), deterministic output ensures consistency.
+     *
+     * @param type            the question type
+     * @param originalContent the raw question content JSON
+     * @return safe JSON content without answers
+     */
     public JsonNode buildSafeContent(QuestionType type, String originalContent) {
+        return buildSafeContent(type, originalContent, false);
+    }
+
+    /**
+     * Build safe content without correct answers with optional deterministic mode.
+     *
+     * @param type            the question type
+     * @param originalContent the raw question content JSON
+     * @param deterministic   if true, avoid randomization (for review/caching); if false, shuffle where applicable (for attempt)
+     * @return safe JSON content without answers
+     */
+    public JsonNode buildSafeContent(QuestionType type, String originalContent, boolean deterministic) {
         try {
             JsonNode root = MAPPER.readTree(originalContent);
 
@@ -28,8 +49,8 @@ public class SafeQuestionContentBuilder {
                 case OPEN -> buildSafeOpenContent();
                 case COMPLIANCE -> buildSafeComplianceContent(root);
                 case HOTSPOT -> buildSafeHotspotContent(root);
-                case ORDERING -> buildSafeOrderingContent(root);
-                case MATCHING -> buildSafeMatchingContent(root);
+                case ORDERING -> buildSafeOrderingContent(root, deterministic);
+                case MATCHING -> buildSafeMatchingContent(root, deterministic);
             };
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to build safe content for question", e);
@@ -114,14 +135,17 @@ public class SafeQuestionContentBuilder {
         return safe;
     }
 
-    private JsonNode buildSafeOrderingContent(JsonNode root) {
+    private JsonNode buildSafeOrderingContent(JsonNode root, boolean deterministic) {
         ObjectNode safe = MAPPER.createObjectNode();
         ArrayNode items = MAPPER.createArrayNode();
 
-        // 🔀 Shuffle items for user to prevent pattern recognition
         List<JsonNode> itemList = new ArrayList<>();
         root.get("items").forEach(itemList::add);
-        Collections.shuffle(itemList);
+        
+        // 🔀 Shuffle items for user to prevent pattern recognition (only during attempt, not review)
+        if (!deterministic) {
+            Collections.shuffle(itemList);
+        }
 
         itemList.forEach(item -> {
             ObjectNode safeItem = MAPPER.createObjectNode();
@@ -134,7 +158,7 @@ public class SafeQuestionContentBuilder {
         return safe;
     }
 
-    private JsonNode buildSafeMatchingContent(JsonNode root) {
+    private JsonNode buildSafeMatchingContent(JsonNode root, boolean deterministic) {
         ObjectNode safe = MAPPER.createObjectNode();
         ArrayNode left = MAPPER.createArrayNode();
         ArrayNode right = MAPPER.createArrayNode();
@@ -147,10 +171,12 @@ public class SafeQuestionContentBuilder {
             left.add(safeLeft);
         });
 
-        // Right side options (shuffled to avoid positional hints)
+        // Right side options (shuffled to avoid positional hints during attempt, stable for review)
         List<JsonNode> rightList = new ArrayList<>();
         root.withArray("right").forEach(rightList::add);
-        Collections.shuffle(rightList);
+        if (!deterministic) {
+            Collections.shuffle(rightList);
+        }
         rightList.forEach(node -> {
             ObjectNode safeRight = MAPPER.createObjectNode();
             safeRight.put("id", node.get("id").asInt());
