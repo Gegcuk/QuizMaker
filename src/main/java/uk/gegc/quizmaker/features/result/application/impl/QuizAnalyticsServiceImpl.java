@@ -1,0 +1,158 @@
+package uk.gegc.quizmaker.features.result.application.impl;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionPhase;
+import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.result.application.QuizAnalyticsService;
+import uk.gegc.quizmaker.features.result.domain.model.QuizAnalyticsSnapshot;
+import uk.gegc.quizmaker.features.result.domain.repository.QuizAnalyticsSnapshotRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Implementation of {@link QuizAnalyticsService}.
+ * <p>
+ * Manages quiz analytics snapshots by:
+ * <ul>
+ *   <li>Listening to {@link AttemptCompletedEvent} and triggering snapshot updates</li>
+ *   <li>Recomputing snapshots from raw attempt/answer data</li>
+ *   <li>Providing cached snapshots for fast reads</li>
+ * </ul>
+ * </p>
+ * <p>
+ * Uses optimistic locking (@Version) to handle concurrent updates safely.
+ * </p>
+ */
+@Slf4j
+@Service
+public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
+
+    private final QuizAnalyticsSnapshotRepository snapshotRepository;
+    private final AttemptRepository attemptRepository;
+    private final QuestionRepository questionRepository;
+    private final QuizRepository quizRepository;
+    
+    // Self-reference to call @Transactional(REQUIRES_NEW) methods through proxy
+    private final QuizAnalyticsService self;
+
+    public QuizAnalyticsServiceImpl(
+            QuizAnalyticsSnapshotRepository snapshotRepository,
+            AttemptRepository attemptRepository,
+            QuestionRepository questionRepository,
+            QuizRepository quizRepository,
+            @Lazy QuizAnalyticsService self
+    ) {
+        this.snapshotRepository = snapshotRepository;
+        this.attemptRepository = attemptRepository;
+        this.questionRepository = questionRepository;
+        this.quizRepository = quizRepository;
+        this.self = self;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public QuizAnalyticsSnapshot recomputeSnapshot(UUID quizId) {
+        log.debug("Recomputing analytics snapshot for quiz {}", quizId);
+
+        // Verify quiz exists
+        quizRepository.findById(quizId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+
+        // Get aggregate data (count, avg, max, min) from completed attempts
+        List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
+        Object[] agg = rows.isEmpty()
+                ? new Object[]{0L, null, null, null}
+                : rows.get(0);
+
+        long attemptsCount = ((Number) agg[0]).longValue();
+        double averageScore = agg[1] != null ? ((Number) agg[1]).doubleValue() : 0.0;
+        double bestScore = agg[2] != null ? ((Number) agg[2]).doubleValue() : 0.0;
+        double worstScore = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
+
+        // Compute pass rate: ratio of attempts with ≥50% correct answers
+        List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
+                .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
+                .toList();
+
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(quizId);
+
+        long passing = completed.stream()
+                .filter(attempt -> {
+                    if (totalQuestions == 0) {
+                        return false;
+                    }
+                    long correctCount = attempt.getAnswers().stream()
+                            .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
+                            .count();
+                    return ((double) correctCount / totalQuestions) >= 0.5;
+                })
+                .count();
+
+        double passRate = attemptsCount > 0
+                ? ((double) passing / attemptsCount) * 100.0
+                : 0.0;
+
+        // Find or create snapshot
+        QuizAnalyticsSnapshot snapshot = snapshotRepository.findByQuizId(quizId)
+                .orElse(new QuizAnalyticsSnapshot());
+
+        snapshot.setQuizId(quizId);
+        snapshot.setAttemptsCount(attemptsCount);
+        snapshot.setAverageScore(averageScore);
+        snapshot.setBestScore(bestScore);
+        snapshot.setWorstScore(worstScore);
+        snapshot.setPassRate(passRate);
+        snapshot.setUpdatedAt(Instant.now());
+
+        QuizAnalyticsSnapshot saved = snapshotRepository.save(snapshot);
+
+        log.info("Updated analytics snapshot for quiz {}: {} attempts, avg={}, pass rate={}%",
+                quizId, attemptsCount, averageScore, passRate);
+
+        return saved;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public QuizAnalyticsSnapshot getOrComputeSnapshot(UUID quizId) {
+        return snapshotRepository.findByQuizId(quizId)
+                .orElseGet(() -> {
+                    log.debug("Snapshot not found for quiz {}, triggering recomputation", quizId);
+                    // Call through proxy to start new transaction (REQUIRES_NEW)
+                    return self.recomputeSnapshot(quizId);
+                });
+    }
+
+    @Override
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Async
+    public void handleAttemptCompleted(AttemptCompletedEvent event) {
+        log.debug("Handling attempt completed event (after commit) for attempt {} on quiz {}",
+                event.getAttemptId(), event.getQuizId());
+
+        try {
+            // Recompute in new transaction (REQUIRES_NEW already set on the method)
+            recomputeSnapshot(event.getQuizId());
+        } catch (Exception e) {
+            log.error("Failed to update analytics snapshot for quiz {} after attempt {} completion",
+                    event.getQuizId(), event.getAttemptId(), e);
+            // Don't rethrow - snapshot update failure should not break attempt completion
+            // (and it's async anyway, so there's no caller to rethrow to)
+        }
+    }
+}
+
