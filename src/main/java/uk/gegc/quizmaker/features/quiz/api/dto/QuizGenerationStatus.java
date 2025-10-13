@@ -20,11 +20,20 @@ public record QuizGenerationStatus(
         @Schema(description = "Number of chunks processed so far", example = "5")
         Integer processedChunks,
 
-        @Schema(description = "Progress percentage (0-100)", example = "50.0")
+        @Schema(description = "Progress percentage (0-100). Computed from task counters when available, otherwise from chunk counters.", example = "50.0")
         Double progressPercentage,
 
-        @Schema(description = "Currently processing chunk", example = "Chapter 3 - Introduction")
+        @Schema(description = "Currently processing chunk or status message", example = "Chunk 2/5 · MCQ_SINGLE · done")
         String currentChunk,
+
+        @Schema(description = "Total number of question type tasks to process", example = "15")
+        Integer totalTasks,
+
+        @Schema(description = "Number of completed question type tasks", example = "8")
+        Integer completedTasks,
+
+        @Schema(description = "Last completed question type", example = "MCQ_SINGLE")
+        String lastCompletedType,
 
         @Schema(description = "Estimated completion time", example = "2024-01-15T14:30:00")
         LocalDateTime estimatedCompletion,
@@ -91,6 +100,9 @@ public record QuizGenerationStatus(
                 job.getProcessedChunks(),
                 job.getProgressPercentage(),
                 job.getCurrentChunk(),
+                job.getTotalTasks(),
+                job.getCompletedTasks(),
+                null, // lastCompletedType - can be extracted from currentChunk if needed
                 job.getEstimatedCompletion(),
                 job.getErrorMessage(),
                 job.getTotalQuestionsGenerated(),

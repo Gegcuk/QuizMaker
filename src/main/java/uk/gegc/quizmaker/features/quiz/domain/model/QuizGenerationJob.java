@@ -110,6 +110,16 @@ public class QuizGenerationJob {
     @Column(name = "first_ai_call_at")
     private LocalDateTime firstAiCallAt;
 
+    @Column(name = "total_tasks")
+    private Integer totalTasks;
+
+    @Column(name = "completed_tasks")
+    private Integer completedTasks = 0;
+
+    @Version
+    @Column(name = "version")
+    private Long version;
+
     @PrePersist
     protected void onCreate() {
         if (startedAt == null) {
@@ -136,6 +146,9 @@ public class QuizGenerationJob {
         if (billingState == null) {
             billingState = BillingState.NONE;
         }
+        if (completedTasks == null) {
+            completedTasks = 0;
+        }
     }
 
     @PreUpdate
@@ -149,21 +162,41 @@ public class QuizGenerationJob {
             }
         }
 
-        // Update progress percentage
-        if (totalChunks != null && totalChunks > 0) {
+        // Update progress percentage - prefer task counters when available
+        if (totalTasks != null && totalTasks > 0) {
+            progressPercentage = (double) completedTasks / totalTasks * 100.0;
+        } else if (totalChunks != null && totalChunks > 0) {
             progressPercentage = (double) processedChunks / totalChunks * 100.0;
         }
     }
 
     /**
-     * Update progress for the generation job
+     * Update progress for the generation job (chunk-level)
      */
     public void updateProgress(int processedChunks, String currentChunk) {
         this.processedChunks = processedChunks;
         this.currentChunk = currentChunk;
 
-        if (totalChunks != null && totalChunks > 0) {
+        // Compute progress percentage using task counters when available
+        if (totalTasks != null && totalTasks > 0) {
+            this.progressPercentage = (double) completedTasks / totalTasks * 100.0;
+        } else if (totalChunks != null && totalChunks > 0) {
             this.progressPercentage = (double) processedChunks / totalChunks * 100.0;
+        }
+    }
+
+    /**
+     * Update task progress by incrementing completed tasks
+     * @param completedDelta Number of tasks completed (usually 1)
+     * @param statusMessage Human-readable status message (e.g., "Chunk 1/4 · MCQ_SINGLE · done")
+     */
+    public void updateTaskProgressIncrement(int completedDelta, String statusMessage) {
+        this.completedTasks = (this.completedTasks != null ? this.completedTasks : 0) + completedDelta;
+        this.currentChunk = statusMessage;
+
+        // Compute progress percentage using task counters
+        if (totalTasks != null && totalTasks > 0) {
+            this.progressPercentage = (double) completedTasks / totalTasks * 100.0;
         }
     }
 
@@ -176,7 +209,12 @@ public class QuizGenerationJob {
         this.totalQuestionsGenerated = totalQuestions;
         this.completedAt = LocalDateTime.now();
         this.progressPercentage = 100.0;
-        // Ensure processedChunks equals totalChunks to maintain consistency with @PreUpdate
+        
+        // Ensure completedTasks equals totalTasks when available
+        if (this.totalTasks != null) {
+            this.completedTasks = this.totalTasks;
+        }
+        // Ensure processedChunks equals totalChunks to maintain consistency
         if (this.totalChunks != null) {
             this.processedChunks = this.totalChunks;
         }

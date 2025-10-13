@@ -7,10 +7,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
@@ -36,7 +34,6 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
-import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -119,10 +116,20 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             progress.setTotalChunks(chunks.size());
 
-            // Update job with total chunks in a short transaction
-            updateJobTotalChunks(jobId, chunks.size());
+            // Compute total tasks: each chunk × number of requested question types
+            int totalTasks = computeTotalTasks(chunks.size(), request.questionsPerType());
+            progress.setTotalTasks(totalTasks);
 
-            log.info("Processing {} chunks for document {}", chunks.size(), request.documentId());
+            // Update job with total chunks and total tasks in a short transaction
+            updateJobTotalChunksAndTasks(jobId, chunks.size(), totalTasks);
+
+            // Count actual requested types (count > 0)
+            long requestedTypeCount = request.questionsPerType().values().stream()
+                    .filter(count -> count != null && count > 0)
+                    .count();
+            
+            log.info("Processing {} chunks for document {} with {} total tasks ({} question types requested)", 
+                    chunks.size(), request.documentId(), totalTasks, requestedTypeCount);
 
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
@@ -173,17 +180,17 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     
                     processedChunks++;
 
-                    // Update progress in database
-                    freshJob.updateProgress(processedChunks, "Processing chunk " + processedChunks + " of " + chunks.size());
-                    jobRepository.save(freshJob);
+                    // Update chunk progress atomically (doesn't touch task-based progressPercentage)
+                    updateJobChunkProgressSafely(jobId, processedChunks, 
+                        String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
 
                 } catch (Exception e) {
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
 
-                    // Update job with error
-                    freshJob.updateProgress(processedChunks, "Error in chunk " + chunkIndex);
-                    jobRepository.save(freshJob);
+                    // Update chunk progress with error atomically
+                    updateJobChunkProgressSafely(jobId, processedChunks, 
+                        String.format("Error in chunk %d", chunkIndex));
                 }
             }
 
@@ -198,9 +205,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
                         jobId, missingTypes);
                 
-                // Update job status to show redistribution phase
-                freshJob.updateProgress(chunks.size(), "Analyzing coverage: " + missingTypes.size() + " question types need redistribution");
-                jobRepository.save(freshJob);
+                // Update job status to show redistribution phase (atomic, doesn't touch task-based progress)
+                updateJobChunkProgressSafely(jobId, chunks.size(), 
+                    String.format("Analyzing coverage: %d question types need redistribution", missingTypes.size()));
                 
                 // Attempt to generate missing types from successful chunks
                 redistributeMissingQuestions(
@@ -214,15 +221,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         request.language()
                 );
                         
-                // Update progress after redistribution
+                // Update progress after redistribution (atomic)
                 String finalCoverage = formatCoverageSummary(generatedByType, requestedByType);
-                freshJob.updateProgress(chunks.size(), "Generation completed with redistribution: " + finalCoverage);
-                jobRepository.save(freshJob);
+                updateJobChunkProgressSafely(jobId, chunks.size(), 
+                    "Generation completed with redistribution: " + finalCoverage);
             } else {
-                // Update progress when no redistribution needed
+                // Update progress when no redistribution needed (atomic)
                 String coverage = formatCoverageSummary(generatedByType, requestedByType);
-                freshJob.updateProgress(chunks.size(), "Generation completed successfully: " + coverage);
-                jobRepository.save(freshJob);
+                updateJobChunkProgressSafely(jobId, chunks.size(), 
+                    "Generation completed successfully: " + coverage);
             }
 
             log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks. Coverage: {}",
@@ -324,21 +331,39 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     Integer questionCount = entry.getValue();
 
                     if (questionCount > 0) {
-                        List<Question> questions = generateQuestionsByTypeWithFallbacks(
-                                chunk.getContent(),
-                                questionType,
-                                questionCount,
-                                difficulty,
-                                chunk.getChunkIndex(),
-                                jobId,
-                                language
-                        );
-                        
-                        if (!questions.isEmpty()) {
-                            allQuestions.addAll(questions);
-                        } else {
-                            chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
-                                    questionType));
+                        boolean success = false;
+                        try {
+                            List<Question> questions = generateQuestionsByTypeWithFallbacks(
+                                    chunk.getContent(),
+                                    questionType,
+                                    questionCount,
+                                    difficulty,
+                                    chunk.getChunkIndex(),
+                                    jobId,
+                                    language
+                            );
+                            
+                            if (!questions.isEmpty()) {
+                                allQuestions.addAll(questions);
+                                success = true;
+                            } else {
+                                chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
+                                        questionType));
+                            }
+                        } finally {
+                            // Increment task counter after each question type batch completes (success or failure)
+                            // This is a terminal outcome for this task
+                            if (jobId != null) {
+                                String status = success ? "done" : "failed";
+                                updateJobTaskProgressSafely(jobId, 1, 
+                                    String.format("Chunk %d · %s · %s", chunk.getChunkIndex(), questionType, status));
+                                
+                                // Update in-memory progress to keep it in sync with DB
+                                GenerationProgress jobProgress = generationProgress.get(jobId);
+                                if (jobProgress != null) {
+                                    jobProgress.incrementCompletedTasks();
+                                }
+                            }
                         }
                     }
                 }
@@ -421,7 +446,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         try {
             // Check for cancellation before LLM call
-            if (jobId != null && isJobCancelled(jobId)) {
+            if (isJobCancelled(jobId)) {
                 log.info("Job {} cancelled before LLM call, stopping question generation", jobId);
                 return new ArrayList<>();
             }
@@ -853,7 +878,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public void validateDocumentForGeneration(UUID documentId, String username) {
         Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + documentId));
@@ -1032,6 +1056,53 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
          }
      }
 
+     /**
+      * Update job task progress safely using atomic repository update.
+      * This performs a single atomic UPDATE without loading the entity.
+      * Uses TransactionTemplate to avoid self-invocation issues.
+      */
+     public void updateJobTaskProgressSafely(UUID jobId, int completedDelta, String statusMessage) {
+         if (jobId == null) {
+             return;
+         }
+         
+         try {
+             transactionTemplate.executeWithoutResult(status -> {
+                 int updated = jobRepository.incrementCompletedTasks(jobId, completedDelta, statusMessage);
+                 if (updated == 0) {
+                     log.warn("Failed to update task progress for job {} - job not found", jobId);
+                 } else {
+                     log.debug("Updated task progress for job {}: +{} tasks, status: {}", 
+                             jobId, completedDelta, statusMessage);
+                 }
+             });
+         } catch (Exception e) {
+             log.error("Failed to update task progress for job {}: {}", jobId, statusMessage, e);
+         }
+     }
+
+     /**
+      * Update chunk-level progress atomically without touching task-based percentage.
+      * Prevents stale entity saves from overwriting atomic task increments.
+      * Uses TransactionTemplate to avoid self-invocation issues.
+      */
+     public void updateJobChunkProgressSafely(UUID jobId, int processedChunks, String statusMessage) {
+         if (jobId == null) {
+             return;
+         }
+         
+         try {
+             transactionTemplate.executeWithoutResult(status -> {
+                 int updated = jobRepository.updateProcessedChunksAndStatus(jobId, processedChunks, statusMessage);
+                 if (updated == 0) {
+                     log.warn("Failed to update chunk progress for job {} - job not found", jobId);
+                 }
+             });
+         } catch (Exception e) {
+             log.error("Failed to update chunk progress for job {}: {}", jobId, statusMessage, e);
+         }
+     }
+
     /**
      * Get chunks based on the quiz scope
      */
@@ -1108,9 +1179,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     public static class GenerationProgress {
         private final AtomicInteger processedChunks = new AtomicInteger(0);
+        private final AtomicInteger completedTasks = new AtomicInteger(0);
         @Setter
         @Getter
         private int totalChunks;
+        @Setter
+        @Getter
+        private int totalTasks;
         @Setter
         @Getter
         private boolean completed = false;
@@ -1126,11 +1201,20 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             processedChunks.incrementAndGet();
         }
 
+        public void incrementCompletedTasks() {
+            completedTasks.incrementAndGet();
+        }
+
         public void addError(String error) {
             errors.add(error);
         }
 
         public double getProgressPercentage() {
+            // Prefer task counters when available
+            if (totalTasks > 0) {
+                return (double) completedTasks.get() / totalTasks * 100.0;
+            }
+            // Fall back to chunk counters
             if (totalChunks == 0) return 0.0;
             return (double) processedChunks.get() / totalChunks * 100.0;
         }
@@ -1139,11 +1223,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             return Duration.between(startTime, Instant.now());
         }
 
-        // Getters and setters
+        // Getters
         public int getProcessedChunks() {
             return processedChunks.get();
         }
 
+        public int getCompletedTasks() {
+            return completedTasks.get();
+        }
     }
 
     /**
@@ -1215,12 +1302,43 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Update job total chunks in a short transaction
      */
-    @Transactional
     public void updateJobTotalChunks(UUID jobId, int totalChunks) {
-        QuizGenerationJob job = jobRepository.findById(jobId)
-                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-        job.setTotalChunks(totalChunks);
-        jobRepository.save(job);
+        transactionTemplate.executeWithoutResult(status -> {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            job.setTotalChunks(totalChunks);
+            jobRepository.save(job);
+        });
+    }
+
+    /**
+     * Update job total chunks and total tasks in a short transaction
+     */
+    public void updateJobTotalChunksAndTasks(UUID jobId, int totalChunks, int totalTasks) {
+        transactionTemplate.executeWithoutResult(status -> {
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            job.setTotalChunks(totalChunks);
+            job.setTotalTasks(totalTasks);
+            jobRepository.save(job);
+        });
+    }
+
+    /**
+     * Compute total tasks for a generation job.
+     * Total tasks = number of chunks × number of requested question types (with count > 0)
+     */
+    private int computeTotalTasks(int chunkCount, Map<QuestionType, Integer> questionsPerType) {
+        if (questionsPerType == null || questionsPerType.isEmpty()) {
+            return chunkCount; // Default: one task per chunk
+        }
+        
+        // Count how many question types are requested (with count > 0)
+        long requestedTypes = questionsPerType.values().stream()
+                .filter(count -> count != null && count > 0)
+                .count();
+        
+        return chunkCount * (int) requestedTypes;
     }
 
     /**
@@ -1254,21 +1372,23 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Record that AI calls have started for this job (for billing on cancel).
      * This is idempotent - only sets the flag and timestamp on the first call.
+     * Uses TransactionTemplate to avoid self-invocation issues.
      */
-    @Transactional
     public void recordAiCallStarted(UUID jobId) {
         if (jobId == null) {
             return;
         }
         
         try {
-            QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-            if (job != null && !Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
-                job.setHasStartedAiCalls(true);
-                job.setFirstAiCallAt(java.time.LocalDateTime.now());
-                jobRepository.save(job);
-                log.debug("Recorded first AI call for job {}", jobId);
-            }
+            transactionTemplate.executeWithoutResult(status -> {
+                QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+                if (job != null && !Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
+                    job.setHasStartedAiCalls(true);
+                    job.setFirstAiCallAt(java.time.LocalDateTime.now());
+                    jobRepository.save(job);
+                    log.debug("Recorded first AI call for job {}", jobId);
+                }
+            });
         } catch (Exception e) {
             log.error("Error recording AI call start for job {}", jobId, e);
             // Don't fail the generation if tracking fails
@@ -1277,21 +1397,23 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     /**
      * Track token usage for a job. Accumulates actualTokens from LLM responses.
+     * Uses TransactionTemplate to avoid self-invocation issues.
      */
-    @Transactional
     public void trackTokenUsage(UUID jobId, long tokensUsed) {
         if (jobId == null || tokensUsed <= 0) {
             return;
         }
         
         try {
-            QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-            if (job != null) {
-                long currentTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
-                job.setActualTokens(currentTokens + tokensUsed);
-                jobRepository.save(job);
-                log.debug("Tracked {} tokens for job {} (total: {})", tokensUsed, jobId, job.getActualTokens());
-            }
+            transactionTemplate.executeWithoutResult(status -> {
+                QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+                if (job != null) {
+                    long currentTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
+                    job.setActualTokens(currentTokens + tokensUsed);
+                    jobRepository.save(job);
+                    log.debug("Tracked {} tokens for job {} (total: {})", tokensUsed, jobId, job.getActualTokens());
+                }
+            });
         } catch (Exception e) {
             log.error("Error tracking token usage for job {}", jobId, e);
             // Don't fail the generation if tracking fails
