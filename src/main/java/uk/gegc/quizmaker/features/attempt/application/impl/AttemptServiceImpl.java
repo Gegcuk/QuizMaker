@@ -447,10 +447,9 @@ public class AttemptServiceImpl implements AttemptService {
         double worstScore = snapshot.getWorstScore();
         double passRate = snapshot.getPassRate();
 
-        // Still compute per-question stats from raw data (not cached in snapshot)
-        List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
-                .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
-                .toList();
+        // Compute per-question stats from raw data (not cached in snapshot)
+        // Use eager loading to avoid N+1 when accessing answers
+        List<Attempt> completed = attemptRepository.findCompletedWithAnswersByQuizId(quizId);
 
         List<QuestionStatsDto> questionStats = questionRepository.findAllByQuizId_IdOrderById(quiz.getId()).stream()
                 .map(q -> {

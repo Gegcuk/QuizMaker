@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.result.application.impl;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -10,7 +11,6 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.event.TransactionPhase;
 import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
-import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.features.result.domain.model.QuizAnalyticsSnapshot;
 import uk.gegc.quizmaker.features.result.domain.repository.QuizAnalyticsSnapshotRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +49,10 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
     
     // Self-reference to call @Transactional(REQUIRES_NEW) methods through proxy
     private final QuizAnalyticsService self;
+    
+    // Maximum age of snapshot in seconds before recomputation (0 = disabled)
+    @Value("${quizmaker.analytics.snapshot.max-age-seconds:600}")
+    private long maxAgeSeconds;
 
     public QuizAnalyticsServiceImpl(
             QuizAnalyticsSnapshotRepository snapshotRepository,
@@ -84,9 +89,8 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
         double worstScore = agg[3] != null ? ((Number) agg[3]).doubleValue() : 0.0;
 
         // Compute pass rate: ratio of attempts with ≥50% correct answers
-        List<Attempt> completed = attemptRepository.findByQuiz_Id(quizId).stream()
-                .filter(a -> a.getStatus() == AttemptStatus.COMPLETED)
-                .toList();
+        // Use eager loading to avoid N+1 (one query fetches attempts + answers)
+        List<Attempt> completed = attemptRepository.findCompletedWithAnswersByQuizId(quizId);
 
         int totalQuestions = (int) questionRepository.countByQuizId_Id(quizId);
 
@@ -130,11 +134,35 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
     @Transactional(readOnly = true)
     public QuizAnalyticsSnapshot getOrComputeSnapshot(UUID quizId) {
         return snapshotRepository.findByQuizId(quizId)
+                .filter(snapshot -> !isStale(snapshot))
                 .orElseGet(() -> {
-                    log.debug("Snapshot not found for quiz {}, triggering recomputation", quizId);
+                    log.debug("Snapshot for quiz {} is missing or stale, triggering recomputation", quizId);
                     // Call through proxy to start new transaction (REQUIRES_NEW)
                     return self.recomputeSnapshot(quizId);
                 });
+    }
+
+    /**
+     * Check if a snapshot is stale based on configured max age.
+     *
+     * @param snapshot the snapshot to check
+     * @return true if snapshot is older than max age, false otherwise
+     */
+    private boolean isStale(QuizAnalyticsSnapshot snapshot) {
+        if (maxAgeSeconds <= 0) {
+            // Staleness checking disabled
+            return false;
+        }
+
+        Duration age = Duration.between(snapshot.getUpdatedAt(), Instant.now());
+        boolean stale = age.toSeconds() >= maxAgeSeconds;
+
+        if (stale) {
+            log.debug("Snapshot for quiz {} is stale (age: {}s, max: {}s)",
+                    snapshot.getQuizId(), age.toSeconds(), maxAgeSeconds);
+        }
+
+        return stale;
     }
 
     @Override
@@ -145,8 +173,8 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
                 event.getAttemptId(), event.getQuizId());
 
         try {
-            // Recompute in new transaction (REQUIRES_NEW already set on the method)
-            recomputeSnapshot(event.getQuizId());
+            // Call through proxy to ensure REQUIRES_NEW transaction is applied
+            self.recomputeSnapshot(event.getQuizId());
         } catch (Exception e) {
             log.error("Failed to update analytics snapshot for quiz {} after attempt {} completion",
                     event.getQuizId(), event.getAttemptId(), e);
