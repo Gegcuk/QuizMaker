@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +18,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
+import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
+import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
@@ -35,6 +40,7 @@ import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.AttemptNotCompletedException;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
@@ -63,6 +69,9 @@ public class AttemptServiceImpl implements AttemptService {
     private final SafeQuestionMapper safeQuestionMapper;
     private final ShareLinkRepository shareLinkRepository;
     private final AppPermissionEvaluator appPermissionEvaluator;
+    private final CorrectAnswerExtractor correctAnswerExtractor;
+    private final SafeQuestionContentBuilder safeQuestionContentBuilder;
+    private final ObjectMapper objectMapper;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -703,6 +712,146 @@ public class AttemptServiceImpl implements AttemptService {
         // attemptRepository.save(attempt);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public AttemptReviewDto getAttemptReview(String username, UUID attemptId,
+                                             boolean includeUserAnswers,
+                                             boolean includeCorrectAnswers,
+                                             boolean includeQuestionContext) {
+        // Fetch current user
+        User currentUser = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Fetch attempt with answers and questions
+        Attempt attempt = attemptRepository.findByIdWithAnswersAndQuestion(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+
+        // Enforce ownership (by userId)
+        enforceOwnershipById(attempt, currentUser.getId());
+
+        // Enforce COMPLETED status
+        if (attempt.getStatus() != AttemptStatus.COMPLETED) {
+            throw new AttemptNotCompletedException(attemptId);
+        }
+
+        // Compute totals
+        long correctCount = attempt.getAnswers().stream()
+                .filter(ans -> Boolean.TRUE.equals(ans.getIsCorrect()))
+                .count();
+        int totalQuestions = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
+
+        // Build answer review DTOs (sorted by answeredAt for stable ordering)
+        List<AnswerReviewDto> answerReviews = attempt.getAnswers().stream()
+                .sorted(Comparator.comparing(Answer::getAnsweredAt))
+                .map(answer -> buildAnswerReviewDto(
+                        answer,
+                        includeUserAnswers,
+                        includeCorrectAnswers,
+                        includeQuestionContext
+                ))
+                .collect(Collectors.toList());
+
+        return new AttemptReviewDto(
+                attempt.getId(),
+                attempt.getQuiz().getId(),
+                attempt.getUser().getId(),
+                attempt.getStartedAt(),
+                attempt.getCompletedAt(),
+                attempt.getTotalScore(),
+                (int) correctCount,
+                totalQuestions,
+                answerReviews
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttemptReviewDto getAttemptAnswerKey(String username, UUID attemptId) {
+        // Answer key = correct answers + question context, but no user responses
+        return getAttemptReview(username, attemptId, false, true, true);
+    }
+
+    /**
+     * Build an AnswerReviewDto from an Answer entity with configurable inclusion flags.
+     */
+    private AnswerReviewDto buildAnswerReviewDto(Answer answer,
+                                                  boolean includeUserAnswers,
+                                                  boolean includeCorrectAnswers,
+                                                  boolean includeQuestionContext) {
+        Question question = answer.getQuestion();
+
+        // Parse user response if requested
+        JsonNode userResponse = null;
+        if (includeUserAnswers && answer.getResponse() != null) {
+            try {
+                userResponse = objectMapper.readTree(answer.getResponse());
+            } catch (JsonProcessingException e) {
+                // Log error but don't fail entire response
+                userResponse = objectMapper.createObjectNode()
+                        .put("error", "Failed to parse user response");
+            }
+        }
+
+        // Extract correct answer if requested
+        JsonNode correctAnswer = null;
+        if (includeCorrectAnswers) {
+            try {
+                correctAnswer = correctAnswerExtractor.extractCorrectAnswer(question);
+            } catch (IllegalArgumentException e) {
+                // Log error but don't fail entire response
+                correctAnswer = objectMapper.createObjectNode()
+                        .put("error", "Failed to extract correct answer: " + e.getMessage());
+            }
+        }
+
+        // Build safe question content if requested (deterministic for review consistency)
+        JsonNode questionSafeContent = null;
+        if (includeQuestionContext) {
+            try {
+                questionSafeContent = safeQuestionContentBuilder.buildSafeContent(
+                        question.getType(),
+                        question.getContent(),
+                        true  // deterministic=true for review (no shuffling, ensures cacheability and consistent UX)
+                );
+            } catch (Exception e) {
+                // Log error but don't fail entire response
+                questionSafeContent = objectMapper.createObjectNode()
+                        .put("error", "Failed to build safe content: " + e.getMessage());
+            }
+        }
+
+        return new AnswerReviewDto(
+                question.getId(),
+                question.getType(),
+                includeQuestionContext ? question.getQuestionText() : null,
+                includeQuestionContext ? question.getHint() : null,
+                includeQuestionContext ? question.getAttachmentUrl() : null,
+                questionSafeContent,
+                userResponse,
+                correctAnswer,
+                answer.getIsCorrect(),
+                answer.getScore(),
+                answer.getAnsweredAt()
+        );
+    }
+
+    /**
+     * Enforce ownership by comparing user IDs.
+     * Using userId instead of username to handle potential username changes.
+     * This is the preferred method for new code.
+     */
+    private void enforceOwnershipById(Attempt attempt, UUID userId) {
+        if (!attempt.getUser().getId().equals(userId)) {
+            throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());
+        }
+    }
+
+    /**
+     * @deprecated Use enforceOwnershipById(Attempt, UUID) instead.
+     * This method will be removed once all services are migrated to userId checks.
+     */
+    @Deprecated
     private void enforceOwnership(Attempt attempt, String username) {
         if (!attempt.getUser().getUsername().equals(username)) {
             throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());

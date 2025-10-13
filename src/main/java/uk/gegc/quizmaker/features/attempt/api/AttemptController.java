@@ -346,4 +346,93 @@ public class AttemptController {
         return ResponseEntity.ok(questions);
     }
 
+    @Operation(
+            summary = "Get attempt review",
+            description = """
+                    Retrieve a comprehensive review of a completed attempt with user answers and correct answers.
+                    Only available to the attempt owner and only for completed attempts.
+                    Query parameters allow customizing what information to include in the response.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Attempt review returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptReviewDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet")
+    })
+    @GetMapping("/{attemptId}/review")
+    public ResponseEntity<AttemptReviewDto> getAttemptReview(
+            @Parameter(description = "UUID of the attempt to review", required = true)
+            @PathVariable UUID attemptId,
+
+            @Parameter(
+                    in = ParameterIn.QUERY,
+                    description = "Include user's submitted answers in the response",
+                    example = "true"
+            )
+            @RequestParam(name = "includeUserAnswers", defaultValue = "true") boolean includeUserAnswers,
+
+            @Parameter(
+                    in = ParameterIn.QUERY,
+                    description = "Include correct answers in the response",
+                    example = "true"
+            )
+            @RequestParam(name = "includeCorrectAnswers", defaultValue = "true") boolean includeCorrectAnswers,
+
+            @Parameter(
+                    in = ParameterIn.QUERY,
+                    description = "Include question context (text, hint, attachments, safe content) for rendering",
+                    example = "true"
+            )
+            @RequestParam(name = "includeQuestionContext", defaultValue = "true") boolean includeQuestionContext,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptReviewDto review = attemptService.getAttemptReview(
+                username,
+                attemptId,
+                includeUserAnswers,
+                includeCorrectAnswers,
+                includeQuestionContext
+        );
+        return ResponseEntity.ok(review);
+    }
+
+    @Operation(
+            summary = "Get attempt answer key",
+            description = """
+                    Retrieve an answer key for a completed attempt (correct answers only, no user responses).
+                    This is a convenience endpoint that returns correct answers with question context.
+                    Only available to the attempt owner and only for completed attempts.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Answer key returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptReviewDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
+            @ApiResponse(responseCode = "404", description = "Attempt not found"),
+            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet")
+    })
+    @GetMapping("/{attemptId}/answer-key")
+    public ResponseEntity<AttemptReviewDto> getAttemptAnswerKey(
+            @Parameter(description = "UUID of the attempt", required = true)
+            @PathVariable UUID attemptId,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        AttemptReviewDto answerKey = attemptService.getAttemptAnswerKey(username, attemptId);
+        return ResponseEntity.ok(answerKey);
+    }
+
 }

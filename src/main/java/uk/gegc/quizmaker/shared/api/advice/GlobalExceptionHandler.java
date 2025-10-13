@@ -122,6 +122,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
+    @ExceptionHandler(AttemptNotCompletedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleAttemptNotCompleted(AttemptNotCompletedException ex) {
+        return new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.CONFLICT.value(),
+                "Attempt Not Completed",
+                List.of(ex.getMessage())
+        );
+    }
+
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest req) {
         var body = new ErrorResponse(
