@@ -73,9 +73,8 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
     public QuizAnalyticsSnapshot recomputeSnapshot(UUID quizId) {
         log.debug("Recomputing analytics snapshot for quiz {}", quizId);
 
-        // Verify quiz exists
-        quizRepository.findById(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
+        // Note: Quiz existence is enforced by FK constraint on quiz_analytics_snapshot.quiz_id
+        // No need for explicit check here - simplifies transaction boundaries
 
         // Get aggregate data (count, avg, max, min) from completed attempts
         List<Object[]> rows = attemptRepository.getAttemptAggregateData(quizId);
