@@ -171,15 +171,44 @@ public class QuizAnalyticsServiceImpl implements QuizAnalyticsService {
         log.debug("Handling attempt completed event (after commit) for attempt {} on quiz {}",
                 event.getAttemptId(), event.getQuizId());
 
-        try {
-            // Call through proxy to ensure REQUIRES_NEW transaction is applied
-            self.recomputeSnapshot(event.getQuizId());
-        } catch (Exception e) {
-            log.error("Failed to update analytics snapshot for quiz {} after attempt {} completion",
-                    event.getQuizId(), event.getAttemptId(), e);
-            // Don't rethrow - snapshot update failure should not break attempt completion
-            // (and it's async anyway, so there's no caller to rethrow to)
+        // Retry logic for concurrent updates (optimistic locking failures)
+        int maxRetries = 3;
+        int attempt = 0;
+        
+        while (attempt < maxRetries) {
+            try {
+                // Call through proxy to ensure REQUIRES_NEW transaction is applied
+                self.recomputeSnapshot(event.getQuizId());
+                log.debug("Successfully updated analytics snapshot for quiz {} on attempt {}",
+                        event.getQuizId(), attempt + 1);
+                return; // Success - exit
+                
+            } catch (org.springframework.dao.OptimisticLockingFailureException | 
+                     org.springframework.dao.DataIntegrityViolationException e) {
+                attempt++;
+                if (attempt < maxRetries) {
+                    log.debug("Optimistic locking conflict for quiz {} (attempt {}/{}), retrying...",
+                            event.getQuizId(), attempt, maxRetries);
+                    // Brief exponential backoff to reduce contention
+                    try {
+                        Thread.sleep(50L * attempt); // 50ms, 100ms, 150ms
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        log.warn("Retry interrupted for quiz {}", event.getQuizId());
+                        return;
+                    }
+                } else {
+                    log.error("Failed to update analytics snapshot for quiz {} after {} attempts due to {}",
+                            event.getQuizId(), maxRetries, e.getClass().getSimpleName(), e);
+                }
+                
+            } catch (Exception e) {
+                log.error("Unexpected error updating analytics snapshot for quiz {} after attempt {} completion",
+                        event.getQuizId(), event.getAttemptId(), e);
+                return; // Don't retry on unexpected errors
+            }
         }
+        // Note: Snapshot will be recomputed on next read if still stale
     }
 }
 

@@ -9,6 +9,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
@@ -425,6 +427,104 @@ class QuizAnalyticsServiceImplTest {
 
         attempt.setAnswers(answers);
         return attempt;
+    }
+
+    // ============ Event Handler Retry Tests ============
+
+    @Test
+    @DisplayName("handleAttemptCompleted: succeeds on retry after OptimisticLockingFailureException")
+    void handleAttemptCompleted_retriesOnOptimisticLockingFailure() {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        AttemptCompletedEvent event = new AttemptCompletedEvent(this, attemptId, quizId, userId, Instant.now());
+
+        QuizAnalyticsService mockSelf = mock(QuizAnalyticsService.class);
+        ReflectionTestUtils.setField(service, "self", mockSelf);
+
+        QuizAnalyticsSnapshot snapshot = new QuizAnalyticsSnapshot();
+        snapshot.setQuizId(quizId);
+
+        // First call fails with OptimisticLockingFailureException, second succeeds
+        when(mockSelf.recomputeSnapshot(quizId))
+                .thenThrow(new OptimisticLockingFailureException("Version conflict"))
+                .thenReturn(snapshot);
+
+        // When
+        service.handleAttemptCompleted(event);
+
+        // Then - should retry and succeed on second attempt
+        verify(mockSelf, times(2)).recomputeSnapshot(quizId);
+    }
+
+    @Test
+    @DisplayName("handleAttemptCompleted: succeeds on retry after DataIntegrityViolationException")
+    void handleAttemptCompleted_retriesOnDataIntegrityViolation() {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        AttemptCompletedEvent event = new AttemptCompletedEvent(this, attemptId, quizId, userId, Instant.now());
+
+        QuizAnalyticsService mockSelf = mock(QuizAnalyticsService.class);
+        ReflectionTestUtils.setField(service, "self", mockSelf);
+
+        QuizAnalyticsSnapshot snapshot = new QuizAnalyticsSnapshot();
+        snapshot.setQuizId(quizId);
+
+        // First call fails with DataIntegrityViolationException, second succeeds
+        when(mockSelf.recomputeSnapshot(quizId))
+                .thenThrow(new DataIntegrityViolationException("Duplicate key"))
+                .thenReturn(snapshot);
+
+        // When
+        service.handleAttemptCompleted(event);
+
+        // Then - should retry and succeed on second attempt
+        verify(mockSelf, times(2)).recomputeSnapshot(quizId);
+    }
+
+    @Test
+    @DisplayName("handleAttemptCompleted: gives up after max retries and logs error")
+    void handleAttemptCompleted_givesUpAfterMaxRetries() {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        AttemptCompletedEvent event = new AttemptCompletedEvent(this, attemptId, quizId, userId, Instant.now());
+
+        QuizAnalyticsService mockSelf = mock(QuizAnalyticsService.class);
+        ReflectionTestUtils.setField(service, "self", mockSelf);
+
+        // Always fail with OptimisticLockingFailureException
+        doThrow(new OptimisticLockingFailureException("Version conflict"))
+                .when(mockSelf).recomputeSnapshot(quizId);
+
+        // When
+        service.handleAttemptCompleted(event);
+
+        // Then - should retry 3 times and give up
+        verify(mockSelf, times(3)).recomputeSnapshot(quizId);
+    }
+
+    @Test
+    @DisplayName("handleAttemptCompleted: doesn't retry on unexpected exceptions")
+    void handleAttemptCompleted_noRetryOnUnexpectedException() {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        AttemptCompletedEvent event = new AttemptCompletedEvent(this, attemptId, quizId, userId, Instant.now());
+
+        QuizAnalyticsService mockSelf = mock(QuizAnalyticsService.class);
+        ReflectionTestUtils.setField(service, "self", mockSelf);
+
+        // Fail with unexpected exception
+        doThrow(new RuntimeException("Unexpected error"))
+                .when(mockSelf).recomputeSnapshot(quizId);
+
+        // When
+        service.handleAttemptCompleted(event);
+
+        // Then - should NOT retry, only 1 attempt
+        verify(mockSelf, times(1)).recomputeSnapshot(quizId);
     }
 }
 
