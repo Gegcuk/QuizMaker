@@ -1,249 +1,1760 @@
-# Quiz Controller Integration Guide
+# Quiz Controller API Reference
 
-This document summarizes every public HTTP endpoint exposed by `QuizController` along with the DTO contracts, required permissions, rate limits, and possible error responses. It is intended to help frontend engineers integrate against the quiz APIs confidently.
+Complete frontend integration guide for `/api/v1/quizzes` REST endpoints. This document is self-contained and includes all DTOs, permissions, rate limits, validation rules, and error semantics needed to integrate quiz management and AI generation features.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Permission Matrix](#permission-matrix)
+- [Rate Limits](#rate-limits)
+- [Request DTOs](#request-dtos)
+  - [Core Quiz DTOs](#core-quiz-dtos)
+  - [Generation DTOs](#generation-dtos)
+- [Response DTOs](#response-dtos)
+  - [Quiz DTOs](#quiz-dtos)
+  - [Generation DTOs](#generation-response-dtos)
+  - [Analytics DTOs](#analytics-dtos)
+- [Enumerations](#enumerations)
+- [Endpoints](#endpoints)
+  - [CRUD & Listing](#crud--listing)
+  - [Question & Tag Management](#question--tag-management)
+  - [Analytics & Attempts](#analytics--attempts)
+  - [Visibility & Status](#visibility--status)
+  - [AI Generation Lifecycle](#ai-generation-lifecycle)
+  - [Admin Operations](#admin-operations)
+- [Error Handling](#error-handling)
+- [Integration Guide](#integration-guide)
+- [Security Considerations](#security-considerations)
+
+---
 
 ## Overview
 
-`QuizController` is mounted at the base path `/api/v1/quizzes`. All responses are JSON unless noted otherwise and errors follow the shared `ProblemDetail` structure produced by `GlobalExceptionHandler`.
+* **Base Path**: `/api/v1/quizzes`
+* **Authentication**: Required for most endpoints (except public listing). Uses JWT Bearer token in `Authorization` header.
+* **Authorization Model**: Hybrid - Permission-based for CRUD operations, ownership-based for modifications.
+* **Content-Type**: `application/json` for requests and responses. Multipart form-data for file uploads.
+* **Error Format**: All errors return `ProblemDetail` or `ErrorResponse` object
+* **Caching**: List endpoints support ETag-based HTTP caching
 
-Authentication is provided by the platform's bearer token. Additional authorization checks are expressed through the custom `@RequirePermission` annotation and Spring Security's `@PreAuthorize` rules inside the controller.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L71-L141】【F:src/main/java/uk/gegc/quizmaker/shared/api/advice/GlobalExceptionHandler.java†L1-L200】
+---
 
 ## Permission Matrix
 
-| Capability | Endpoint(s) | Required Permission | Notes |
+Quiz endpoints use permission-based authorization for operations. Users need specific permissions granted through their roles.
+
+| Capability | Endpoint(s) | Required Permission(s) | Additional Rules |
 | --- | --- | --- | --- |
-| Create quizzes | `POST /api/v1/quizzes` | `QUIZ_CREATE` | Non moderators are limited to `PRIVATE`/`DRAFT` visibility by the service layer.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L96-L110】 |
-| Update quizzes | `PATCH /api/v1/quizzes/{id}`<br>`PATCH /api/v1/quizzes/bulk-update`<br>Question/tag/category association endpoints | `QUIZ_UPDATE` | Ownership or moderator checks enforced by the service layer.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L142-L222】 |
-| Delete quizzes | `DELETE /api/v1/quizzes/{id}`<br>`DELETE /api/v1/quizzes?ids=` | `QUIZ_DELETE` | Applies to both single and batch deletes.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L200-L221】 |
-| Visibility changes | `PATCH /api/v1/quizzes/{id}/visibility` | `QUIZ_UPDATE` **or** `QUIZ_MODERATE` **or** `QUIZ_ADMIN` | Owner may only toggle PRIVATE; moderators/admins can make PUBLIC.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L285-L322】 |
-| Status changes | `PATCH /api/v1/quizzes/{id}/status` | `QUIZ_UPDATE` **or** `QUIZ_MODERATE` **or** `QUIZ_ADMIN` | Service guards illegal transitions (e.g., owner publishing PUBLIC).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L324-L356】 |
-| Moderation | `POST /api/v1/quizzes/{id}/submit-for-review` | `QUIZ_UPDATE` | Requires authenticated quiz owner; service transitions to `PENDING_REVIEW`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L402-L411】 |
-| Generation (AI) | `POST /generate-from-document`<br>`POST /generate-from-upload`<br>`POST /generate-from-text`<br>`DELETE /generation-status/{jobId}` | `QUIZ_CREATE` | Additional per-minute rate limits enforced server-side.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L413-L546】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L747-L788】 |
-| Generation job admin | `POST /generation-jobs/cleanup-stale`<br>`POST /generation-jobs/{jobId}/force-cancel` | `QUIZ_ADMIN` | Intended for ops tooling.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L828-L874】 |
-| Attempt analytics | `GET /{quizId}/attempts*` | Authenticated | Additional ownership check inside service layer.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L248-L283】 |
+| **Create quizzes** | `POST /quizzes` | `QUIZ_CREATE` | Non-moderators limited to `PRIVATE`/`DRAFT` |
+| **Update quizzes** | `PATCH /quizzes/{id}`, `PATCH /quizzes/bulk-update` | `QUIZ_UPDATE` | Ownership or moderator check enforced |
+| **Delete quizzes** | `DELETE /quizzes/{id}`, `DELETE /quizzes?ids=` | `QUIZ_DELETE` | Owner or moderator |
+| **Set PUBLIC** | `PATCH /quizzes/{id}/visibility` | `QUIZ_MODERATE` OR `QUIZ_ADMIN` | Owners can only set `PRIVATE` |
+| **Publish quiz** | `PATCH /quizzes/{id}/status` | `QUIZ_MODERATE` OR `QUIZ_ADMIN` | Publishing to PUBLIC requires moderator |
+| **Moderation** | `POST /quizzes/{id}/submit-for-review` | `QUIZ_UPDATE` | Must be quiz owner |
+| **AI Generation** | `POST /generate-*` endpoints | `QUIZ_CREATE` | Rate limited to 3/min |
+| **View public quizzes** | `GET /quizzes/public` | None (public endpoint) | Rate limited to 120/min |
+| **View own quizzes** | `GET /quizzes?scope=me` | Authenticated user | No special permission needed |
+| **View all quizzes** | `GET /quizzes?scope=all` | `QUIZ_READ` OR moderator/admin | Cross-user access |
+| **Admin generation ops** | `POST /generation-jobs/cleanup-stale`, `POST /generation-jobs/{id}/force-cancel` | `QUIZ_ADMIN` | System administration |
+
+**Ownership Rules**:
+- Quiz creators can update/delete their own quizzes
+- Moderators and admins can modify any quiz
+- Public visibility and publish status require elevated permissions
+
+---
 
 ## Rate Limits
 
-The controller enforces request-per-minute quotas using `RateLimitService`. Exceeding these limits raises `RateLimitExceededException` → HTTP 429 with a `Retry-After` hint.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L120-L137】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L467-L479】【F:src/main/java/uk/gegc/quizmaker/shared/rate_limit/RateLimitService.java†L11-L40】
+The API enforces per-minute quotas to prevent abuse. Exceeding limits returns HTTP `429 Too Many Requests` with `Retry-After` header.
 
-| Operation | Limit | Key | Notes |
+| Operation | Limit | Key | Scope |
 | --- | --- | --- | --- |
-| List (authenticated) | 120/min | Client IP | Applies to `GET /api/v1/quizzes` and honors `If-None-Match` caching.|【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L112-L139】 |
-| List (public) | 120/min | Client IP | `GET /api/v1/quizzes/public` also emits weak ETags.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L358-L398】 |
-| Generation start | 3/min | Auth username | Applies to `/generate-from-document`, `/generate-from-upload`, `/generate-from-text`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L458-L502】 |
-| Generation cancel | 5/min | Auth username | `DELETE /generation-status/{jobId}`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L762-L788】 |
+| **List (authenticated)** | 120 requests/min | Client IP | `GET /quizzes` |
+| **List (public)** | 120 requests/min | Client IP | `GET /quizzes/public` |
+| **AI Generation (start)** | 3 requests/min | Username | All `/generate-*` endpoints |
+| **AI Generation (cancel)** | 5 requests/min | Username | `DELETE /generation-status/{jobId}` |
 
-## DTO Catalogue
+**Retry Strategy**:
+- Always check `Retry-After` header in 429 responses
+- Implement exponential backoff for retry logic
+- Cache results where possible (list endpoints support ETags)
+
+---
+
+## Request DTOs
 
 ### Core Quiz DTOs
 
-| DTO | Type | Purpose | Key Fields |
+#### CreateQuizRequest
+
+**Used by**: `POST /quizzes`
+
+| Field | Type | Required | Validation | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `title` | string | Yes | 3-100 characters | - | Quiz title |
+| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `visibility` | `Visibility` enum | No | `PUBLIC` or `PRIVATE` | `PRIVATE` | Visibility setting |
+| `difficulty` | `Difficulty` enum | No | `EASY`, `MEDIUM`, `HARD` | `MEDIUM` | Difficulty level |
+| `status` | `QuizStatus` enum | No | Valid status | `DRAFT` | Initial status |
+| `timeLimitMinutes` | integer | No | > 0 | `null` | Time limit in minutes (null = no limit) |
+| `showHints` | boolean | No | - | `true` | Whether to show hints |
+| `shuffleQuestions` | boolean | No | - | `false` | Shuffle question order |
+| `showResults` | boolean | No | - | `true` | Show results after completion |
+| `categoryId` | UUID | No | Valid category UUID | `null` | Category assignment |
+| `tagIds` | array of UUIDs | No | Valid tag UUIDs | `[]` | Associated tags |
+
+**Example**:
+```json
+{
+  "title": "Java Fundamentals Quiz",
+  "description": "Test your knowledge of Java basics",
+  "visibility": "PRIVATE",
+  "difficulty": "MEDIUM",
+  "status": "DRAFT",
+  "timeLimitMinutes": 30,
+  "showHints": true,
+  "shuffleQuestions": false,
+  "showResults": true,
+  "categoryId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "tagIds": [
+    "11111111-2222-3333-4444-555555555555",
+    "66666666-7777-8888-9999-000000000000"
+  ]
+}
+```
+
+---
+
+#### UpdateQuizRequest
+
+**Used by**: `PATCH /quizzes/{id}`, `PATCH /quizzes/bulk-update`
+
+All fields are optional. Omitted fields keep existing values.
+
+| Field | Type | Required | Validation | Description |
+| --- | --- | --- | --- | --- |
+| `title` | string | No | 3-100 characters | Updated title |
+| `description` | string | No | Max 500 characters | Updated description |
+| `difficulty` | `Difficulty` enum | No | Valid difficulty | Updated difficulty |
+| `timeLimitMinutes` | Integer | No | > 0 or null | Updated time limit |
+| `showHints` | Boolean | No | - | Updated hint visibility |
+| `shuffleQuestions` | Boolean | No | - | Updated shuffle setting |
+| `showResults` | Boolean | No | - | Updated results visibility |
+| `categoryId` | UUID | No | Valid category UUID | Updated category |
+
+**Example**:
+```json
+{
+  "title": "Updated Quiz Title",
+  "difficulty": "HARD",
+  "timeLimitMinutes": 45
+}
+```
+
+**Notes**:
+- Use Boolean (capitalized) for nullable boolean fields
+- Visibility and status have dedicated endpoints
+- Tags and questions managed via separate endpoints
+
+---
+
+#### BulkQuizUpdateRequest
+
+**Used by**: `PATCH /quizzes/bulk-update`
+
+| Field | Type | Required | Validation | Description |
+| --- | --- | --- | --- | --- |
+| `quizIds` | array of UUIDs | Yes | Non-empty, valid UUIDs | Quizzes to update |
+| `updates` | `UpdateQuizRequest` | Yes | Valid update object | Changes to apply |
+
+**Example**:
+```json
+{
+  "quizIds": [
+    "quiz-uuid-1",
+    "quiz-uuid-2",
+    "quiz-uuid-3"
+  ],
+  "updates": {
+    "difficulty": "MEDIUM",
+    "showHints": true
+  }
+}
+```
+
+---
+
+#### VisibilityUpdateRequest
+
+**Used by**: `PATCH /quizzes/{id}/visibility`
+
+| Field | Type | Required | Validation | Description |
+| --- | --- | --- | --- | --- |
+| `isPublic` | boolean | Yes | - | `true` for PUBLIC, `false` for PRIVATE |
+
+**Example**:
+```json
+{
+  "isPublic": true
+}
+```
+
+**Authorization Note**: Setting `isPublic: true` requires `QUIZ_MODERATE` or `QUIZ_ADMIN` permission.
+
+---
+
+#### QuizStatusUpdateRequest
+
+**Used by**: `PATCH /quizzes/{id}/status`
+
+| Field | Type | Required | Validation | Description |
+| --- | --- | --- | --- | --- |
+| `status` | `QuizStatus` enum | Yes | Valid status | New status |
+
+**Example**:
+```json
+{
+  "status": "PUBLISHED"
+}
+```
+
+**Valid Transitions**:
+- `DRAFT` → `PENDING_REVIEW`, `PUBLISHED`, `ARCHIVED`
+- `PENDING_REVIEW` → `PUBLISHED`, `REJECTED`, `DRAFT`
+- `PUBLISHED` → `ARCHIVED`
+- `REJECTED` → `DRAFT`
+- `ARCHIVED` → `DRAFT`
+
+---
+
+#### QuizSearchCriteria
+
+**Used by**: `GET /quizzes` (query parameters)
+
+| Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `QuizDto` | Response | Canonical quiz representation returned by GET/UPDATE endpoints. | `id`, `title`, `description`, `visibility` (`PUBLIC`/`PRIVATE`), `difficulty` (`EASY`/`MEDIUM`/`HARD`), `status` (`DRAFT`, `PUBLISHED`, etc.), timing options, `tagIds`, timestamps.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizDto.java†L1-L49】【F:src/main/java/uk/gegc/quizmaker/features/quiz/domain/model/Visibility.java†L1-L5】【F:src/main/java/uk/gegc/quizmaker/features/question/domain/model/Difficulty.java†L1-L5】【F:src/main/java/uk/gegc/quizmaker/features/quiz/domain/model/QuizStatus.java†L1-L8】 |
-| `CreateQuizRequest` | Request | Payload for new quiz creation. | Validates title (3–100 chars), optional description, defaults visibility=`PRIVATE`, difficulty=`MEDIUM`, empty tags, includes timer fields and category reference.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/CreateQuizRequest.java†L1-L49】 |
-| `UpdateQuizRequest` | Request | Partial update body for single/bulk edits. | All fields optional; validation mirrors creation constraints; booleans are boxed so omitted values stay unchanged.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/UpdateQuizRequest.java†L1-L60】 |
-| `BulkQuizUpdateRequest` | Request | Update multiple quizzes in one call. | Requires `quizIds` (non-empty list) + embedded `UpdateQuizRequest` applied to each.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/BulkQuizUpdateRequest.java†L1-L22】 |
-| `BulkQuizUpdateOperationResultDto` | Response | Summarizes successes/failures per quiz ID after bulk update. | `successfulIds`, `failures` map (UUID → reason).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/BulkQuizUpdateOperationResultDto.java†L1-L16】 |
-| `VisibilityUpdateRequest` | Request | Toggle for public/private visibility. | Mandatory boolean `isPublic` flag.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/VisibilityUpdateRequest.java†L1-L14】 |
-| `QuizStatusUpdateRequest` | Request | Change lifecycle status. | Mandatory `status` (enum `QuizStatus`).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizStatusUpdateRequest.java†L1-L12】 |
-| `QuizSearchCriteria` | Request (query model) | Optional filters for list endpoints. | Category/tag names (arrays), `authorName`, `search` term, `difficulty`. Values read from query string parameters.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizSearchCriteria.java†L1-L35】 |
+| `page` | integer | No | Page number (0-indexed), default: 0 |
+| `size` | integer | No | Page size (1-100), default: 20 |
+| `sort` | string | No | Sort specification (e.g., "title,asc"), default: "createdAt,desc" |
+| `scope` | string | No | Filter scope: `public` (default), `me`, `all` |
+| `search` | string | No | Search term for title/description |
+| `categoryNames` | array | No | Filter by category names |
+| `tagNames` | array | No | Filter by tag names |
+| `authorName` | string | No | Filter by author username |
+| `difficulty` | string | No | Filter by difficulty: `EASY`, `MEDIUM`, `HARD` |
+
+**Example URL**:
+```
+GET /api/v1/quizzes?scope=me&difficulty=MEDIUM&search=java&page=0&size=20&sort=title,asc
+```
+
+---
 
 ### Generation DTOs
 
-| DTO | Type | Purpose | Highlights |
-| --- | --- | --- | --- |
-| `GenerateQuizFromDocumentRequest` | Request | Start AI job using an already processed document. | Requires `documentId`, `questionsPerType` (map of `QuestionType` → count 1–10), `difficulty`, optional scope hints (chunk indices, chapter/section data), optional metadata overrides, default scope=`ENTIRE_DOCUMENT`, default language=`en`. Validation enforces scope-specific requirements.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/GenerateQuizFromDocumentRequest.java†L1-L115】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizScope.java†L1-L15】【F:src/main/java/uk/gegc/quizmaker/features/question/domain/model/QuestionType.java†L1-L5】 |
-| `GenerateQuizFromUploadRequest` | Request | Upload + generate convenience flow (multipart). | Accepts document chunking preferences (`chunkingStrategy`, `maxChunkSize`), scope options, quiz metadata, same `questionsPerType` rules; defaults ensure strategy `CHAPTER_BASED`, `maxChunkSize` 250 000, language `en`. Includes converters to downstream requests.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/GenerateQuizFromUploadRequest.java†L1-L138】【F:src/main/java/uk/gegc/quizmaker/features/document/api/dto/ProcessDocumentRequest.java†L1-L120】 |
-| `GenerateQuizFromTextRequest` | Request | Generate from raw text (server chunks text first). | Requires non-empty `text` ≤ 300 000 chars, optional language and chunking overrides, same scope + question map semantics as other generation flows.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/GenerateQuizFromTextRequest.java†L1-L133】 |
-| `QuizGenerationResponse` | Response | Returned immediately after job start. | `jobId`, `status` (initially `PROCESSING`), friendly `message`, optional `estimatedTimeSeconds`; helper factory methods `started`/`failed` exist for service use.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizGenerationResponse.java†L1-L36】 |
-| `QuizGenerationStatus` | Response | Polling model for async job state. | Contains progress counters, timing estimates, generated quiz ID, error text, plus billing metadata when available. Derived from `QuizGenerationJob` entity; includes helpers `isTerminal`, `isCompleted`, `isFailed`, `isActive`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizGenerationStatus.java†L1-L126】 |
+#### GenerateQuizFromDocumentRequest
+
+**Used by**: `POST /quizzes/generate-from-document`
+
+| Field | Type | Required | Validation | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `documentId` | UUID | Yes | Valid document UUID | - | Processed document to use |
+| `quizScope` | `QuizScope` enum | No | Valid scope | `ENTIRE_DOCUMENT` | Scope of generation |
+| `chunkIndices` | array of integers | Conditional | Required if scope=`SPECIFIC_CHUNKS` | `null` | Chunk indices to use |
+| `chapterTitle` | string | Conditional | Required if scope=`SPECIFIC_CHAPTER` | `null` | Chapter to use |
+| `chapterNumber` | integer | Conditional | Alternative to chapterTitle | `null` | Chapter number |
+| `sectionTitle` | string | Conditional | For `SPECIFIC_SECTION` | `null` | Section to use |
+| `title` | string | Yes | 3-100 characters | - | Generated quiz title |
+| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `questionsPerType` | object (map) | Yes | 1-10 per type | - | Question type → count mapping |
+| `difficulty` | `Difficulty` enum | Yes | Valid difficulty | - | Question difficulty |
+| `estimatedTimePerQuestion` | integer | No | > 0 | `2` | Minutes per question |
+| `categoryId` | UUID | No | Valid category | `null` | Category assignment |
+| `tagIds` | array of UUIDs | No | Valid tag UUIDs | `[]` | Tags to assign |
+| `language` | string | No | ISO language code | `en` | Target language |
+
+**Example**:
+```json
+{
+  "documentId": "doc-uuid-here",
+  "quizScope": "ENTIRE_DOCUMENT",
+  "title": "Java Basics Generated Quiz",
+  "description": "Auto-generated from Java tutorial document",
+  "questionsPerType": {
+    "MCQ_SINGLE": 5,
+    "MCQ_MULTI": 3,
+    "TRUE_FALSE": 4,
+    "OPEN": 2
+  },
+  "difficulty": "MEDIUM",
+  "estimatedTimePerQuestion": 2,
+  "categoryId": "category-uuid",
+  "tagIds": ["tag-uuid-1", "tag-uuid-2"],
+  "language": "en"
+}
+```
+
+**Example with Specific Chunks**:
+```json
+{
+  "documentId": "doc-uuid-here",
+  "quizScope": "SPECIFIC_CHUNKS",
+  "chunkIndices": [0, 2, 5],
+  "title": "Selected Chapters Quiz",
+  "questionsPerType": {
+    "MCQ_SINGLE": 3,
+    "TRUE_FALSE": 2
+  },
+  "difficulty": "EASY",
+  "language": "en"
+}
+```
+
+---
+
+#### GenerateQuizFromUploadRequest
+
+**Used by**: `POST /quizzes/generate-from-upload` (multipart/form-data)
+
+| Field | Type | Required | Validation | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `file` | file | Yes | Supported types, < max size | - | Document file to upload |
+| `chunkingStrategy` | string | No | `CHAPTER_BASED`, `FIXED_SIZE`, `SEMANTIC` | `CHAPTER_BASED` | How to split document |
+| `maxChunkSize` | integer | No | > 0 | `250000` | Max characters per chunk |
+| `title` | string | Yes | 3-100 characters | - | Quiz title |
+| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `questionsPerType` | JSON string | Yes | Valid JSON map | - | Question type → count (as JSON string) |
+| `difficulty` | string | Yes | Valid difficulty | - | Question difficulty |
+| `quizScope` | string | No | Valid scope | `ENTIRE_DOCUMENT` | Generation scope |
+| `chunkIndices` | array | Conditional | For SPECIFIC_CHUNKS | `null` | Chunk indices |
+| `language` | string | No | ISO code | `en` | Target language |
+| `categoryId` | UUID string | No | Valid UUID | `null` | Category |
+| `tagIds` | array | No | Valid UUIDs | `[]` | Tags |
+
+**Example (multipart form)**:
+```
+POST /api/v1/quizzes/generate-from-upload
+Content-Type: multipart/form-data
+
+file: [binary file data]
+title: "Uploaded Document Quiz"
+description: "Generated from uploaded PDF"
+questionsPerType: "{\"MCQ_SINGLE\":5,\"TRUE_FALSE\":3}"
+difficulty: "MEDIUM"
+chunkingStrategy: "CHAPTER_BASED"
+maxChunkSize: 250000
+language: "en"
+```
+
+**Notes**:
+- `questionsPerType` must be a JSON string (not raw object)
+- File must be PDF, DOCX, TXT, or other supported formats
+- File size limits apply (check server configuration)
+
+---
+
+#### GenerateQuizFromTextRequest
+
+**Used by**: `POST /quizzes/generate-from-text`
+
+| Field | Type | Required | Validation | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `text` | string | Yes | Non-empty, ≤ 300,000 chars | - | Raw text to generate from |
+| `title` | string | Yes | 3-100 characters | - | Quiz title |
+| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `questionsPerType` | object (map) | Yes | 1-10 per type | - | Question type → count |
+| `difficulty` | `Difficulty` enum | Yes | Valid difficulty | - | Question difficulty |
+| `chunkingStrategy` | string | No | Valid strategy | `SEMANTIC` | How to chunk text |
+| `maxChunkSize` | integer | No | > 0 | `250000` | Max chars per chunk |
+| `language` | string | No | ISO code | `en` | Target language |
+| `categoryId` | UUID | No | Valid UUID | `null` | Category |
+| `tagIds` | array | No | Valid UUIDs | `[]` | Tags |
+
+**Example**:
+```json
+{
+  "text": "Long text content here... Java is a programming language...",
+  "title": "Java Concepts Quiz",
+  "description": "Generated from custom text",
+  "questionsPerType": {
+    "MCQ_SINGLE": 4,
+    "TRUE_FALSE": 3
+  },
+  "difficulty": "EASY",
+  "chunkingStrategy": "SEMANTIC",
+  "language": "en"
+}
+```
+
+---
+
+## Response DTOs
+
+### Quiz DTOs
+
+#### QuizDto
+
+**Returned by**: Most quiz endpoints
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Quiz unique identifier |
+| `title` | string | Quiz title |
+| `description` | string (nullable) | Quiz description |
+| `visibility` | `Visibility` enum | `PUBLIC` or `PRIVATE` |
+| `difficulty` | `Difficulty` enum | `EASY`, `MEDIUM`, or `HARD` |
+| `status` | `QuizStatus` enum | Current status |
+| `creatorId` | UUID | User who created the quiz |
+| `creatorUsername` | string | Creator's username |
+| `categoryId` | UUID (nullable) | Associated category |
+| `categoryName` | string (nullable) | Category name |
+| `tagIds` | array of UUIDs | Associated tag IDs |
+| `tagNames` | array of strings | Tag names |
+| `questionCount` | integer | Number of questions |
+| `timeLimitMinutes` | integer (nullable) | Time limit (null = no limit) |
+| `showHints` | boolean | Whether hints are shown |
+| `shuffleQuestions` | boolean | Whether questions are shuffled |
+| `showResults` | boolean | Whether results shown after completion |
+| `createdAt` | ISO 8601 datetime | Creation timestamp |
+| `updatedAt` | ISO 8601 datetime | Last update timestamp |
+
+**Example**:
+```json
+{
+  "id": "quiz-uuid-here",
+  "title": "Java Fundamentals",
+  "description": "Test your Java knowledge",
+  "visibility": "PUBLIC",
+  "difficulty": "MEDIUM",
+  "status": "PUBLISHED",
+  "creatorId": "user-uuid",
+  "creatorUsername": "john_doe",
+  "categoryId": "category-uuid",
+  "categoryName": "Programming",
+  "tagIds": ["tag-uuid-1", "tag-uuid-2"],
+  "tagNames": ["Java", "OOP"],
+  "questionCount": 15,
+  "timeLimitMinutes": 30,
+  "showHints": true,
+  "shuffleQuestions": false,
+  "showResults": true,
+  "createdAt": "2024-01-15T10:00:00Z",
+  "updatedAt": "2024-01-16T14:30:00Z"
+}
+```
+
+---
+
+#### BulkQuizUpdateOperationResultDto
+
+**Returned by**: `PATCH /quizzes/bulk-update`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `successfulIds` | array of UUIDs | Successfully updated quiz IDs |
+| `failures` | object (map) | UUID → error message for failed updates |
+
+**Example**:
+```json
+{
+  "successfulIds": [
+    "quiz-uuid-1",
+    "quiz-uuid-2"
+  ],
+  "failures": {
+    "quiz-uuid-3": "Quiz not found",
+    "quiz-uuid-4": "Unauthorized: not the owner"
+  }
+}
+```
+
+---
+
+### Generation Response DTOs
+
+#### QuizGenerationResponse
+
+**Returned by**: All generation start endpoints (`POST /generate-*`)
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `jobId` | UUID | Generation job identifier (use for polling) |
+| `status` | string | Initial status (usually "PROCESSING") |
+| `message` | string | Human-readable status message |
+| `estimatedTimeSeconds` | integer (nullable) | Estimated completion time |
+
+**Example**:
+```json
+{
+  "jobId": "job-uuid-here",
+  "status": "PROCESSING",
+  "message": "Quiz generation started successfully",
+  "estimatedTimeSeconds": 120
+}
+```
+
+---
+
+#### QuizGenerationStatus
+
+**Returned by**: `GET /generation-status/{jobId}`, `DELETE /generation-status/{jobId}`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `jobId` | UUID | Job identifier |
+| `status` | `GenerationStatus` enum | Current status |
+| `totalChunks` | integer | Total chunks to process |
+| `processedChunks` | integer | Chunks processed so far |
+| `progressPercentage` | number | Progress (0-100) |
+| `currentChunk` | string | Current processing status |
+| `totalTasks` | integer | Total tasks (chunk × types) |
+| `completedTasks` | integer | Completed tasks |
+| `estimatedCompletion` | ISO 8601 datetime | Estimated completion time |
+| `errorMessage` | string (nullable) | Error message if failed |
+| `totalQuestionsGenerated` | integer | Questions generated so far |
+| `elapsedTimeSeconds` | integer | Time elapsed since start |
+| `estimatedTimeRemainingSeconds` | integer | Estimated time remaining |
+| `generatedQuizId` | UUID (nullable) | Generated quiz ID (when completed) |
+| `startedAt` | ISO 8601 datetime | Job start time |
+| `completedAt` | ISO 8601 datetime (nullable) | Job completion time |
+
+**Example (In Progress)**:
+```json
+{
+  "jobId": "job-uuid",
+  "status": "PROCESSING",
+  "totalChunks": 5,
+  "processedChunks": 3,
+  "progressPercentage": 60.0,
+  "currentChunk": "Processing chunk 3/5",
+  "totalTasks": 15,
+  "completedTasks": 9,
+  "estimatedCompletion": "2024-01-15T10:45:00Z",
+  "errorMessage": null,
+  "totalQuestionsGenerated": 12,
+  "elapsedTimeSeconds": 90,
+  "estimatedTimeRemainingSeconds": 60,
+  "generatedQuizId": null,
+  "startedAt": "2024-01-15T10:30:00Z",
+  "completedAt": null
+}
+```
+
+**Example (Completed)**:
+```json
+{
+  "jobId": "job-uuid",
+  "status": "COMPLETED",
+  "totalChunks": 5,
+  "processedChunks": 5,
+  "progressPercentage": 100.0,
+  "currentChunk": "Completed",
+  "totalTasks": 15,
+  "completedTasks": 15,
+  "totalQuestionsGenerated": 20,
+  "generatedQuizId": "generated-quiz-uuid",
+  "startedAt": "2024-01-15T10:30:00Z",
+  "completedAt": "2024-01-15T10:35:00Z",
+  "elapsedTimeSeconds": 300,
+  "errorMessage": null
+}
+```
+
+---
 
 ### Analytics DTOs
 
-| DTO | Type | Purpose | Highlights |
-| --- | --- | --- | --- |
-| `QuizResultSummaryDto` | Response | Aggregated stats for a quiz. | `attemptsCount`, `averageScore`, best/worst scores, `passRate`, per-question stats (`QuestionStatsDto`).【F:src/main/java/uk/gegc/quizmaker/features/result/api/dto/QuizResultSummaryDto.java†L1-L13】【F:src/main/java/uk/gegc/quizmaker/features/result/api/dto/QuestionStatsDto.java†L1-L10】 |
-| `LeaderboardEntryDto` | Response | Leaderboard row. | `userId`, `username`, `bestScore`. Returned as list sorted descending by score.【F:src/main/java/uk/gegc/quizmaker/features/result/api/dto/LeaderboardEntryDto.java†L1-L13】 |
-| `AttemptDto` | Response | Attempt summary for owner view. | Contains IDs, `startedAt`, `status`, `mode` (enum `AttemptMode`: `ONE_BY_ONE`, `ALL_AT_ONCE`, `TIMED`).【F:src/main/java/uk/gegc/quizmaker/features/attempt/api/dto/AttemptDto.java†L1-L22】【F:src/main/java/uk/gegc/quizmaker/features/attempt/domain/model/AttemptStatus.java†L1-L6】【F:src/main/java/uk/gegc/quizmaker/features/attempt/domain/model/AttemptMode.java†L1-L6】 |
-| `AttemptStatsDto` | Response | Fine-grained attempt analytics. | Durations, counts, accuracy, nested `QuestionTimingStatsDto` entries capturing per-question timing, correctness, difficulty.【F:src/main/java/uk/gegc/quizmaker/features/attempt/api/dto/AttemptStatsDto.java†L1-L24】【F:src/main/java/uk/gegc/quizmaker/features/attempt/api/dto/QuestionTimingStatsDto.java†L1-L27】 |
+#### QuizResultSummaryDto
 
-## Endpoint Reference
+**Returned by**: `GET /quizzes/{id}/results`
 
-### CRUD & Listing
-
-1. **Create quiz** – `POST /api/v1/quizzes`
-   * Body: `CreateQuizRequest`
-   * Success: `201 Created` with `{ "quizId": UUID }`
-   * Errors: validation failures (`400`), missing auth (`401`), lacking permission (`403`).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L96-L110】
-
-2. **List quizzes** – `GET /api/v1/quizzes`
-   * Query: pagination (`page`, `size`, `sort`), filters from `QuizSearchCriteria`, `scope` (`public` default, `me`, `all`).
-   * Success: `200 OK` with `Page<QuizDto>` (weak ETag header). `304 Not Modified` when `If-None-Match` matches.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L112-L139】
-   * Errors: `429` on rate limit, `401/403` via security.
-
-3. **Get quiz** – `GET /api/v1/quizzes/{quizId}`
-   * Success: `200 OK` `QuizDto`.
-   * Errors: `404` if quiz missing or not accessible.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L141-L151】
-
-4. **Update quiz** – `PATCH /api/v1/quizzes/{quizId}`
-   * Body: `UpdateQuizRequest`
-   * Success: `200 OK` `QuizDto`.
-   * Errors: `400` validation, `404` missing quiz, `403` unauthorized.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L153-L168】
-
-5. **Bulk update** – `PATCH /api/v1/quizzes/bulk-update`
-   * Body: `BulkQuizUpdateRequest`
-   * Success: `200 OK` `BulkQuizUpdateOperationResultDto` (mix of successes/failures).
-   * Errors: `400`, `403`. Individual failures are reported per-ID inside payload.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L170-L188】
-
-6. **Delete quiz** – `DELETE /api/v1/quizzes/{quizId}`
-   * Success: `204 No Content`.
-   * Errors: `404`, `403`, `401`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L190-L200】
-
-7. **Bulk delete** – `DELETE /api/v1/quizzes?ids=`
-   * Query: `ids` list (repeat parameter supported).
-   * Success: `204 No Content`.
-   * Errors: `400` invalid IDs, `404`, `403`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L202-L221】
-
-8. **Add/remove question** – `POST` / `DELETE /api/v1/quizzes/{quizId}/questions/{questionId}`
-   * Success: `204 No Content`.
-   * Errors: `404` quiz/question missing, `403` ownership, `409` on duplicates (service-level).
-   * Notes: Service ensures referential integrity.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L223-L252】
-
-9. **Add/remove tag** – `POST` / `DELETE /api/v1/quizzes/{quizId}/tags/{tagId}` (same semantics as question association).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L254-L288】
-
-10. **Change category** – `PATCH /api/v1/quizzes/{quizId}/category/{categoryId}`
-    * Success: `204 No Content`.
-    * Errors: `404` quiz/category missing, `403` unauthorized.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L290-L305】
-
-11. **Public listing** – `GET /api/v1/quizzes/public`
-    * No auth required.
-    * Rate limited 120/min per IP; returns paged `QuizDto` with weak ETags.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L358-L398】
-
-### Analytics & Attempts
-
-12. **Quiz results summary** – `GET /api/v1/quizzes/{quizId}/results`
-    * Success: `200 OK` `QuizResultSummaryDto`.
-    * Errors: `404` if quiz or attempts missing, `403` unauthorized.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L307-L319】
-
-13. **Leaderboard** – `GET /api/v1/quizzes/{quizId}/leaderboard?top=10`
-    * Success: `200 OK` List of `LeaderboardEntryDto`.
-    * Errors: `404`, `403` as appropriate.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L321-L334】
-
-14. **Owner attempts list** – `GET /api/v1/quizzes/{quizId}/attempts`
-    * Requires authentication (owner only).
-    * Success: `200 OK` List of `AttemptDto`.
-    * Errors: `403` if not owner, `404` on missing quiz.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L336-L349】
-
-15. **Attempt stats** – `GET /api/v1/quizzes/{quizId}/attempts/{attemptId}/stats`
-    * Success: `200 OK` `AttemptStatsDto`.
-    * Errors: `404` (attempt not linked to quiz), `403` (not owner).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L351-L357】
-
-### Visibility & Status
-
-16. **Toggle visibility** – `PATCH /api/v1/quizzes/{quizId}/visibility`
-    * Body: `VisibilityUpdateRequest`
-    * Success: `200 OK` `QuizDto`.
-    * Errors: `400` invalid transition, `403`, `404`.
-    * Notes: Setting `isPublic=true` demands moderator/admin role; owners can only go PRIVATE.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L285-L322】
-
-17. **Change status** – `PATCH /api/v1/quizzes/{quizId}/status`
-    * Body: `QuizStatusUpdateRequest`
-    * Success: `200 OK` `QuizDto`.
-    * Errors: `400` illegal transition (e.g., publish without prerequisites), `403`, `404`.
-    * Notes: Publishing to PUBLIC requires moderator/admin privilege.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L324-L356】
-
-18. **Submit for review** – `POST /api/v1/quizzes/{quizId}/submit-for-review`
-    * Success: `204 No Content` (implemented via `ResponseEntity.noContent`).
-    * Errors: `403` if not owner, `404` missing quiz.
-    * Notes: Resolves authenticated user ID even if principal is username/email.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L400-L411】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L914-L930】
-
-### AI Generation Lifecycle
-
-19. **Generate from document** – `POST /api/v1/quizzes/generate-from-document`
-    * Body: `GenerateQuizFromDocumentRequest`
-    * Success: `202 Accepted` `QuizGenerationResponse`.
-    * Errors: `400` invalid input/validation; `404` document not found; `409` job already active; `401/403` security; `429` rate limit.
-    * Notes: Uses same rate-limit key as other start endpoints; job ID used for polling.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L413-L469】
-
-20. **Generate from upload** – `POST /api/v1/quizzes/generate-from-upload` (multipart)
-    * Parts/fields: `file` (binary), optional chunking params, metadata, `questionsPerType` (JSON string), `difficulty`, etc. Controller validates upload via `DocumentValidationService` then converts into DTOs.
-    * Success: `202 Accepted` `QuizGenerationResponse`.
-    * Errors: `400` invalid file (empty, huge, bad chunk strategy) or JSON parse issues; `415` unsupported file type (raised as `UnsupportedFileTypeException` → ProblemDetail 400), `422` downstream document processing failure, `429` rate limit.
-    * Notes: On unexpected error the controller wraps and rethrows `RuntimeException`, resulting in `500`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L471-L537】【F:src/main/java/uk/gegc/quizmaker/features/document/application/impl/DocumentValidationServiceImpl.java†L15-L74】
-
-21. **Generate from text** – `POST /api/v1/quizzes/generate-from-text`
-    * Body: `GenerateQuizFromTextRequest`
-    * Success: `202 Accepted` `QuizGenerationResponse`.
-    * Errors: `400` invalid input, `409` existing active job, `422` text processing failure, `429` rate limit, auth failures.
-    * Notes: Shares same validation defaults as other generation DTOs.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L539-L574】
-
-22. **Poll generation status** – `GET /api/v1/quizzes/generation-status/{jobId}`
-    * Success: `200 OK` `QuizGenerationStatus`.
-    * Errors: `404` unknown job, `403` not owner, `401` unauthenticated.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L576-L610】
-
-23. **Fetch generated quiz** – `GET /api/v1/quizzes/generated-quiz/{jobId}`
-    * Success: `200 OK` `QuizDto` (only after completion).
-    * Errors: `404` missing job/quiz, `409` if job incomplete, `403` unauthorized.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L612-L644】
-
-24. **Cancel generation** – `DELETE /api/v1/quizzes/generation-status/{jobId}`
-    * Success: `200 OK` `QuizGenerationStatus` (post-cancel state).
-    * Errors: `400` canceling non-cancellable job, `404`, `403`, `429` on rate limit.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L646-L788】
-
-25. **List generation jobs** – `GET /api/v1/quizzes/generation-jobs`
-    * Query: pageable, default sort by `startedAt` desc.
-    * Success: `200 OK` `Page<QuizGenerationStatus>`.
-    * Errors: `401` if unauthenticated.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L790-L811】
-
-26. **Generation stats** – `GET /api/v1/quizzes/generation-jobs/statistics`
-    * Success: `200 OK` `QuizGenerationJobService.JobStatistics` (fields defined in service layer).
-    * Errors: `401` if unauthenticated.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L813-L826】
-
-27. **Cleanup stale jobs** – `POST /api/v1/quizzes/generation-jobs/cleanup-stale`
-    * Success: `200 OK` plain text confirmation.
-    * Errors: `401/403` if not admin.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L828-L844】
-
-28. **Force cancel job** – `POST /api/v1/quizzes/generation-jobs/{jobId}/force-cancel`
-    * Success: `200 OK` plain text message.
-    * Errors: `404` job not found (`ResourceNotFoundException`), `500` on unexpected errors (controller catches and responds with message), `401/403` without admin permission.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L846-L892】【F:src/main/java/uk/gegc/quizmaker/shared/exception/ResourceNotFoundException.java†L1-L6】
-
-### Supporting Behaviors
-
-* **ETag caching:** List endpoints compute weak ETags based on page metadata and honor `If-None-Match`, allowing frontend caching strategies.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L120-L139】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L360-L394】
-* **User resolution:** When submitting for review, the controller resolves the authenticated user's UUID even if the principal string is a username/email by querying `UserRepository`. Missing users trigger `UnauthorizedException` → HTTP 401.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L400-L411】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L914-L930】【F:src/main/java/uk/gegc/quizmaker/shared/exception/UnauthorizedException.java†L1-L6】
-* **File validation:** Upload endpoint delegates to `DocumentValidationService` which enforces size/type checks and throws `IllegalArgumentException` or `UnsupportedFileTypeException`. Treat both as client errors that should be surfaced to users.【F:src/main/java/uk/gegc/quizmaker/features/document/application/impl/DocumentValidationServiceImpl.java†L15-L74】【F:src/main/java/uk/gegc/quizmaker/shared/exception/UnsupportedFileTypeException.java†L1-L22】
-* **JSON parsing:** `questionsPerType` form field is parsed via `ObjectMapper.readValue`. Invalid JSON raises `IllegalArgumentException` with descriptive message. Frontend should send stringified JSON map (e.g., `{"MCQ_SINGLE":3}`) in multipart requests.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L498-L528】
-
-## Error Reference
-
-| Exception | Typical HTTP Status | Trigger |
+| Field | Type | Description |
 | --- | --- | --- |
-| `RateLimitExceededException` | 429 Too Many Requests | Breaching per-minute rate limits on search or generation operations.【F:src/main/java/uk/gegc/quizmaker/shared/exception/RateLimitExceededException.java†L1-L20】 |
-| `IllegalArgumentException` | 400 Bad Request | Validation failures inside controller/DTO constructors (e.g., malformed scope, missing chunk indices, invalid UUID format, bad file metadata).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/GenerateQuizFromDocumentRequest.java†L49-L111】【F:src/main/java/uk/gegc/quizmaker/features/document/application/impl/DocumentValidationServiceImpl.java†L25-L64】 |
-| `UnsupportedFileTypeException` | 400 Bad Request | Uploading unsupported MIME types/extensions during quiz generation from upload.【F:src/main/java/uk/gegc/quizmaker/shared/exception/UnsupportedFileTypeException.java†L1-L22】 |
-| `ResourceNotFoundException` | 404 Not Found | Force-cancel admin endpoint when the job ID is unknown; also surfaced by service methods when quizzes/jobs/documents are missing.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L846-L874】 |
-| `UnauthorizedException` | 401 Unauthorized | When the authenticated principal cannot be resolved to a `User` entity during submit-for-review flow.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L914-L930】 |
-| Generic `RuntimeException` | 500 Internal Server Error | Unexpected failures during multipart generation (caught and rethrown with contextual message) or admin force-cancel catch-all block (returns 500 with text body).【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L520-L535】【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java†L864-L892】 |
+| `quizId` | UUID | Quiz identifier |
+| `attemptsCount` | integer | Total attempts |
+| `averageScore` | number | Average score (0-100) |
+| `bestScore` | number | Highest score |
+| `worstScore` | number | Lowest score |
+| `passRate` | number | Percentage of passing attempts |
+| `questionStats` | array of `QuestionStatsDto` | Per-question statistics |
+
+**QuestionStatsDto**:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `questionId` | UUID | Question identifier |
+| `questionText` | string | Question text |
+| `attemptsCount` | integer | Times attempted |
+| `correctCount` | integer | Times answered correctly |
+| `averageTimeSeconds` | number | Average time spent |
+| `difficulty` | `Difficulty` enum | Question difficulty |
+
+**Example**:
+```json
+{
+  "quizId": "quiz-uuid",
+  "attemptsCount": 150,
+  "averageScore": 75.5,
+  "bestScore": 100.0,
+  "worstScore": 30.0,
+  "passRate": 82.0,
+  "questionStats": [
+    {
+      "questionId": "question-uuid-1",
+      "questionText": "What is polymorphism?",
+      "attemptsCount": 150,
+      "correctCount": 120,
+      "averageTimeSeconds": 45.0,
+      "difficulty": "MEDIUM"
+    }
+  ]
+}
+```
+
+---
+
+#### LeaderboardEntryDto
+
+**Returned by**: `GET /quizzes/{id}/leaderboard`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `userId` | UUID | User identifier |
+| `username` | string | Username |
+| `bestScore` | number | User's best score (0-100) |
+| `rank` | integer | Leaderboard rank |
+
+**Example**:
+```json
+[
+  {
+    "userId": "user-uuid-1",
+    "username": "john_doe",
+    "bestScore": 98.5,
+    "rank": 1
+  },
+  {
+    "userId": "user-uuid-2",
+    "username": "jane_smith",
+    "bestScore": 95.0,
+    "rank": 2
+  }
+]
+```
+
+---
 
 ## Enumerations
 
-For convenience, the enums referenced by the DTOs are summarised below.
+### Difficulty
 
-| Enum | Values |
+| Value | Description |
 | --- | --- |
-| `Difficulty` | `EASY`, `MEDIUM`, `HARD`.【F:src/main/java/uk/gegc/quizmaker/features/question/domain/model/Difficulty.java†L1-L5】 |
-| `Visibility` | `PUBLIC`, `PRIVATE`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/domain/model/Visibility.java†L1-L5】 |
-| `QuizStatus` | `PENDING_REVIEW`, `REJECTED`, `PUBLISHED`, `DRAFT`, `ARCHIVED`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/domain/model/QuizStatus.java†L1-L8】 |
-| `GenerationStatus` | `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`, `CANCELLED` (with helper flags).【F:src/main/java/uk/gegc/quizmaker/features/quiz/domain/model/GenerationStatus.java†L1-L52】 |
-| `QuizScope` | `ENTIRE_DOCUMENT`, `SPECIFIC_CHUNKS`, `SPECIFIC_CHAPTER`, `SPECIFIC_SECTION`.【F:src/main/java/uk/gegc/quizmaker/features/quiz/api/dto/QuizScope.java†L1-L15】 |
-| `QuestionType` | `MCQ_SINGLE`, `MCQ_MULTI`, `OPEN`, `FILL_GAP`, `COMPLIANCE`, `TRUE_FALSE`, `ORDERING`, `HOTSPOT`, `MATCHING`.【F:src/main/java/uk/gegc/quizmaker/features/question/domain/model/QuestionType.java†L1-L5】 |
-| `AttemptStatus` | `IN_PROGRESS`, `COMPLETED`, `ABANDONED`, `PAUSED`.【F:src/main/java/uk/gegc/quizmaker/features/attempt/domain/model/AttemptStatus.java†L1-L6】 |
-| `AttemptMode` | `ONE_BY_ONE`, `ALL_AT_ONCE`, `TIMED`.【F:src/main/java/uk/gegc/quizmaker/features/attempt/domain/model/AttemptMode.java†L1-L6】 |
+| `EASY` | Easy difficulty level |
+| `MEDIUM` | Medium difficulty level |
+| `HARD` | Hard difficulty level |
 
-## Implementation Notes for Frontend
+---
 
-* Always pass an `Authorization` header except for `/public` listing.
-* Respect `Retry-After` headers when receiving 429 responses—back off before retrying.
-* For multipart upload, encode the `questionsPerType` map as a JSON string (e.g., `{"MCQ_SINGLE":3,"TRUE_FALSE":2}`) and send lists such as `chunkIndices`/`tagIds` as repeated form fields or JSON arrays, depending on your HTTP client.
-* Use the returned job ID from generation endpoints to poll `/generation-status/{jobId}` until `status` becomes `COMPLETED` or terminal. Afterwards call `/generated-quiz/{jobId}` to fetch the assembled quiz.
-* Cache paginated list responses using the weak ETag to avoid unnecessary data transfers when the listing is unchanged.
-* Handle `ProblemDetail` bodies generically—fields include `type`, `title`, `status`, `detail`, and `instance`.
+### Visibility
+
+| Value | Description |
+| --- | --- |
+| `PUBLIC` | Quiz visible to all users |
+| `PRIVATE` | Quiz visible only to creator |
+
+---
+
+### QuizStatus
+
+| Value | Description |
+| --- | --- |
+| `DRAFT` | Work in progress, not published |
+| `PENDING_REVIEW` | Submitted for moderation |
+| `PUBLISHED` | Active and available |
+| `REJECTED` | Rejected by moderators |
+| `ARCHIVED` | No longer active |
+
+---
+
+### QuizScope
+
+| Value | Description | Required Fields |
+| --- | --- | --- |
+| `ENTIRE_DOCUMENT` | Use entire document | None |
+| `SPECIFIC_CHUNKS` | Use specific chunks | `chunkIndices` |
+| `SPECIFIC_CHAPTER` | Use specific chapter | `chapterTitle` or `chapterNumber` |
+| `SPECIFIC_SECTION` | Use specific section | `sectionTitle` |
+
+---
+
+### GenerationStatus
+
+| Value | Description |
+| --- | --- |
+| `PENDING` | Job queued, not started |
+| `PROCESSING` | Currently generating |
+| `COMPLETED` | Successfully completed |
+| `FAILED` | Generation failed |
+| `CANCELLED` | Cancelled by user |
+
+---
+
+### QuestionType
+
+| Value | Description |
+| --- | --- |
+| `MCQ_SINGLE` | Multiple choice, single answer |
+| `MCQ_MULTI` | Multiple choice, multiple answers |
+| `TRUE_FALSE` | True/False question |
+| `OPEN` | Open-ended text answer |
+| `FILL_GAP` | Fill in the blank(s) |
+| `ORDERING` | Put items in correct order |
+| `MATCHING` | Match items between lists |
+| `COMPLIANCE` | Compliance statements |
+| `HOTSPOT` | Click regions on image |
+
+---
+
+## Endpoints
+
+### CRUD & Listing
+
+#### 1. Create Quiz
+
+```
+POST /api/v1/quizzes
+```
+
+**Required Permission**: `QUIZ_CREATE`
+
+**Request Body**: `CreateQuizRequest`
+
+**Success Response**: `201 Created`
+```json
+{
+  "quizId": "newly-created-quiz-uuid"
+}
+```
+
+**Error Responses**:
+- `400` - Validation error (invalid title length, etc.)
+- `401` - Unauthorized
+- `403` - Missing `QUIZ_CREATE` permission
+
+---
+
+#### 2. List Quizzes
+
+```
+GET /api/v1/quizzes
+```
+
+**Required Permission**: Depends on scope parameter
+
+**Query Parameters**: See `QuizSearchCriteria`
+
+**Success Response**: `200 OK`
+```json
+{
+  "content": [ /* Array of QuizDto */ ],
+  "totalElements": 150,
+  "totalPages": 8,
+  "number": 0,
+  "size": 20,
+  "first": true,
+  "last": false
+}
+```
+
+**Headers**:
+- `ETag`: Weak ETag for caching (e.g., `W/"hash-value"`)
+- Send `If-None-Match` header to get `304 Not Modified` if unchanged
+
+**Error Responses**:
+- `401` - Unauthorized (for `scope=me` or `scope=all`)
+- `403` - Missing permissions (for `scope=all`)
+- `429` - Rate limit exceeded (120/min)
+
+---
+
+#### 3. Get Quiz by ID
+
+```
+GET /api/v1/quizzes/{quizId}
+```
+
+**Path Parameters**:
+- `{quizId}` - Quiz UUID
+
+**Success Response**: `200 OK` - `QuizDto`
+
+**Error Responses**:
+- `404` - Quiz not found or not accessible
+- `403` - Private quiz, not the owner
+
+---
+
+#### 4. Update Quiz
+
+```
+PATCH /api/v1/quizzes/{quizId}
+```
+
+**Required Permission**: `QUIZ_UPDATE` (and must be owner or moderator)
+
+**Request Body**: `UpdateQuizRequest`
+
+**Success Response**: `200 OK` - `QuizDto`
+
+**Error Responses**:
+- `400` - Validation error
+- `403` - Not authorized to update
+- `404` - Quiz not found
+
+---
+
+#### 5. Bulk Update Quizzes
+
+```
+PATCH /api/v1/quizzes/bulk-update
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Request Body**: `BulkQuizUpdateRequest`
+
+**Success Response**: `200 OK` - `BulkQuizUpdateOperationResultDto`
+
+**Example Response**:
+```json
+{
+  "successfulIds": ["uuid-1", "uuid-2"],
+  "failures": {
+    "uuid-3": "Quiz not found"
+  }
+}
+```
+
+---
+
+#### 6. Delete Quiz
+
+```
+DELETE /api/v1/quizzes/{quizId}
+```
+
+**Required Permission**: `QUIZ_DELETE` (and must be owner or moderator)
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `403` - Not authorized
+- `404` - Quiz not found
+
+---
+
+#### 7. Bulk Delete Quizzes
+
+```
+DELETE /api/v1/quizzes?ids=uuid1&ids=uuid2&ids=uuid3
+```
+
+**Required Permission**: `QUIZ_DELETE`
+
+**Query Parameters**:
+- `ids` - Repeated parameter with quiz UUIDs
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `400` - Invalid UUID format
+- `403` - Not authorized for one or more quizzes
+- `404` - One or more quizzes not found
+
+---
+
+### Question & Tag Management
+
+#### 8. Add Question to Quiz
+
+```
+POST /api/v1/quizzes/{quizId}/questions/{questionId}
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `404` - Quiz or question not found
+- `403` - Not authorized
+- `409` - Question already in quiz
+
+---
+
+#### 9. Remove Question from Quiz
+
+```
+DELETE /api/v1/quizzes/{quizId}/questions/{questionId}
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `404` - Quiz or question not found
+- `403` - Not authorized
+
+---
+
+#### 10. Add Tag to Quiz
+
+```
+POST /api/v1/quizzes/{quizId}/tags/{tagId}
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `404` - Quiz or tag not found
+- `403` - Not authorized
+- `409` - Tag already assigned
+
+---
+
+#### 11. Remove Tag from Quiz
+
+```
+DELETE /api/v1/quizzes/{quizId}/tags/{tagId}
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Success Response**: `204 No Content`
+
+---
+
+#### 12. Change Category
+
+```
+PATCH /api/v1/quizzes/{quizId}/category/{categoryId}
+```
+
+**Required Permission**: `QUIZ_UPDATE`
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `404` - Quiz or category not found
+- `403` - Not authorized
+
+---
+
+### Analytics & Attempts
+
+#### 13. Get Quiz Results Summary
+
+```
+GET /api/v1/quizzes/{quizId}/results
+```
+
+**Success Response**: `200 OK` - `QuizResultSummaryDto`
+
+**Error Responses**:
+- `404` - Quiz not found
+- `403` - Not authorized (must be quiz owner)
+
+---
+
+#### 14. Get Leaderboard
+
+```
+GET /api/v1/quizzes/{quizId}/leaderboard?top=10
+```
+
+**Query Parameters**:
+- `top` (integer, optional) - Number of top entries, default: 10
+
+**Success Response**: `200 OK` - Array of `LeaderboardEntryDto`
+
+**Error Responses**:
+- `404` - Quiz not found
+- `403` - Not authorized
+
+---
+
+#### 15. List Quiz Attempts
+
+```
+GET /api/v1/quizzes/{quizId}/attempts
+```
+
+**Success Response**: `200 OK` - Array of `AttemptDto`
+
+**Error Responses**:
+- `404` - Quiz not found
+- `403` - Not quiz owner
+
+---
+
+### Visibility & Status
+
+#### 16. Update Visibility
+
+```
+PATCH /api/v1/quizzes/{quizId}/visibility
+```
+
+**Required Permission**: `QUIZ_UPDATE` (for PRIVATE), `QUIZ_MODERATE` or `QUIZ_ADMIN` (for PUBLIC)
+
+**Request Body**: `VisibilityUpdateRequest`
+
+**Success Response**: `200 OK` - `QuizDto`
+
+**Error Responses**:
+- `400` - Invalid transition
+- `403` - Not authorized (owners can only set PRIVATE)
+- `404` - Quiz not found
+
+---
+
+#### 17. Update Status
+
+```
+PATCH /api/v1/quizzes/{quizId}/status
+```
+
+**Required Permission**: `QUIZ_UPDATE` (for DRAFT/ARCHIVED), `QUIZ_MODERATE` or `QUIZ_ADMIN` (for PUBLISHED)
+
+**Request Body**: `QuizStatusUpdateRequest`
+
+**Success Response**: `200 OK` - `QuizDto`
+
+**Error Responses**:
+- `400` - Invalid status transition
+- `403` - Not authorized
+- `404` - Quiz not found
+
+---
+
+#### 18. Submit for Review
+
+```
+POST /api/v1/quizzes/{quizId}/submit-for-review
+```
+
+**Required Permission**: `QUIZ_UPDATE` (must be owner)
+
+**Success Response**: `204 No Content`
+
+**Error Responses**:
+- `403` - Not quiz owner
+- `404` - Quiz not found
+
+**Notes**:
+- Quiz status changes to `PENDING_REVIEW`
+- Moderators will review before publishing
+
+---
+
+### AI Generation Lifecycle
+
+#### 19. Generate from Document
+
+```
+POST /api/v1/quizzes/generate-from-document
+```
+
+**Required Permission**: `QUIZ_CREATE`
+
+**Rate Limit**: 3 requests/min per user
+
+**Request Body**: `GenerateQuizFromDocumentRequest`
+
+**Success Response**: `202 Accepted` - `QuizGenerationResponse`
+
+**Error Responses**:
+- `400` - Invalid request (missing fields, invalid scope)
+- `404` - Document not found
+- `409` - Generation job already active for this document
+- `429` - Rate limit exceeded
+
+---
+
+#### 20. Generate from Upload
+
+```
+POST /api/v1/quizzes/generate-from-upload
+Content-Type: multipart/form-data
+```
+
+**Required Permission**: `QUIZ_CREATE`
+
+**Rate Limit**: 3 requests/min per user
+
+**Request Body**: `GenerateQuizFromUploadRequest` (multipart)
+
+**Success Response**: `202 Accepted` - `QuizGenerationResponse`
+
+**Error Responses**:
+- `400` - Invalid file, validation error, JSON parse error
+- `415` - Unsupported file type
+- `422` - Document processing failed
+- `429` - Rate limit exceeded
+
+**Supported File Types**:
+- PDF (`.pdf`)
+- Word (`.doc`, `.docx`)
+- Text (`.txt`)
+- Other document formats (check server config)
+
+---
+
+#### 21. Generate from Text
+
+```
+POST /api/v1/quizzes/generate-from-text
+```
+
+**Required Permission**: `QUIZ_CREATE`
+
+**Rate Limit**: 3 requests/min per user
+
+**Request Body**: `GenerateQuizFromTextRequest`
+
+**Success Response**: `202 Accepted` - `QuizGenerationResponse`
+
+**Error Responses**:
+- `400` - Text too long (> 300,000 chars) or validation error
+- `409` - Existing active job
+- `422` - Text processing failed
+- `429` - Rate limit exceeded
+
+---
+
+#### 22. Poll Generation Status
+
+```
+GET /api/v1/quizzes/generation-status/{jobId}
+```
+
+**Success Response**: `200 OK` - `QuizGenerationStatus`
+
+**Error Responses**:
+- `404` - Job not found
+- `403` - Not job owner
+
+**Polling Strategy**:
+- Poll every 2-5 seconds while `status` is `PROCESSING`
+- Stop polling when status is terminal: `COMPLETED`, `FAILED`, or `CANCELLED`
+
+---
+
+#### 23. Get Generated Quiz
+
+```
+GET /api/v1/quizzes/generated-quiz/{jobId}
+```
+
+**Success Response**: `200 OK` - `QuizDto`
+
+**Error Responses**:
+- `404` - Job or quiz not found
+- `409` - Job not yet completed
+- `403` - Not job owner
+
+---
+
+#### 24. Cancel Generation
+
+```
+DELETE /api/v1/quizzes/generation-status/{jobId}
+```
+
+**Rate Limit**: 5 requests/min per user
+
+**Success Response**: `200 OK` - `QuizGenerationStatus` (updated with cancelled status)
+
+**Error Responses**:
+- `400` - Job already completed (cannot cancel)
+- `404` - Job not found
+- `403` - Not job owner
+- `429` - Rate limit exceeded
+
+---
+
+#### 25. List Generation Jobs
+
+```
+GET /api/v1/quizzes/generation-jobs
+```
+
+**Query Parameters**:
+- `page`, `size`, `sort` (standard pagination)
+
+**Success Response**: `200 OK` - `Page<QuizGenerationStatus>`
+
+**Error Responses**:
+- `401` - Not authenticated
+
+---
+
+#### 26. Get Generation Statistics
+
+```
+GET /api/v1/quizzes/generation-jobs/statistics
+```
+
+**Success Response**: `200 OK`
+```json
+{
+  "totalJobs": 150,
+  "completedJobs": 120,
+  "failedJobs": 10,
+  "cancelledJobs": 5,
+  "activeJobs": 15,
+  "averageCompletionTimeSeconds": 180
+}
+```
+
+---
+
+### Admin Operations
+
+#### 27. Cleanup Stale Jobs
+
+```
+POST /api/v1/quizzes/generation-jobs/cleanup-stale
+```
+
+**Required Permission**: `QUIZ_ADMIN`
+
+**Success Response**: `200 OK`
+```
+Cleaned up 5 stale generation jobs
+```
+
+**Error Responses**:
+- `401/403` - Not admin
+
+---
+
+#### 28. Force Cancel Job
+
+```
+POST /api/v1/quizzes/generation-jobs/{jobId}/force-cancel
+```
+
+**Required Permission**: `QUIZ_ADMIN`
+
+**Success Response**: `200 OK`
+```
+Job forcefully cancelled
+```
+
+**Error Responses**:
+- `404` - Job not found
+- `500` - Unexpected error (with error message)
+- `401/403` - Not admin
+
+---
+
+#### 29. Get Public Quizzes (No Auth Required)
+
+```
+GET /api/v1/quizzes/public
+```
+
+**No Authentication Required**
+
+**Rate Limit**: 120 requests/min per IP
+
+**Query Parameters**: Standard pagination and search
+
+**Success Response**: `200 OK` - `Page<QuizDto>` (only PUBLIC quizzes)
+
+**Headers**:
+- `ETag`: Weak ETag for caching
+
+**Error Responses**:
+- `429` - Rate limit exceeded
+
+---
+
+## Error Handling
+
+### ProblemDetail Format
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Title must be between 3 and 100 characters",
+  "instance": "/api/v1/quizzes"
+}
+```
+
+### Common HTTP Status Codes
+
+| Code | Meaning | When to Expect |
+| --- | --- | --- |
+| `400` | Bad Request | Validation errors, invalid data, malformed JSON |
+| `401` | Unauthorized | Missing or invalid authentication token |
+| `403` | Forbidden | Missing required permission or not resource owner |
+| `404` | Not Found | Quiz, document, job, or other resource doesn't exist |
+| `409` | Conflict | Duplicate operation, invalid state transition |
+| `415` | Unsupported Media Type | Invalid file type in upload |
+| `422` | Unprocessable Entity | Document/text processing failed |
+| `429` | Too Many Requests | Rate limit exceeded |
+| `500` | Internal Server Error | Unexpected server error |
+
+### Common Error Scenarios
+
+**Invalid Quiz Title**:
+```json
+{
+  "status": 400,
+  "detail": "Title must be between 3 and 100 characters"
+}
+```
+
+**Rate Limit Exceeded**:
+```json
+{
+  "status": 429,
+  "detail": "Rate limit exceeded. Please try again in 30 seconds"
+}
+```
+Headers: `Retry-After: 30`
+
+**Unauthorized Visibility Change**:
+```json
+{
+  "status": 403,
+  "detail": "Only moderators can set quiz to PUBLIC visibility"
+}
+```
+
+**Generation Job Not Complete**:
+```json
+{
+  "status": 409,
+  "detail": "Quiz generation job is still in progress. Please wait for completion."
+}
+```
+
+**Unsupported File Type**:
+```json
+{
+  "status": 415,
+  "detail": "Unsupported file type: .exe. Supported types: pdf, docx, txt"
+}
+```
+
+---
+
+## Integration Guide
+
+### Creating a Quiz
+
+**Simple Quiz Creation**:
+```javascript
+const createQuiz = async () => {
+  const response = await fetch('/api/v1/quizzes', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      title: 'My First Quiz',
+      description: 'A test quiz',
+      difficulty: 'EASY',
+      visibility: 'PRIVATE',
+      status: 'DRAFT',
+      showHints: true,
+      shuffleQuestions: false,
+      timeLimitMinutes: 30
+    })
+  });
+  
+  if (response.ok) {
+    const { quizId } = await response.json();
+    console.log('Quiz created:', quizId);
+    return quizId;
+  }
+};
+```
+
+---
+
+### AI Generation Workflow
+
+**Complete generation flow from document**:
+```javascript
+const generateQuiz = async (documentId) => {
+  // 1. Start generation
+  const startResponse = await fetch('/api/v1/quizzes/generate-from-document', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      documentId: documentId,
+      quizScope: 'ENTIRE_DOCUMENT',
+      title: 'Generated Quiz',
+      questionsPerType: {
+        'MCQ_SINGLE': 5,
+        'TRUE_FALSE': 3
+      },
+      difficulty: 'MEDIUM',
+      language: 'en'
+    })
+  });
+
+  if (startResponse.status === 429) {
+    const retryAfter = startResponse.headers.get('Retry-After');
+    console.log(`Rate limited. Retry after ${retryAfter} seconds`);
+    return;
+  }
+
+  const { jobId } = await startResponse.json();
+  console.log('Generation started:', jobId);
+
+  // 2. Poll for status
+  const pollStatus = async () => {
+    const statusResponse = await fetch(
+      `/api/v1/quizzes/generation-status/${jobId}`,
+      {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }
+    );
+    
+    const status = await statusResponse.json();
+    console.log(`Progress: ${status.progressPercentage}%`);
+    console.log(`Status: ${status.currentChunk}`);
+
+    if (status.status === 'COMPLETED') {
+      return status.generatedQuizId;
+    } else if (status.status === 'FAILED') {
+      throw new Error(status.errorMessage);
+    } else if (status.status === 'CANCELLED') {
+      throw new Error('Generation was cancelled');
+    }
+
+    // Still processing, poll again
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    return pollStatus();
+  };
+
+  const quizId = await pollStatus();
+
+  // 3. Fetch generated quiz
+  const quizResponse = await fetch(
+    `/api/v1/quizzes/generated-quiz/${jobId}`,
+    {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }
+  );
+  
+  const quiz = await quizResponse.json();
+  console.log('Generated quiz:', quiz);
+  return quiz;
+};
+```
+
+---
+
+### Upload and Generate
+
+**Generate quiz from uploaded file**:
+```javascript
+const uploadAndGenerate = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('title', 'Quiz from Upload');
+  formData.append('description', 'Generated from uploaded document');
+  formData.append('questionsPerType', JSON.stringify({
+    'MCQ_SINGLE': 5,
+    'TRUE_FALSE': 3
+  }));
+  formData.append('difficulty', 'MEDIUM');
+  formData.append('chunkingStrategy', 'CHAPTER_BASED');
+  formData.append('language', 'en');
+
+  const response = await fetch('/api/v1/quizzes/generate-from-upload', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+      // Don't set Content-Type - browser will set it with boundary
+    },
+    body: formData
+  });
+
+  if (response.status === 415) {
+    const error = await response.json();
+    console.error('Unsupported file type:', error.detail);
+    return;
+  }
+
+  const { jobId } = await response.json();
+  // Continue with polling as above
+  return jobId;
+};
+```
+
+---
+
+### Listing with Caching
+
+**Efficient list with ETag caching**:
+```javascript
+let cachedETag = null;
+
+const listQuizzes = async () => {
+  const headers = {
+    'Authorization': `Bearer ${token}`
+  };
+  
+  if (cachedETag) {
+    headers['If-None-Match'] = cachedETag;
+  }
+
+  const response = await fetch(
+    '/api/v1/quizzes?scope=me&page=0&size=20&sort=title,asc',
+    { headers }
+  );
+
+  if (response.status === 304) {
+    console.log('List unchanged, using cached data');
+    return; // Use cached data
+  }
+
+  cachedETag = response.headers.get('ETag');
+  const data = await response.json();
+  return data;
+};
+```
+
+---
+
+### Publishing Workflow
+
+**Submit quiz for review and publish**:
+```javascript
+const publishWorkflow = async (quizId) => {
+  // 1. Submit for review
+  await fetch(`/api/v1/quizzes/${quizId}/submit-for-review`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  console.log('Submitted for review');
+
+  // 2. (After moderator approval) Change visibility to PUBLIC
+  await fetch(`/api/v1/quizzes/${quizId}/visibility`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${moderatorToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ isPublic: true })
+  });
+
+  // 3. Publish
+  await fetch(`/api/v1/quizzes/${quizId}/status`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${moderatorToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ status: 'PUBLISHED' })
+  });
+  
+  console.log('Quiz published successfully');
+};
+```
+
+---
+
+### Bulk Operations
+
+**Bulk update multiple quizzes**:
+```javascript
+const bulkUpdate = async (quizIds, updates) => {
+  const response = await fetch('/api/v1/quizzes/bulk-update', {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      quizIds: quizIds,
+      updates: updates
+    })
+  });
+
+  const result = await response.json();
+  console.log('Successful:', result.successfulIds);
+  console.log('Failed:', result.failures);
+  
+  // Handle partial failures
+  Object.entries(result.failures).forEach(([quizId, error]) => {
+    console.error(`Failed to update ${quizId}: ${error}`);
+  });
+};
+
+// Usage
+bulkUpdate(
+  ['quiz-1', 'quiz-2', 'quiz-3'],
+  { difficulty: 'HARD', showHints: false }
+);
+```
+
+---
+
+### Error Handling
+
+**Comprehensive error handling**:
+```javascript
+const handleQuizOperation = async () => {
+  try {
+    const response = await fetch('/api/v1/quizzes/generate-from-text', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ /* request data */ })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      
+      switch (response.status) {
+        case 400:
+          console.error('Validation error:', error.detail);
+          // Show user-friendly validation message
+          break;
+        case 401:
+          console.error('Unauthorized');
+          // Redirect to login
+          break;
+        case 403:
+          console.error('Forbidden:', error.detail);
+          // Show permission error
+          break;
+        case 409:
+          console.error('Conflict:', error.detail);
+          // Handle state conflict
+          break;
+        case 429:
+          const retryAfter = response.headers.get('Retry-After');
+          console.log(`Rate limited. Retry after ${retryAfter}s`);
+          // Implement backoff
+          break;
+        case 500:
+          console.error('Server error');
+          // Show generic error, maybe retry
+          break;
+      }
+      return;
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Network error:', error);
+    // Handle network failures
+  }
+};
+```
+
+---
+
+## Security Considerations
+
+### Permission-Based Access
+
+1. **Least Privilege**: Request only necessary permissions
+2. **Permission Checks**: Endpoints validate permissions before processing
+3. **Ownership Validation**: Users can only modify their own quizzes (unless moderator/admin)
+4. **Visibility Enforcement**: PUBLIC visibility requires elevated permissions
+
+### Quiz Ownership
+
+1. **Creator Rights**: Quiz creators have full control over their quizzes
+2. **Moderator Override**: Moderators can manage any quiz
+3. **Visibility Rules**: Setting PUBLIC requires moderator permission
+4. **Status Transitions**: Publishing requires proper permissions
+
+### AI Generation Security
+
+1. **Rate Limiting**: Strict limits (3/min) prevent abuse
+2. **Job Isolation**: Users can only access their own generation jobs
+3. **Token Tracking**: Generation jobs track resource usage
+4. **Cancellation Rights**: Only job owner can cancel
+
+### Data Privacy
+
+1. **Private Quizzes**: Not accessible to other users
+2. **Analytics Privacy**: Only quiz owner can view detailed analytics
+3. **Leaderboard Control**: Consider privacy settings
+4. **Attempt Data**: Linked to quiz ownership
+
+### File Upload Security
+
+1. **File Type Validation**: Only allowed types accepted
+2. **Size Limits**: Enforced at server level
+3. **Content Scanning**: Files processed safely
+4. **Malware Protection**: Implement virus scanning
+
+### Best Practices
+
+**Frontend**:
+- Validate permissions before showing UI controls
+- Cache permission status to avoid unnecessary checks
+- Handle 403 errors gracefully with clear messaging
+- Implement rate limit backoff strategies
+- Use ETags for efficient caching
+- Validate file types client-side before upload
+
+**API Usage**:
+- Always include authentication token
+- Respect rate limits and `Retry-After` headers
+- Poll generation status efficiently (2-5 second intervals)
+- Cancel unused generation jobs to save resources
+- Use bulk operations when updating multiple quizzes
+
+**Token Management**:
+- Store tokens securely (HttpOnly cookies recommended)
+- Implement token refresh before expiration
+- Clear tokens on logout
+- Handle 401 errors with re-authentication flow
+
+**Error Handling**:
+- Parse `ProblemDetail` responses for user feedback
+- Display validation errors clearly
+- Implement retry logic for 500 errors
+- Handle network failures gracefully
+
+**Performance**:
+- Use pagination for large lists
+- Implement infinite scroll or load more
+- Cache quiz listings with ETags
+- Debounce search inputs
+- Lazy load quiz details
+
+**Testing**:
+- Test permission checks with different user roles
+- Verify ownership validations
+- Test rate limiting behavior
+- Validate file upload error handling
+- Test generation job polling and cancellation
+
