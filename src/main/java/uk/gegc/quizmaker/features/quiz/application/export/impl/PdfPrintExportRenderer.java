@@ -234,16 +234,16 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         if (content.has("options")) {
             for (JsonNode option : content.get("options")) {
                 String optionText = option.has("text") ? option.get("text").asText() : "";
-                context.writeText("   ○ " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.writeText("   - " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
                 context.y -= 14;
             }
         }
     }
 
     private void renderTrueFalse(PDPageContext context) throws IOException {
-        context.writeText("   ○ True", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        context.writeText("   - True", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
         context.y -= 14;
-        context.writeText("   ○ False", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        context.writeText("   - False", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
         context.y -= 14;
     }
 
@@ -266,7 +266,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         if (content.has("items")) {
             for (JsonNode item : content.get("items")) {
                 String itemText = item.has("text") ? item.get("text").asText() : "";
-                context.writeText("   • " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.writeText("   - " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
                 context.y -= 14;
             }
         }
@@ -315,7 +315,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         if (content.has("statements")) {
             for (JsonNode statement : content.get("statements")) {
                 String text = statement.has("text") ? statement.get("text").asText() : "";
-                context.writeText("   ○ " + text, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.writeText("   - " + text, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
                 context.y -= 14;
             }
         }

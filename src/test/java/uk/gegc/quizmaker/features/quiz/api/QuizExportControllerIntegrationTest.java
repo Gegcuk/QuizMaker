@@ -153,6 +153,359 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
         assertThat(quizzes.get(0).get("title").asText()).isEqualTo("Author's Quiz");
     }
 
+    @Test
+    @DisplayName("scope=me: includes author's PRIVATE and DRAFT quizzes")
+    void exportMeScope_includesPrivateAndDraftQuizzes() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        createQuiz("Private Draft", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        createQuiz("Private Published", Visibility.PRIVATE, QuizStatus.PUBLISHED, author);
+        createQuiz("Public Draft", Visibility.PUBLIC, QuizStatus.DRAFT, author);
+        createQuiz("Public Published", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
+        em.flush();
+
+        // When & Then - scope=me should include ALL statuses and visibilities for author
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(4); // All 4 quizzes regardless of status/visibility
+    }
+
+    @Test
+    @DisplayName("scope=me: excludes other authors' PUBLIC+PUBLISHED quizzes")
+    void exportMeScope_excludesOtherAuthorsPublicQuizzes() throws Exception {
+        // Given
+        String username1 = "author1_" + UUID.randomUUID();
+        String username2 = "author2_" + UUID.randomUUID();
+        User author1 = createTestUser(username1, username1 + "@test.com", PermissionName.QUIZ_READ);
+        User author2 = createTestUser(username2, username2 + "@test.com", PermissionName.QUIZ_READ);
+        
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author1);
+        createQuiz("Other Public", Visibility.PUBLIC, QuizStatus.PUBLISHED, author2);
+        em.flush();
+
+        // When & Then - should NOT include other author's public quiz
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username1)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(1);
+        assertThat(quizzes.get(0).get("title").asText()).isEqualTo("My Quiz");
+    }
+
+    @Test
+    @DisplayName("scope=me: works with JSON_EDITABLE format")
+    void exportMeScope_jsonFormat_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(header().string("Content-Disposition", containsString(".json")));
+    }
+
+    @Test
+    @DisplayName("scope=me: works with XLSX_EDITABLE format")
+    void exportMeScope_xlsxFormat_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "XLSX_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(header().string("Content-Disposition", containsString(".xlsx")));
+    }
+
+    @Test
+    @DisplayName("scope=me: works with HTML_PRINT format")
+    void exportMeScope_htmlFormat_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "HTML_PRINT")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(header().string("Content-Disposition", containsString(".html")));
+    }
+
+    @Test
+    @DisplayName("scope=me: works with PDF_PRINT format")
+    void exportMeScope_pdfFormat_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "PDF_PRINT")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(header().string("Content-Disposition", containsString(".pdf")));
+    }
+
+    @Test
+    @DisplayName("scope=me: combined with categoryIds filter")
+    void exportMeScope_withCategoryFilter_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        Category cat1 = new Category();
+        cat1.setName("Category1_" + UUID.randomUUID());
+        categoryRepository.save(cat1);
+        
+        Category cat2 = new Category();
+        cat2.setName("Category2_" + UUID.randomUUID());
+        categoryRepository.save(cat2);
+        
+        Quiz quiz1 = createQuizWithCategory("Quiz in Cat1", Visibility.PRIVATE, QuizStatus.DRAFT, author, cat1);
+        Quiz quiz2 = createQuizWithCategory("Quiz in Cat2", Visibility.PRIVATE, QuizStatus.DRAFT, author, cat2);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("categoryIds", cat1.getId().toString())
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(1);
+        assertThat(quizzes.get(0).get("title").asText()).isEqualTo("Quiz in Cat1");
+    }
+
+    @Test
+    @DisplayName("scope=me: combined with tags filter")
+    void exportMeScope_withTagsFilter_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        int random = (int)(Math.random() * 1000000);
+        Tag tag1 = new Tag();
+        tag1.setName("tag1_" + random);
+        tagRepository.save(tag1);
+        
+        Tag tag2 = new Tag();
+        tag2.setName("tag2_" + (random + 999));
+        tagRepository.save(tag2);
+        
+        createQuizWithTag("Quiz with Tag1", Visibility.PRIVATE, QuizStatus.DRAFT, author, tag1);
+        createQuizWithTag("Quiz with Tag2", Visibility.PRIVATE, QuizStatus.DRAFT, author, tag2);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("tags", tag1.getName())
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(1);
+        assertThat(quizzes.get(0).get("title").asText()).isEqualTo("Quiz with Tag1");
+    }
+
+    @Test
+    @DisplayName("scope=me: combined with difficulty filter")
+    void exportMeScope_withDifficultyFilter_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        createQuizWithDifficulty("Easy Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author, Difficulty.EASY);
+        createQuizWithDifficulty("Hard Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author, Difficulty.HARD);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("difficulty", "HARD")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(1);
+        assertThat(quizzes.get(0).get("title").asText()).isEqualTo("Hard Quiz");
+    }
+
+    @Test
+    @DisplayName("scope=me: combined with search filter")
+    void exportMeScope_withSearchFilter_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        createQuiz("Advanced Java Concepts", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        createQuiz("Basic Python", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("search", "java")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(1);
+        assertThat(quizzes.get(0).get("title").asText()).isEqualTo("Advanced Java Concepts");
+    }
+
+    @Test
+    @DisplayName("scope=me: combined with quizIds filter")
+    void exportMeScope_withQuizIdsFilter_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        Quiz quiz1 = createQuiz("Quiz 1", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        Quiz quiz2 = createQuiz("Quiz 2", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        Quiz quiz3 = createQuiz("Quiz 3", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("quizIds", quiz1.getId().toString() + "," + quiz3.getId().toString())
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("scope=me: returns empty array when author has no quizzes")
+    void exportMeScope_noQuizzes_returnsEmptyArray() throws Exception {
+        // Given
+        String username = "lonely_author_" + UUID.randomUUID();
+        createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.isArray()).isTrue();
+        assertThat(quizzes.size()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("scope=me: handles many quizzes from author")
+    void exportMeScope_manyQuizzes_works() throws Exception {
+        // Given
+        String username = "prolific_author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        
+        // Create 10 quizzes
+        for (int i = 0; i < 10; i++) {
+            createQuiz("Quiz " + i, Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        }
+        em.flush();
+
+        // When & Then
+        MvcResult result = mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .with(user(username)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String body = result.getResponse().getContentAsString();
+        JsonNode quizzes = objectMapper.readTree(body);
+        
+        assertThat(quizzes.size()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("scope=me: with print options accepted")
+    void exportMeScope_withPrintOptions_works() throws Exception {
+        // Given
+        String username = "author_" + UUID.randomUUID();
+        User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
+        createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
+        em.flush();
+
+        // When & Then
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "HTML_PRINT")
+                        .param("scope", "me")
+                        .param("includeCover", "true")
+                        .param("includeMetadata", "true")
+                        .param("includeHints", "true")
+                        .with(user(username)))
+                .andExpect(status().isOk());
+    }
+
     // Scope: all (admin/moderator access)
 
     @Test
