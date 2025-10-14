@@ -59,6 +59,12 @@
 
     <!-- Dependencies -->
     <dependencies>
+        <!-- Apache POI for XLSX export -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.0</version>
+        </dependency>
 
         <!-- Spring Boot Web Starter (includes Spring MVC + Jackson) -->
         <dependency>

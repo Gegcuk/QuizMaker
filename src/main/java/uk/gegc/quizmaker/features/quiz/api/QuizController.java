@@ -39,6 +39,11 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
+import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
+import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
+import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
+import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
+import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -81,6 +86,8 @@ public class QuizController {
     private final TrustedProxyUtil trustedProxyUtil;
     private final ModerationService moderationService;
     private final UserRepository userRepository;
+    private final QuizExportService quizExportService;
+    private final ExportMediaTypeResolver exportMediaTypeResolver;
 
     @Operation(
             summary = "Create a new quiz",
@@ -1011,5 +1018,50 @@ public class QuizController {
                             .orElseThrow(() -> new UnauthorizedException("Unknown principal"));
                     return user.getId();
                 });
+    }
+
+    @Operation(
+            summary = "Export quizzes",
+            description = "Export quizzes in various formats. Public scope available anonymously; scope=me requires QUIZ_READ; scope=all requires QUIZ_MODERATE or QUIZ_ADMIN."
+    )
+    @GetMapping(value = "/export")
+    public ResponseEntity<byte[]> exportQuizzes(
+            @Parameter(description = "Export format", required = true)
+            @RequestParam("format") String format,
+
+            @Parameter(description = "Scope: public|me|all", required = false)
+            @RequestParam(value = "scope", required = false, defaultValue = "public") String scope,
+
+            @RequestParam(value = "categoryIds", required = false) List<UUID> categoryIds,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "authorId", required = false) UUID authorId,
+            @RequestParam(value = "difficulty", required = false) Difficulty difficulty,
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "quizIds", required = false) List<UUID> quizIds,
+            @RequestParam(value = "includeCover", required = false, defaultValue = "true") boolean includeCover,
+            @RequestParam(value = "includeMetadata", required = false, defaultValue = "true") boolean includeMetadata,
+            @RequestParam(value = "answersOnSeparatePages", required = false, defaultValue = "true") boolean answersOnSeparatePages,
+            Authentication authentication
+    ) {
+        ExportFormat exportFormat = ExportFormat.valueOf(format.toUpperCase());
+        QuizExportFilter filter = new QuizExportFilter(categoryIds, tags, authorId, difficulty, scope, search, quizIds);
+        uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions printOptions = new uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions(includeCover, includeMetadata, answersOnSeparatePages);
+
+        // Rate limit: 30 exports per minute per IP/user
+        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(null);
+        rateLimitService.checkRateLimit("quizzes-export", key, 30);
+
+        ExportFile exportFile = quizExportService.export(filter, exportFormat, printOptions, authentication);
+        byte[] bytes;
+        try (var is = exportFile.contentSupplier().get()) {
+            bytes = is.readAllBytes();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read export stream", e);
+        }
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(exportFormat)))
+                .header("Content-Disposition", "attachment; filename=\"" + exportFile.filename() + "\"")
+                .body(bytes);
     }
 }
