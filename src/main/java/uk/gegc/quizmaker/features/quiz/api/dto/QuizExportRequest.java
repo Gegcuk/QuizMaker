@@ -11,11 +11,13 @@ import java.util.UUID;
 /**
  * Request DTO for quiz export endpoint.
  * Encapsulates format, scope, filters, and print options.
+ * All fields are optional except format and can be bound from query parameters.
  */
 public record QuizExportRequest(
     @NotNull(message = "Export format is required")
     ExportFormat format,
     
+    // Scope and filters
     String scope,
     List<UUID> categoryIds,
     List<String> tags,
@@ -23,15 +25,33 @@ public record QuizExportRequest(
     Difficulty difficulty,
     String search,
     List<UUID> quizIds,
-    PrintOptions printOptions
+    
+    // Print options (flattened for query parameter binding)
+    Boolean includeCover,
+    Boolean includeMetadata,
+    Boolean answersOnSeparatePages,
+    Boolean includeHints,
+    Boolean includeExplanations,
+    Boolean groupQuestionsByType
 ) {
     public QuizExportRequest {
         if (scope == null || scope.isBlank()) {
             scope = "public";
         }
-        if (printOptions == null) {
-            printOptions = PrintOptions.defaults();
-        }
+    }
+    
+    /**
+     * Converts request fields to PrintOptions value object
+     */
+    public PrintOptions toPrintOptions() {
+        return new PrintOptions(
+            includeCover != null ? includeCover : true,
+            includeMetadata != null ? includeMetadata : true,
+            answersOnSeparatePages != null ? answersOnSeparatePages : true,
+            includeHints != null ? includeHints : false,
+            includeExplanations != null ? includeExplanations : false,
+            groupQuestionsByType != null ? groupQuestionsByType : false
+        );
     }
 }
 

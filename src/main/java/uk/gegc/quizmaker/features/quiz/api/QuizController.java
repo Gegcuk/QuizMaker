@@ -41,7 +41,6 @@ import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
-import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
@@ -1026,43 +1025,38 @@ public class QuizController {
     )
     @GetMapping(value = "/export")
     public ResponseEntity<org.springframework.core.io.Resource> exportQuizzes(
-            @Parameter(description = "Export format", required = true)
-            @RequestParam("format") String format,
-
-            @Parameter(description = "Scope: public|me|all", required = false)
-            @RequestParam(value = "scope", required = false, defaultValue = "public") String scope,
-
-            @RequestParam(value = "categoryIds", required = false) List<UUID> categoryIds,
-            @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam(value = "authorId", required = false) UUID authorId,
-            @RequestParam(value = "difficulty", required = false) Difficulty difficulty,
-            @RequestParam(value = "search", required = false) String search,
-            @RequestParam(value = "quizIds", required = false) List<UUID> quizIds,
-            @RequestParam(value = "includeCover", required = false, defaultValue = "true") boolean includeCover,
-            @RequestParam(value = "includeMetadata", required = false, defaultValue = "true") boolean includeMetadata,
-            @RequestParam(value = "answersOnSeparatePages", required = false, defaultValue = "true") boolean answersOnSeparatePages,
+            @ParameterObject @ModelAttribute @Valid QuizExportRequest request,
             Authentication authentication,
-            HttpServletRequest request
+            HttpServletRequest httpRequest
     ) {
-        ExportFormat exportFormat = ExportFormat.valueOf(format.toUpperCase());
-        if ("me".equalsIgnoreCase(scope) && authorId == null) {
+        // Enforce scope=me ownership
+        UUID authorId = request.authorId();
+        if ("me".equalsIgnoreCase(request.scope()) && authorId == null) {
             if (authentication == null || !authentication.isAuthenticated()) {
                 throw new UnauthorizedException("Authentication required for scope=me");
             }
             authorId = resolveAuthenticatedUserId(authentication);
         }
-        QuizExportFilter filter = new QuizExportFilter(categoryIds, tags, authorId, difficulty, scope, search, quizIds);
-        uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions printOptions = new uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions(includeCover, includeMetadata, answersOnSeparatePages);
+        
+        QuizExportFilter filter = new QuizExportFilter(
+                request.categoryIds(), 
+                request.tags(), 
+                authorId, 
+                request.difficulty(), 
+                request.scope(), 
+                request.search(), 
+                request.quizIds()
+        );
 
         // Rate limit: 30 exports per minute per IP/user
-        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(request);
+        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(httpRequest);
         rateLimitService.checkRateLimit("quizzes-export", key, 30);
 
-        ExportFile exportFile = quizExportService.export(filter, exportFormat, printOptions, authentication);
+        ExportFile exportFile = quizExportService.export(filter, request.format(), request.toPrintOptions(), authentication);
         org.springframework.core.io.InputStreamResource resource = new org.springframework.core.io.InputStreamResource(exportFile.contentSupplier().get());
 
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(exportFormat)))
+                .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(request.format())))
                 .header("Content-Disposition", "attachment; filename=\"" + exportFile.filename() + "\"")
                 .body(resource);
     }
