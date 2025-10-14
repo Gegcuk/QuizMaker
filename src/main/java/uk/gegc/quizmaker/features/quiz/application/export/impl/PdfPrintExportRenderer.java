@@ -81,6 +81,8 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 renderAnswerKey(context, allQuestions, payload);
             }
 
+            // Ensure the last page's content stream is closed before saving
+            context.close();
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             document.save(baos);
             byte[] bytes = baos.toByteArray();
