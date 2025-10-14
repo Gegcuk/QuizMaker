@@ -28,16 +28,20 @@ public class QuizExportAssembler {
      * Convert a single Quiz entity to export DTO
      */
     public QuizExportDto toExportDto(Quiz quiz) {
-        List<QuestionExportDto> questions = quiz.getQuestions().stream()
-                .sorted(java.util.Comparator
-                        .comparing(uk.gegc.quizmaker.features.question.domain.model.Question::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
-                        .thenComparing(uk.gegc.quizmaker.features.question.domain.model.Question::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
-                .map(this::toQuestionExportDto)
-                .collect(Collectors.toList());
+        List<QuestionExportDto> questions = quiz.getQuestions() != null 
+                ? quiz.getQuestions().stream()
+                    .sorted(java.util.Comparator
+                            .comparing(Question::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                            .thenComparing(Question::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                    .map(this::toQuestionExportDto)
+                    .collect(Collectors.toList())
+                : new ArrayList<>();
 
-        List<String> tagNames = quiz.getTags().stream()
-                .map(Tag::getName)
-                .collect(Collectors.toList());
+        List<String> tagNames = quiz.getTags() != null
+                ? quiz.getTags().stream()
+                    .map(Tag::getName)
+                    .collect(Collectors.toList())
+                : new ArrayList<>();
 
         return new QuizExportDto(
                 quiz.getId(),
