@@ -642,7 +642,7 @@ class JsonExportRendererTest {
                 Instant.now(),
                 Instant.now()
         );
-        
+
         ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "long");
 
         // When
