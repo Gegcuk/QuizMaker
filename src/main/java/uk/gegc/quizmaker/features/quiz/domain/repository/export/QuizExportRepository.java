@@ -51,5 +51,9 @@ public interface QuizExportRepository extends JpaRepository<Quiz, UUID>, JpaSpec
         ORDER BY q.createdAt DESC
     """)
     List<Quiz> findAllByIdsWithCategoryTagsQuestions(@Param("ids") List<UUID> ids);
+
+    @Override
+    @EntityGraph(attributePaths = {"category", "creator", "tags", "questions"})
+    List<Quiz> findAll(Specification<Quiz> spec);
 }
 

@@ -11,8 +11,6 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Component
@@ -31,8 +29,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         String html = buildHtml(payload);
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
 
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
-        String filename = "quizzes_export_" + timestamp + ".html";
+        String filename = payload.filenamePrefix() + ".html";
 
         return new ExportFile(
                 filename,
@@ -50,7 +47,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
 
         if (Boolean.TRUE.equals(payload.printOptions().includeCover())) {
             sb.append("<div class=\"cover\"><h1>Quizzes Export</h1>");
-            sb.append("<div class=\"meta\">Generated at: ").append(LocalDateTime.now()).append("</div></div>");
+            sb.append("<div class=\"meta\">Generated: ").append(java.time.Instant.now()).append("</div></div>");
         }
 
         payload.quizzes().forEach(quiz -> {

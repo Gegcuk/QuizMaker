@@ -1,8 +1,10 @@
 package uk.gegc.quizmaker.features.quiz.application.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
@@ -20,20 +22,28 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.io.OutputStream;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class QuizExportServiceImpl implements QuizExportService {
 
     private final QuizExportRepository exportRepository;
     private final QuizExportAssembler assembler;
     private final List<ExportRenderer> renderers;
     private final AppPermissionEvaluator permissionEvaluator;
+    private final Clock clock;
 
     @Override
+    @Transactional(readOnly = true)
     public ExportFile export(QuizExportFilter filter, ExportFormat format, PrintOptions printOptions, Authentication authentication) {
+        Instant startTime = clock.instant();
         enforceScopePermissions(filter, authentication);
         List<Quiz> quizzes = fetchQuizzes(filter);
         List<QuizExportDto> exportDtos = assembler.toExportDtos(quizzes);
@@ -45,16 +55,58 @@ public class QuizExportServiceImpl implements QuizExportService {
                         .thenComparing(QuizExportDto::id, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
 
-        ExportPayload payload = new ExportPayload(exportDtos, printOptions != null ? printOptions : uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions.defaults());
-        return resolveRenderer(format).render(payload);
+        String filenamePrefix = buildFilenamePrefix(filter, clock);
+        ExportPayload payload = new ExportPayload(exportDtos, printOptions != null ? printOptions : uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions.defaults(), filenamePrefix);
+        ExportFile result = resolveRenderer(format).render(payload);
+        
+        // Observability logging
+        long durationMs = java.time.Duration.between(startTime, clock.instant()).toMillis();
+        String user = authentication != null ? authentication.getName() : "anonymous";
+        log.info("Quiz export completed: user={}, scope={}, format={}, quizCount={}, durationMs={}", 
+                 user, filter != null ? filter.scope() : "public", format, exportDtos.size(), durationMs);
+        
+        return result;
+    }
+    
+    private String buildFilenamePrefix(QuizExportFilter filter, Clock clock) {
+        String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmm")
+                .withZone(ZoneId.systemDefault())
+                .format(clock.instant());
+        String scope = filter != null && filter.scope() != null ? filter.scope() : "public";
+        
+        StringBuilder prefix = new StringBuilder("quizzes_");
+        prefix.append(scope).append("_").append(timestamp);
+        
+        // Add compact filter summary if filters present
+        if (filter != null) {
+            if (filter.quizIds() != null && !filter.quizIds().isEmpty()) {
+                prefix.append("_ids").append(filter.quizIds().size());
+            }
+            if (filter.categoryIds() != null && !filter.categoryIds().isEmpty()) {
+                prefix.append("_cat").append(filter.categoryIds().size());
+            }
+            if (filter.tags() != null && !filter.tags().isEmpty()) {
+                prefix.append("_tag").append(filter.tags().size());
+            }
+            if (filter.difficulty() != null) {
+                prefix.append("_").append(filter.difficulty().name().toLowerCase());
+            }
+            if (filter.search() != null && !filter.search().isBlank()) {
+                prefix.append("_search");
+            }
+        }
+        
+        return prefix.toString();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public void streamExport(QuizExportFilter filter, ExportFormat format, PrintOptions printOptions, OutputStream output, Authentication authentication) {
         ExportFile file = export(filter, format, printOptions, authentication);
         try (var is = file.contentSupplier().get()) {
             is.transferTo(output);
         } catch (Exception e) {
+            log.error("Failed streaming export: format={}, scope={}", format, filter != null ? filter.scope() : "public", e);
             throw new RuntimeException("Failed streaming export", e);
         }
     }

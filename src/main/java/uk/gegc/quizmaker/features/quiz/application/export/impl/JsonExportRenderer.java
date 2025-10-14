@@ -10,8 +10,6 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 @Component
 @RequiredArgsConstructor
@@ -27,11 +25,10 @@ public class JsonExportRenderer implements ExportRenderer {
     @Override
     public ExportFile render(ExportPayload payload) {
         try {
-            // Deterministic filename with timestamp
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
-            String filename = "quizzes_export_" + timestamp + ".json";
+            String filename = payload.filenamePrefix() + ".json";
 
-            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);
+            // Emit quizzes only for round-trip shape compatibility
+            String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload.quizzes());
             byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
             return new ExportFile(
                     filename,

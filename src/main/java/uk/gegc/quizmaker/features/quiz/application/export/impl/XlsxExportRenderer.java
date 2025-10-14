@@ -11,8 +11,6 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 @Component
 @RequiredArgsConstructor
@@ -65,8 +63,7 @@ public class XlsxExportRenderer implements ExportRenderer {
             workbook.write(baos);
             byte[] bytes = baos.toByteArray();
 
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
-            String filename = "quizzes_export_" + timestamp + ".xlsx";
+            String filename = payload.filenamePrefix() + ".xlsx";
             return new ExportFile(
                     filename,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

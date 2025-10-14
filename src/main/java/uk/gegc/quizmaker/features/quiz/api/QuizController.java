@@ -1025,7 +1025,7 @@ public class QuizController {
             description = "Export quizzes in various formats. Public scope available anonymously; scope=me requires QUIZ_READ; scope=all requires QUIZ_MODERATE or QUIZ_ADMIN."
     )
     @GetMapping(value = "/export")
-    public ResponseEntity<byte[]> exportQuizzes(
+    public ResponseEntity<org.springframework.core.io.Resource> exportQuizzes(
             @Parameter(description = "Export format", required = true)
             @RequestParam("format") String format,
 
@@ -1041,27 +1041,29 @@ public class QuizController {
             @RequestParam(value = "includeCover", required = false, defaultValue = "true") boolean includeCover,
             @RequestParam(value = "includeMetadata", required = false, defaultValue = "true") boolean includeMetadata,
             @RequestParam(value = "answersOnSeparatePages", required = false, defaultValue = "true") boolean answersOnSeparatePages,
-            Authentication authentication
+            Authentication authentication,
+            HttpServletRequest request
     ) {
         ExportFormat exportFormat = ExportFormat.valueOf(format.toUpperCase());
+        if ("me".equalsIgnoreCase(scope) && authorId == null) {
+            if (authentication == null || !authentication.isAuthenticated()) {
+                throw new UnauthorizedException("Authentication required for scope=me");
+            }
+            authorId = resolveAuthenticatedUserId(authentication);
+        }
         QuizExportFilter filter = new QuizExportFilter(categoryIds, tags, authorId, difficulty, scope, search, quizIds);
         uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions printOptions = new uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions(includeCover, includeMetadata, answersOnSeparatePages);
 
         // Rate limit: 30 exports per minute per IP/user
-        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(null);
+        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(request);
         rateLimitService.checkRateLimit("quizzes-export", key, 30);
 
         ExportFile exportFile = quizExportService.export(filter, exportFormat, printOptions, authentication);
-        byte[] bytes;
-        try (var is = exportFile.contentSupplier().get()) {
-            bytes = is.readAllBytes();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to read export stream", e);
-        }
+        org.springframework.core.io.InputStreamResource resource = new org.springframework.core.io.InputStreamResource(exportFile.contentSupplier().get());
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(exportFormat)))
                 .header("Content-Disposition", "attachment; filename=\"" + exportFile.filename() + "\"")
-                .body(bytes);
+                .body(resource);
     }
 }

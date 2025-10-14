@@ -29,6 +29,9 @@ public class QuizExportAssembler {
      */
     public QuizExportDto toExportDto(Quiz quiz) {
         List<QuestionExportDto> questions = quiz.getQuestions().stream()
+                .sorted(java.util.Comparator
+                        .comparing(uk.gegc.quizmaker.features.question.domain.model.Question::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(uk.gegc.quizmaker.features.question.domain.model.Question::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .map(this::toQuestionExportDto)
                 .collect(Collectors.toList());
 

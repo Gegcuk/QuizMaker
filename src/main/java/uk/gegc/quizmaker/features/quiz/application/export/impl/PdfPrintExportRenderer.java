@@ -14,8 +14,6 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 /**
  * Minimal PDF renderer using PDFBox as a placeholder implementation.
@@ -40,7 +38,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 contentStream.beginText();
                 contentStream.setFont(PDType1Font.HELVETICA, 12);
                 contentStream.newLineAtOffset(50, 730);
-                contentStream.showText("Quizzes Export (PDF) generated at " + LocalDateTime.now());
+                contentStream.showText("Quizzes Export (PDF) generated at " + java.time.Instant.now());
                 contentStream.endText();
             }
 
@@ -48,8 +46,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             document.save(baos);
             byte[] bytes = baos.toByteArray();
 
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmm"));
-            String filename = "quizzes_export_" + timestamp + ".pdf";
+            String filename = payload.filenamePrefix() + ".pdf";
             return new ExportFile(
                     filename,
                     "application/pdf",

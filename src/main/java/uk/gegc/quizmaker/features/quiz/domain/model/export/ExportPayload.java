@@ -11,7 +11,8 @@ import java.util.List;
  */
 public record ExportPayload(
     List<QuizExportDto> quizzes,
-    PrintOptions printOptions
+    PrintOptions printOptions,
+    String filenamePrefix
 ) {
     public ExportPayload {
         if (quizzes == null) {
@@ -19,6 +20,9 @@ public record ExportPayload(
         }
         if (printOptions == null) {
             printOptions = PrintOptions.defaults();
+        }
+        if (filenamePrefix == null || filenamePrefix.isBlank()) {
+            filenamePrefix = "quizzes_export";
         }
     }
 }
