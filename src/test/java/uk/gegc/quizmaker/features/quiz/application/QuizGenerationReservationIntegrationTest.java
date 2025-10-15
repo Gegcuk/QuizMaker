@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.quiz.api.QuizController;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
+import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
@@ -67,6 +68,12 @@ class QuizGenerationReservationIntegrationTest {
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
+
+    @MockitoBean
+    private QuizExportService quizExportService;
+
+    @MockitoBean
+    private uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver exportMediaTypeResolver;
 
     @MockitoBean
     private ModerationService moderationService;

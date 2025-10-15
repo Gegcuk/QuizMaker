@@ -39,6 +39,10 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
+import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
+import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
+import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
+import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -50,6 +54,7 @@ import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
@@ -81,6 +86,8 @@ public class QuizController {
     private final TrustedProxyUtil trustedProxyUtil;
     private final ModerationService moderationService;
     private final UserRepository userRepository;
+    private final QuizExportService quizExportService;
+    private final ExportMediaTypeResolver exportMediaTypeResolver;
 
     @Operation(
             summary = "Create a new quiz",
@@ -1011,5 +1018,56 @@ public class QuizController {
                             .orElseThrow(() -> new UnauthorizedException("Unknown principal"));
                     return user.getId();
                 });
+    }
+
+    @Operation(
+            summary = "Export quizzes",
+            description = "Export quizzes in various formats. Public scope available anonymously; scope=me requires QUIZ_READ; scope=all requires QUIZ_MODERATE or QUIZ_ADMIN."
+    )
+    @GetMapping(value = "/export")
+    public ResponseEntity<org.springframework.core.io.Resource> exportQuizzes(
+            @ParameterObject @ModelAttribute @Valid QuizExportRequest request,
+            Authentication authentication,
+            HttpServletRequest httpRequest
+    ) {
+        // Enforce scope=me ownership
+        UUID authorId = request.authorId();
+        if ("me".equalsIgnoreCase(request.scope())) {
+            if (authentication == null || !authentication.isAuthenticated()) {
+                throw new UnauthorizedException("Authentication required for scope=me");
+            }
+            UUID authenticatedUserId = resolveAuthenticatedUserId(authentication);
+            
+            // Security: Enforce that authorId matches authenticated user
+            // to prevent users from fetching other users' private quizzes via scope=me
+            if (authorId != null && !authorId.equals(authenticatedUserId)) {
+                throw new ForbiddenException("Cannot request another user's quizzes with scope=me");
+            }
+            
+            // Always use authenticated user's ID for scope=me
+            authorId = authenticatedUserId;
+        }
+        
+        QuizExportFilter filter = new QuizExportFilter(
+                request.categoryIds(), 
+                request.tags(), 
+                authorId, 
+                request.difficulty(), 
+                request.scope(), 
+                request.search(), 
+                request.quizIds()
+        );
+
+        // Rate limit: 30 exports per minute per IP/user
+        String key = authentication != null ? authentication.getName() : trustedProxyUtil.getClientIp(httpRequest);
+        rateLimitService.checkRateLimit("quizzes-export", key, 30);
+
+        ExportFile exportFile = quizExportService.export(filter, request.format(), request.toPrintOptions(), authentication);
+        org.springframework.core.io.InputStreamResource resource = new org.springframework.core.io.InputStreamResource(exportFile.contentSupplier().get());
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(request.format())))
+                .header("Content-Disposition", "attachment; filename=\"" + exportFile.filename() + "\"")
+                .body(resource);
     }
 }
