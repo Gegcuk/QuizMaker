@@ -54,6 +54,7 @@ import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
@@ -1031,11 +1032,20 @@ public class QuizController {
     ) {
         // Enforce scope=me ownership
         UUID authorId = request.authorId();
-        if ("me".equalsIgnoreCase(request.scope()) && authorId == null) {
+        if ("me".equalsIgnoreCase(request.scope())) {
             if (authentication == null || !authentication.isAuthenticated()) {
                 throw new UnauthorizedException("Authentication required for scope=me");
             }
-            authorId = resolveAuthenticatedUserId(authentication);
+            UUID authenticatedUserId = resolveAuthenticatedUserId(authentication);
+            
+            // Security: Enforce that authorId matches authenticated user
+            // to prevent users from fetching other users' private quizzes via scope=me
+            if (authorId != null && !authorId.equals(authenticatedUserId)) {
+                throw new ForbiddenException("Cannot request another user's quizzes with scope=me");
+            }
+            
+            // Always use authenticated user's ID for scope=me
+            authorId = authenticatedUserId;
         }
         
         QuizExportFilter filter = new QuizExportFilter(

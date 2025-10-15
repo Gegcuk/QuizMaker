@@ -139,10 +139,53 @@ public class QuizExportServiceImpl implements QuizExportService {
 
     private List<Quiz> fetchQuizzes(QuizExportFilter filter) {
         if (filter != null && filter.quizIds() != null && !filter.quizIds().isEmpty()) {
-            return exportRepository.findAllByIdsWithCategoryTagsQuestions(filter.quizIds());
+            // Security: Apply scope predicates even when fetching by IDs
+            // to prevent anonymous/low-privilege users from accessing private/unpublished quizzes
+            List<Quiz> quizzes = exportRepository.findAllByIdsWithCategoryTagsQuestions(filter.quizIds());
+            
+            // Filter quizzes based on scope visibility rules
+            return quizzes.stream()
+                    .filter(quiz -> matchesScopeVisibility(quiz, filter))
+                    .collect(java.util.stream.Collectors.toList());
         }
         // Use specification for filters; repository method fetches relations eagerly
         return exportRepository.findAll(QuizExportSpecifications.build(filter));
+    }
+    
+    /**
+     * Check if a quiz matches the scope visibility rules.
+     * This ensures that even when fetching by IDs, we enforce the same
+     * visibility and publication status checks as the specification.
+     */
+    private boolean matchesScopeVisibility(Quiz quiz, QuizExportFilter filter) {
+        String scope = filter.scope() != null ? filter.scope().toLowerCase() : "public";
+        
+        switch (scope) {
+            case "public" -> {
+                // Public scope: only visible and published quizzes
+                return quiz.getVisibility() == uk.gegc.quizmaker.features.quiz.domain.model.Visibility.PUBLIC
+                        && quiz.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus.PUBLISHED;
+            }
+            case "me" -> {
+                // Me scope: user's own quizzes (any visibility/status)
+                // authorId must match the quiz creator
+                if (filter.authorId() == null || quiz.getCreator() == null) {
+                    return false;
+                }
+                return quiz.getCreator().getId().equals(filter.authorId());
+            }
+            case "all" -> {
+                // All scope: all quizzes (permissions already checked in validateScopePermissions)
+                // Filter by author if specified
+                if (filter.authorId() != null && quiz.getCreator() != null) {
+                    return quiz.getCreator().getId().equals(filter.authorId());
+                }
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
     }
 
     private ExportRenderer resolveRenderer(ExportFormat format) {

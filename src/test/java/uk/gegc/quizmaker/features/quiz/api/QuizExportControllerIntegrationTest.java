@@ -1127,4 +1127,187 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
         
         return quizRepository.save(quiz);
     }
+
+    // ============================================
+    // SECURITY TESTS - P0 and P1 Vulnerabilities
+    // ============================================
+
+    @Test
+    @DisplayName("Security P0: Anonymous user cannot export private quiz by ID")
+    void security_anonymousCannotExportPrivateQuizById() throws Exception {
+        // Create a private quiz
+        User testUser = createTestUser("security_user1_" + UUID.randomUUID(), "sec1@test.com", PermissionName.QUIZ_READ);
+        Quiz privateQuiz = createQuiz("Private Quiz", Visibility.PRIVATE, QuizStatus.PUBLISHED, testUser);
+        em.flush();
+        
+        // Anonymous user tries to export by quiz ID
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("quizIds", privateQuiz.getId().toString())
+                        .param("scope", "public"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should return empty array - private quiz filtered out
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(0);
+                });
+    }
+
+    @Test
+    @DisplayName("Security P0: Anonymous user cannot export unpublished quiz by ID")
+    void security_anonymousCannotExportUnpublishedQuizById() throws Exception {
+        // Create an unpublished but public quiz
+        User testUser = createTestUser("security_user2_" + UUID.randomUUID(), "sec2@test.com", PermissionName.QUIZ_READ);
+        Quiz unpublishedQuiz = createQuiz("Draft Quiz", Visibility.PUBLIC, QuizStatus.DRAFT, testUser);
+        em.flush();
+        
+        // Anonymous user tries to export by quiz ID
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("quizIds", unpublishedQuiz.getId().toString())
+                        .param("scope", "public"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should return empty array - unpublished quiz filtered out
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(0);
+                });
+    }
+
+    @Test
+    @DisplayName("Security P0: Anonymous user can export public published quiz by ID")
+    void security_anonymousCanExportPublicPublishedQuizById() throws Exception {
+        // Create a public published quiz
+        User testUser = createTestUser("security_user3_" + UUID.randomUUID(), "sec3@test.com", PermissionName.QUIZ_READ);
+        Quiz publicQuiz = createQuiz("Public Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, testUser);
+        em.flush();
+        
+        // Anonymous user tries to export by quiz ID
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .param("format", "JSON_EDITABLE")
+                        .param("quizIds", publicQuiz.getId().toString())
+                        .param("scope", "public"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should return the quiz
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(1);
+                    assertThat(quizzes.get(0).get("id").asText()).isEqualTo(publicQuiz.getId().toString());
+                });
+    }
+
+    @Test
+    @DisplayName("Security P0: User with QUIZ_READ cannot export other user's private quiz by ID using scope=me")
+    void security_userCannotExportOtherUsersPrivateQuizByIdWithScopeMe() throws Exception {
+        // Create users
+        String user1Name = "security_user4_" + UUID.randomUUID();
+        String user2Name = "security_user5_" + UUID.randomUUID();
+        User user1 = createTestUser(user1Name, "sec4@test.com", PermissionName.QUIZ_READ);
+        User user2 = createTestUser(user2Name, "sec5@test.com", PermissionName.QUIZ_READ);
+        
+        // Create a private quiz for user1
+        Quiz user1PrivateQuiz = createQuiz("User1 Private", Visibility.PRIVATE, QuizStatus.PUBLISHED, user1);
+        em.flush();
+        
+        // User2 tries to export user1's quiz with scope=me
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .with(user(user2Name))
+                        .param("format", "JSON_EDITABLE")
+                        .param("quizIds", user1PrivateQuiz.getId().toString())
+                        .param("scope", "me"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should return empty array - quiz doesn't belong to user2
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(0);
+                });
+    }
+
+    @Test
+    @DisplayName("Security P1: User cannot use scope=me with another user's authorId")
+    void security_userCannotUseScopeMeWithOtherAuthorId() throws Exception {
+        // Create users
+        String user1Name = "security_user6_" + UUID.randomUUID();
+        String user2Name = "security_user7_" + UUID.randomUUID();
+        User user1 = createTestUser(user1Name, "sec6@test.com", PermissionName.QUIZ_READ);
+        User user2 = createTestUser(user2Name, "sec7@test.com", PermissionName.QUIZ_READ);
+        
+        // Create a private quiz for user1
+        createQuiz("User1 Private", Visibility.PRIVATE, QuizStatus.PUBLISHED, user1);
+        em.flush();
+        
+        // User2 tries to export with scope=me but user1's authorId
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .with(user(user2Name))
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me")
+                        .param("authorId", user1.getId().toString()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security P1: scope=me always uses authenticated user's ID regardless of authorId param")
+    void security_scopeMeUsesAuthenticatedUserId() throws Exception {
+        // Create users
+        String user1Name = "security_user8_" + UUID.randomUUID();
+        String user2Name = "security_user9_" + UUID.randomUUID();
+        User user1 = createTestUser(user1Name, "sec8@test.com", PermissionName.QUIZ_READ);
+        User user2 = createTestUser(user2Name, "sec9@test.com", PermissionName.QUIZ_READ);
+        
+        // Create quizzes for both users
+        Quiz user1Quiz = createQuiz("User1 Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, user1);
+        Quiz user2Quiz = createQuiz("User2 Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, user2);
+        em.flush();
+        
+        // User2 requests with scope=me (their own quizzes)
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .with(user(user2Name))
+                        .param("format", "JSON_EDITABLE")
+                        .param("scope", "me"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should only return user2's quiz
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(1);
+                    assertThat(quizzes.get(0).get("id").asText()).isEqualTo(user2Quiz.getId().toString());
+                });
+    }
+
+    @Test
+    @DisplayName("Security: User can export their own quiz by ID with scope=me")
+    void security_userCanExportOwnQuizByIdWithScopeMe() throws Exception {
+        // Create user
+        String user1Name = "security_user10_" + UUID.randomUUID();
+        User user1 = createTestUser(user1Name, "sec10@test.com", PermissionName.QUIZ_READ);
+        
+        // Create a private quiz for user1
+        Quiz user1Quiz = createQuiz("User1 Private", Visibility.PRIVATE, QuizStatus.DRAFT, user1);
+        em.flush();
+        
+        // User1 exports their own quiz by ID
+        mockMvc.perform(get("/api/v1/quizzes/export")
+                        .with(user(user1Name))
+                        .param("format", "JSON_EDITABLE")
+                        .param("quizIds", user1Quiz.getId().toString())
+                        .param("scope", "me"))
+                .andExpect(status().isOk())
+                .andExpect(result -> {
+                    String json = result.getResponse().getContentAsString();
+                    JsonNode quizzes = objectMapper.readTree(json);
+                    // Should return their quiz
+                    assertThat(quizzes.isArray()).isTrue();
+                    assertThat(quizzes.size()).isEqualTo(1);
+                    assertThat(quizzes.get(0).get("id").asText()).isEqualTo(user1Quiz.getId().toString());
+                });
+    }
 }
