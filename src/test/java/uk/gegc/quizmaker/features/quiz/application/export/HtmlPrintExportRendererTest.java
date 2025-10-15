@@ -242,7 +242,8 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("<div class=\"cover\">");
-            assertThat(html).contains("Generated:");
+            assertThat(html).contains("Jump to Answer Key");
+            assertThat(html).contains("href=\"#answer-key\"");
         }
     }
 
@@ -285,11 +286,8 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("Category: Programming");
-            assertThat(html).contains("Difficulty: HARD");
-            assertThat(html).contains("Time: 30 min");
-            assertThat(html).contains("#java");
-            assertThat(html).contains("#spring");
+            assertThat(html).contains("<h2>Test Quiz</h2>");
+            assertThat(html).contains("<p>Description</p>");
         }
     }
 
@@ -461,7 +459,7 @@ class HtmlPrintExportRendererTest {
             assertThat(html).contains("<div class=\"page-break\"></div>");
             // Should appear before answer key
             int pageBreakIdx = html.indexOf("<div class=\"page-break\">");
-            int answerKeyIdx = html.indexOf("<section class=\"answer-key\">");
+            int answerKeyIdx = html.indexOf("id=\"answer-key\"");
             assertThat(pageBreakIdx).isLessThan(answerKeyIdx);
         }
     }
@@ -551,7 +549,8 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Is Java object-oriented?");
-            assertThat(html).contains("<ul><li>True</li><li>False</li></ul>");
+            assertThat(html).contains("<strong>A.</strong> True");
+            assertThat(html).contains("<strong>B.</strong> False");
         }
     }
 
@@ -570,9 +569,10 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("What is 2+2?");
-            assertThat(html).contains("<li>3</li>");
-            assertThat(html).contains("<li>4</li>");
-            assertThat(html).contains("<li>5</li>");
+            assertThat(html).contains("<strong>A.</strong> 3");
+            assertThat(html).contains("<strong>B.</strong> 4");
+            assertThat(html).contains("<strong>C.</strong> 5");
+            assertThat(html).contains("<strong>B</strong>"); // Answer key
         }
     }
 
@@ -591,8 +591,10 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Select programming languages");
-            assertThat(html).contains("<li>Java</li>");
-            assertThat(html).contains("<li>Python</li>");
+            assertThat(html).contains("<strong>A.</strong> Java");
+            assertThat(html).contains("<strong>B.</strong> Python");
+            assertThat(html).contains("<strong>C.</strong> HTML");
+            assertThat(html).contains("<strong>A</strong>, <strong>B</strong>"); // Answer key
         }
     }
 
@@ -612,8 +614,8 @@ class HtmlPrintExportRendererTest {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Complete the sentence");
             assertThat(html).contains("<em>Fill in the blanks:</em>");
-            assertThat(html).contains("Gap 1: _________________");
-            assertThat(html).contains("Gap 2: _________________");
+            assertThat(html).contains("<strong>1.</strong> _________________");
+            assertThat(html).contains("<strong>2.</strong> _________________");
         }
     }
 
@@ -633,8 +635,8 @@ class HtmlPrintExportRendererTest {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Order these steps");
             assertThat(html).contains("<em>Order the following items:</em>");
-            assertThat(html).contains("<li>First</li>");
-            assertThat(html).contains("<li>Second</li>");
+            assertThat(html).contains("<strong>1.</strong> First");
+            assertThat(html).contains("<strong>2.</strong> Second");
         }
     }
 
@@ -655,10 +657,10 @@ class HtmlPrintExportRendererTest {
             assertThat(html).contains("Match countries with capitals");
             assertThat(html).contains("<em>Match the items:</em>");
             assertThat(html).contains("class=\"matching-columns\"");
-            assertThat(html).contains("<h4>Left Column</h4>");
-            assertThat(html).contains("<h4>Right Column</h4>");
-            assertThat(html).contains("France");
-            assertThat(html).contains("Paris");
+            assertThat(html).contains("<h4>Column 1</h4>");
+            assertThat(html).contains("<h4>Column 2</h4>");
+            assertThat(html).contains("<strong>1.</strong> France");
+            assertThat(html).contains("<strong>A.</strong> Paris");
         }
     }
 
@@ -739,7 +741,7 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("<section class=\"answer-key\">");
+            assertThat(html).contains("<section class=\"answer-key\" id=\"answer-key\">");
             assertThat(html).contains("<h2>Answer Key</h2>");
         }
     }
@@ -868,11 +870,11 @@ class HtmlPrintExportRendererTest {
     }
 
     @Test
-    @DisplayName("render: escapes HTML in category and tags")
+    @DisplayName("render: escapes HTML in quiz content")
     void render_escapesHtmlInCategoryAndTags() throws Exception {
-        // Given
+        // Given (metadata removed, but HTML escaping still important for quiz title/description)
         QuizExportDto quiz = new QuizExportDto(
-                UUID.randomUUID(), "Test Quiz", "Description", Visibility.PUBLIC,
+                UUID.randomUUID(), "Test <script>Quiz</script>", "Description & more", Visibility.PUBLIC,
                 Difficulty.EASY, 10, List.of("java<script>", "spring&boot"),
                 "Web<dev>", UUID.randomUUID(), new ArrayList<>(),
                 Instant.now(), Instant.now()
@@ -886,9 +888,8 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("Web&lt;dev&gt;");
-            assertThat(html).contains("java&lt;script&gt;");
-            assertThat(html).contains("spring&amp;boot");
+            assertThat(html).contains("&lt;script&gt;");
+            assertThat(html).contains("&amp; more");
         }
     }
 
@@ -907,7 +908,8 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).startsWith("<!DOCTYPE html>");
-            assertThat(html).contains("<section class=\"answer-key\">");
+            assertThat(html).contains("id=\"answer-key\"");
+            assertThat(html).contains("<h2>Answer Key</h2>");
         }
     }
 
@@ -925,7 +927,8 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).startsWith("<!DOCTYPE html>");
-            assertThat(html).contains("<section class=\"answer-key\">");
+            assertThat(html).contains("id=\"answer-key\"");
+            assertThat(html).contains("<h2>Answer Key</h2>");
         }
     }
 
@@ -1106,9 +1109,9 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("测试");
-            assertThat(html).contains("🎉");
-            assertThat(html).contains("日本語");
+            assertThat(html).contains("测试"); // Title
+            assertThat(html).contains("🎉");  // Description emoji
+            assertThat(html).contains("тест"); // Title cyrillic
         }
     }
 

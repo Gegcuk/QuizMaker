@@ -35,6 +35,8 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     private final AnswerKeyBuilder answerKeyBuilder;
 
     private static final float MARGIN = 50f;
+    private static final float PAGE_WIDTH = PDRectangle.LETTER.getWidth();
+    private static final float MAX_TEXT_WIDTH = PAGE_WIDTH - (2 * MARGIN); // Available width for text
     private static final float TITLE_FONT_SIZE = 18f;
     private static final float HEADING_FONT_SIZE = 14f;
     private static final float NORMAL_FONT_SIZE = 11f;
@@ -141,7 +143,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         }
         
         if (quiz.description() != null && !quiz.description().isBlank()) {
-            context.writeWrappedText(quiz.description(), PDType1Font.HELVETICA, SMALL_FONT_SIZE, 500);
+            context.writeWrappedText(quiz.description(), PDType1Font.HELVETICA, SMALL_FONT_SIZE);
             context.y -= 5;
         }
         
@@ -237,10 +239,13 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
     private void renderMcqOptions(PDPageContext context, JsonNode content) throws IOException {
         if (content.has("options")) {
+            int optionIdx = 0;
             for (JsonNode option : content.get("options")) {
                 String optionText = option.has("text") ? option.get("text").asText() : "";
-                context.writeText("   - " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                char label = (char) ('A' + optionIdx);
+                context.writeText("   " + label + ". " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
                 context.y -= 14;
+                optionIdx++;
             }
         }
     }
@@ -336,34 +341,208 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
         List<AnswerKeyEntry> answers = answerKeyBuilder.build(questions);
         
+        // Build question lookup map
+        Map<java.util.UUID, QuestionExportDto> questionMap = questions.stream()
+            .collect(java.util.stream.Collectors.toMap(QuestionExportDto::id, q -> q));
+        
         for (AnswerKeyEntry answer : answers) {
             context.ensureSpace(40);
+            QuestionExportDto question = questionMap.get(answer.questionId());
             String answerText = String.format("%d. %s", 
                     answer.index(), 
-                    formatAnswerForDisplay(answer));
+                    formatAnswerForDisplay(answer, question));
             context.writeText(answerText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
             context.y -= 15;
         }
     }
 
-    private String formatAnswerForDisplay(AnswerKeyEntry answer) {
+    private String formatAnswerForDisplay(AnswerKeyEntry answer, QuestionExportDto question) {
         JsonNode normalized = answer.normalizedAnswer();
         if (normalized == null || normalized.isNull()) {
             return "No answer";
         }
         
+        JsonNode originalContent = question != null ? question.content() : null;
+        
         // Format based on question type
         return switch (answer.type()) {
-            case MCQ_SINGLE -> normalized.has("correctOptionId") ? 
-                    "Option: " + normalized.get("correctOptionId").asText() : "N/A";
-            case MCQ_MULTI -> normalized.has("correctOptionIds") ?
-                    "Options: " + normalized.get("correctOptionIds").toString() : "N/A";
+            case MCQ_SINGLE -> formatMcqSingleAnswer(normalized, originalContent);
+            case MCQ_MULTI -> formatMcqMultiAnswer(normalized, originalContent);
             case TRUE_FALSE -> normalized.has("answer") ?
-                    normalized.get("answer").asBoolean() ? "True" : "False" : "N/A";
+                    (normalized.get("answer").asBoolean() ? "True" : "False") : "N/A";
             case OPEN -> normalized.has("answer") && !normalized.get("answer").isNull() ?
                     normalized.get("answer").asText() : "Open answer (manual grading)";
+            case MATCHING -> formatMatchingAnswer(normalized, originalContent);
+            case ORDERING -> formatOrderingAnswer(normalized, originalContent);
+            case COMPLIANCE -> formatComplianceAnswer(normalized, originalContent);
+            case FILL_GAP -> formatFillGapAnswer(normalized);
             default -> normalized.toString();
         };
+    }
+    
+    private String formatMcqSingleAnswer(JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("correctOptionId")) {
+            return "N/A";
+        }
+        
+        String correctId = normalized.get("correctOptionId").asText();
+        
+        // Find the option position and convert to letter
+        if (originalContent != null && originalContent.has("options")) {
+            int optionIdx = 0;
+            for (JsonNode option : originalContent.get("options")) {
+                String optionId = option.has("id") ? option.get("id").asText() : "";
+                if (optionId.equals(correctId)) {
+                    char label = (char) ('A' + optionIdx);
+                    return String.valueOf(label);
+                }
+                optionIdx++;
+            }
+        }
+        
+        return "Option: " + correctId;
+    }
+    
+    private String formatMcqMultiAnswer(JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("correctOptionIds")) {
+            return "N/A";
+        }
+        
+        JsonNode correctIds = normalized.get("correctOptionIds");
+        
+        // Build set of correct IDs
+        java.util.Set<String> correctIdSet = new java.util.HashSet<>();
+        for (JsonNode id : correctIds) {
+            correctIdSet.add(id.asText());
+        }
+        
+        // Find matching option positions and convert to letters
+        List<Character> correctLetters = new ArrayList<>();
+        if (originalContent != null && originalContent.has("options")) {
+            int optionIdx = 0;
+            for (JsonNode option : originalContent.get("options")) {
+                String optionId = option.has("id") ? option.get("id").asText() : "";
+                if (correctIdSet.contains(optionId)) {
+                    char label = (char) ('A' + optionIdx);
+                    correctLetters.add(label);
+                }
+                optionIdx++;
+            }
+        }
+        
+        if (!correctLetters.isEmpty()) {
+            return correctLetters.stream()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(", "));
+        }
+        return "Options: " + correctIds.toString();
+    }
+    
+    private String formatMatchingAnswer(JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("pairs")) {
+            return "N/A";
+        }
+        
+        // Build ID-to-text lookup maps
+        Map<Integer, String> leftMap = new LinkedHashMap<>();
+        Map<Integer, String> rightMap = new LinkedHashMap<>();
+        
+        if (originalContent != null) {
+            if (originalContent.has("left")) {
+                for (JsonNode item : originalContent.get("left")) {
+                    int id = item.has("id") ? item.get("id").asInt() : 0;
+                    String text = item.has("text") ? item.get("text").asText() : "";
+                    leftMap.put(id, text);
+                }
+            }
+            if (originalContent.has("right")) {
+                for (JsonNode item : originalContent.get("right")) {
+                    int id = item.has("id") ? item.get("id").asInt() : 0;
+                    String text = item.has("text") ? item.get("text").asText() : "";
+                    rightMap.put(id, text);
+                }
+            }
+        }
+        
+        // Format pairs with text
+        List<String> pairTexts = new ArrayList<>();
+        JsonNode pairs = normalized.get("pairs");
+        for (JsonNode pair : pairs) {
+            int leftId = pair.has("leftId") ? pair.get("leftId").asInt() : 0;
+            int rightId = pair.has("rightId") ? pair.get("rightId").asInt() : 0;
+            
+            String leftText = leftMap.getOrDefault(leftId, String.valueOf(leftId));
+            String rightText = rightMap.getOrDefault(rightId, String.valueOf(rightId));
+            
+            pairTexts.add(leftText + " -> " + rightText);
+        }
+        return String.join(", ", pairTexts);
+    }
+    
+    private String formatOrderingAnswer(JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("order")) {
+            return "N/A";
+        }
+        
+        // Build ID-to-text lookup map
+        Map<Integer, String> itemMap = new LinkedHashMap<>();
+        if (originalContent != null && originalContent.has("items")) {
+            for (JsonNode item : originalContent.get("items")) {
+                int id = item.has("id") ? item.get("id").asInt() : 0;
+                String text = item.has("text") ? item.get("text").asText() : "";
+                itemMap.put(id, text);
+            }
+        }
+        
+        List<String> orderedItems = new ArrayList<>();
+        JsonNode order = normalized.get("order");
+        for (JsonNode item : order) {
+            int id = item.asInt();
+            String text = itemMap.getOrDefault(id, String.valueOf(id));
+            orderedItems.add(text);
+        }
+        return "Order: " + String.join(", ", orderedItems);
+    }
+    
+    private String formatComplianceAnswer(JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("compliantStatementIds")) {
+            return "N/A";
+        }
+        
+        // Build ID-to-text lookup map
+        Map<Integer, String> statementMap = new LinkedHashMap<>();
+        if (originalContent != null && originalContent.has("statements")) {
+            for (JsonNode stmt : originalContent.get("statements")) {
+                int id = stmt.has("id") ? stmt.get("id").asInt() : 0;
+                String text = stmt.has("text") ? stmt.get("text").asText() : "";
+                statementMap.put(id, text);
+            }
+        }
+        
+        List<String> compliantTexts = new ArrayList<>();
+        JsonNode ids = normalized.get("compliantStatementIds");
+        for (JsonNode id : ids) {
+            int stmtId = id.asInt();
+            String text = statementMap.getOrDefault(stmtId, String.valueOf(stmtId));
+            compliantTexts.add(text);
+        }
+        return "Compliant: " + String.join(", ", compliantTexts);
+    }
+    
+    private String formatFillGapAnswer(JsonNode normalized) {
+        if (!normalized.has("answers")) {
+            return "N/A";
+        }
+        
+        List<String> gapAnswers = new ArrayList<>();
+        JsonNode answers = normalized.get("answers");
+        int idx = 0;
+        for (JsonNode answerObj : answers) {
+            String text = answerObj.has("text") ? answerObj.get("text").asText() : "";
+            gapAnswers.add((idx + 1) + ". " + text);
+            idx++;
+        }
+        return String.join(", ", gapAnswers);
     }
 
     private String formatQuestionType(String type) {
@@ -411,20 +590,21 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             }
         }
 
+        /**
+         * Write text with automatic wrapping to fit page width
+         */
         public void writeText(String text, PDFont font, float fontSize) throws IOException {
+            writeWrappedText(text, font, fontSize);
+        }
+
+        /**
+         * Write text with word wrapping to fit within page margins
+         */
+        public void writeWrappedText(String text, PDFont font, float fontSize) throws IOException {
+            if (text == null || text.isBlank()) return;
             if (currentPage == null) {
                 startNewPage();
             }
-            contentStream.beginText();
-            contentStream.setFont(font, fontSize);
-            contentStream.newLineAtOffset(MARGIN, y);
-            contentStream.showText(text);
-            contentStream.endText();
-            y -= fontSize * LINE_SPACING;
-        }
-
-        public void writeWrappedText(String text, PDFont font, float fontSize, float maxWidth) throws IOException {
-            if (text == null || text.isBlank()) return;
             
             String[] words = text.split("\\s+");
             StringBuilder line = new StringBuilder();
@@ -433,20 +613,38 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 String testLine = line.length() == 0 ? word : line + " " + word;
                 try {
                     float width = font.getStringWidth(testLine) / 1000 * fontSize;
-                    if (width > maxWidth && line.length() > 0) {
-                        writeText(line.toString(), font, fontSize);
+                    if (width > MAX_TEXT_WIDTH && line.length() > 0) {
+                        // Write current line
+                        writeSingleLine(line.toString(), font, fontSize);
                         line = new StringBuilder(word);
                     } else {
                         line = new StringBuilder(testLine);
                     }
                 } catch (IOException e) {
+                    // If we can't calculate width, just append
                     line.append(" ").append(word);
                 }
             }
             
             if (line.length() > 0) {
-                writeText(line.toString(), font, fontSize);
+                writeSingleLine(line.toString(), font, fontSize);
             }
+        }
+        
+        /**
+         * Write a single line of text without wrapping (internal use only)
+         */
+        private void writeSingleLine(String text, PDFont font, float fontSize) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            ensureSpace(fontSize * LINE_SPACING);
+            contentStream.beginText();
+            contentStream.setFont(font, fontSize);
+            contentStream.newLineAtOffset(MARGIN, y);
+            contentStream.showText(text);
+            contentStream.endText();
+            y -= fontSize * LINE_SPACING;
         }
 
         public void close() throws IOException {
