@@ -13,6 +13,7 @@ Complete frontend integration guide for `/api/v1/quizzes` REST endpoints. This d
 - [Response DTOs](#response-dtos)
   - [Quiz DTOs](#quiz-dtos)
   - [Generation DTOs](#generation-response-dtos)
+  - [Export DTOs](#export-dtos)
   - [Analytics DTOs](#analytics-dtos)
 - [Enumerations](#enumerations)
 - [Endpoints](#endpoints)
@@ -21,6 +22,7 @@ Complete frontend integration guide for `/api/v1/quizzes` REST endpoints. This d
   - [Analytics & Attempts](#analytics--attempts)
   - [Visibility & Status](#visibility--status)
   - [AI Generation Lifecycle](#ai-generation-lifecycle)
+  - [Data Export](#data-export)
   - [Admin Operations](#admin-operations)
 - [Error Handling](#error-handling)
 - [Integration Guide](#integration-guide)
@@ -55,6 +57,9 @@ Quiz endpoints use permission-based authorization for operations. Users need spe
 | **View public quizzes** | `GET /quizzes/public` | None (public endpoint) | Rate limited to 120/min |
 | **View own quizzes** | `GET /quizzes?scope=me` | Authenticated user | No special permission needed |
 | **View all quizzes** | `GET /quizzes?scope=all` | `QUIZ_READ` OR moderator/admin | Cross-user access |
+| **Export public quizzes** | `GET /quizzes/export?scope=public` | None (public endpoint) | Rate limited to 30/min |
+| **Export own quizzes** | `GET /quizzes/export?scope=me` | `QUIZ_READ` | Must be authenticated |
+| **Export all quizzes** | `GET /quizzes/export?scope=all` | `QUIZ_MODERATE` OR `QUIZ_ADMIN` | Cross-user export |
 | **Admin generation ops** | `POST /generation-jobs/cleanup-stale`, `POST /generation-jobs/{id}/force-cancel` | `QUIZ_ADMIN` | System administration |
 
 **Ownership Rules**:
@@ -72,6 +77,8 @@ The API enforces per-minute quotas to prevent abuse. Exceeding limits returns HT
 | --- | --- | --- | --- |
 | **List (authenticated)** | 120 requests/min | Client IP | `GET /quizzes` |
 | **List (public)** | 120 requests/min | Client IP | `GET /quizzes/public` |
+| **Export (authenticated)** | 30 requests/min | Username | `GET /quizzes/export` (scope=me/all) |
+| **Export (public)** | 30 requests/min | Client IP | `GET /quizzes/export` (scope=public) |
 | **AI Generation (start)** | 3 requests/min | Username | All `/generate-*` endpoints |
 | **AI Generation (cancel)** | 5 requests/min | Username | `DELETE /generation-status/{jobId}` |
 
@@ -558,6 +565,92 @@ language: "en"
   "completedAt": "2024-01-15T10:35:00Z",
   "elapsedTimeSeconds": 300,
   "errorMessage": null
+}
+```
+
+---
+
+### Export DTOs
+
+#### QuizExportDto
+
+**Returned by**: `GET /quizzes/export` (JSON format)
+
+Stable structure designed for round-trip import/export. Used in JSON_EDITABLE format exports.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Quiz unique identifier |
+| `title` | string | Quiz title |
+| `description` | string (nullable) | Quiz description |
+| `visibility` | `Visibility` enum | `PUBLIC` or `PRIVATE` |
+| `difficulty` | `Difficulty` enum | `EASY`, `MEDIUM`, or `HARD` |
+| `estimatedTime` | integer (nullable) | Estimated completion time in minutes |
+| `tags` | array of strings | Tag names (not IDs) |
+| `category` | string (nullable) | Category name (not ID) |
+| `creatorId` | UUID | User who created the quiz |
+| `questions` | array of `QuestionExportDto` | Nested questions with full content |
+| `createdAt` | ISO 8601 datetime | Creation timestamp |
+| `updatedAt` | ISO 8601 datetime | Last update timestamp |
+
+**Notes**:
+- No `status` field (unlike QuizDto)
+- Uses category/tag names instead of IDs for better readability
+- Questions are nested inline (not separate entities)
+
+**Example**:
+```json
+{
+  "id": "quiz-uuid",
+  "title": "Java Fundamentals",
+  "description": "Test your Java knowledge",
+  "visibility": "PUBLIC",
+  "difficulty": "MEDIUM",
+  "estimatedTime": 30,
+  "tags": ["java", "oop"],
+  "category": "Programming",
+  "creatorId": "user-uuid",
+  "questions": [ /* array of QuestionExportDto */ ],
+  "createdAt": "2024-01-15T10:00:00Z",
+  "updatedAt": "2024-01-16T14:30:00Z"
+}
+```
+
+---
+
+#### QuestionExportDto
+
+**Returned by**: Nested in `QuizExportDto`
+
+Preserves question structure with JSON content for round-trip compatibility.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | UUID | Question unique identifier |
+| `type` | `QuestionType` enum | Question type |
+| `difficulty` | `Difficulty` enum | Question difficulty |
+| `questionText` | string | The question text |
+| `content` | JSON object | Question-specific content (options, answers, etc.) |
+| `hint` | string (nullable) | Optional hint text |
+| `explanation` | string (nullable) | Optional explanation text |
+| `attachmentUrl` | string (nullable) | Optional attachment URL |
+
+**Example**:
+```json
+{
+  "id": "question-uuid",
+  "type": "MCQ_SINGLE",
+  "difficulty": "EASY",
+  "questionText": "What is polymorphism?",
+  "content": {
+    "options": [
+      {"id": "opt-1", "text": "Many forms", "isCorrect": true},
+      {"id": "opt-2", "text": "Single form", "isCorrect": false}
+    ]
+  },
+  "hint": "Think about OOP principles",
+  "explanation": "Polymorphism allows objects to take many forms",
+  "attachmentUrl": null
 }
 ```
 
@@ -1224,9 +1317,226 @@ GET /api/v1/quizzes/generation-jobs/statistics
 
 ---
 
+### Data Export
+
+#### 27. Export Quizzes
+
+```
+GET /api/v1/quizzes/export
+```
+
+**Permission Requirements** (scope-dependent):
+- `scope=public` - No authentication required (anonymous access)
+- `scope=me` - Authenticated user with `QUIZ_READ` permission  
+- `scope=all` - `QUIZ_MODERATE` or `QUIZ_ADMIN` permission
+
+**Rate Limit**: 30 requests/min per IP (public scope), 30 requests/min per user (authenticated)
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Validation | Default | Description |
+| --- | --- | --- | --- | --- | --- |
+| `format` | string enum | Yes | `JSON_EDITABLE`, `XLSX_EDITABLE`, `HTML_PRINT`, `PDF_PRINT` | - | Export format |
+| `scope` | string | No | `public`, `me`, `all` | `public` | Access scope filter |
+| `categoryIds` | array of UUIDs | No | Valid UUIDs | `[]` | Filter by categories |
+| `tags` | array of strings | No | Tag names (case-insensitive) | `[]` | Filter by tags |
+| `authorId` | UUID | No | Valid user UUID | Current user (if `scope=me`) | Filter by author |
+| `difficulty` | string | No | `EASY`, `MEDIUM`, `HARD` | - | Filter by difficulty |
+| `search` | string | No | Search term | - | Search in title/description |
+| `quizIds` | array of UUIDs | No | Valid quiz UUIDs | `[]` | Export specific quizzes |
+| `includeCover` | boolean | No | - | `true` | Include cover page (print formats) |
+| `includeMetadata` | boolean | No | - | `true` | Include quiz metadata (print formats) |
+| `answersOnSeparatePages` | boolean | No | - | `true` | Separate answer key pages (print formats) |
+| `includeHints` | boolean | No | - | `false` | Include question hints (print formats) |
+| `includeExplanations` | boolean | No | - | `false` | Include answer explanations (print formats) |
+| `groupQuestionsByType` | boolean | No | - | `false` | Group by question type (print formats) |
+
+**Scope Behavior**:
+- `public`: Returns only PUBLIC + PUBLISHED quizzes (anonymous access allowed)
+- `me`: Returns only authenticated user's quizzes (all statuses/visibilities)
+- `all`: Returns all quizzes (requires moderation permissions)
+
+**Export Formats**:
+
+| Format | Content-Type | Extension | Round-Trip | Use Case |
+| --- | --- | --- | --- | --- |
+| `JSON_EDITABLE` | `application/json` | `.json` | ✅ Yes | Full data export/import, API integration |
+| `XLSX_EDITABLE` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | `.xlsx` | ✅ Yes | Spreadsheet editing, bulk review |
+| `HTML_PRINT` | `text/html` | `.html` | ❌ No | Browser printing, web preview |
+| `PDF_PRINT` | `application/pdf` | `.pdf` | ❌ No | Professional printing, distribution |
+
+**Success Response**: `200 OK`
+
+**Response Headers**:
+- `Content-Type`: Format-specific MIME type
+- `Content-Disposition`: `attachment; filename="quizzes_{scope}_{timestamp}_{filters}.{ext}"`
+- `Transfer-Encoding`: `chunked` (streaming response)
+
+**Example Filename Patterns**:
+- `quizzes_public_20241014_1430.json`
+- `quizzes_me_20241014_1430_cat_tag_diff.xlsx`
+- `quizzes_all_20241014_1430_search.pdf`
+
+**JSON Format Structure** (`QuizExportDto[]`):
+```json
+[
+  {
+    "id": "quiz-uuid",
+    "title": "Quiz Title",
+    "description": "Quiz description",
+    "visibility": "PUBLIC",
+    "difficulty": "MEDIUM",
+    "estimatedTime": 30,
+    "tags": ["java", "fundamentals"],
+    "category": "Programming",
+    "creatorId": "user-uuid",
+    "questions": [
+      {
+        "id": "question-uuid",
+        "type": "MCQ_SINGLE",
+        "difficulty": "EASY",
+        "questionText": "What is Java?",
+        "content": {
+          "options": [
+            {"id": "opt-1", "text": "A programming language", "isCorrect": true},
+            {"id": "opt-2", "text": "A coffee brand", "isCorrect": false}
+          ]
+        },
+        "hint": "Think about technology",
+        "explanation": "Java is a widely-used programming language",
+        "attachmentUrl": null
+      }
+    ],
+    "createdAt": "2024-01-15T10:00:00Z",
+    "updatedAt": "2024-01-16T14:30:00Z"
+  }
+]
+```
+
+**QuizExportDto Fields**:
+- `id` (UUID): Quiz identifier
+- `title` (string): Quiz title
+- `description` (string, nullable): Quiz description
+- `visibility` (enum): `PUBLIC` or `PRIVATE`
+- `difficulty` (enum): `EASY`, `MEDIUM`, or `HARD`
+- `estimatedTime` (integer, nullable): Estimated completion time in minutes
+- `tags` (array of strings): Tag names
+- `category` (string, nullable): Category name
+- `creatorId` (UUID): Creator's user ID
+- `questions` (array): Nested questions (see QuestionExportDto)
+- `createdAt` (ISO 8601): Creation timestamp
+- `updatedAt` (ISO 8601): Last update timestamp
+
+**QuestionExportDto Fields**:
+- `id` (UUID): Question identifier
+- `type` (enum): Question type (MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, OPEN, etc.)
+- `difficulty` (enum): Question difficulty
+- `questionText` (string): The question text
+- `content` (JSON object): Question-specific content (options, correct answers, etc.)
+- `hint` (string, nullable): Optional hint
+- `explanation` (string, nullable): Optional explanation
+- `attachmentUrl` (string, nullable): Optional attachment URL
+
+**XLSX Format Structure**:
+
+**Sheet Organization**:
+- **Sheet 1 ("Quizzes")**: Quiz-level metadata
+- **One sheet per question type** (only types present in export)
+
+**Question Sheet Structure** (all types follow this pattern):
+1. Question ID
+2. Quiz ID  
+3. Difficulty
+4. Question Text
+5. **[Type-specific content columns]** ← Answer/options come right after question for easy input
+6. Hint (optional)
+7. Explanation (optional)
+8. Attachment URL (optional)
+
+**Type-Specific Content Columns**:
+- **"MCQ_SINGLE" / "MCQ_MULTI"**: Option 1-6 (text + "Correct" flag)
+- **"TRUE_FALSE"**: Correct Answer (True/False)
+- **"OPEN"**: Sample Answer (text)
+- **"FILL_GAP"**: Gap 1-10 Answer
+- **"ORDERING"**: Item 1-10 (in correct order)
+- **"MATCHING"**: Left 1-8, Right 1-8 pairs
+- **"COMPLIANCE"**: Statement 1-10 (text + "Compliant" flag)
+- **"HOTSPOT"**: Image URL, Hotspot Count
+
+**Example TRUE_FALSE Sheet**:
+| Question ID | Quiz ID | Difficulty | Question Text | Correct Answer | Hint | Explanation | Attachment URL |
+|-------------|---------|------------|---------------|----------------|------|-------------|----------------|
+| uuid-1 | quiz-uuid | EASY | Is Java compiled? | True | Think about JVM | Java compiles to bytecode | |
+| uuid-2 | quiz-uuid | MEDIUM | Is Python statically typed? | False | | Dynamic typing | |
+
+**Benefits**:
+✅ **No raw JSON** - Clean, readable format for humans  
+✅ **Answer right after question** - Quick data entry without scrolling  
+✅ **Type-specific columns** - Only relevant fields per type  
+✅ **Easy bulk editing** - Edit all MCQ options or all True/False answers at once  
+✅ **Import-friendly** - Clear structure for parsing back into system  
+✅ **Professional appearance** - Clean spreadsheet suitable for sharing
+
+**HTML/PDF Print Options**:
+All print-specific parameters control the output formatting:
+- **Cover page**: Generated timestamp (no redundant title)
+- **Metadata blocks**: Quiz details, difficulty, time estimates
+- **Answer key placement**: Separate pages or inline
+- **Hints**: Warm yellow background with orange border for visibility
+- **Explanations**: Blue background with darker blue border for clarity
+- **Grouping**: Questions organized by type (MCQ, True/False, etc.)
+- **Matching questions**: Clean 2-column grid layout with numbers (1, 2, 3...) on left and letters (A, B, C...) on right (no instruction text)
+- **Ordering questions**: Items labeled with letters (A, B, C, D...)
+- **Answer key formats**:
+  - MATCHING: Number-letter combinations (e.g., `1 → A, 2 → B, 3 → C`)
+  - ORDERING: Letter sequence (e.g., `C → A → D → B`)
+  - COMPLIANCE: Statement positions (e.g., `Compliant: 1, 3, 5`)
+
+**Error Responses**:
+- `400` - Invalid format enum, invalid UUID format, validation error
+- `401` - Unauthorized (for `scope=me` or `scope=all` without authentication)
+- `403` - Forbidden (missing required permission for scope)
+- `404` - No quizzes match the filters (returns empty result, not error)
+- `429` - Rate limit exceeded
+
+**Example Requests**:
+
+**Public JSON export (anonymous)**:
+```
+GET /api/v1/quizzes/export?format=JSON_EDITABLE&scope=public
+```
+
+**User's quizzes in XLSX**:
+```
+GET /api/v1/quizzes/export?format=XLSX_EDITABLE&scope=me
+Authorization: Bearer <token>
+```
+
+**Filtered PDF export with options**:
+```
+GET /api/v1/quizzes/export?format=PDF_PRINT&scope=me&difficulty=MEDIUM&tags=java&includeCover=true&includeHints=true&groupQuestionsByType=true
+Authorization: Bearer <token>
+```
+
+**Specific quizzes HTML export**:
+```
+GET /api/v1/quizzes/export?format=HTML_PRINT&quizIds=uuid1&quizIds=uuid2&answersOnSeparatePages=true
+Authorization: Bearer <token>
+```
+
+**Notes**:
+- Response is streamed to prevent OOM for large exports
+- Questions are ordered deterministically (by createdAt, then id)
+- All filters are optional and can be combined
+- Print options only apply to `HTML_PRINT` and `PDF_PRINT` formats
+- JSON and XLSX formats preserve full data structure for round-trip import
+- Filename includes timestamp and filter indicators for traceability
+
+---
+
 ### Admin Operations
 
-#### 27. Cleanup Stale Jobs
+#### 28. Cleanup Stale Jobs
 
 ```
 POST /api/v1/quizzes/generation-jobs/cleanup-stale
@@ -1244,7 +1554,7 @@ Cleaned up 5 stale generation jobs
 
 ---
 
-#### 28. Force Cancel Job
+#### 29. Force Cancel Job
 
 ```
 POST /api/v1/quizzes/generation-jobs/{jobId}/force-cancel
@@ -1264,7 +1574,7 @@ Job forcefully cancelled
 
 ---
 
-#### 29. Get Public Quizzes (No Auth Required)
+#### 30. Get Public Quizzes (No Auth Required)
 
 ```
 GET /api/v1/quizzes/public
