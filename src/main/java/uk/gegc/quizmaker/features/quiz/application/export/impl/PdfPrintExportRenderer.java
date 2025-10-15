@@ -68,17 +68,18 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 allQuestions.addAll(quiz.questions());
             }
 
-            // Render questions (grouped or sequential)
+            // Render questions (grouped or sequential) and track render order
+            List<QuestionExportDto> questionsInRenderOrder;
             if (Boolean.TRUE.equals(payload.printOptions().groupQuestionsByType())) {
-                renderQuestionsGroupedByType(context, allQuestions, payload);
+                questionsInRenderOrder = renderQuestionsGroupedByType(context, allQuestions, payload);
             } else {
-                renderQuestionsSequential(context, allQuestions, payload);
+                questionsInRenderOrder = renderQuestionsSequential(context, allQuestions, payload);
             }
 
-            // Answers on separate page
+            // Answers on separate page - use same order as questions were rendered
             if (Boolean.TRUE.equals(payload.printOptions().answersOnSeparatePages())) {
                 context.startNewPage();
-                renderAnswerKey(context, allQuestions, payload);
+                renderAnswerKey(context, questionsInRenderOrder, payload);
             }
 
             // Ensure the last page's content stream is closed before saving
@@ -147,19 +148,21 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         context.y -= 10;
     }
 
-    private void renderQuestionsSequential(PDPageContext context, List<QuestionExportDto> questions, 
+    private List<QuestionExportDto> renderQuestionsSequential(PDPageContext context, List<QuestionExportDto> questions, 
                                           ExportPayload payload) throws IOException {
         int questionNumber = 1;
         for (QuestionExportDto question : questions) {
             renderQuestion(context, question, questionNumber++, payload);
         }
+        return questions; // Same order as input
     }
 
-    private void renderQuestionsGroupedByType(PDPageContext context, List<QuestionExportDto> questions,
+    private List<QuestionExportDto> renderQuestionsGroupedByType(PDPageContext context, List<QuestionExportDto> questions,
                                               ExportPayload payload) throws IOException {
         Map<String, List<QuestionExportDto>> grouped = questions.stream()
                 .collect(Collectors.groupingBy(q -> q.type().name(), LinkedHashMap::new, Collectors.toList()));
 
+        List<QuestionExportDto> renderOrder = new ArrayList<>();
         int questionNumber = 1;
         for (Map.Entry<String, List<QuestionExportDto>> entry : grouped.entrySet()) {
             context.ensureSpace(60);
@@ -170,8 +173,10 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
             for (QuestionExportDto question : entry.getValue()) {
                 renderQuestion(context, question, questionNumber++, payload);
+                renderOrder.add(question); // Track render order
             }
         }
+        return renderOrder; // Return grouped order
     }
 
     private void renderQuestion(PDPageContext context, QuestionExportDto question, int number,
@@ -333,9 +338,8 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         
         for (AnswerKeyEntry answer : answers) {
             context.ensureSpace(40);
-            String answerText = String.format("%d. [%s] %s", 
+            String answerText = String.format("%d. %s", 
                     answer.index(), 
-                    answer.type(),
                     formatAnswerForDisplay(answer));
             context.writeText(answerText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
             context.y -= 15;

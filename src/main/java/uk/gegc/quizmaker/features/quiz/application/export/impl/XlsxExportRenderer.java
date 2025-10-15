@@ -1,9 +1,12 @@
 package uk.gegc.quizmaker.features.quiz.application.export.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
 import uk.gegc.quizmaker.features.quiz.application.export.ExportRenderer;
 import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
@@ -11,6 +14,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.*;
 
 @Component
 @RequiredArgsConstructor
@@ -24,11 +28,16 @@ public class XlsxExportRenderer implements ExportRenderer {
     @Override
     public ExportFile render(ExportPayload payload) {
         try (Workbook workbook = new XSSFWorkbook()) {
-            // Sheet 1: Quizzes
+            // Sheet 1: Quizzes metadata
             createQuizzesSheet(workbook, payload);
             
-            // Sheet 2: Questions
-            createQuestionsSheet(workbook, payload);
+            // Group questions by type
+            Map<QuestionType, List<QuestionWithQuizId>> questionsByType = groupQuestionsByType(payload);
+            
+            // Create a sheet for each question type
+            for (Map.Entry<QuestionType, List<QuestionWithQuizId>> entry : questionsByType.entrySet()) {
+                createQuestionTypeSheet(workbook, entry.getKey(), entry.getValue());
+            }
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             workbook.write(baos);
@@ -86,131 +95,469 @@ public class XlsxExportRenderer implements ExportRenderer {
         }
     }
 
-    private void createQuestionsSheet(Workbook workbook, ExportPayload payload) {
-        Sheet sheet = workbook.createSheet("Questions");
-        int rowIdx = 0;
-
-        // Header - common columns + type-specific columns
-        Row header = sheet.createRow(rowIdx++);
+    /**
+     * Helper record to associate questions with their quiz ID
+     */
+    private record QuestionWithQuizId(UUID quizId, QuestionExportDto question) {}
+    
+    /**
+     * Group all questions by their type across all quizzes
+     */
+    private Map<QuestionType, List<QuestionWithQuizId>> groupQuestionsByType(ExportPayload payload) {
+        Map<QuestionType, List<QuestionWithQuizId>> grouped = new LinkedHashMap<>();
+        
+        for (var quiz : payload.quizzes()) {
+            for (var question : quiz.questions()) {
+                QuestionType type = question.type();
+                grouped.computeIfAbsent(type, k -> new ArrayList<>())
+                       .add(new QuestionWithQuizId(quiz.id(), question));
+            }
+        }
+        
+        return grouped;
+    }
+    
+    /**
+     * Create a sheet for a specific question type with appropriate columns
+     */
+    private void createQuestionTypeSheet(Workbook workbook, QuestionType type, 
+                                        List<QuestionWithQuizId> questions) {
+        Sheet sheet = workbook.createSheet(type.name());
+        
+        // Create header and data rows based on question type
+        switch (type) {
+            case MCQ_SINGLE, MCQ_MULTI -> createMcqSheet(sheet, questions, type);
+            case TRUE_FALSE -> createTrueFalseSheet(sheet, questions);
+            case OPEN -> createOpenSheet(sheet, questions);
+            case FILL_GAP -> createFillGapSheet(sheet, questions);
+            case ORDERING -> createOrderingSheet(sheet, questions);
+            case MATCHING -> createMatchingSheet(sheet, questions);
+            case COMPLIANCE -> createComplianceSheet(sheet, questions);
+            case HOTSPOT -> createHotspotSheet(sheet, questions);
+        }
+    }
+    
+    /**
+     * Create common header columns (before type-specific content)
+     */
+    private int createCommonHeadersBeforeContent(Row header) {
         int colIdx = 0;
         header.createCell(colIdx++).setCellValue("Question ID");
         header.createCell(colIdx++).setCellValue("Quiz ID");
-        header.createCell(colIdx++).setCellValue("Type");
         header.createCell(colIdx++).setCellValue("Difficulty");
         header.createCell(colIdx++).setCellValue("Question Text");
+        return colIdx;
+    }
+    
+    /**
+     * Create common header columns (after type-specific content)
+     */
+    private int createCommonHeadersAfterContent(Row header, int startCol) {
+        int colIdx = startCol;
         header.createCell(colIdx++).setCellValue("Hint");
         header.createCell(colIdx++).setCellValue("Explanation");
         header.createCell(colIdx++).setCellValue("Attachment URL");
+        return colIdx;
+    }
+    
+    /**
+     * Fill common data columns (before type-specific content)
+     */
+    private int fillCommonDataBeforeContent(Row row, QuestionWithQuizId qwq) {
+        QuestionExportDto q = qwq.question();
+        int colIdx = 0;
+        row.createCell(colIdx++).setCellValue(q.id() != null ? q.id().toString() : "");
+        row.createCell(colIdx++).setCellValue(qwq.quizId() != null ? qwq.quizId().toString() : "");
+        row.createCell(colIdx++).setCellValue(q.difficulty() != null ? q.difficulty().name() : "");
+        row.createCell(colIdx++).setCellValue(q.questionText() != null ? q.questionText() : "");
+        return colIdx;
+    }
+    
+    /**
+     * Fill common data columns (after type-specific content)
+     */
+    private int fillCommonDataAfterContent(Row row, QuestionWithQuizId qwq, int startCol) {
+        QuestionExportDto q = qwq.question();
+        int colIdx = startCol;
+        row.createCell(colIdx++).setCellValue(q.hint() != null ? q.hint() : "");
+        row.createCell(colIdx++).setCellValue(q.explanation() != null ? q.explanation() : "");
+        row.createCell(colIdx++).setCellValue(q.attachmentUrl() != null ? q.attachmentUrl() : "");
+        return colIdx;
+    }
+
+    private void createMcqSheet(Sheet sheet, List<QuestionWithQuizId> questions, QuestionType type) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
         
-        // Type-specific columns (common patterns)
-        header.createCell(colIdx++).setCellValue("Answer/Correct"); // For TRUE_FALSE, OPEN
-        header.createCell(colIdx++).setCellValue("Option 1");
-        header.createCell(colIdx++).setCellValue("Option 1 Correct");
-        header.createCell(colIdx++).setCellValue("Option 2");
-        header.createCell(colIdx++).setCellValue("Option 2 Correct");
-        header.createCell(colIdx++).setCellValue("Option 3");
-        header.createCell(colIdx++).setCellValue("Option 3 Correct");
-        header.createCell(colIdx++).setCellValue("Option 4");
-        header.createCell(colIdx++).setCellValue("Option 4 Correct");
-        header.createCell(colIdx++).setCellValue("Option 5");
-        header.createCell(colIdx++).setCellValue("Option 5 Correct");
-        header.createCell(colIdx++).setCellValue("Gap 1");
-        header.createCell(colIdx++).setCellValue("Gap 2");
-        header.createCell(colIdx++).setCellValue("Gap 3");
-        header.createCell(colIdx++).setCellValue("Gap 4");
-        header.createCell(colIdx++).setCellValue("Gap 5");
-        header.createCell(colIdx++).setCellValue("Raw Content (JSON)"); // Fallback for complex types
-
-        // Data rows
-        for (var quiz : payload.quizzes()) {
-            for (var question : quiz.questions()) {
-                Row row = sheet.createRow(rowIdx++);
-                colIdx = 0;
-                
-                // Common fields
-                row.createCell(colIdx++).setCellValue(question.id() != null ? question.id().toString() : "");
-                row.createCell(colIdx++).setCellValue(quiz.id() != null ? quiz.id().toString() : "");
-                row.createCell(colIdx++).setCellValue(question.type() != null ? question.type().name() : "");
-                row.createCell(colIdx++).setCellValue(question.difficulty() != null ? question.difficulty().name() : "");
-                row.createCell(colIdx++).setCellValue(question.questionText() != null ? question.questionText() : "");
-                row.createCell(colIdx++).setCellValue(question.hint() != null ? question.hint() : "");
-                row.createCell(colIdx++).setCellValue(question.explanation() != null ? question.explanation() : "");
-                row.createCell(colIdx++).setCellValue(question.attachmentUrl() != null ? question.attachmentUrl() : "");
-                
-                // Parse type-specific content
-                parseContentToColumns(row, colIdx, question);
-            }
+        // Headers: Common before + Options + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        
+        // MCQ-specific columns - up to 6 options
+        for (int i = 1; i <= 6; i++) {
+            header.createCell(colIdx++).setCellValue("Option " + i);
+            header.createCell(colIdx++).setCellValue("Option " + i + " Correct");
         }
-
+        
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Options
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("options")) {
+                var options = content.get("options");
+                int optionIdx = 0;
+                for (JsonNode option : options) {
+                    if (optionIdx >= 6) break;
+                    
+                    String text = option.has("text") ? option.get("text").asText() : "";
+                    boolean correct = option.has("correct") ? option.get("correct").asBoolean() : false;
+                    
+                    row.createCell(colIdx++).setCellValue(text);
+                    row.createCell(colIdx++).setCellValue(correct ? "YES" : "NO");
+                    optionIdx++;
+                }
+                // Fill empty cells for unused option slots
+                for (int i = optionIdx; i < 6; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            } else {
+                // Fill all option columns as empty
+                for (int i = 0; i < 6; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
         // Autosize columns
-        for (int i = 0; i < header.getLastCellNum(); i++) {
+        for (int i = 0; i < lastCol; i++) {
             sheet.autoSizeColumn(i);
         }
     }
 
-    private void parseContentToColumns(Row row, int startCol, uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto question) {
-        var content = question.content();
-        int colIdx = startCol;
+    private void createTrueFalseSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
         
-        if (content == null || content.isNull()) {
-            row.createCell(colIdx + 16).setCellValue("{}"); // Raw content column
-            return;
+        // Headers: Common before + Answer + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        header.createCell(colIdx++).setCellValue("Correct Answer");
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Answer field
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("answer")) {
+                boolean answer = content.get("answer").asBoolean();
+                row.createCell(colIdx++).setCellValue(answer ? "True" : "False");
+            } else {
+                row.createCell(colIdx++).setCellValue(""); // Empty if missing
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
         }
+        
+        // Autosize all columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
 
-        switch (question.type()) {
-            case TRUE_FALSE -> {
-                // Answer/Correct column
-                if (content.has("answer")) {
-                    row.createCell(colIdx).setCellValue(content.get("answer").asBoolean() ? "True" : "False");
-                }
+    private void createOpenSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Sample Answer + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        header.createCell(colIdx++).setCellValue("Sample Answer");
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Sample answer
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("answer")) {
+                row.createCell(colIdx++).setCellValue(content.get("answer").asText());
+            } else {
+                row.createCell(colIdx++).setCellValue("");
             }
-            case OPEN -> {
-                // Answer/Correct column
-                if (content.has("answer")) {
-                    row.createCell(colIdx).setCellValue(content.get("answer").asText());
-                }
-            }
-            case MCQ_SINGLE, MCQ_MULTI -> {
-                // Parse options into Option columns
-                if (content.has("options")) {
-                    var options = content.get("options");
-                    int optionIdx = 0;
-                    for (var option : options) {
-                        if (optionIdx >= 5) break; // Max 5 options in columns
-                        
-                        int optionCol = colIdx + 1 + (optionIdx * 2); // Skip Answer column, 2 cols per option
-                        String text = option.has("text") ? option.get("text").asText() : "";
-                        boolean correct = option.has("correct") && option.get("correct").asBoolean();
-                        
-                        row.createCell(optionCol).setCellValue(text);
-                        row.createCell(optionCol + 1).setCellValue(correct ? "YES" : "NO");
-                        optionIdx++;
-                    }
-                }
-            }
-            case FILL_GAP -> {
-                // Parse gaps into Gap columns
-                if (content.has("gaps")) {
-                    var gaps = content.get("gaps");
-                    int gapIdx = 0;
-                    for (var gap : gaps) {
-                        if (gapIdx >= 5) break; // Max 5 gaps in columns
-                        
-                        int gapCol = colIdx + 11 + gapIdx; // After options columns
-                        String answer = gap.has("answer") ? gap.get("answer").asText() : "";
-                        row.createCell(gapCol).setCellValue(answer);
-                        gapIdx++;
-                    }
-                }
-            }
-            case ORDERING, MATCHING, HOTSPOT, COMPLIANCE -> {
-                // These are complex - keep as JSON in Raw Content column
-                row.createCell(colIdx + 16).setCellValue(content.toString());
-            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
         }
         
-        // Always include raw JSON for safety/import
-        row.createCell(colIdx + 16).setCellValue(content.toString());
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    private void createFillGapSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Gaps + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        
+        // Gap columns
+        for (int i = 1; i <= 10; i++) {
+            header.createCell(colIdx++).setCellValue("Gap " + i + " Answer");
+        }
+        
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Gaps
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("gaps")) {
+                var gaps = content.get("gaps");
+                int gapIdx = 0;
+                for (JsonNode gap : gaps) {
+                    if (gapIdx >= 10) break;
+                    String answer = gap.has("answer") ? gap.get("answer").asText() : "";
+                    row.createCell(colIdx++).setCellValue(answer);
+                    gapIdx++;
+                }
+                // Fill empty cells for unused gaps
+                for (int i = gapIdx; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            } else {
+                // Fill all gap columns as empty
+                for (int i = 0; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    private void createOrderingSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Items + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        
+        // Item columns
+        for (int i = 1; i <= 10; i++) {
+            header.createCell(colIdx++).setCellValue("Item " + i);
+        }
+        
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Items
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("items")) {
+                var items = content.get("items");
+                int itemIdx = 0;
+                for (JsonNode item : items) {
+                    if (itemIdx >= 10) break;
+                    String text = item.has("text") ? item.get("text").asText() : "";
+                    row.createCell(colIdx++).setCellValue(text);
+                    itemIdx++;
+                }
+                // Fill empty cells for unused items
+                for (int i = itemIdx; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            } else {
+                // Fill all item columns as empty
+                for (int i = 0; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    private void createMatchingSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Matching pairs + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        
+        // Left and right columns for matching
+        for (int i = 1; i <= 8; i++) {
+            header.createCell(colIdx++).setCellValue("Left " + i);
+            header.createCell(colIdx++).setCellValue("Right " + i);
+        }
+        
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Matching pairs (complex type - leave empty for now, could be enhanced later)
+            for (int i = 0; i < 16; i++) {
+                row.createCell(colIdx++).setCellValue("");
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    private void createComplianceSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Statements + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        
+        // Statement columns
+        for (int i = 1; i <= 10; i++) {
+            header.createCell(colIdx++).setCellValue("Statement " + i);
+            header.createCell(colIdx++).setCellValue("Statement " + i + " Compliant");
+        }
+        
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Statements
+            JsonNode content = qwq.question().content();
+            if (content != null && content.has("statements")) {
+                var statements = content.get("statements");
+                int stmtIdx = 0;
+                for (JsonNode stmt : statements) {
+                    if (stmtIdx >= 10) break;
+                    String text = stmt.has("text") ? stmt.get("text").asText() : "";
+                    boolean compliant = stmt.has("compliant") ? stmt.get("compliant").asBoolean() : false;
+                    row.createCell(colIdx++).setCellValue(text);
+                    row.createCell(colIdx++).setCellValue(compliant ? "Compliant" : "Non-compliant");
+                    stmtIdx++;
+                }
+                // Fill empty cells for unused statements
+                for (int i = stmtIdx; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            } else {
+                // Fill all statement columns as empty
+                for (int i = 0; i < 10; i++) {
+                    row.createCell(colIdx++).setCellValue("");
+                    row.createCell(colIdx++).setCellValue("");
+                }
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
+    }
+
+    private void createHotspotSheet(Sheet sheet, List<QuestionWithQuizId> questions) {
+        int rowIdx = 0;
+        Row header = sheet.createRow(rowIdx++);
+        
+        // Headers: Common before + Hotspot info + Common after
+        int colIdx = createCommonHeadersBeforeContent(header);
+        header.createCell(colIdx++).setCellValue("Image URL");
+        header.createCell(colIdx++).setCellValue("Hotspot Count");
+        int lastCol = createCommonHeadersAfterContent(header, colIdx);
+        
+        // Data rows
+        for (QuestionWithQuizId qwq : questions) {
+            Row row = sheet.createRow(rowIdx++);
+            
+            // Common fields before content
+            colIdx = fillCommonDataBeforeContent(row, qwq);
+            
+            // Hotspot-specific fields
+            JsonNode content = qwq.question().content();
+            if (content != null) {
+                if (content.has("imageUrl")) {
+                    row.createCell(colIdx++).setCellValue(content.get("imageUrl").asText());
+                } else {
+                    row.createCell(colIdx++).setCellValue("");
+                }
+                if (content.has("hotspots")) {
+                    row.createCell(colIdx++).setCellValue(content.get("hotspots").size());
+                } else {
+                    row.createCell(colIdx++).setCellValue(0);
+                }
+            } else {
+                row.createCell(colIdx++).setCellValue("");
+                row.createCell(colIdx++).setCellValue(0);
+            }
+            
+            // Common fields after content
+            fillCommonDataAfterContent(row, qwq, colIdx);
+        }
+        
+        // Autosize columns
+        for (int i = 0; i < lastCol; i++) {
+            sheet.autoSizeColumn(i);
+        }
     }
 }
 

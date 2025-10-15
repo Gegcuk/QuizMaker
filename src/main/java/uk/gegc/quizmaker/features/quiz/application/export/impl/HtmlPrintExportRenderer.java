@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
@@ -59,8 +60,10 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".question{margin:20px 0;padding:12px;background:#f9f9f9;border-left:3px solid #333;} ");
         sb.append(".question-header{font-weight:bold;font-size:16px;margin-bottom:8px;} ");
         sb.append(".question-content{margin:8px 0;} ");
-        sb.append(".hint{margin-top:8px;padding:8px;background:#fff3cd;border-left:3px solid #ffc107;font-style:italic;font-size:14px;} ");
-        sb.append(".explanation{margin-top:8px;padding:8px;background:#d1ecf1;border-left:3px solid #17a2b8;font-size:14px;} ");
+        sb.append(".hint{margin-top:12px;padding:12px;background:#fffbea;border-left:4px solid #fbbf24;border-radius:4px;color:#92400e;font-size:14px;} ");
+        sb.append(".hint strong{color:#b45309;} ");
+        sb.append(".explanation{margin-top:12px;padding:12px;background:#dbeafe;border-left:4px solid #3b82f6;border-radius:4px;color:#1e3a8a;font-size:14px;} ");
+        sb.append(".explanation strong{color:#1e40af;} ");
         sb.append(".answer-key{margin-top:32px;} ");
         sb.append(".answer-key h2{margin-top:0;} ");
         sb.append(".answer-entry{margin:8px 0;padding:8px;background:#f9f9f9;} ");
@@ -68,11 +71,18 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".category{color:#666;font-size:12px;} ");
         sb.append(".cover{margin-bottom:24px;border-bottom:1px solid #ddd;padding-bottom:12px;} ");
         sb.append(".type-section{margin-top:32px;} ");
+        sb.append(".matching-columns{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:8px;} ");
+        sb.append(".matching-col{background:transparent;padding:0;border:none;} ");
+        sb.append(".matching-col h4{margin:0 0 8px 0;color:#374151;font-size:14px;font-weight:600;} ");
+        sb.append(".matching-col ul{list-style:disc;padding-left:20px;margin:0;} ");
+        sb.append(".matching-col li{padding:2px 0;} ");
+        sb.append("ul{padding-left:20px;} ");
+        sb.append("ul li{list-style-type:disc;} ");
         sb.append("</style>");
         sb.append("</head><body>");
 
         if (Boolean.TRUE.equals(payload.printOptions().includeCover())) {
-            sb.append("<div class=\"cover\"><h1>Quizzes Export</h1>");
+            sb.append("<div class=\"cover\">");
             sb.append("<div class=\"meta\">Generated: ").append(java.time.Instant.now()).append("</div></div>");
         }
 
@@ -85,15 +95,16 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             allQuestions.addAll(quiz.questions());
         }
 
-        // Render questions - grouped or sequential
+        // Determine rendering order (for answer key consistency)
+        List<QuestionExportDto> questionsInRenderOrder;
         if (Boolean.TRUE.equals(payload.printOptions().groupQuestionsByType())) {
-            renderQuestionsGroupedByType(sb, allQuestions, payload);
+            questionsInRenderOrder = renderQuestionsGroupedByType(sb, allQuestions, payload);
         } else {
-            renderQuestionsSequential(sb, allQuestions, payload);
+            questionsInRenderOrder = renderQuestionsSequential(sb, allQuestions, payload);
         }
 
-        // Answer key
-        List<AnswerKeyEntry> answerKey = answerKeyBuilder.build(allQuestions);
+        // Answer key - use same order as questions were rendered
+        List<AnswerKeyEntry> answerKey = answerKeyBuilder.build(questionsInRenderOrder);
 
         if (Boolean.TRUE.equals(payload.printOptions().answersOnSeparatePages())) {
             sb.append("<div class=\"page-break\"></div>");
@@ -102,10 +113,16 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append("<section class=\"answer-key\">");
         sb.append("<h2>Answer Key</h2>");
         int akIdx = 1;
+        
+        // Build question lookup map for text resolution
+        Map<UUID, QuestionExportDto> questionMap = allQuestions.stream()
+            .collect(Collectors.toMap(QuestionExportDto::id, q -> q));
+        
         for (AnswerKeyEntry entry : answerKey) {
-            sb.append("<div class=\"answer-entry\"><strong>").append(akIdx++).append(".</strong> [").append(entry.type()).append("] ")
-              .append(escape(formatAnswerForDisplay(entry)))
-              .append("</div>");
+            QuestionExportDto question = questionMap.get(entry.questionId());
+            sb.append("<div class=\"answer-entry\"><strong>").append(akIdx++).append(".</strong> ");
+            formatAnswerForDisplayHtml(sb, entry, question);
+            sb.append("</div>");
         }
         sb.append("</section>");
 
@@ -138,14 +155,15 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append("</section>");
     }
 
-    private void renderQuestionsSequential(StringBuilder sb, List<QuestionExportDto> questions, ExportPayload payload) {
+    private List<QuestionExportDto> renderQuestionsSequential(StringBuilder sb, List<QuestionExportDto> questions, ExportPayload payload) {
         int questionNumber = 1;
         for (QuestionExportDto question : questions) {
             renderQuestion(sb, question, questionNumber++, payload);
         }
+        return questions; // Same order as input
     }
 
-    private void renderQuestionsGroupedByType(StringBuilder sb, List<QuestionExportDto> questions, ExportPayload payload) {
+    private List<QuestionExportDto> renderQuestionsGroupedByType(StringBuilder sb, List<QuestionExportDto> questions, ExportPayload payload) {
         Map<String, List<QuestionExportDto>> grouped = questions.stream()
                 .collect(Collectors.groupingBy(
                     q -> q.type().name(),
@@ -153,15 +171,18 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                     Collectors.toList()
                 ));
 
+        List<QuestionExportDto> renderOrder = new ArrayList<>();
         int questionNumber = 1;
         for (Map.Entry<String, List<QuestionExportDto>> entry : grouped.entrySet()) {
             sb.append("<div class=\"type-section\">");
             sb.append("<h3>").append(formatQuestionType(entry.getKey())).append(" Questions</h3>");
             for (QuestionExportDto question : entry.getValue()) {
                 renderQuestion(sb, question, questionNumber++, payload);
+                renderOrder.add(question); // Track render order
             }
             sb.append("</div>");
         }
+        return renderOrder; // Return grouped order
     }
 
     private void renderQuestion(StringBuilder sb, QuestionExportDto question, int number, ExportPayload payload) {
@@ -231,20 +252,29 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             case MATCHING -> {
                 sb.append("<p><em>Match the items:</em></p>");
                 if (content.has("left") && content.has("right")) {
-                    sb.append("<div><strong>Left Column:</strong><ul>");
+                    sb.append("<div class=\"matching-columns\">");
+                    
+                    // Left column
+                    sb.append("<div class=\"matching-col\">");
+                    sb.append("<h4>Left Column</h4>");
+                    sb.append("<ul>");
                     for (JsonNode item : content.get("left")) {
                         String text = item.has("text") ? item.get("text").asText() : "";
-                        String id = item.has("id") ? item.get("id").asText() : "";
-                        sb.append("<li>").append(escape(id)).append(". ").append(escape(text)).append("</li>");
+                        sb.append("<li>").append(escape(text)).append("</li>");
                     }
                     sb.append("</ul></div>");
-                    sb.append("<div><strong>Right Column:</strong><ul>");
+                    
+                    // Right column
+                    sb.append("<div class=\"matching-col\">");
+                    sb.append("<h4>Right Column</h4>");
+                    sb.append("<ul>");
                     for (JsonNode item : content.get("right")) {
                         String text = item.has("text") ? item.get("text").asText() : "";
-                        String id = item.has("id") ? item.get("id").asText() : "";
-                        sb.append("<li>").append(escape(id)).append(". ").append(escape(text)).append("</li>");
+                        sb.append("<li>").append(escape(text)).append("</li>");
                     }
                     sb.append("</ul></div>");
+                    
+                    sb.append("</div>");
                 }
             }
             case HOTSPOT -> {
@@ -270,23 +300,167 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         }
     }
 
-    private String formatAnswerForDisplay(AnswerKeyEntry answer) {
+    /**
+     * Format answer for display in HTML (appends to StringBuilder directly to handle HTML tags)
+     */
+    private void formatAnswerForDisplayHtml(StringBuilder sb, AnswerKeyEntry answer, QuestionExportDto question) {
         JsonNode normalized = answer.normalizedAnswer();
         if (normalized == null || normalized.isNull()) {
-            return "No answer";
+            sb.append("No answer");
+            return;
         }
         
-        return switch (answer.type()) {
-            case MCQ_SINGLE -> normalized.has("correctOptionId") ? 
-                    "Option: " + normalized.get("correctOptionId").asText() : "N/A";
-            case MCQ_MULTI -> normalized.has("correctOptionIds") ?
-                    "Options: " + normalized.get("correctOptionIds").toString() : "N/A";
-            case TRUE_FALSE -> normalized.has("answer") ?
-                    (normalized.get("answer").asBoolean() ? "True" : "False") : "N/A";
-            case OPEN -> normalized.has("answer") && !normalized.get("answer").isNull() ?
-                    normalized.get("answer").asText() : "Open answer (manual grading)";
-            default -> normalized.toString();
-        };
+        switch (answer.type()) {
+            case MCQ_SINGLE -> {
+                if (normalized.has("correctOptionId")) {
+                    sb.append("Option: ").append(escape(normalized.get("correctOptionId").asText()));
+                } else {
+                    sb.append("N/A");
+                }
+            }
+            case MCQ_MULTI -> {
+                if (normalized.has("correctOptionIds")) {
+                    sb.append("Options: ").append(escape(normalized.get("correctOptionIds").toString()));
+                } else {
+                    sb.append("N/A");
+                }
+            }
+            case TRUE_FALSE -> {
+                if (normalized.has("answer")) {
+                    sb.append(normalized.get("answer").asBoolean() ? "True" : "False");
+                } else {
+                    sb.append("N/A");
+                }
+            }
+            case OPEN -> {
+                if (normalized.has("answer") && !normalized.get("answer").isNull()) {
+                    sb.append(escape(normalized.get("answer").asText()));
+                } else {
+                    sb.append("Open answer (manual grading)");
+                }
+            }
+            case MATCHING -> formatMatchingAnswerHtml(sb, normalized, question != null ? question.content() : null);
+            case ORDERING -> formatOrderingAnswerHtml(sb, normalized, question != null ? question.content() : null);
+            case COMPLIANCE -> formatComplianceAnswerHtml(sb, normalized, question != null ? question.content() : null);
+            case FILL_GAP -> formatFillGapAnswerHtml(sb, normalized);
+            default -> sb.append(escape(normalized.toString()));
+        }
+    }
+    
+    private void formatMatchingAnswerHtml(StringBuilder sb, JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("pairs")) {
+            sb.append("N/A");
+            return;
+        }
+        
+        // Build ID-to-text lookup maps
+        Map<Integer, String> leftMap = new LinkedHashMap<>();
+        Map<Integer, String> rightMap = new LinkedHashMap<>();
+        
+        if (originalContent != null) {
+            if (originalContent.has("left")) {
+                for (JsonNode item : originalContent.get("left")) {
+                    int id = item.has("id") ? item.get("id").asInt() : 0;
+                    String text = item.has("text") ? item.get("text").asText() : "";
+                    leftMap.put(id, text);
+                }
+            }
+            if (originalContent.has("right")) {
+                for (JsonNode item : originalContent.get("right")) {
+                    int id = item.has("id") ? item.get("id").asInt() : 0;
+                    String text = item.has("text") ? item.get("text").asText() : "";
+                    rightMap.put(id, text);
+                }
+            }
+        }
+        
+        // Format pairs with text (one per line)
+        JsonNode pairs = normalized.get("pairs");
+        int pairNum = 0;
+        for (JsonNode pair : pairs) {
+            if (pairNum > 0) sb.append("<br/>");
+            
+            int leftId = pair.has("leftId") ? pair.get("leftId").asInt() : 0;
+            int rightId = pair.has("rightId") ? pair.get("rightId").asInt() : 0;
+            
+            String leftText = leftMap.getOrDefault(leftId, String.valueOf(leftId));
+            String rightText = rightMap.getOrDefault(rightId, String.valueOf(rightId));
+            
+            sb.append(escape(leftText)).append(" → ").append(escape(rightText));
+            pairNum++;
+        }
+    }
+    
+    private void formatOrderingAnswerHtml(StringBuilder sb, JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("correctOrder")) {
+            sb.append("N/A");
+            return;
+        }
+        
+        // Build ID-to-text lookup map
+        Map<Integer, String> itemMap = new LinkedHashMap<>();
+        if (originalContent != null && originalContent.has("items")) {
+            for (JsonNode item : originalContent.get("items")) {
+                int id = item.has("id") ? item.get("id").asInt() : 0;
+                String text = item.has("text") ? item.get("text").asText() : "";
+                itemMap.put(id, text);
+            }
+        }
+        
+        sb.append("Order: ");
+        JsonNode order = normalized.get("correctOrder");
+        int idx = 0;
+        for (JsonNode item : order) {
+            if (idx > 0) sb.append(", ");
+            int id = item.asInt();
+            String text = itemMap.getOrDefault(id, String.valueOf(id));
+            sb.append(escape(text));
+            idx++;
+        }
+    }
+    
+    private void formatComplianceAnswerHtml(StringBuilder sb, JsonNode normalized, JsonNode originalContent) {
+        if (!normalized.has("compliantStatementIds")) {
+            sb.append("N/A");
+            return;
+        }
+        
+        // Build ID-to-text lookup map
+        Map<Integer, String> statementMap = new LinkedHashMap<>();
+        if (originalContent != null && originalContent.has("statements")) {
+            for (JsonNode stmt : originalContent.get("statements")) {
+                int id = stmt.has("id") ? stmt.get("id").asInt() : 0;
+                String text = stmt.has("text") ? stmt.get("text").asText() : "";
+                statementMap.put(id, text);
+            }
+        }
+        
+        sb.append("Compliant: ");
+        JsonNode ids = normalized.get("compliantStatementIds");
+        int idx = 0;
+        for (JsonNode id : ids) {
+            if (idx > 0) sb.append(", ");
+            int stmtId = id.asInt();
+            String text = statementMap.getOrDefault(stmtId, String.valueOf(stmtId));
+            sb.append(escape(text));
+            idx++;
+        }
+    }
+    
+    private void formatFillGapAnswerHtml(StringBuilder sb, JsonNode normalized) {
+        if (!normalized.has("gaps")) {
+            sb.append("N/A");
+            return;
+        }
+        
+        JsonNode gaps = normalized.get("gaps");
+        int idx = 0;
+        for (JsonNode gap : gaps) {
+            if (idx > 0) sb.append(", ");
+            String answer = gap.has("answer") ? gap.get("answer").asText() : "";
+            sb.append("Gap ").append(idx + 1).append(": ").append(escape(answer));
+            idx++;
+        }
     }
 
     private String formatQuestionType(String type) {

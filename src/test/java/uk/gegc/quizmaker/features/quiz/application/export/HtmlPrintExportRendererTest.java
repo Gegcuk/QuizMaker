@@ -242,7 +242,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("<div class=\"cover\">");
-            assertThat(html).contains("<h1>Quizzes Export</h1>");
             assertThat(html).contains("Generated:");
         }
     }
@@ -262,7 +261,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).doesNotContain("<div class=\"cover\">");
-            assertThat(html).doesNotContain("<h1>Quizzes Export</h1>");
         }
     }
 
@@ -656,8 +654,9 @@ class HtmlPrintExportRendererTest {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Match countries with capitals");
             assertThat(html).contains("<em>Match the items:</em>");
-            assertThat(html).contains("<strong>Left Column:</strong>");
-            assertThat(html).contains("<strong>Right Column:</strong>");
+            assertThat(html).contains("class=\"matching-columns\"");
+            assertThat(html).contains("<h4>Left Column</h4>");
+            assertThat(html).contains("<h4>Right Column</h4>");
             assertThat(html).contains("France");
             assertThat(html).contains("Paris");
         }
@@ -762,7 +761,8 @@ class HtmlPrintExportRendererTest {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("<strong>1.</strong>");
             assertThat(html).contains("<strong>2.</strong>");
-            assertThat(html).contains("[TRUE_FALSE]");
+            assertThat(html).contains("True"); // Answer 1
+            assertThat(html).contains("False"); // Answer 2
         }
     }
 
