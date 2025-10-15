@@ -1,13 +1,14 @@
 package uk.gegc.quizmaker.features.billing.application.impl;
 
+import com.stripe.model.LineItem;
+import com.stripe.model.LineItemCollection;
+import com.stripe.model.Price;
 import com.stripe.model.checkout.Session;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
@@ -16,19 +17,14 @@ import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessio
 import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("CheckoutValidationServiceImpl Tests")
-@Execution(ExecutionMode.CONCURRENT)
+@DisplayName("CheckoutValidationService Tests")
 class CheckoutValidationServiceImplTest {
 
     @Mock
@@ -36,9 +32,6 @@ class CheckoutValidationServiceImplTest {
 
     @Mock
     private BillingProperties billingProperties;
-
-    @Mock
-    private Session mockSession;
 
     private CheckoutValidationServiceImpl checkoutValidationService;
 
@@ -51,473 +44,856 @@ class CheckoutValidationServiceImplTest {
     }
 
     @Nested
-    @DisplayName("Mixed Currencies Tests")
-    class MixedCurrenciesTests {
+    @DisplayName("validateAndResolvePack - Basic Tests")
+    class BasicValidationTests {
 
         @Test
-        @DisplayName("Should throw InvalidCheckoutSessionException when session currency does not match pack currency")
-        void shouldThrowWhenSessionCurrencyDoesNotMatchPackCurrency() {
+        @DisplayName("should resolve pack from metadata and validate successfully")
+        void validateAndResolvePack_withMetadata_resolvesSuccessfully() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("USD", 1000L, null);
             
-            lenient().when(mockSession.getCurrency()).thenReturn("EUR"); // Different currency
-            lenient().when(mockSession.getMetadata()).thenReturn(createMetadataWithPackId(packId));
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.primaryPack()).isEqualTo(pack);
+            assertThat(result.totalTokens()).isEqualTo(100L);
+            assertThat(result.totalAmountCents()).isEqualTo(1000L);
+            assertThat(result.currency()).isEqualTo("USD");
+            assertThat(result.hasMultipleLineItems()).isFalse();
+            assertThat(result.additionalPacks()).isNull();
+        }
+
+        @Test
+        @DisplayName("should throw exception when pack not found in metadata")
+        void validateAndResolvePack_packNotFound_throwsException() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            Session session = createMockSession("USD", 1000L, null);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.empty());
 
             // When & Then
-            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(mockSession, packId))
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, packId))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("Currency mismatch: session currency 'EUR' does not match pack currency 'USD'");
+                .hasMessageContaining("Pack referenced in metadata not found");
         }
 
         @Test
-        @DisplayName("Should throw InvalidCheckoutSessionException when line item currency does not match pack currency")
-        void shouldThrowWhenLineItemCurrencyDoesNotMatchPackCurrency() {
+        @DisplayName("should resolve pack from line items when no metadata packId")
+        void validateAndResolvePack_fromLineItems_resolvesSuccessfully() {
             // Given
-            UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("EUR", 2000L, 200L);
+            String priceId = pack.getStripePriceId();
             
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(createMetadataWithPackId(packId));
-            lenient().when(mockSession.getLineItems()).thenReturn(null); // Line items validation is not fully implemented in this test
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-
-            // When & Then - This test verifies that the currency validation logic exists
-            // The actual line item currency validation would require more complex Stripe object mocking
-            CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+            Session session = createMockSessionWithLineItems("EUR", 2000L, List.of(priceId));
             
-            // Verify the validation passes for this simplified test case
-            assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-        }
-
-        @Test
-        @DisplayName("Should pass validation when session currency matches pack currency")
-        void shouldPassValidationWhenSessionCurrencyMatchesPackCurrency() {
-            // Given
-            UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(createMetadataWithPackId(packId));
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findByStripePriceId(priceId)).thenReturn(Optional.of(pack));
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, null);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            assertThat(result.currency()).isEqualTo("USD");
+            assertThat(result.primaryPack()).isEqualTo(pack);
+            assertThat(result.totalTokens()).isEqualTo(200L);
         }
 
         @Test
-        @DisplayName("Should pass validation when session has no currency but pack has currency")
-        void shouldPassValidationWhenSessionHasNoCurrencyButPackHasCurrency() {
+        @DisplayName("should throw exception when cannot resolve pack")
+        void validateAndResolvePack_cannotResolve_throwsException() {
             // Given
-            UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            String priceId = "price_unknown";
+            Session session = createMockSessionWithLineItems("USD", 1000L, List.of(priceId));
             
-            lenient().when(mockSession.getCurrency()).thenReturn(null); // No session currency
-            lenient().when(mockSession.getMetadata()).thenReturn(createMetadataWithPackId(packId));
-            lenient().when(mockSession.getLineItems()).thenReturn(null);
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findByStripePriceId(priceId)).thenReturn(Optional.empty());
 
-            // When
-            CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
-
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            assertThat(result.currency()).isEqualTo("USD");
-        }
-
-        @Test
-        @DisplayName("Should handle case-insensitive currency comparison")
-        void shouldHandleCaseInsensitiveCurrencyComparison() {
-            // Given
-            UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("usd"); // Lowercase
-            lenient().when(mockSession.getMetadata()).thenReturn(createMetadataWithPackId(packId));
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
-
-            // When
-            CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
-
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            assertThat(result.currency()).isEqualTo("USD");
+            // When & Then
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, null))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Unable to resolve pack from session");
         }
     }
 
     @Nested
-    @DisplayName("Non-ASCII Metadata Values Tests")
-    class NonAsciiMetadataTests {
+    @DisplayName("Currency Validation Tests")
+    class CurrencyValidationTests {
 
         @Test
-        @DisplayName("Should handle non-ASCII characters in metadata values")
-        void shouldHandleNonAsciiCharactersInMetadataValues() {
+        @DisplayName("should throw exception when session currency does not match pack currency")
+        void validateCurrency_mismatch_throwsException() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("EUR", 1000L, null); // Different currency
             
-            // Create metadata with non-ASCII characters
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            metadata.put("description", "中文描述 - 测试非ASCII字符");
-            metadata.put("emoji", "🎯 Test with emojis 🚀");
-            metadata.put("unicode", "Test with unicode: αβγδε 日本語 العربية");
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
 
-            // When
-            CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
-
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that non-ASCII metadata is preserved and accessible
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("description")).isEqualTo("中文描述 - 测试非ASCII字符");
-            assertThat(sessionMetadata.get("emoji")).isEqualTo("🎯 Test with emojis 🚀");
-            assertThat(sessionMetadata.get("unicode")).isEqualTo("Test with unicode: αβγδε 日本語 العربية");
+            // When & Then
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, packId))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Currency mismatch")
+                .hasMessageContaining("EUR")
+                .hasMessageContaining("USD");
         }
 
         @Test
-        @DisplayName("Should handle mixed ASCII and non-ASCII characters in metadata")
-        void shouldHandleMixedAsciiAndNonAsciiCharactersInMetadata() {
+        @DisplayName("should handle case-insensitive currency comparison")
+        void validateCurrency_caseInsensitive_passes() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("usd", 1000L, null); // Lowercase
             
-            // Create metadata with mixed ASCII and non-ASCII characters
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            metadata.put("mixed", "Hello 世界! 123 Test");
-            metadata.put("special", "Special chars: ñáéíóú €£¥");
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that mixed ASCII and non-ASCII metadata is preserved
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("mixed")).isEqualTo("Hello 世界! 123 Test");
-            assertThat(sessionMetadata.get("special")).isEqualTo("Special chars: ñáéíóú €£¥");
+            assertThat(result.currency()).isEqualTo("USD");
         }
 
         @Test
-        @DisplayName("Should handle empty and null non-ASCII metadata values")
-        void shouldHandleEmptyAndNullNonAsciiMetadataValues() {
+        @DisplayName("should warn and continue when session has no currency")
+        void validateCurrency_noCurrency_warns() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession(null, 1000L, null);
             
-            // Create metadata with empty and null non-ASCII values
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            metadata.put("empty", "");
-            metadata.put("null", null);
-            metadata.put("spaces", "   ");
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
+            assertThat(result.currency()).isEqualTo("USD");
+        }
+
+        @Test
+        @DisplayName("should warn and continue when session has blank currency")
+        void validateCurrency_blankCurrency_warns() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("GBP", 1500L, 150L);
+            Session session = createMockSession("  ", 1500L, null);
             
-            // Verify that empty/null metadata is handled correctly
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("empty")).isEqualTo("");
-            assertThat(sessionMetadata.get("null")).isNull();
-            assertThat(sessionMetadata.get("spaces")).isEqualTo("   ");
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.currency()).isEqualTo("GBP");
         }
     }
 
     @Nested
-    @DisplayName("Malformed JSON in Metadata Tests")
-    class MalformedJsonMetadataTests {
+    @DisplayName("Multiple Line Items Tests")
+    class MultipleLineItemsTests {
 
         @Test
-        @DisplayName("Should handle invalid JSON structure in metadata fields")
-        void shouldHandleInvalidJsonStructureInMetadataFields() {
+        @DisplayName("should handle multiple line items and sum tokens/amounts")
+        void multipleLineItems_sumsTotals() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack1 = createProductPack("USD", 1000L, 100L, "price_1");
+            ProductPack pack2 = createProductPack("USD", 2000L, 200L, "price_2");
             
-            // Create metadata with invalid JSON structures
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            metadata.put("invalidJson", "{ invalid json structure }");
-            metadata.put("malformedArray", "[1, 2, 3");
-            metadata.put("unclosedString", "\"unclosed string");
-            metadata.put("invalidEscape", "{\"key\": \"value with \\invalid escape\"}");
+            Session session = createMockSessionWithLineItems("USD", 3000L, 
+                List.of("price_1", "price_2"));
             
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack1));
+            when(productPackRepository.findByStripePriceId("price_2")).thenReturn(Optional.of(pack2));
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that malformed JSON metadata is preserved as strings
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("invalidJson")).isEqualTo("{ invalid json structure }");
-            assertThat(sessionMetadata.get("malformedArray")).isEqualTo("[1, 2, 3");
-            assertThat(sessionMetadata.get("unclosedString")).isEqualTo("\"unclosed string");
-            assertThat(sessionMetadata.get("invalidEscape")).isEqualTo("{\"key\": \"value with \\invalid escape\"}");
+            assertThat(result.hasMultipleLineItems()).isTrue();
+            assertThat(result.totalTokens()).isEqualTo(300L); // 100 + 200
+            assertThat(result.totalAmountCents()).isEqualTo(3000L); // 1000 + 2000
+            assertThat(result.additionalPacks()).hasSize(1);
         }
 
         @Test
-        @DisplayName("Should handle special characters and encoding issues in metadata")
-        void shouldHandleSpecialCharactersAndEncodingIssuesInMetadata() {
+        @DisplayName("should handle exactly one line item (not multiple)")
+        void singleLineItem_noAdditionalPacks() {
+            // Given - This tests the branch where lineItems.getData().size() == 1 (not > 1)
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L, "price_1");
+            
+            Session session = createMockSessionWithLineItems("USD", 1000L, 
+                List.of("price_1")); // Only ONE item
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.hasMultipleLineItems()).isFalse(); // Not multiple!
+            assertThat(result.totalTokens()).isEqualTo(100L);
+            assertThat(result.additionalPacks()).isNull();
+        }
+
+        @Test
+        @DisplayName("should handle empty line items list (size == 0)")
+        void emptyLineItems_noAdditionalPacks() {
+            // Given - Test when lineItems.getData().size() == 0
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(Collections.emptyList()); // EMPTY!
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.hasMultipleLineItems()).isFalse();
+            assertThat(result.totalTokens()).isEqualTo(100L);
+            assertThat(result.additionalPacks()).isNull();
+        }
+
+        @Test
+        @DisplayName("should handle additional line item with empty/null price ID")
+        void multipleLineItems_emptyPriceId_skips() {
+            // Given - This tests the branch where StringUtils.hasText(priceId) is false
+            UUID packId = UUID.randomUUID();
+            ProductPack pack1 = createProductPack("USD", 1000L, 100L, "price_1");
+            
+            // Create a line item with no price ID (null)
+            LineItem lineItem1 = mock(LineItem.class);
+            Price price1 = mock(Price.class);
+            lenient().when(price1.getId()).thenReturn("price_1");
+            lenient().when(lineItem1.getPrice()).thenReturn(price1);
+            lenient().when(lineItem1.getCurrency()).thenReturn("USD");
+            
+            LineItem lineItem2 = mock(LineItem.class);
+            Price price2 = mock(Price.class);
+            lenient().when(price2.getId()).thenReturn(null); // NULL price ID!
+            lenient().when(lineItem2.getPrice()).thenReturn(price2);
+            lenient().when(lineItem2.getCurrency()).thenReturn("USD");
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem1, lineItem2));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack1));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.hasMultipleLineItems()).isTrue();
+            assertThat(result.totalTokens()).isEqualTo(100L); // Only primary pack (second skipped)
+            assertThat(result.additionalPacks()).isNull(); // No additional packs added
+        }
+
+        @Test
+        @DisplayName("should handle non-LineItem object in additional packs resolution")
+        void multipleLineItems_nonLineItemObject_skips() {
+            // Given - Test the instanceof check in extractPriceId within resolveAdditionalPacks
+            UUID packId = UUID.randomUUID();
+            ProductPack pack1 = createProductPack("USD", 1000L, 100L, "price_1");
+            
+            LineItem validLineItem = mock(LineItem.class);
+            Price price1 = mock(Price.class);
+            lenient().when(price1.getId()).thenReturn("price_1");
+            lenient().when(validLineItem.getPrice()).thenReturn(price1);
+            lenient().when(validLineItem.getCurrency()).thenReturn("USD");
+            
+            // Second item is not a LineItem (will fail instanceof check)
+            Object invalidLineItem = new String("not a line item");
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            List<Object> mixedList = new ArrayList<>();
+            mixedList.add(validLineItem);
+            mixedList.add(invalidLineItem);
+            when(lineItems.getData()).thenReturn((List) mixedList);
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack1));
+
+            // When - The non-LineItem will be skipped (instanceof returns false)
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.hasMultipleLineItems()).isTrue();
+            assertThat(result.totalTokens()).isEqualTo(100L); // Only primary pack
+            assertThat(result.additionalPacks()).isNull(); // Invalid item skipped
+        }
+
+        @Test
+        @DisplayName("should warn when additional pack has different currency (exception caught)")
+        void multipleLineItems_currencyMismatch_warns() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack1 = createProductPack("USD", 1000L, 100L, "price_1");
+            ProductPack pack2 = createProductPack("EUR", 2000L, 200L, "price_2"); // Different currency!
             
-            // Create metadata with special characters and encoding issues
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            metadata.put("controlChars", "text\u0000with\u0001control\u0002chars");
-            metadata.put("unicodeReplacement", "text\ufffdwith\ufffdreplacement\ufffdchars");
-            metadata.put("highUnicode", "text\uD800\uDC00with\uD800\uDC01high\uD800\uDC02unicode");
-            metadata.put("mixedEncoding", "text\u00E9with\u00E8mixed\u00E7encoding");
-            metadata.put("jsonSpecialChars", "{\"key\": \"value with \\\"quotes\\\" and \\n newlines\"}");
+            Session session = createMockSessionWithLineItems("USD", 3000L, 
+                List.of("price_1", "price_2"));
             
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack1));
+            when(productPackRepository.findByStripePriceId("price_2")).thenReturn(Optional.of(pack2));
+            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+
+            // When - The exception is caught and logged as a warning
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then - Still succeeds with only primary pack
+            assertThat(result).isNotNull();
+            assertThat(result.totalTokens()).isEqualTo(100L); // Only primary pack counted
+        }
+
+        @Test
+        @DisplayName("should warn when additional line item has unknown price ID")
+        void multipleLineItems_unknownPriceId_warns() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack1 = createProductPack("USD", 1000L, 100L, "price_1");
+            
+            Session session = createMockSessionWithLineItems("USD", 3000L, 
+                List.of("price_1", "price_unknown"));
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack1));
+            when(productPackRepository.findByStripePriceId("price_unknown")).thenReturn(Optional.empty());
             lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that special characters and encoding issues are preserved
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("controlChars")).isEqualTo("text\u0000with\u0001control\u0002chars");
-            assertThat(sessionMetadata.get("unicodeReplacement")).isEqualTo("text\ufffdwith\ufffdreplacement\ufffdchars");
-            assertThat(sessionMetadata.get("highUnicode")).isEqualTo("text\uD800\uDC00with\uD800\uDC01high\uD800\uDC02unicode");
-            assertThat(sessionMetadata.get("mixedEncoding")).isEqualTo("text\u00E9with\u00E8mixed\u00E7encoding");
-            assertThat(sessionMetadata.get("jsonSpecialChars")).isEqualTo("{\"key\": \"value with \\\"quotes\\\" and \\n newlines\"}");
+            assertThat(result.totalTokens()).isEqualTo(100L); // Only primary pack
+            assertThat(result.additionalPacks()).isNull(); // Empty list becomes null
         }
     }
 
     @Nested
-    @DisplayName("Extremely Large Metadata Values Tests")
-    class ExtremelyLargeMetadataValuesTests {
+    @DisplayName("Amount Validation Tests")
+    class AmountValidationTests {
 
         @Test
-        @DisplayName("Should handle metadata values exceeding Stripe limits")
-        void shouldHandleMetadataValuesExceedingStripeLimits() {
+        @DisplayName("should warn in strict mode when amounts don't match (exception is caught)")
+        void amountValidation_strictMode_warns() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("USD", 2000L, null); // Mismatch: session says 2000, pack is 1000
             
-            // Create metadata with values that exceed Stripe's 500 character limit per value
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            
-            // Stripe metadata value limit is 500 characters
-            String longValue = "x".repeat(600); // Exceeds limit
-            metadata.put("exceedsLimit", longValue);
-            
-            // Test with multiple large values
-            metadata.put("anotherLargeValue", "y".repeat(700));
-            metadata.put("yetAnotherLargeValue", "z".repeat(1000));
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+            when(billingProperties.isStrictAmountValidation()).thenReturn(true);
 
-            // When
+            // When - The exception is caught internally and logged as warning
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
-            // Then
+            // Then - Still returns result, but with calculated amount
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that large metadata values are preserved (validation layer doesn't truncate)
-            // The actual truncation would happen at the Stripe API level
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("exceedsLimit")).isEqualTo(longValue);
-            assertThat(sessionMetadata.get("anotherLargeValue")).isEqualTo("y".repeat(700));
-            assertThat(sessionMetadata.get("yetAnotherLargeValue")).isEqualTo("z".repeat(1000));
+            assertThat(result.totalAmountCents()).isEqualTo(1000L);
         }
 
         @Test
-        @DisplayName("Should handle truncation and validation behavior for large metadata")
-        void shouldHandleTruncationAndValidationBehaviorForLargeMetadata() {
+        @DisplayName("should warn in non-strict mode when amounts don't match")
+        void amountValidation_nonStrictMode_warns() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("USD", 1500L, null); // Mismatch
             
-            // Create metadata with various large values to test truncation behavior
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            
-            // Test with exactly 500 characters (Stripe limit)
-            String exactlyLimit = "a".repeat(500);
-            metadata.put("exactlyLimit", exactlyLimit);
-            
-            // Test with just over limit
-            String justOverLimit = "b".repeat(501);
-            metadata.put("justOverLimit", justOverLimit);
-            
-            // Test with very large value
-            String veryLarge = "c".repeat(5000);
-            metadata.put("veryLarge", veryLarge);
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+            when(billingProperties.isStrictAmountValidation()).thenReturn(false);
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
-            
-            // Verify that all metadata values are preserved in the validation layer
-            // Actual truncation would occur at Stripe API level (500 char limit per value)
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata.get("exactlyLimit")).isEqualTo(exactlyLimit);
-            assertThat(sessionMetadata.get("exactlyLimit")).hasSize(500);
-            
-            assertThat(sessionMetadata.get("justOverLimit")).isEqualTo(justOverLimit);
-            assertThat(sessionMetadata.get("justOverLimit")).hasSize(501);
-            
-            assertThat(sessionMetadata.get("veryLarge")).isEqualTo(veryLarge);
-            assertThat(sessionMetadata.get("veryLarge")).hasSize(5000);
+            assertThat(result.totalAmountCents()).isEqualTo(1000L); // Uses calculated amount
         }
 
         @Test
-        @DisplayName("Should handle metadata with maximum number of keys")
-        void shouldHandleMetadataWithMaximumNumberOfKeys() {
+        @DisplayName("should handle null session amount gracefully")
+        void amountValidation_nullAmount_handlesGracefully() {
             // Given
             UUID packId = UUID.randomUUID();
-            ProductPack mockPack = createMockProductPack("USD", 1000L, 100L);
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            Session session = createMockSession("USD", null, null);
             
-            // Create metadata with maximum number of keys (Stripe limit is 20 keys)
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("packId", packId.toString());
-            
-            // Add 19 more keys to reach the limit
-            for (int i = 1; i <= 19; i++) {
-                metadata.put("key" + i, "value" + i);
-            }
-            
-            lenient().when(mockSession.getCurrency()).thenReturn("USD");
-            lenient().when(mockSession.getMetadata()).thenReturn(metadata);
-            lenient().when(mockSession.getLineItems()).thenReturn(createMockLineItemsWithCurrency("USD"));
-            lenient().when(mockSession.getAmountTotal()).thenReturn(1000L);
-            when(productPackRepository.findById(packId)).thenReturn(Optional.of(mockPack));
-            lenient().when(billingProperties.isStrictAmountValidation()).thenReturn(false);
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
 
             // When
             CheckoutValidationService.CheckoutValidationResult result = 
-                checkoutValidationService.validateAndResolvePack(mockSession, packId);
+                checkoutValidationService.validateAndResolvePack(session, packId);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(result.primaryPack()).isEqualTo(mockPack);
+            assertThat(result.totalAmountCents()).isEqualTo(1000L);
+        }
+    }
+
+    @Nested
+    @DisplayName("Line Item Extraction Tests")
+    class LineItemExtractionTests {
+
+        @Test
+        @DisplayName("should handle line items without price")
+        void extractPriceId_noPriceObject_returnsNull() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L, "price_123");
             
-            // Verify that all metadata keys are preserved
-            Map<String, String> sessionMetadata = mockSession.getMetadata();
-            assertThat(sessionMetadata).hasSize(20); // packId + 19 additional keys
-            assertThat(sessionMetadata.get("packId")).isEqualTo(packId.toString());
-            for (int i = 1; i <= 19; i++) {
-                assertThat(sessionMetadata.get("key" + i)).isEqualTo("value" + i);
-            }
+            LineItem lineItem = mock(LineItem.class);
+            lenient().when(lineItem.getPrice()).thenReturn(null);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle exception when extracting price ID")
+        void extractPriceId_exception_returnsNull() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L, "price_123");
+            
+            LineItem lineItem = mock(LineItem.class);
+            lenient().when(lineItem.getPrice()).thenThrow(new RuntimeException("Price extraction error"));
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+    }
+
+    @Nested
+    @DisplayName("Line Item Currency Validation Tests")
+    class LineItemCurrencyValidationTests {
+
+        @Test
+        @DisplayName("should warn when line item currency doesn't match (exception is caught)")
+        void lineItemCurrency_mismatch_warns() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L, "price_123");
+            
+            LineItem lineItem = mock(LineItem.class);
+            lenient().when(lineItem.getCurrency()).thenReturn("EUR"); // Mismatch!
+            
+            Price price = mock(Price.class);
+            lenient().when(price.getId()).thenReturn("price_123");
+            lenient().when(lineItem.getPrice()).thenReturn(price);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When - The currency mismatch is caught and only logged as warning
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then - Still succeeds
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle non-LineItem object gracefully")
+        void extractLineItemCurrency_nonLineItemObject_handlesGracefully() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            // Create a mock that returns null for currency (simulating extraction failure)
+            LineItem lineItem = mock(LineItem.class);
+            lenient().when(lineItem.getCurrency()).thenReturn(null);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle empty line items list")
+        void lineItemCurrency_emptyList_handlesGracefully() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(Collections.emptyList());
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle getCurrency() exception")
+        void extractLineItemCurrency_exceptionThrown_returnsNull() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            LineItem lineItem = mock(LineItem.class);
+            lenient().when(lineItem.getCurrency()).thenThrow(new RuntimeException("Currency error"));
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            lenient().when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle non-LineItem object in extractLineItemCurrency")
+        void extractLineItemCurrency_nonLineItemObject_returnsNull() {
+            // Given - Test the instanceof check in extractLineItemCurrency
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            // Create a collection with a non-LineItem object
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            List<Object> nonLineItemList = new ArrayList<>();
+            nonLineItemList.add(new HashMap<>()); // Not a LineItem!
+            when(lineItems.getData()).thenReturn((List) nonLineItemList);
+            
+            Session session = mock(Session.class);
+            lenient().when(session.getCurrency()).thenReturn("USD");
+            lenient().when(session.getId()).thenReturn("cs_test");
+            lenient().when(session.getLineItems()).thenReturn(lineItems);
+            lenient().when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When - The instanceof check will fail, returning null, which is ignored
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then - Should still succeed (currency validation is lenient)
+            assertThat(result).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("Resolve Primary Pack Tests")
+    class ResolvePrimaryPackTests {
+
+        @Test
+        @DisplayName("should handle empty line items when no metadata")
+        void resolvePrimaryPack_emptyLineItems_throwsException() {
+            // Given
+            Session session = mock(Session.class);
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenReturn(null);
+
+            // When & Then
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, null))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Unable to resolve pack from session");
+        }
+
+        @Test
+        @DisplayName("should handle non-LineItem object in line items during pack resolution")
+        void resolvePrimaryPack_nonLineItemObject_throwsException() {
+            // Given - Test the instanceof check in extractPriceId
+            Session session = mock(Session.class);
+            when(session.getId()).thenReturn("cs_test");
+            
+            // Create a collection with a non-LineItem object (e.g., a String)
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            List<Object> nonLineItemList = new ArrayList<>();
+            nonLineItemList.add("not a line item"); // This will fail the instanceof check
+            when(lineItems.getData()).thenReturn((List) nonLineItemList);
+            when(session.getLineItems()).thenReturn(lineItems);
+
+            // When & Then - Should fail to resolve because instanceof returns false
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, null))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Unable to resolve pack from session");
+        }
+
+        @Test
+        @DisplayName("should handle exception when resolving from line items")
+        void resolvePrimaryPack_exceptionInLineItems_throwsException() {
+            // Given
+            Session session = mock(Session.class);
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenThrow(new RuntimeException("Line items error"));
+
+            // When & Then
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, null))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Unable to resolve pack from session");
+        }
+
+        @Test
+        @DisplayName("should handle line item without price ID")
+        void resolvePrimaryPack_noPriceId_throwsException() {
+            // Given
+            LineItem lineItem = mock(LineItem.class);
+            when(lineItem.getPrice()).thenReturn(null);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            when(lineItems.getData()).thenReturn(List.of(lineItem));
+            
+            Session session = mock(Session.class);
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenReturn(lineItems);
+
+            // When & Then
+            assertThatThrownBy(() -> checkoutValidationService.validateAndResolvePack(session, null))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("Unable to resolve pack from session");
+        }
+    }
+
+    @Nested
+    @DisplayName("Exception Handling Tests")
+    class ExceptionHandlingTests {
+
+        @Test
+        @DisplayName("should handle exception when processing line items")
+        void processLineItems_exception_continuesGracefully() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            Session session = mock(Session.class);
+            when(session.getCurrency()).thenReturn("USD");
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenThrow(new RuntimeException("Line items error"));
+            when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.hasMultipleLineItems()).isFalse();
+        }
+
+        @Test
+        @DisplayName("should handle exception in amount validation")
+        void validateAmount_exception_continuesGracefully() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            Session session = mock(Session.class);
+            when(session.getCurrency()).thenReturn("USD");
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenReturn(null);
+            when(session.getAmountTotal()).thenThrow(new RuntimeException("Amount error"));
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("should handle exception in line item currency validation")
+        void validateLineItemCurrency_exception_continuesGracefully() {
+            // Given
+            UUID packId = UUID.randomUUID();
+            ProductPack pack = createProductPack("USD", 1000L, 100L);
+            
+            LineItemCollection lineItems = mock(LineItemCollection.class);
+            when(lineItems.getData()).thenThrow(new RuntimeException("Data error"));
+            
+            Session session = mock(Session.class);
+            when(session.getCurrency()).thenReturn("USD");
+            when(session.getId()).thenReturn("cs_test");
+            when(session.getLineItems()).thenReturn(lineItems);
+            when(session.getAmountTotal()).thenReturn(1000L);
+            
+            when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+
+            // When
+            CheckoutValidationService.CheckoutValidationResult result = 
+                checkoutValidationService.validateAndResolvePack(session, packId);
+
+            // Then
+            assertThat(result).isNotNull();
         }
     }
 
     // Helper methods
-    private ProductPack createMockProductPack(String currency, Long priceCents, Long tokens) {
+    private ProductPack createProductPack(String currency, Long priceCents, Long tokens) {
+        return createProductPack(currency, priceCents, tokens, "price_" + UUID.randomUUID());
+    }
+
+    private ProductPack createProductPack(String currency, Long priceCents, Long tokens, String priceId) {
         ProductPack pack = new ProductPack();
         pack.setId(UUID.randomUUID());
         pack.setCurrency(currency);
         pack.setPriceCents(priceCents);
         pack.setTokens(tokens);
-        pack.setStripePriceId("price_" + UUID.randomUUID().toString().replace("-", ""));
+        pack.setStripePriceId(priceId);
+        pack.setName("Test Pack");
         return pack;
     }
 
-    private Map<String, String> createMetadataWithPackId(UUID packId) {
-        Map<String, String> metadata = new HashMap<>();
-        metadata.put("packId", packId.toString());
-        return metadata;
+    private Session createMockSession(String currency, Long amountTotal, String sessionId) {
+        Session session = mock(Session.class);
+        lenient().when(session.getCurrency()).thenReturn(currency);
+        lenient().when(session.getAmountTotal()).thenReturn(amountTotal);
+        lenient().when(session.getId()).thenReturn(sessionId != null ? sessionId : "cs_test_" + UUID.randomUUID());
+        lenient().when(session.getLineItems()).thenReturn(null);
+        return session;
     }
 
-    private com.stripe.model.LineItemCollection createMockLineItemsWithCurrency(String currency) {
-        // Create a mock line item collection with the specified currency
-        // This is a simplified mock - in real implementation, you'd need to mock the actual Stripe objects
-        return null; // For now, returning null since we're testing the currency validation logic
+    private Session createMockSessionWithLineItems(String currency, Long amountTotal, List<String> priceIds) {
+        Session session = mock(Session.class);
+        lenient().when(session.getCurrency()).thenReturn(currency);
+        lenient().when(session.getAmountTotal()).thenReturn(amountTotal);
+        lenient().when(session.getId()).thenReturn("cs_test_" + UUID.randomUUID());
+        
+        // Create mock line items
+        List<LineItem> lineItemsList = new ArrayList<>();
+        for (String priceId : priceIds) {
+            LineItem lineItem = mock(LineItem.class);
+            Price price = mock(Price.class);
+            lenient().when(price.getId()).thenReturn(priceId);
+            lenient().when(lineItem.getPrice()).thenReturn(price);
+            lenient().when(lineItem.getCurrency()).thenReturn(currency);
+            lineItemsList.add(lineItem);
+        }
+        
+        LineItemCollection lineItems = mock(LineItemCollection.class);
+        lenient().when(lineItems.getData()).thenReturn(lineItemsList);
+        lenient().when(session.getLineItems()).thenReturn(lineItems);
+        
+        return session;
     }
 }
