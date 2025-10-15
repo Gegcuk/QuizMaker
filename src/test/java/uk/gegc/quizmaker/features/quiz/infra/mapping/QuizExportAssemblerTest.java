@@ -412,7 +412,12 @@ class QuizExportAssemblerTest {
         assertThat(qDto.content()).isNotNull();
         assertThat(qDto.content().has("options")).isTrue();
         assertThat(qDto.content().get("options").size()).isEqualTo(2);
-        assertThat(qDto.content().get("options").get(0).get("text").asText()).isEqualTo("First");
+        
+        // Verify both options are present (order is shuffled, so we check both exist)
+        String firstOptionText = qDto.content().get("options").get(0).get("text").asText();
+        String secondOptionText = qDto.content().get("options").get(1).get("text").asText();
+        assertThat(java.util.List.of(firstOptionText, secondOptionText))
+            .containsExactlyInAnyOrder("First", "Second");
     }
 
     @Test

@@ -181,13 +181,88 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         return renderOrder; // Return grouped order
     }
 
+    /**
+     * Estimate the height needed to render a complete question.
+     * This helps prevent questions from being split across pages.
+     */
+    private float estimateQuestionHeight(QuestionExportDto question, ExportPayload payload) throws IOException {
+        float height = 0;
+        
+        // Question text (wrapped, average 2 lines)
+        height += NORMAL_FONT_SIZE * LINE_SPACING * 2;
+        height += 12; // Space after question
+        
+        // Content based on question type
+        JsonNode content = question.content();
+        if (content != null && !content.isNull()) {
+            switch (question.type()) {
+                case MCQ_SINGLE, MCQ_MULTI -> {
+                    if (content.has("options")) {
+                        int optionCount = content.get("options").size();
+                        height += optionCount * 14; // Each option takes ~14 points
+                    }
+                }
+                case TRUE_FALSE -> height += 28; // 2 options
+                case FILL_GAP -> {
+                    if (content.has("gaps")) {
+                        int gapCount = content.get("gaps").size();
+                        height += gapCount * 14;
+                    }
+                }
+                case ORDERING -> {
+                    if (content.has("items")) {
+                        int itemCount = content.get("items").size();
+                        height += itemCount * 14;
+                    }
+                }
+                case MATCHING -> {
+                    if (content.has("left") && content.has("right")) {
+                        int maxItems = Math.max(
+                            content.get("left").size(),
+                            content.get("right").size()
+                        );
+                        height += 12; // Column headers
+                        height += maxItems * 16; // Items in two columns (slightly more space)
+                    }
+                }
+                case COMPLIANCE -> {
+                    if (content.has("statements")) {
+                        int stmtCount = content.get("statements").size();
+                        height += stmtCount * 16; // Statements with checkboxes
+                    }
+                }
+                case HOTSPOT -> height += 80; // Image reference space
+                case OPEN -> height += 30; // Answer space
+            }
+        }
+        
+        height += 5; // Space after content
+        
+        // Optional hint
+        if (Boolean.TRUE.equals(payload.printOptions().includeHints()) && 
+            question.hint() != null && !question.hint().isBlank()) {
+            height += SMALL_FONT_SIZE * LINE_SPACING * 2; // Average 2 lines
+            height += 12;
+        }
+        
+        // Optional explanation
+        if (Boolean.TRUE.equals(payload.printOptions().includeExplanations()) && 
+            question.explanation() != null && !question.explanation().isBlank()) {
+            height += SMALL_FONT_SIZE * LINE_SPACING * 3; // Average 3 lines
+            height += 12;
+        }
+        
+        height += QUESTION_SPACING; // Space between questions
+        
+        return height;
+    }
+
     private void renderQuestion(PDPageContext context, QuestionExportDto question, int number,
                                ExportPayload payload) throws IOException {
-        // Estimate space needed for question (at least 60 points)
-        float estimatedHeight = 60 + 
-                               (Boolean.TRUE.equals(payload.printOptions().includeHints()) && question.hint() != null ? 30 : 0) +
-                               (Boolean.TRUE.equals(payload.printOptions().includeExplanations()) && question.explanation() != null ? 30 : 0);
+        // Calculate accurate space needed for the entire question
+        float estimatedHeight = estimateQuestionHeight(question, payload);
         
+        // If not enough space, start a new page
         context.ensureSpace(estimatedHeight);
 
         // Question number and text

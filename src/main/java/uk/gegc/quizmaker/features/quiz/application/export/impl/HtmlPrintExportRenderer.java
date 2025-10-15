@@ -53,7 +53,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append("h3{margin-top:24px;color:#555;} ");
         sb.append(".meta{color:#555;font-size:14px;} ");
         sb.append(".page-break{page-break-before:always;} ");
-        sb.append(".question{margin:20px 0;padding:12px;background:#f9f9f9;border-left:3px solid #333;} ");
+        sb.append(".question{margin:20px 0;padding:12px;background:#f9f9f9;border-left:3px solid #333;page-break-inside:avoid;} ");
         sb.append(".question-header{font-weight:bold;font-size:16px;margin-bottom:8px;} ");
         sb.append(".question-content{margin:8px 0;} ");
         sb.append(".hint{margin-top:12px;padding:12px;background:#fffbea;border-left:4px solid #fbbf24;border-radius:4px;color:#92400e;font-size:14px;} ");
