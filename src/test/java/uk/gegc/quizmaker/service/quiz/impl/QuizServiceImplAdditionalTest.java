@@ -490,7 +490,7 @@ class QuizServiceImplAdditionalTest {
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessageContaining("Not allowed to delete this quiz");
         }
-    }
+    }  // Close DeleteQuizByIdTests
 
     @Nested
     @DisplayName("deleteQuizzesByIds Tests")
@@ -510,7 +510,50 @@ class QuizServiceImplAdditionalTest {
         }
     }
 
+    @Nested
+    @DisplayName("Document Verification Tests")
+    class DocumentVerificationTests {
+
+        @Test
+        @DisplayName("verifyDocumentChunks throws when no chunks available - Line 436")
+        void verifyDocumentChunks_noChunks_throwsRuntimeException() {
+            // Given
+            UUID documentId = UUID.randomUUID();
+            uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest request = 
+                mock(uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest.class);
+
+            // Mock calculateTotalChunks to return 0 (no chunks)
+            when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any()))
+                .thenReturn(0);
+
+            // When & Then - Line 436: throw when totalChunks <= 0
+            assertThatThrownBy(() -> quizService.verifyDocumentChunks(documentId, request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Document has no chunks available for quiz generation");
+        }
+
+        @Test
+        @DisplayName("verifyDocumentChunks (text request) throws when no chunks - Line 450")
+        void verifyDocumentChunks_textRequest_noChunks_throwsRuntimeException() {
+            // Given
+            UUID documentId = UUID.randomUUID();
+            uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest request = 
+                mock(uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest.class);
+
+            // Mock calculateTotalChunks to return 0 (no chunks)
+            when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any()))
+                .thenReturn(0);
+
+            // When & Then - Line 450: throw when totalChunks <= 0
+            assertThatThrownBy(() -> quizService.verifyDocumentChunks(documentId, request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Document has no chunks available for quiz generation");
+        }
+    }
+
 }
+
+
 
 
 
