@@ -549,9 +549,52 @@ class QuizServiceImplAdditionalTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Document has no chunks available for quiz generation");
         }
+
+        @Test
+        @DisplayName("processDocumentCompletely throws when file.getBytes() fails - Lines 423-424")
+        void processDocumentCompletely_ioException_throwsRuntimeException() throws Exception {
+            // Given
+            org.springframework.web.multipart.MultipartFile mockFile = mock(org.springframework.web.multipart.MultipartFile.class);
+            uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest request = 
+                mock(uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest.class);
+
+            // Mock file.getBytes() to throw IOException (line 415)
+            when(mockFile.getBytes()).thenThrow(new java.io.IOException("Failed to read file"));
+
+            // When & Then - Lines 423-424: catch IOException and wrap in RuntimeException
+            assertThatThrownBy(() -> quizService.processDocumentCompletely("testuser", mockFile, request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Failed to read file bytes: Failed to read file");
+        }
+
+        @Test
+        @DisplayName("generateQuizFromUpload generic Exception wrapped - Lines 375-377")
+        void generateQuizFromUpload_genericException_wrapsInRuntimeException() throws Exception {
+            // Given
+            org.springframework.web.multipart.MultipartFile mockFile = mock(org.springframework.web.multipart.MultipartFile.class);
+            uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest request = 
+                mock(uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest.class);
+
+            when(mockFile.getBytes()).thenReturn("test content".getBytes());
+            
+            // Mock to throw generic exception during document processing
+            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("Document upload failed"));
+
+            // When & Then - Lines 375-377: catch Exception and wrap in RuntimeException
+            assertThatThrownBy(() -> quizService.generateQuizFromUpload("testuser", mockFile, request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Failed to generate quiz from upload: Document upload failed");
+        }
+
     }
 
 }
+
+
+
+
+
 
 
 
