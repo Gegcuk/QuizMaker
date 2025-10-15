@@ -618,9 +618,41 @@ class QuizServiceImplAdditionalTest {
                 .isSameAs(expectedException);
         }
 
+        @Test
+        @DisplayName("generateQuizFromText InsufficientTokensException propagates - Lines 398-400")
+        void generateQuizFromText_insufficientTokens_propagates() throws Exception {
+            // Given - Use spy to mock startQuizGeneration
+            QuizServiceImpl spyService = spy(quizService);
+            
+            uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest request = 
+                mock(uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest.class);
+            when(request.text()).thenReturn("test text");
+            
+            UUID documentId = UUID.randomUUID();
+            DocumentDto mockDoc = mock(DocumentDto.class);
+            when(mockDoc.getId()).thenReturn(documentId);
+            
+            // Mock processTextAsDocument to succeed
+            doReturn(mockDoc).when(spyService).processTextAsDocument(eq("testuser"), eq(request));
+            // Mock verifyDocumentChunks to succeed
+            doNothing().when(spyService).verifyDocumentChunks(eq(documentId), eq(request));
+
+            // Mock startQuizGeneration to throw InsufficientTokensException
+            uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException expectedException = 
+                new uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException(
+                    "Not enough tokens", 100L, 50L, 50L, java.time.LocalDateTime.now()
+                );
+            doThrow(expectedException).when(spyService).startQuizGeneration(eq("testuser"), any());
+
+            // When & Then - Lines 398-400: catch and rethrow InsufficientTokensException
+            assertThatThrownBy(() -> spyService.generateQuizFromText("testuser", request))
+                .isSameAs(expectedException);
+        }
+
     }
 
 }
+
 
 
 
