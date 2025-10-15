@@ -258,8 +258,6 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     }
 
     private void renderFillGap(PDPageContext context, JsonNode content) throws IOException {
-        context.writeText("   Fill in the blanks:", PDType1Font.HELVETICA_OBLIQUE, SMALL_FONT_SIZE);
-        context.y -= 14;
         if (content.has("gaps")) {
             int gapNum = 1;
             for (int i = 0; i < content.get("gaps").size(); i++) {
@@ -271,46 +269,64 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     }
 
     private void renderOrdering(PDPageContext context, JsonNode content) throws IOException {
-        context.writeText("   Order the following items:", PDType1Font.HELVETICA_OBLIQUE, SMALL_FONT_SIZE);
-        context.y -= 14;
         if (content.has("items")) {
+            int itemIdx = 0;
             for (JsonNode item : content.get("items")) {
                 String itemText = item.has("text") ? item.get("text").asText() : "";
-                context.writeText("   - " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                char label = (char) ('A' + itemIdx);
+                context.writeText("   " + label + ". " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
                 context.y -= 14;
+                itemIdx++;
             }
         }
     }
 
     private void renderMatching(PDPageContext context, JsonNode content) throws IOException {
-        context.writeText("   Match the items:", PDType1Font.HELVETICA_OBLIQUE, SMALL_FONT_SIZE);
-        context.y -= 14;
-        
         if (content.has("left") && content.has("right")) {
-            context.writeText("   Left Column:", PDType1Font.HELVETICA_BOLD, SMALL_FONT_SIZE);
+            // Two-column layout: Column 1 (numbers) and Column 2 (letters)
+            float leftColumnX = MARGIN + 20;
+            float rightColumnX = MARGIN + (MAX_TEXT_WIDTH / 2) + 20;
+            float columnWidth = (MAX_TEXT_WIDTH / 2) - 40;
+            
+            // Headers
+            context.writeTwoColumnText("Column 1", "Column 2", 
+                                      leftColumnX, rightColumnX,
+                                      PDType1Font.HELVETICA_BOLD, SMALL_FONT_SIZE);
             context.y -= 12;
-            for (JsonNode item : content.get("left")) {
-                String text = item.has("text") ? item.get("text").asText() : "";
-                context.writeText("   " + (item.has("id") ? item.get("id").asText() : "") + ". " + text, 
-                                 PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
-                context.y -= 12;
-            }
-            context.y -= 5;
-            context.writeText("   Right Column:", PDType1Font.HELVETICA_BOLD, SMALL_FONT_SIZE);
-            context.y -= 12;
-            for (JsonNode item : content.get("right")) {
-                String text = item.has("text") ? item.get("text").asText() : "";
-                context.writeText("   " + (item.has("id") ? item.get("id").asText() : "") + ". " + text,
-                                 PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
-                context.y -= 12;
+            
+            // Get items as lists
+            List<JsonNode> leftItems = new ArrayList<>();
+            List<JsonNode> rightItems = new ArrayList<>();
+            content.get("left").forEach(leftItems::add);
+            content.get("right").forEach(rightItems::add);
+            
+            // Render items in parallel (numbers on left, letters on right)
+            int maxItems = Math.max(leftItems.size(), rightItems.size());
+            for (int i = 0; i < maxItems; i++) {
+                String leftText = "";
+                String rightText = "";
+                
+                if (i < leftItems.size()) {
+                    String text = leftItems.get(i).has("text") ? leftItems.get(i).get("text").asText() : "";
+                    leftText = (i + 1) + ". " + text;
+                }
+                
+                if (i < rightItems.size()) {
+                    String text = rightItems.get(i).has("text") ? rightItems.get(i).get("text").asText() : "";
+                    char label = (char) ('A' + i);
+                    rightText = label + ". " + text;
+                }
+                
+                context.writeTwoColumnWrappedText(leftText, rightText,
+                                                 leftColumnX, rightColumnX,
+                                                 columnWidth,
+                                                 PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.y -= 3;
             }
         }
     }
 
     private void renderHotspot(PDPageContext context, JsonNode content) throws IOException {
-        context.writeText("   Select the correct region on the image", 
-                         PDType1Font.HELVETICA_OBLIQUE, SMALL_FONT_SIZE);
-        context.y -= 14;
         if (content.has("imageUrl")) {
             context.writeText("   Image: " + content.get("imageUrl").asText(), 
                              PDType1Font.HELVETICA, SMALL_FONT_SIZE);
@@ -319,9 +335,6 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     }
 
     private void renderCompliance(PDPageContext context, JsonNode content) throws IOException {
-        context.writeText("   Mark each statement as Compliant or Non-compliant:", 
-                         PDType1Font.HELVETICA_OBLIQUE, SMALL_FONT_SIZE);
-        context.y -= 14;
         if (content.has("statements")) {
             for (JsonNode statement : content.get("statements")) {
                 String text = statement.has("text") ? statement.get("text").asText() : "";
@@ -443,38 +456,41 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             return "N/A";
         }
         
-        // Build ID-to-text lookup maps
-        Map<Integer, String> leftMap = new LinkedHashMap<>();
-        Map<Integer, String> rightMap = new LinkedHashMap<>();
+        // Build ID-to-position lookup maps (for number and letter conversion)
+        Map<Integer, Integer> leftIdToPosition = new LinkedHashMap<>();
+        Map<Integer, Integer> rightIdToPosition = new LinkedHashMap<>();
         
         if (originalContent != null) {
             if (originalContent.has("left")) {
+                int position = 1;
                 for (JsonNode item : originalContent.get("left")) {
                     int id = item.has("id") ? item.get("id").asInt() : 0;
-                    String text = item.has("text") ? item.get("text").asText() : "";
-                    leftMap.put(id, text);
+                    leftIdToPosition.put(id, position++);
                 }
             }
             if (originalContent.has("right")) {
+                int position = 0;
                 for (JsonNode item : originalContent.get("right")) {
                     int id = item.has("id") ? item.get("id").asInt() : 0;
-                    String text = item.has("text") ? item.get("text").asText() : "";
-                    rightMap.put(id, text);
+                    rightIdToPosition.put(id, position++);
                 }
             }
         }
         
-        // Format pairs with text
+        // Format pairs as "1 -> A, 2 -> B" etc.
         List<String> pairTexts = new ArrayList<>();
         JsonNode pairs = normalized.get("pairs");
         for (JsonNode pair : pairs) {
             int leftId = pair.has("leftId") ? pair.get("leftId").asInt() : 0;
             int rightId = pair.has("rightId") ? pair.get("rightId").asInt() : 0;
             
-            String leftText = leftMap.getOrDefault(leftId, String.valueOf(leftId));
-            String rightText = rightMap.getOrDefault(rightId, String.valueOf(rightId));
+            Integer leftNum = leftIdToPosition.get(leftId);
+            Integer rightIdx = rightIdToPosition.get(rightId);
             
-            pairTexts.add(leftText + " -> " + rightText);
+            if (leftNum != null && rightIdx != null) {
+                char rightLetter = (char) ('A' + rightIdx);
+                pairTexts.add(leftNum + " -> " + rightLetter);
+            }
         }
         return String.join(", ", pairTexts);
     }
@@ -484,49 +500,55 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             return "N/A";
         }
         
-        // Build ID-to-text lookup map
-        Map<Integer, String> itemMap = new LinkedHashMap<>();
+        // Build ID-to-letter position map (A, B, C, D based on display order)
+        Map<Integer, Integer> itemIdToPosition = new LinkedHashMap<>();
         if (originalContent != null && originalContent.has("items")) {
+            int position = 0;
             for (JsonNode item : originalContent.get("items")) {
                 int id = item.has("id") ? item.get("id").asInt() : 0;
-                String text = item.has("text") ? item.get("text").asText() : "";
-                itemMap.put(id, text);
+                itemIdToPosition.put(id, position++);
             }
         }
         
-        List<String> orderedItems = new ArrayList<>();
+        // Convert correct order IDs to letters
+        List<String> orderedLetters = new ArrayList<>();
         JsonNode order = normalized.get("order");
         for (JsonNode item : order) {
             int id = item.asInt();
-            String text = itemMap.getOrDefault(id, String.valueOf(id));
-            orderedItems.add(text);
+            Integer position = itemIdToPosition.get(id);
+            if (position != null) {
+                char letter = (char) ('A' + position);
+                orderedLetters.add(String.valueOf(letter));
+            }
         }
-        return "Order: " + String.join(", ", orderedItems);
+        return String.join(" -> ", orderedLetters);
     }
     
     private String formatComplianceAnswer(JsonNode normalized, JsonNode originalContent) {
-        if (!normalized.has("compliantStatementIds")) {
+        if (!normalized.has("compliantIds")) {
             return "N/A";
         }
         
-        // Build ID-to-text lookup map
-        Map<Integer, String> statementMap = new LinkedHashMap<>();
+        // Build ID-to-position lookup map (for statement numbers)
+        Map<Integer, Integer> statementIdToPosition = new LinkedHashMap<>();
         if (originalContent != null && originalContent.has("statements")) {
+            int position = 1;
             for (JsonNode stmt : originalContent.get("statements")) {
                 int id = stmt.has("id") ? stmt.get("id").asInt() : 0;
-                String text = stmt.has("text") ? stmt.get("text").asText() : "";
-                statementMap.put(id, text);
+                statementIdToPosition.put(id, position++);
             }
         }
         
-        List<String> compliantTexts = new ArrayList<>();
-        JsonNode ids = normalized.get("compliantStatementIds");
+        List<String> compliantPositions = new ArrayList<>();
+        JsonNode ids = normalized.get("compliantIds");
         for (JsonNode id : ids) {
             int stmtId = id.asInt();
-            String text = statementMap.getOrDefault(stmtId, String.valueOf(stmtId));
-            compliantTexts.add(text);
+            Integer position = statementIdToPosition.get(stmtId);
+            if (position != null) {
+                compliantPositions.add(String.valueOf(position));
+            }
         }
-        return "Compliant: " + String.join(", ", compliantTexts);
+        return "Compliant: " + String.join(", ", compliantPositions);
     }
     
     private String formatFillGapAnswer(JsonNode normalized) {
@@ -645,6 +667,112 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             contentStream.showText(text);
             contentStream.endText();
             y -= fontSize * LINE_SPACING;
+        }
+        
+        /**
+         * Write text in two columns (simple, single-line version)
+         */
+        public void writeTwoColumnText(String leftText, String rightText,
+                                      float leftX, float rightX,
+                                      PDFont font, float fontSize) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            ensureSpace(fontSize * LINE_SPACING);
+            
+            // Left column
+            contentStream.beginText();
+            contentStream.setFont(font, fontSize);
+            contentStream.newLineAtOffset(leftX, y);
+            contentStream.showText(leftText);
+            contentStream.endText();
+            
+            // Right column
+            contentStream.beginText();
+            contentStream.setFont(font, fontSize);
+            contentStream.newLineAtOffset(rightX, y);
+            contentStream.showText(rightText);
+            contentStream.endText();
+            
+            y -= fontSize * LINE_SPACING;
+        }
+        
+        /**
+         * Write text in two columns with word wrapping for each column
+         */
+        public void writeTwoColumnWrappedText(String leftText, String rightText,
+                                             float leftX, float rightX,
+                                             float columnWidth,
+                                             PDFont font, float fontSize) throws IOException {
+            if (leftText == null) leftText = "";
+            if (rightText == null) rightText = "";
+            
+            // Wrap both texts to their column widths
+            List<String> leftLines = wrapTextToLines(leftText, font, fontSize, columnWidth);
+            List<String> rightLines = wrapTextToLines(rightText, font, fontSize, columnWidth);
+            
+            // Render line by line, using the max number of lines from either column
+            int maxLines = Math.max(leftLines.size(), rightLines.size());
+            for (int i = 0; i < maxLines; i++) {
+                if (currentPage == null) {
+                    startNewPage();
+                }
+                ensureSpace(fontSize * LINE_SPACING);
+                
+                // Left column line
+                if (i < leftLines.size()) {
+                    contentStream.beginText();
+                    contentStream.setFont(font, fontSize);
+                    contentStream.newLineAtOffset(leftX, y);
+                    contentStream.showText(leftLines.get(i));
+                    contentStream.endText();
+                }
+                
+                // Right column line
+                if (i < rightLines.size()) {
+                    contentStream.beginText();
+                    contentStream.setFont(font, fontSize);
+                    contentStream.newLineAtOffset(rightX, y);
+                    contentStream.showText(rightLines.get(i));
+                    contentStream.endText();
+                }
+                
+                y -= fontSize * LINE_SPACING;
+            }
+        }
+        
+        /**
+         * Helper method to wrap text into lines that fit within a given width
+         */
+        private List<String> wrapTextToLines(String text, PDFont font, float fontSize, float maxWidth) throws IOException {
+            List<String> lines = new ArrayList<>();
+            if (text == null || text.isBlank()) {
+                return lines;
+            }
+            
+            String[] words = text.split("\\s+");
+            StringBuilder line = new StringBuilder();
+            
+            for (String word : words) {
+                String testLine = line.length() == 0 ? word : line + " " + word;
+                try {
+                    float width = font.getStringWidth(testLine) / 1000 * fontSize;
+                    if (width > maxWidth && line.length() > 0) {
+                        lines.add(line.toString());
+                        line = new StringBuilder(word);
+                    } else {
+                        line = new StringBuilder(testLine);
+                    }
+                } catch (IOException e) {
+                    line.append(" ").append(word);
+                }
+            }
+            
+            if (line.length() > 0) {
+                lines.add(line.toString());
+            }
+            
+            return lines;
         }
 
         public void close() throws IOException {

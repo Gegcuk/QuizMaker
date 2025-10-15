@@ -14,11 +14,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Component
@@ -228,7 +224,6 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 sb.append("</ul>");
             }
             case FILL_GAP -> {
-                sb.append("<p><em>Fill in the blanks:</em></p>");
                 if (content.has("gaps")) {
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
                     int gapNum = 1;
@@ -239,19 +234,19 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 }
             }
             case ORDERING -> {
-                sb.append("<p><em>Order the following items:</em></p>");
                 if (content.has("items")) {
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
-                    int itemNum = 1;
+                    int itemIdx = 0;
                     for (JsonNode item : content.get("items")) {
                         String text = item.has("text") ? item.get("text").asText() : "";
-                        sb.append("<li><strong>").append(itemNum++).append(".</strong> ").append(escape(text)).append("</li>");
+                        char label = (char) ('A' + itemIdx);
+                        sb.append("<li><strong>").append(label).append(".</strong> ").append(escape(text)).append("</li>");
+                        itemIdx++;
                     }
                     sb.append("</ul>");
                 }
             }
             case MATCHING -> {
-                sb.append("<p><em>Match the items:</em></p>");
                 if (content.has("left") && content.has("right")) {
                     sb.append("<div class=\"matching-columns\">");
                     
@@ -283,13 +278,11 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 }
             }
             case HOTSPOT -> {
-                sb.append("<p><em>Select the correct region on the image</em></p>");
                 if (content.has("imageUrl")) {
                     sb.append("<p>Image: ").append(escape(content.get("imageUrl").asText())).append("</p>");
                 }
             }
             case COMPLIANCE -> {
-                sb.append("<p><em>Mark each statement as Compliant or Non-compliant:</em></p>");
                 if (content.has("statements")) {
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
                     int stmtNum = 1;
@@ -462,25 +455,26 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             return;
         }
         
-        // Build ID-to-position lookup map
+        // Build ID-to-letter position map (A, B, C, D based on display order)
         Map<Integer, Integer> itemIdToPosition = new LinkedHashMap<>();
         if (originalContent != null && originalContent.has("items")) {
-            int position = 1;
+            int position = 0;
             for (JsonNode item : originalContent.get("items")) {
                 int id = item.has("id") ? item.get("id").asInt() : 0;
                 itemIdToPosition.put(id, position++);
             }
         }
         
-        sb.append("Order: ");
+        // Convert correct order IDs to letters
         JsonNode order = normalized.get("order");
         int idx = 0;
         for (JsonNode item : order) {
-            if (idx > 0) sb.append(", ");
+            if (idx > 0) sb.append(" → ");
             int id = item.asInt();
             Integer position = itemIdToPosition.get(id);
             if (position != null) {
-                sb.append("<strong>").append(position).append("</strong>");
+                char letter = (char) ('A' + position);
+                sb.append("<strong>").append(letter).append("</strong>");
             } else {
                 sb.append(id);
             }

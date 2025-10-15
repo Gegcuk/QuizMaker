@@ -151,16 +151,25 @@ public class CorrectAnswerExtractor {
         ObjectNode result = objectMapper.createObjectNode();
         ArrayNode order = objectMapper.createArrayNode();
 
-        if (!content.has("items")) {
-            throw new IllegalArgumentException("ORDERING content missing 'items' field");
-        }
-
-        ArrayNode items = (ArrayNode) content.get("items");
-        for (JsonNode item : items) {
-            if (!item.has("id")) {
-                throw new IllegalArgumentException("ORDERING item missing 'id' field");
+        // If correctOrder field exists (from export shuffling), use it
+        if (content.has("correctOrder")) {
+            ArrayNode correctOrder = (ArrayNode) content.get("correctOrder");
+            for (JsonNode id : correctOrder) {
+                order.add(id.asInt());
             }
-            order.add(item.get("id").asInt());
+        } else {
+            // Otherwise, extract from items in their current order
+            if (!content.has("items")) {
+                throw new IllegalArgumentException("ORDERING content missing 'items' field");
+            }
+
+            ArrayNode items = (ArrayNode) content.get("items");
+            for (JsonNode item : items) {
+                if (!item.has("id")) {
+                    throw new IllegalArgumentException("ORDERING item missing 'id' field");
+                }
+                order.add(item.get("id").asInt());
+            }
         }
 
         result.set("order", order);

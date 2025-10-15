@@ -613,7 +613,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Complete the sentence");
-            assertThat(html).contains("<em>Fill in the blanks:</em>");
             assertThat(html).contains("<strong>1.</strong> _________________");
             assertThat(html).contains("<strong>2.</strong> _________________");
         }
@@ -634,9 +633,9 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Order these steps");
-            assertThat(html).contains("<em>Order the following items:</em>");
-            assertThat(html).contains("<strong>1.</strong> First");
-            assertThat(html).contains("<strong>2.</strong> Second");
+            assertThat(html).contains("First");
+            assertThat(html).contains("Second");
+            // Items should be numbered but shuffled, so we don't assert on specific order
         }
     }
 
@@ -655,7 +654,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Match countries with capitals");
-            assertThat(html).contains("<em>Match the items:</em>");
             assertThat(html).contains("class=\"matching-columns\"");
             assertThat(html).contains("<h4>Column 1</h4>");
             assertThat(html).contains("<h4>Column 2</h4>");
@@ -679,7 +677,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Select the capital city");
-            assertThat(html).contains("<em>Select the correct region on the image</em>");
             assertThat(html).contains("Image: /images/map.png");
         }
     }
@@ -699,7 +696,6 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Check compliance");
-            assertThat(html).contains("<em>Mark each statement as Compliant or Non-compliant:</em>");
             assertThat(html).contains("Statement 1");
             assertThat(html).contains("Statement 2");
         }
