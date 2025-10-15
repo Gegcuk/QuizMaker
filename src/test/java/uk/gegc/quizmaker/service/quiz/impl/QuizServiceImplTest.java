@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
+import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
@@ -30,6 +31,7 @@ import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
@@ -48,6 +50,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -605,5 +608,278 @@ class QuizServiceImplTest {
         
         // Verify chunk verification was called
         verify(aiQuizGenerationService, times(2)).calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class));
+    }
+
+    @Test
+    @DisplayName("createQuiz: Should find user by email if username lookup fails")
+    void createQuiz_userFoundByEmail_createsSuccessfully() {
+        // Given
+        String email = "user@example.com";
+        CreateQuizRequest request = new CreateQuizRequest(
+                "Test Quiz",
+                "Description",
+                Visibility.PRIVATE,
+                Difficulty.MEDIUM,
+                false,  // isRepetitionEnabled
+                false,  // timerEnabled
+                10,     // estimatedTime
+                5,      // timerDuration
+                null,   // categoryId null
+                List.of()  // tagIds
+        );
+
+        User user = createTestUser();
+        Category defaultCategory = new Category();
+        defaultCategory.setId(UUID.randomUUID());
+        defaultCategory.setName("General");
+
+        Quiz quiz = new Quiz();
+        quiz.setId(UUID.randomUUID());
+
+        lenient().when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
+        lenient().when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        lenient().when(categoryRepository.findById(any())).thenReturn(Optional.empty());
+        lenient().when(categoryRepository.findByName("General")).thenReturn(Optional.of(defaultCategory));
+        lenient().when(quizMapper.toEntity(any(), eq(user), eq(defaultCategory), any())).thenReturn(quiz);
+        lenient().when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        // When
+        UUID result = quizService.createQuiz(email, request);
+
+        // Then
+        assertThat(result).isNotNull();
+        verify(userRepository).findByEmail(email);
+        verify(categoryRepository).findByName("General");
+        verify(quizRepository).save(any(Quiz.class));
+    }
+
+    @Test
+    @DisplayName("createQuiz: Moderator can create PUBLIC quiz directly")
+    void createQuiz_moderator_canCreatePublicQuiz() {
+        // Given
+        String username = "admin";
+        UUID categoryId = UUID.randomUUID();
+        CreateQuizRequest request = new CreateQuizRequest(
+                "Test Quiz",
+                "Description",
+                Visibility.PUBLIC,
+                Difficulty.MEDIUM,
+                false,  // isRepetitionEnabled
+                false,  // timerEnabled
+                10,     // estimatedTime
+                5,      // timerDuration
+                categoryId,
+                List.of()  // tagIds
+        );
+
+        Category category = new Category();
+        category.setId(categoryId);
+
+        Quiz quiz = new Quiz();
+        quiz.setId(UUID.randomUUID());
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.DRAFT);
+
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(quizMapper.toEntity(any(), eq(adminUser), eq(category), any())).thenReturn(quiz);
+        when(appPermissionEvaluator.hasPermission(eq(adminUser), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        // When
+        UUID result = quizService.createQuiz(username, request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);  // Forced to PUBLISHED
+        verify(quizRepository).save(quiz);
+    }
+
+    @Test
+    @DisplayName("createQuiz: Non-moderator forced to PRIVATE/DRAFT")
+    void createQuiz_nonModerator_forcedToPrivateDraft() {
+        // Given
+        String username = "testuser";
+        UUID categoryId = UUID.randomUUID();
+        CreateQuizRequest request = new CreateQuizRequest(
+                "Test Quiz",
+                "Description",
+                Visibility.PUBLIC,  // Requesting PUBLIC
+                Difficulty.HARD,
+                false,  // isRepetitionEnabled
+                true,   // timerEnabled
+                20,     // estimatedTime
+                15,     // timerDuration
+                categoryId,  // Requesting PUBLISHED
+                List.of()  // tagIds
+        );
+
+        User user = createTestUser();
+        Category category = new Category();
+        category.setId(categoryId);
+
+        Quiz quiz = new Quiz();
+        quiz.setId(UUID.randomUUID());
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(quizMapper.toEntity(any(), eq(user), eq(category), any())).thenReturn(quiz);
+        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        // When
+        UUID result = quizService.createQuiz(username, request);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PRIVATE);  // Forced to PRIVATE
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);  // Forced to DRAFT
+        verify(quizRepository).save(quiz);
+    }
+
+    @Test
+    @DisplayName("setVisibility: Non-moderator cannot set PUBLIC visibility")
+    void setVisibility_nonModeratorSettingPublic_throwsForbiddenException() {
+        // Given
+        UUID quizId = UUID.randomUUID();
+        String username = "testuser";
+        User user = createTestUser();
+
+        Quiz quiz = new Quiz();
+        quiz.setId(quizId);
+        quiz.setCreator(user);
+        quiz.setVisibility(Visibility.PRIVATE);
+
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+
+        // When & Then
+        assertThatThrownBy(() -> quizService.setVisibility(username, quizId, Visibility.PUBLIC))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
+    }
+
+    @Test
+    @DisplayName("setVisibility: Moderator can set PUBLIC visibility")
+    void setVisibility_moderator_canSetPublic() {
+        // Given
+        UUID quizId = UUID.randomUUID();
+        String username = "admin";
+
+        Quiz quiz = new Quiz();
+        quiz.setId(quizId);
+        quiz.setCreator(adminUser);
+        quiz.setVisibility(Visibility.PRIVATE);
+
+        QuizDto expectedDto = new QuizDto(
+                quizId,                 // id
+                adminUser.getId(),      // creatorId
+                UUID.randomUUID(),      // categoryId
+                "Test",                 // title
+                "Desc",                 // description
+                Visibility.PUBLIC,      // visibility
+                Difficulty.MEDIUM,      // difficulty
+                QuizStatus.DRAFT,       // status
+                10,                     // estimatedTime
+                false,                  // isRepetitionEnabled
+                false,                  // timerEnabled
+                5,                      // timerDuration
+                List.of(),              // tagIds
+                null,                   // createdAt
+                null                    // updatedAt
+        );
+
+        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
+        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
+        when(quizRepository.save(quiz)).thenReturn(quiz);
+        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+
+        // When
+        QuizDto result = quizService.setVisibility(username, quizId, Visibility.PUBLIC);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PUBLIC);
+        verify(quizRepository).save(quiz);
+    }
+
+    @Test
+    @DisplayName("setStatus: Non-moderator cannot publish PUBLIC quiz")
+    void setStatus_nonModeratorPublishingPublicQuiz_throwsForbiddenException() {
+        // Given
+        UUID quizId = UUID.randomUUID();
+        String username = "testuser";
+        User user = createTestUser();
+
+        Quiz quiz = new Quiz();
+        quiz.setId(quizId);
+        quiz.setCreator(user);
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.DRAFT);
+        quiz.setQuestions(new HashSet<>());
+
+        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+
+        // When & Then
+        assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("Only moderators can publish PUBLIC quizzes");
+    }
+
+    @Test
+    @DisplayName("setStatus: Owner can publish PRIVATE quiz")
+    void setStatus_ownerPublishingPrivateQuiz_succeeds() {
+        // Given
+        UUID quizId = UUID.randomUUID();
+        String username = "testuser";
+        User user = createTestUser();
+
+        Quiz quiz = createQuizWithQuestions(1);  // Reuse helper
+        quiz.setId(quizId);
+        quiz.setCreator(user);
+        quiz.setVisibility(Visibility.PRIVATE);
+        quiz.setStatus(QuizStatus.DRAFT);
+
+        QuizDto expectedDto = new QuizDto(
+                quizId, user.getId(), UUID.randomUUID(), "Test", "Desc",
+                Visibility.PRIVATE, Difficulty.MEDIUM, QuizStatus.PUBLISHED,
+                10, false, false, 5, List.of(), null, null
+        );
+
+        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        // Don't throw validation exception - quiz is valid
+        when(quizRepository.save(quiz)).thenReturn(quiz);
+        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+
+        // When
+        QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
+        verify(quizRepository).save(quiz);
+        verify(questionHandler).validateContent(any());
     }
 } 
