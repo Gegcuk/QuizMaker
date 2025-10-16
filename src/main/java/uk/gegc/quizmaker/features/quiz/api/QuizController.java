@@ -91,7 +91,7 @@ public class QuizController {
 
     @Operation(
             summary = "Create a new quiz",
-            description = "Create a new quiz. Requires QUIZ_CREATE permission. Non-moderators can only create PRIVATE/DRAFT quizzes. Returns the generated UUID of the created quiz."
+            description = "Create a new quiz. Requires QUIZ_CREATE permission. Non-moderators can only create PRIVATE/DRAFT quizzes. Returns the generated UUID of the created quiz. When categoryId is omitted or invalid, the default category configured via quiz.default-category-id is used."
     )
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "Payload for creating a new quiz",

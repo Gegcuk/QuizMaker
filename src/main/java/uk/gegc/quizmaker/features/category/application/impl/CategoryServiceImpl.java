@@ -11,7 +11,9 @@ import uk.gegc.quizmaker.features.category.api.dto.UpdateCategoryRequest;
 import uk.gegc.quizmaker.features.category.application.CategoryService;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.UUID;
 
@@ -21,6 +23,7 @@ import java.util.UUID;
 public class CategoryServiceImpl implements CategoryService {
     private final CategoryRepository categoryRepository;
     private final CategoryMapper categoryMapper;
+    private final QuizDefaultsProperties quizDefaultsProperties;
 
     @Override
     public Page<CategoryDto> getCategories(Pageable pageable) {
@@ -54,6 +57,9 @@ public class CategoryServiceImpl implements CategoryService {
     public void deleteCategoryById(String username, UUID categoryId) {
         if (!categoryRepository.existsById(categoryId)) {
             throw new ResourceNotFoundException("Category " + categoryId + " not found");
+        }
+        if (quizDefaultsProperties.getDefaultCategoryId().equals(categoryId)) {
+            throw new ValidationException("Default quiz category cannot be deleted");
         }
         categoryRepository.deleteById(categoryId);
     }
