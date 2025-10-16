@@ -108,7 +108,7 @@ The API enforces per-minute quotas to prevent abuse. Exceeding limits returns HT
 | `showHints` | boolean | No | - | `true` | Whether to show hints |
 | `shuffleQuestions` | boolean | No | - | `false` | Shuffle question order |
 | `showResults` | boolean | No | - | `true` | Show results after completion |
-| `categoryId` | UUID | No | Valid category UUID | `null` | Category assignment |
+| `categoryId` | UUID | No | Valid category UUID | `null` | Category assignment; omitted or invalid IDs fall back to the configured default category |
 | `tagIds` | array of UUIDs | No | Valid tag UUIDs | `[]` | Associated tags |
 
 **Example**:
@@ -830,6 +830,9 @@ POST /api/v1/quizzes
   "quizId": "newly-created-quiz-uuid"
 }
 ```
+
+**Notes**:
+- When `categoryId` is omitted or points to a non-existent category, the backend automatically assigns the category configured by `quiz.default-category-id`.
 
 **Error Responses**:
 - `400` - Validation error (invalid title length, etc.)
@@ -2067,4 +2070,3 @@ const handleQuizOperation = async () => {
 - Test rate limiting behavior
 - Validate file upload error handling
 - Test generation job polling and cancellation
-

@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -72,6 +73,8 @@ import static org.mockito.Mockito.lenient;
 @DisplayName("QuizService Publishing Validation Tests")
 class QuizServiceImplTest {
 
+    private static final UUID DEFAULT_CATEGORY_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     @Mock
     private QuizRepository quizRepository;
     @Mock
@@ -108,6 +111,8 @@ class QuizServiceImplTest {
     private TransactionTemplate transactionTemplate;
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
+    @Mock
+    private QuizDefaultsProperties quizDefaultsProperties;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -119,6 +124,7 @@ class QuizServiceImplTest {
         adminUser = createAdminUser();
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        lenient().when(quizDefaultsProperties.getDefaultCategoryId()).thenReturn(DEFAULT_CATEGORY_ID);
     }
 
     private User createAdminUser() {
@@ -630,16 +636,15 @@ class QuizServiceImplTest {
 
         User user = createTestUser();
         Category defaultCategory = new Category();
-        defaultCategory.setId(UUID.randomUUID());
-        defaultCategory.setName("General");
+        defaultCategory.setId(DEFAULT_CATEGORY_ID);
+        defaultCategory.setName("Uncategorized");
 
         Quiz quiz = new Quiz();
         quiz.setId(UUID.randomUUID());
 
         lenient().when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
         lenient().when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        lenient().when(categoryRepository.findById(any())).thenReturn(Optional.empty());
-        lenient().when(categoryRepository.findByName("General")).thenReturn(Optional.of(defaultCategory));
+        lenient().when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
         lenient().when(quizMapper.toEntity(any(), eq(user), eq(defaultCategory), any())).thenReturn(quiz);
         lenient().when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
         when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
@@ -654,8 +659,56 @@ class QuizServiceImplTest {
         // Then
         assertThat(result).isNotNull();
         verify(userRepository).findByEmail(email);
-        verify(categoryRepository).findByName("General");
+        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
+        verify(quizMapper).toEntity(any(), eq(user), eq(defaultCategory), any());
         verify(quizRepository).save(any(Quiz.class));
+    }
+
+    @Test
+    @DisplayName("createQuiz: Invalid category falls back to configured default")
+    void createQuiz_invalidCategory_usesDefaultCategory() {
+        // Given
+        String username = "admin";
+        UUID invalidCategoryId = UUID.randomUUID();
+        CreateQuizRequest request = new CreateQuizRequest(
+                "Fallback Quiz",
+                "Description",
+                Visibility.PRIVATE,
+                Difficulty.EASY,
+                false,
+                false,
+                10,
+                5,
+                invalidCategoryId,
+                List.of()
+        );
+
+        Category defaultCategory = new Category();
+        defaultCategory.setId(DEFAULT_CATEGORY_ID);
+        defaultCategory.setName("Uncategorized");
+
+        Quiz quiz = new Quiz();
+        quiz.setId(UUID.randomUUID());
+
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
+        when(categoryRepository.findById(invalidCategoryId)).thenReturn(Optional.empty());
+        when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
+        when(quizMapper.toEntity(any(), eq(adminUser), eq(defaultCategory), any())).thenReturn(quiz);
+        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
+
+        // When
+        UUID result = quizService.createQuiz(username, request);
+
+        // Then
+        assertThat(result).isNotNull();
+        verify(categoryRepository).findById(invalidCategoryId);
+        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
+        verify(quizMapper).toEntity(any(), eq(adminUser), eq(defaultCategory), any());
     }
 
     @Test

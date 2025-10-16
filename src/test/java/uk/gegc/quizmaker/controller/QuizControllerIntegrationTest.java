@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.result.domain.model.QuizAnalyticsSnapshot;
 import uk.gegc.quizmaker.features.result.domain.repository.QuizAnalyticsSnapshotRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
@@ -71,6 +72,8 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
     QuestionRepository questionRepository;
     @Autowired
     QuizRepository quizRepository;
+    @Autowired
+    QuizDefaultsProperties quizDefaultsProperties;
     @Autowired
     AttemptRepository attemptRepository;
     @Autowired
@@ -311,6 +314,61 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .with(user(adminUserDetails)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.quizId").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/quizzes without categoryId uses default category")
+    void createQuiz_withoutCategory_usesDefaultCategory() throws Exception {
+        String json = """
+                {
+                  "title":"No Category Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """;
+
+        var mvcResult = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(user(adminUserDetails)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode response = objectMapper.readTree(mvcResult.getResponse().getContentAsString());
+        UUID quizId = UUID.fromString(response.get("quizId").asText());
+
+        var savedQuiz = quizRepository.findById(quizId).orElseThrow();
+        assertEquals(quizDefaultsProperties.getDefaultCategoryId(), savedQuiz.getCategory().getId());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/quizzes with invalid categoryId uses default category")
+    void createQuiz_invalidCategory_usesDefaultCategory() throws Exception {
+        String json = """
+                {
+                  "title":"Bad Category Quiz",
+                  "estimatedTime":10,
+                  "timerDuration":5,
+                  "categoryId":"%s",
+                  "isRepetitionEnabled":false,
+                  "timerEnabled":false
+                }
+                """.formatted(UUID.randomUUID());
+
+        var mvcResult = mockMvc.perform(post("/api/v1/quizzes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json)
+                        .with(user(adminUserDetails)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode response = objectMapper.readTree(mvcResult.getResponse().getContentAsString());
+        UUID quizId = UUID.fromString(response.get("quizId").asText());
+
+        var savedQuiz = quizRepository.findById(quizId).orElseThrow();
+        assertEquals(quizDefaultsProperties.getDefaultCategoryId(), savedQuiz.getCategory().getId());
     }
 
     @Test

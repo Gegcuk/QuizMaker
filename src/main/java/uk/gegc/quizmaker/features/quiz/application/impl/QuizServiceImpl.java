@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
@@ -87,6 +88,7 @@ public class QuizServiceImpl implements QuizService {
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
     private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
+    private final QuizDefaultsProperties quizDefaultsProperties;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -102,10 +104,7 @@ public class QuizServiceImpl implements QuizService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
-        Category category = Optional.ofNullable(request.categoryId())
-                .flatMap(categoryRepository::findById)
-                .orElseGet(() -> categoryRepository.findByName("General")
-                        .orElseThrow(() -> new ResourceNotFoundException("Default category missing")));
+        Category category = resolveCategoryFor(request);
 
         Set<Tag> tags = request.tagIds().stream()
                 .map(id -> tagRepository.findById(id)
@@ -131,6 +130,24 @@ public class QuizServiceImpl implements QuizService {
         }
         
         return quizRepository.save(quiz).getId();
+    }
+
+    private Category resolveCategoryFor(CreateQuizRequest request) {
+        UUID defaultCategoryId = quizDefaultsProperties.getDefaultCategoryId();
+        UUID requestedCategoryId = request.categoryId();
+
+        if (requestedCategoryId == null) {
+            log.info("Quiz '{}' creation request omitted categoryId; using default category {}", request.title(), defaultCategoryId);
+            return categoryRepository.findById(defaultCategoryId)
+                    .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
+        }
+
+        return categoryRepository.findById(requestedCategoryId)
+                .orElseGet(() -> {
+                    log.warn("Quiz '{}' requested category {} which does not exist; using default {}", request.title(), requestedCategoryId, defaultCategoryId);
+                    return categoryRepository.findById(defaultCategoryId)
+                            .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
+                });
     }
 
     @Override

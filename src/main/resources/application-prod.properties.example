@@ -52,6 +52,9 @@ async.general.keep-alive-seconds=60
 # Flyway enabled in production
 spring.flyway.enabled=true
 
+# Default quiz category used when clients omit or send invalid category IDs
+quiz.default-category-id=${QUIZ_DEFAULT_CATEGORY_ID:00000000-0000-0000-0000-000000000001}
+
 # Feature flags (off by default in prod unless explicitly enabled)
 quizmaker.features.share-links=false
 quizmaker.features.organizations=false

@@ -21,7 +21,9 @@ import uk.gegc.quizmaker.features.category.application.impl.CategoryServiceImpl;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.category.infra.mapping.CategoryMapper;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,10 +37,14 @@ import static org.mockito.Mockito.*;
 @DisplayName("CategoryServiceImpl Unit Tests")
 class CategoryServiceImplTest {
 
+    private static final UUID DEFAULT_CATEGORY_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     @Mock
     private CategoryRepository categoryRepository;
     @Mock
     private CategoryMapper categoryMapper;
+    @Mock
+    private QuizDefaultsProperties quizDefaultsProperties;
     @InjectMocks
     private CategoryServiceImpl service;
 
@@ -49,11 +55,15 @@ class CategoryServiceImplTest {
     @BeforeEach
     void setUp() {
         id = UUID.randomUUID();
+        if (id.equals(DEFAULT_CATEGORY_ID)) {
+            id = UUID.randomUUID();
+        }
         entity = new Category();
         entity.setId(id);
         entity.setName("Name");
         entity.setDescription("Desc");
         dto = new CategoryDto(id, "Name", "Desc");
+        lenient().when(quizDefaultsProperties.getDefaultCategoryId()).thenReturn(DEFAULT_CATEGORY_ID);
     }
 
     @Test
@@ -144,6 +154,16 @@ class CategoryServiceImplTest {
         assertDoesNotThrow(() -> service.deleteCategoryById("adminUser", id));
         verify(categoryRepository).existsById(id);
         verify(categoryRepository).deleteById(id);
+    }
+
+    @Test
+    @DisplayName("deleteCategoryById: rejecting deletion of default category")
+    void deleteCategoryById_defaultCategory_throwsValidationException() {
+        when(categoryRepository.existsById(DEFAULT_CATEGORY_ID)).thenReturn(true);
+        assertThrows(ValidationException.class,
+                () -> service.deleteCategoryById("adminUser", DEFAULT_CATEGORY_ID));
+        verify(categoryRepository).existsById(DEFAULT_CATEGORY_ID);
+        verify(categoryRepository, never()).deleteById(any());
     }
 
     @Test

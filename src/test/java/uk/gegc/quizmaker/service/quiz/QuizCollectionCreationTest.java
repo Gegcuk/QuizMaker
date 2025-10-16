@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -56,6 +57,9 @@ class QuizCollectionCreationTest {
 
     @Mock(lenient = true)
     private EstimationService estimationService;
+
+    @Mock
+    private QuizDefaultsProperties quizDefaultsProperties;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -106,6 +110,8 @@ class QuizCollectionCreationTest {
         
         // Lenient stubbing for billing-related mocks that might not be called in all tests
         lenient().when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(100L);
+        lenient().when(quizDefaultsProperties.getDefaultCategoryId())
+                .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
     }
 
     @Test
