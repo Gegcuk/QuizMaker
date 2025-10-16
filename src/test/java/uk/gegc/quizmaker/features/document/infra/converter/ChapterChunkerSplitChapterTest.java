@@ -210,21 +210,33 @@ class ChapterChunkerSplitChapterTest {
     class ChapterNeedsSplittingTests {
 
         @Test
-        @DisplayName("splitChapterRespectingBoundaries: when chapter exceeds maxSize then splits")
-        void splitChapter_exceedsMaxSize_splits() {
-            // Given - Large chapter that needs splitting
+        @DisplayName("splitChapterRespectingBoundaries: when chapter exceeds maxSize and has sections then splits by sections")
+        void splitChapter_exceedsMaxSizeHasSections_splitsBySections() {
+            // Given - Large chapter with sections that needs splitting
+            ConvertedDocument.Section section1 = new ConvertedDocument.Section();
+            section1.setTitle("Section 1");
+            section1.setContent("This is section 1 with substantial content to process.");
+            section1.setStartPage(1);
+            section1.setEndPage(1);
+            
+            ConvertedDocument.Section section2 = new ConvertedDocument.Section();
+            section2.setTitle("Section 2");
+            section2.setContent("This is section 2 with even more substantial content.");
+            section2.setStartPage(2);
+            section2.setEndPage(2);
+            
+            // Create a large content string that exceeds maxSize
             StringBuilder largeContent = new StringBuilder();
-            for (int i = 0; i < 100; i++) {
-                largeContent.append("This is sentence ").append(i)
-                        .append(" with some content to make it longer. ");
+            for (int i = 0; i < 200; i++) {
+                largeContent.append("This is sentence ").append(i).append(" with content. ");
             }
             
             ConvertedDocument.Chapter chapter = new ConvertedDocument.Chapter();
-            chapter.setTitle("Large Chapter");
-            chapter.setContent(largeContent.toString());
+            chapter.setTitle("Large Chapter with Sections");
+            chapter.setContent(largeContent.toString()); // Large content
             chapter.setStartPage(1);
             chapter.setEndPage(10);
-            chapter.setSections(new ArrayList<>());
+            chapter.setSections(List.of(section1, section2)); // Has sections - line 243
             
             ConvertedDocument document = new ConvertedDocument();
             document.setOriginalFilename("test.pdf");
@@ -237,7 +249,39 @@ class ChapterChunkerSplitChapterTest {
             // When
             List<UniversalChunker.Chunk> result = chunker.chunkDocument(document, request);
 
-            // Then - Chapter should be split into multiple chunks (line 228 false branch)
+            // Then - Lines 243-248 covered (chapter too big, has sections, splits by sections)
+            assertThat(result.size()).isGreaterThan(0);
+        }
+
+        @Test
+        @DisplayName("splitChapterRespectingBoundaries: when chapter exceeds maxSize and has no sections then splits by size")
+        void splitChapter_exceedsMaxSizeNoSections_splitsBySize() {
+            // Given - Large chapter with NO sections that needs splitting
+            StringBuilder largeContent = new StringBuilder();
+            for (int i = 0; i < 200; i++) {
+                largeContent.append("This is sentence ").append(i)
+                        .append(" with some content to make it longer. ");
+            }
+            
+            ConvertedDocument.Chapter chapter = new ConvertedDocument.Chapter();
+            chapter.setTitle("Large Chapter No Sections");
+            chapter.setContent(largeContent.toString());
+            chapter.setStartPage(1);
+            chapter.setEndPage(10);
+            chapter.setSections(new ArrayList<>()); // NO sections - line 249
+            
+            ConvertedDocument document = new ConvertedDocument();
+            document.setOriginalFilename("test.pdf");
+            document.setFullContent(largeContent.toString());
+            document.setChapters(List.of(chapter));
+
+            ProcessDocumentRequest request = createDefaultRequest();
+            request.setMaxChunkSize(1000); // Small size to force splitting
+
+            // When
+            List<UniversalChunker.Chunk> result = chunker.chunkDocument(document, request);
+
+            // Then - Lines 249-254 covered (chapter too big, no sections, splits by size)
             assertThat(result.size()).isGreaterThan(1);
         }
     }
