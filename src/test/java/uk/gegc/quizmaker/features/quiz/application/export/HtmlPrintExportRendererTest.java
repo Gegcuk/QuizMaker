@@ -619,6 +619,71 @@ class HtmlPrintExportRendererTest {
     }
 
     @Test
+    @DisplayName("render: uses content.text for FILL_GAP question display (Issue #165)")
+    void render_fillGapQuestion_usesContentText() throws Exception {
+        // Given - FILL_GAP question with actual prompt in content.text
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("text", "One of the main functions of NAT is to allow devices on the ___ network to access the Internet.");
+        ArrayNode gaps = objectMapper.createArrayNode();
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "private"));
+        content.set("gaps", gaps);
+        
+        QuestionExportDto question = new QuestionExportDto(
+                UUID.randomUUID(), QuestionType.FILL_GAP, Difficulty.MEDIUM,
+                "Complete the sentence with the missing word(s)", // Generic text
+                content, null, null, null
+        );
+        QuizExportDto quiz = createQuizWithQuestions(List.of(question));
+        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then
+        try (InputStream is = file.contentSupplier().get()) {
+            String html = new String(is.readAllBytes());
+            // Should display the actual prompt with underscores
+            assertThat(html).contains("One of the main functions of NAT");
+            assertThat(html).contains("___ network");
+            // Should NOT display the generic question text in the header
+            int headerIdx = html.indexOf("class=\"question-header\"");
+            int nextHeaderIdx = html.indexOf("class=\"question-header\"", headerIdx + 1);
+            String firstQuestionHeader = nextHeaderIdx > 0 
+                ? html.substring(headerIdx, nextHeaderIdx)
+                : html.substring(headerIdx);
+            assertThat(firstQuestionHeader).doesNotContain("Complete the sentence with the missing word(s)");
+        }
+    }
+
+    @Test
+    @DisplayName("render: falls back to questionText when content.text is missing for FILL_GAP")
+    void render_fillGapQuestion_fallsBackToQuestionText() throws Exception {
+        // Given - FILL_GAP question without content.text
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode gaps = objectMapper.createArrayNode();
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "answer"));
+        content.set("gaps", gaps);
+        // Note: no "text" field in content
+        
+        QuestionExportDto question = new QuestionExportDto(
+                UUID.randomUUID(), QuestionType.FILL_GAP, Difficulty.EASY,
+                "Complete the sentence",
+                content, null, null, null
+        );
+        QuizExportDto quiz = createQuizWithQuestions(List.of(question));
+        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then - should fall back to questionText
+        try (InputStream is = file.contentSupplier().get()) {
+            String html = new String(is.readAllBytes());
+            assertThat(html).contains("Complete the sentence");
+        }
+    }
+
+    @Test
     @DisplayName("render: renders ORDERING question correctly")
     void render_orderingQuestion_rendersCorrectly() throws Exception {
         // Given

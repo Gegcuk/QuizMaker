@@ -253,7 +253,8 @@ class PdfPrintExportRendererTest {
              PDDocument doc = PDDocument.load(is)) {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(doc);
-            assertThat(text).contains("Quiz Export");
+            // Cover now shows quiz title for single quiz
+            assertThat(text).contains("Test Quiz");
             assertThat(text).contains("Generated:");
         }
     }
@@ -678,6 +679,104 @@ class PdfPrintExportRendererTest {
             assertThat(text).contains("1.");
             assertThat(text).contains("2.");
             assertThat(text).contains("3.");
+        }
+    }
+
+    @Test
+    @DisplayName("render: uses content.text for FILL_GAP question display (Issue #165)")
+    void render_fillGapQuestion_usesContentText() throws Exception {
+        // Given - FILL_GAP question with actual prompt in content.text
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("text", "One of the main functions of NAT is to allow devices on the ___ network to access the Internet.");
+        com.fasterxml.jackson.databind.node.ArrayNode gaps = objectMapper.createArrayNode();
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "private"));
+        content.set("gaps", gaps);
+        
+        QuestionExportDto question = new QuestionExportDto(
+                UUID.randomUUID(), QuestionType.FILL_GAP, Difficulty.MEDIUM,
+                "Complete the sentence with the missing word(s)", // Generic text
+                content, null, null, null
+        );
+        QuizExportDto quiz = createQuizWithQuestions(List.of(question));
+        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then
+        try (InputStream is = file.contentSupplier().get();
+             PDDocument doc = PDDocument.load(is)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(doc);
+            // Should display the actual prompt with underscores
+            assertThat(text).contains("One of the main functions of NAT");
+            assertThat(text).contains("___ network");
+            // Should NOT display the generic question text
+            assertThat(text).doesNotContain("Complete the sentence with the missing word(s)");
+        }
+    }
+
+    @Test
+    @DisplayName("render: falls back to questionText when content.text is missing for FILL_GAP")
+    void render_fillGapQuestion_fallsBackToQuestionText() throws Exception {
+        // Given - FILL_GAP question without content.text
+        ObjectNode content = objectMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ArrayNode gaps = objectMapper.createArrayNode();
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "answer"));
+        content.set("gaps", gaps);
+        // Note: no "text" field in content
+        
+        QuestionExportDto question = new QuestionExportDto(
+                UUID.randomUUID(), QuestionType.FILL_GAP, Difficulty.EASY,
+                "Complete the sentence",
+                content, null, null, null
+        );
+        QuizExportDto quiz = createQuizWithQuestions(List.of(question));
+        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then - should fall back to questionText
+        try (InputStream is = file.contentSupplier().get();
+             PDDocument doc = PDDocument.load(is)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(doc);
+            assertThat(text).contains("Complete the sentence");
+        }
+    }
+
+    @Test
+    @DisplayName("render: handles multiple gaps in FILL_GAP questions")
+    void render_fillGapQuestion_multipleGaps() throws Exception {
+        // Given - FILL_GAP question with multiple gaps
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("text", "The ___ protocol operates at the ___ layer of the OSI model.");
+        com.fasterxml.jackson.databind.node.ArrayNode gaps = objectMapper.createArrayNode();
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "TCP"));
+        gaps.add(objectMapper.createObjectNode().put("id", 2).put("answer", "transport"));
+        content.set("gaps", gaps);
+        
+        QuestionExportDto question = new QuestionExportDto(
+                UUID.randomUUID(), QuestionType.FILL_GAP, Difficulty.HARD,
+                "Fill in the blanks",
+                content, null, null, null
+        );
+        QuizExportDto quiz = createQuizWithQuestions(List.of(question));
+        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then
+        try (InputStream is = file.contentSupplier().get();
+             PDDocument doc = PDDocument.load(is)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(doc);
+            // Should display the actual prompt with both underscores
+            assertThat(text).contains("The ___ protocol");
+            assertThat(text).contains("___ layer");
+            assertThat(text).contains("OSI model");
         }
     }
 
