@@ -91,7 +91,7 @@ class JsonExportRendererTest {
     void render_producesJsonArrayWithoutPrintOptions() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "quizzes_test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "quizzes_test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -111,7 +111,7 @@ class JsonExportRendererTest {
     void render_usesFilenamePrefixCorrectly() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "quizzes_me_202410141200");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "quizzes_me_202410141200");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -125,7 +125,7 @@ class JsonExportRendererTest {
     void render_setsContentTypeToApplicationJson() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -139,7 +139,7 @@ class JsonExportRendererTest {
     void render_setsContentLengthCorrectly() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -155,7 +155,7 @@ class JsonExportRendererTest {
     void render_outputIsValidJson() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -174,7 +174,7 @@ class JsonExportRendererTest {
     void render_includesAllQuizFields() throws Exception {
         // Given
         QuizExportDto quiz = createFullQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -200,7 +200,7 @@ class JsonExportRendererTest {
     @DisplayName("render: handles empty quiz list")
     void render_emptyQuizList_producesEmptyArray() throws Exception {
         // Given
-        ExportPayload payload = new ExportPayload(new ArrayList<>(), PrintOptions.defaults(), "empty");
+        ExportPayload payload = ExportPayload.of(new ArrayList<>(), PrintOptions.defaults(), "empty");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -219,7 +219,7 @@ class JsonExportRendererTest {
     void render_singleQuiz_producesArrayWithOneElement() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "single");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "single");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -240,7 +240,7 @@ class JsonExportRendererTest {
         QuizExportDto quiz1 = createMinimalQuiz();
         QuizExportDto quiz2 = createMinimalQuiz();
         QuizExportDto quiz3 = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz1, quiz2, quiz3), PrintOptions.defaults(), "multiple");
+        ExportPayload payload = ExportPayload.of(List.of(quiz1, quiz2, quiz3), PrintOptions.defaults(), "multiple");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -259,7 +259,7 @@ class JsonExportRendererTest {
     void render_usesPrettyPrinting() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "pretty");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "pretty");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -299,7 +299,7 @@ class JsonExportRendererTest {
                 List.of(question), Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -337,7 +337,7 @@ class JsonExportRendererTest {
                 Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -367,7 +367,7 @@ class JsonExportRendererTest {
                 new ArrayList<>(), created, updated
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -405,7 +405,7 @@ class JsonExportRendererTest {
                 Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -438,7 +438,7 @@ class JsonExportRendererTest {
                 Instant.now()
         );
 
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "unicode");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "unicode");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -459,7 +459,7 @@ class JsonExportRendererTest {
     void render_filenameUsesPayloadPrefix() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -475,7 +475,7 @@ class JsonExportRendererTest {
     void render_filenameWithFilters() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(
+        ExportPayload payload = ExportPayload.of(
                 List.of(quiz), 
                 PrintOptions.defaults(), 
                 "quizzes_me_202410141530_cat2_tag3_medium_search"
@@ -498,7 +498,7 @@ class JsonExportRendererTest {
     void render_sameTwice_producesSameOutput() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "deterministic");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "deterministic");
 
         // When
         ExportFile file1 = renderer.render(payload);
@@ -526,9 +526,9 @@ class JsonExportRendererTest {
         QuizExportDto quiz = createMinimalQuiz();
         
         // Try different print options
-        ExportPayload payloadDefaults = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test1");
-        ExportPayload payloadCompact = new ExportPayload(List.of(quiz), PrintOptions.compact(), "test2");
-        ExportPayload payloadTeacher = new ExportPayload(List.of(quiz), PrintOptions.teacherEdition(), "test3");
+        ExportPayload payloadDefaults = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test1");
+        ExportPayload payloadCompact = ExportPayload.of(List.of(quiz), PrintOptions.compact(), "test2");
+        ExportPayload payloadTeacher = ExportPayload.of(List.of(quiz), PrintOptions.teacherEdition(), "test3");
 
         // When
         ExportFile file1 = renderer.render(payloadDefaults);
@@ -573,7 +573,7 @@ class JsonExportRendererTest {
                 List.of(q1, q2), Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -604,7 +604,7 @@ class JsonExportRendererTest {
                 Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -643,7 +643,7 @@ class JsonExportRendererTest {
                 Instant.now()
         );
 
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "long");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "long");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -663,7 +663,7 @@ class JsonExportRendererTest {
     void render_contentSupplierReusable() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "reusable");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "reusable");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -688,7 +688,7 @@ class JsonExportRendererTest {
     void render_contentLengthMatchesActualBytes() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "length");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "length");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -707,7 +707,7 @@ class JsonExportRendererTest {
     void render_outputCanBeParsedBack() throws Exception {
         // Given
         QuizExportDto originalQuiz = createMinimalQuiz(); // Use minimal to avoid timestamp comparison issues
-        ExportPayload payload = new ExportPayload(List.of(originalQuiz), PrintOptions.defaults(), "roundtrip");
+        ExportPayload payload = ExportPayload.of(List.of(originalQuiz), PrintOptions.defaults(), "roundtrip");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -735,7 +735,7 @@ class JsonExportRendererTest {
     void render_enumsSerializedAsStrings() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "enums");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "enums");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -764,7 +764,7 @@ class JsonExportRendererTest {
                 new ArrayList<>(), Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "uuids");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "uuids");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -791,7 +791,7 @@ class JsonExportRendererTest {
                 Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "tags");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "tags");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -818,7 +818,7 @@ class JsonExportRendererTest {
                 Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "empty-tags");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "empty-tags");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -845,7 +845,7 @@ class JsonExportRendererTest {
             quizzes.add(createMinimalQuiz());
         }
         
-        ExportPayload payload = new ExportPayload(quizzes, PrintOptions.defaults(), "large");
+        ExportPayload payload = ExportPayload.of(quizzes, PrintOptions.defaults(), "large");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -873,7 +873,7 @@ class JsonExportRendererTest {
                 questions, Instant.now(), Instant.now()
         );
         
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "many-q");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "many-q");
 
         // When
         ExportFile file = renderer.render(payload);

@@ -43,6 +43,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     private static final float SMALL_FONT_SIZE = 9f;
     private static final float LINE_SPACING = 1.2f;
     private static final float QUESTION_SPACING = 20f;
+    private static final float FOOTER_OFFSET_Y = 5f; // Offset below bottom margin for footer
 
     @Override
     public boolean supports(ExportFormat format) {
@@ -88,8 +89,12 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 renderAnswerKey(context, questionsInRenderOrder, payload);
             }
 
-            // Ensure the last page's content stream is closed before saving
+            // Ensure the last page's content stream is closed before rendering footers
             context.close();
+            
+            // Add footer to all pages (version code + page numbers)
+            addFootersToAllPages(document, payload);
+            
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             document.save(baos);
             byte[] bytes = baos.toByteArray();
@@ -703,6 +708,47 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             return question.content().get("text").asText();
         }
         return question.questionText();
+    }
+
+    /**
+     * Add footer with version code and page numbers to all pages in the document.
+     * This is a second pass after all content has been rendered.
+     */
+    private void addFootersToAllPages(PDDocument document, ExportPayload payload) throws IOException {
+        int totalPages = document.getNumberOfPages();
+        
+        for (int i = 0; i < totalPages; i++) {
+            PDPage page = document.getPage(i);
+            
+            try (PDPageContentStream contentStream = new PDPageContentStream(
+                    document, page, 
+                    PDPageContentStream.AppendMode.APPEND, 
+                    true,  // compress
+                    true   // resetContext
+            )) {
+                // Footer position at bottom of page
+                float footerY = MARGIN - FOOTER_OFFSET_Y;
+                
+                // Left side: Version code
+                String versionText = "Version: " + payload.versionCode();
+                contentStream.beginText();
+                contentStream.setFont(PDType1Font.HELVETICA, SMALL_FONT_SIZE);
+                contentStream.newLineAtOffset(MARGIN, footerY);
+                contentStream.showText(versionText);
+                contentStream.endText();
+                
+                // Right side: Page number
+                String pageText = "Page " + (i + 1) + " of " + totalPages;
+                float pageTextWidth = PDType1Font.HELVETICA.getStringWidth(pageText) / 1000 * SMALL_FONT_SIZE;
+                float pageTextX = PAGE_WIDTH - MARGIN - pageTextWidth;
+                
+                contentStream.beginText();
+                contentStream.setFont(PDType1Font.HELVETICA, SMALL_FONT_SIZE);
+                contentStream.newLineAtOffset(pageTextX, footerY);
+                contentStream.showText(pageText);
+                contentStream.endText();
+            }
+        }
     }
 
     private String formatQuestionType(String type) {

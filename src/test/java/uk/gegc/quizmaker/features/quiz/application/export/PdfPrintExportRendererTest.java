@@ -83,7 +83,7 @@ class PdfPrintExportRendererTest {
     void render_setsContentTypeToPdf() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -97,7 +97,7 @@ class PdfPrintExportRendererTest {
     void render_usesFilenamePrefixWithPdfExtension() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -111,7 +111,7 @@ class PdfPrintExportRendererTest {
     void render_setsPositiveContentLength() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -125,7 +125,7 @@ class PdfPrintExportRendererTest {
     void render_contentLengthMatchesActualBytes() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -142,7 +142,7 @@ class PdfPrintExportRendererTest {
     void render_producesPdfWithCorrectHeader() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -160,7 +160,7 @@ class PdfPrintExportRendererTest {
     void render_producesValidParseablePdf() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -181,7 +181,7 @@ class PdfPrintExportRendererTest {
                 Visibility.PUBLIC, Difficulty.EASY, 10, List.of(), "General",
                 UUID.randomUUID(), new ArrayList<>(), Instant.now(), Instant.now()
         );
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -201,7 +201,7 @@ class PdfPrintExportRendererTest {
         // Given
         QuestionExportDto question = createOpenQuestion("Explain the concept of polymorphism in Java");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -221,7 +221,7 @@ class PdfPrintExportRendererTest {
         // Given
         QuestionExportDto question = createOpenQuestion("What is inheritance?");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -243,7 +243,7 @@ class PdfPrintExportRendererTest {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
         PrintOptions options = new PrintOptions(true, false, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -265,7 +265,7 @@ class PdfPrintExportRendererTest {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
         PrintOptions options = new PrintOptions(false, false, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -275,7 +275,7 @@ class PdfPrintExportRendererTest {
         byte[] bytesWithoutCover;
         
         PrintOptions optionsWithCover = new PrintOptions(true, false, false, false, false, false);
-        ExportPayload payloadWithCover = new ExportPayload(List.of(quiz), optionsWithCover, "test");
+        ExportPayload payloadWithCover = ExportPayload.of(List.of(quiz), optionsWithCover, "test");
         ExportFile fileWithCover = renderer.render(payloadWithCover);
         
         try (InputStream is = file.contentSupplier().get()) {
@@ -301,7 +301,7 @@ class PdfPrintExportRendererTest {
                 Instant.now(), Instant.now()
         );
         PrintOptions options = new PrintOptions(false, true, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -330,7 +330,7 @@ class PdfPrintExportRendererTest {
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         PrintOptions options = new PrintOptions(false, false, false, true, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -356,7 +356,7 @@ class PdfPrintExportRendererTest {
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         PrintOptions options = new PrintOptions(false, false, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -384,7 +384,7 @@ class PdfPrintExportRendererTest {
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         PrintOptions options = new PrintOptions(false, false, false, false, true, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -410,7 +410,7 @@ class PdfPrintExportRendererTest {
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         PrintOptions options = new PrintOptions(false, false, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -434,7 +434,7 @@ class PdfPrintExportRendererTest {
         QuestionExportDto question = createOpenQuestion("Explain encapsulation");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         PrintOptions options = new PrintOptions(false, false, true, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -459,7 +459,7 @@ class PdfPrintExportRendererTest {
         
         QuizExportDto quiz = createQuizWithQuestions(List.of(q1, q2, q3));
         PrintOptions options = new PrintOptions(false, false, false, false, false, true);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -483,7 +483,7 @@ class PdfPrintExportRendererTest {
         
         QuizExportDto quiz = createQuizWithQuestions(List.of(q1, q2, q3));
         PrintOptions options = new PrintOptions(false, false, false, false, false, false);
-        ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -506,7 +506,7 @@ class PdfPrintExportRendererTest {
         // Given
         QuestionExportDto question = createOpenQuestion("Test question");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -529,8 +529,8 @@ class PdfPrintExportRendererTest {
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
         
-        ExportPayload payloadCompact = new ExportPayload(List.of(quiz), PrintOptions.compact(), "test1");
-        ExportPayload payloadTeacher = new ExportPayload(List.of(quiz), PrintOptions.teacherEdition(), "test2");
+        ExportPayload payloadCompact = ExportPayload.of(List.of(quiz), PrintOptions.compact(), "test1");
+        ExportPayload payloadTeacher = ExportPayload.of(List.of(quiz), PrintOptions.teacherEdition(), "test2");
 
         // When
         ExportFile fileCompact = renderer.render(payloadCompact);
@@ -546,7 +546,7 @@ class PdfPrintExportRendererTest {
     @DisplayName("render: handles empty quiz list")
     void render_emptyQuizList_succeeds() {
         // Given
-        ExportPayload payload = new ExportPayload(new ArrayList<>(), PrintOptions.defaults(), "empty");
+        ExportPayload payload = ExportPayload.of(new ArrayList<>(), PrintOptions.defaults(), "empty");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -558,7 +558,7 @@ class PdfPrintExportRendererTest {
     void render_quizWithNoQuestions_succeeds() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -574,7 +574,7 @@ class PdfPrintExportRendererTest {
                 createMinimalQuiz(),
                 createMinimalQuiz()
         );
-        ExportPayload payload = new ExportPayload(quizzes, PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(quizzes, PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -590,7 +590,7 @@ class PdfPrintExportRendererTest {
             questions.add(createOpenQuestion("Question " + i));
         }
         QuizExportDto quiz = createQuizWithQuestions(questions);
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -606,7 +606,7 @@ class PdfPrintExportRendererTest {
                 Difficulty.EASY, 10, null, null, null,
                 new ArrayList<>(), Instant.now(), Instant.now()
         );
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -618,7 +618,7 @@ class PdfPrintExportRendererTest {
     void render_contentSupplierIsReusable() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -642,7 +642,7 @@ class PdfPrintExportRendererTest {
     void render_filenameIncludesFilterContext() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(
+        ExportPayload payload = ExportPayload.of(
                 List.of(quiz),
                 PrintOptions.defaults(),
                 "quizzes_me_202410141530_cat2_tag3_medium"
@@ -666,7 +666,7 @@ class PdfPrintExportRendererTest {
         QuestionExportDto q2 = createOpenQuestion("Second question");
         QuestionExportDto q3 = createOpenQuestion("Third question");
         QuizExportDto quiz = createQuizWithQuestions(List.of(q1, q2, q3));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -698,7 +698,7 @@ class PdfPrintExportRendererTest {
                 content, null, null, null
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -732,7 +732,7 @@ class PdfPrintExportRendererTest {
                 content, null, null, null
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -743,6 +743,69 @@ class PdfPrintExportRendererTest {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(doc);
             assertThat(text).contains("Complete the sentence");
+        }
+    }
+
+    @Test
+    @DisplayName("render: includes version code in footer on all pages")
+    void render_includesVersionCodeInFooter() throws Exception {
+        // Given
+        QuestionExportDto q1 = createOpenQuestion("Q1");
+        QuestionExportDto q2 = createOpenQuestion("Q2");
+        QuizExportDto quiz = createQuizWithQuestions(List.of(q1, q2));
+        PrintOptions options = new PrintOptions(false, false, true, false, false, false);
+        
+        UUID exportId = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        String versionCode = "TEST01";
+        ExportPayload payload = new ExportPayload(
+                List.of(quiz), options, "test",
+                exportId, versionCode, 12345L
+        );
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then
+        try (InputStream is = file.contentSupplier().get();
+             PDDocument doc = PDDocument.load(is)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(doc);
+            // Footer should contain version code on all pages
+            assertThat(text).contains("Version: TEST01");
+            assertThat(text).contains("Page 1 of");
+        }
+    }
+
+    @Test
+    @DisplayName("render: footer appears on multiple pages")
+    void render_footerOnMultiplePages() throws Exception {
+        // Given - many questions to span multiple pages
+        List<QuestionExportDto> questions = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            questions.add(createOpenQuestion("Question " + i));
+        }
+        QuizExportDto quiz = createQuizWithQuestions(questions);
+        PrintOptions options = new PrintOptions(false, false, true, false, false, false);
+        
+        UUID exportId = UUID.randomUUID();
+        String versionCode = "MULTI1";
+        ExportPayload payload = new ExportPayload(
+                List.of(quiz), options, "test",
+                exportId, versionCode, 67890L
+        );
+
+        // When
+        ExportFile file = renderer.render(payload);
+
+        // Then
+        try (InputStream is = file.contentSupplier().get();
+             PDDocument doc = PDDocument.load(is)) {
+            assertThat(doc.getNumberOfPages()).isGreaterThan(1);
+            
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(doc);
+            // Version code should appear on every page
+            assertThat(text).contains("Version: MULTI1");
         }
     }
 
@@ -763,7 +826,7 @@ class PdfPrintExportRendererTest {
                 content, null, null, null
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);

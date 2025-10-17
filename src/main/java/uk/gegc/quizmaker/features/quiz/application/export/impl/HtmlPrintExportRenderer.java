@@ -47,7 +47,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>Quizzes Export</title>");
         sb.append("<style>");
-        sb.append("body{font-family:sans-serif;margin:24px;line-height:1.6;} ");
+        sb.append("body{font-family:sans-serif;margin:24px;line-height:1.6;padding-bottom:40px;} ");
         sb.append("h1{margin-bottom:0;} ");
         sb.append("h2{margin-top:32px;border-bottom:2px solid #333;padding-bottom:8px;} ");
         sb.append("h3{margin-top:24px;color:#555;} ");
@@ -72,6 +72,10 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".matching-col h4{margin:0 0 8px 0;color:#374151;font-size:14px;font-weight:600;} ");
         sb.append(".matching-col ul{list-style:none;padding-left:0;margin:0;} ");
         sb.append(".matching-col li{padding:2px 0;} ");
+        sb.append(".footer{display:none;} ");
+        sb.append("@media print{.footer{display:flex;position:fixed;bottom:0;left:0;right:0;padding:8px 24px;font-size:10px;color:#666;border-top:1px solid #ddd;background:white;justify-content:space-between;}} ");
+        sb.append("@media print{.footer .page-number:after{content:counter(page);}} ");
+        sb.append("@media print{.footer .total-pages:after{content:counter(pages);}} ");
         sb.append("</style>");
         sb.append("</head><body>");
 
@@ -124,6 +128,12 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             sb.append("</div>");
         }
         sb.append("</section>");
+        
+        // Footer with version code and page numbers (appears on every printed page)
+        sb.append("<div class=\"footer\">");
+        sb.append("<span>Version: ").append(escape(payload.versionCode())).append("</span>");
+        sb.append("<span>Page <span class=\"page-number\"></span> of <span class=\"total-pages\"></span></span>");
+        sb.append("</div>");
 
         sb.append("</body></html>");
         return sb.toString();

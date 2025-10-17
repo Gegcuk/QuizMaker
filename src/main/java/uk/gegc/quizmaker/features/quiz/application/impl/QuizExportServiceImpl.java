@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizExportSpecifications;
 import uk.gegc.quizmaker.features.quiz.domain.repository.export.QuizExportRepository;
+import uk.gegc.quizmaker.features.quiz.domain.util.VersionCodeGenerator;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizExportAssembler;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
@@ -28,6 +29,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -45,8 +48,15 @@ public class QuizExportServiceImpl implements QuizExportService {
     public ExportFile export(QuizExportFilter filter, ExportFormat format, PrintOptions printOptions, Authentication authentication) {
         Instant startTime = clock.instant();
         enforceScopePermissions(filter, authentication);
+        
+        // Generate export metadata for versioning and reproducibility
+        UUID exportId = UUID.randomUUID();
+        String versionCode = VersionCodeGenerator.generateVersionCode(exportId);
+        long shuffleSeed = exportId.getMostSignificantBits() ^ exportId.getLeastSignificantBits();
+        Random rng = new Random(shuffleSeed);
+        
         List<Quiz> quizzes = fetchQuizzes(filter);
-        List<QuizExportDto> exportDtos = assembler.toExportDtos(quizzes);
+        List<QuizExportDto> exportDtos = assembler.toExportDtos(quizzes, rng);
 
         // Deterministic ordering by createdAt then id for stable outputs
         exportDtos = exportDtos.stream()
@@ -56,14 +66,21 @@ public class QuizExportServiceImpl implements QuizExportService {
                 .toList();
 
         String filenamePrefix = buildFilenamePrefix(filter, clock);
-        ExportPayload payload = new ExportPayload(exportDtos, printOptions != null ? printOptions : uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions.defaults(), filenamePrefix);
+        ExportPayload payload = new ExportPayload(
+                exportDtos, 
+                printOptions != null ? printOptions : uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions.defaults(), 
+                filenamePrefix,
+                exportId,
+                versionCode,
+                shuffleSeed
+        );
         ExportFile result = resolveRenderer(format).render(payload);
         
         // Observability logging
         long durationMs = java.time.Duration.between(startTime, clock.instant()).toMillis();
         String user = authentication != null ? authentication.getName() : "anonymous";
-        log.info("Quiz export completed: user={}, scope={}, format={}, quizCount={}, durationMs={}", 
-                 user, filter != null ? filter.scope() : "public", format, exportDtos.size(), durationMs);
+        log.info("Quiz export completed: user={}, scope={}, format={}, quizCount={}, exportId={}, versionCode={}, durationMs={}", 
+                 user, filter != null ? filter.scope() : "public", format, exportDtos.size(), exportId, versionCode, durationMs);
         
         return result;
     }

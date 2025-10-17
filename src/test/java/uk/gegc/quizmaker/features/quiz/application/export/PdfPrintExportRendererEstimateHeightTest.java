@@ -85,7 +85,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -126,7 +126,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -157,7 +157,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -188,7 +188,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -227,7 +227,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -255,7 +255,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -295,7 +295,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -323,7 +323,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -377,7 +377,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -426,7 +426,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -454,7 +454,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -497,7 +497,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -524,7 +524,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -563,7 +563,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -607,7 +607,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
             PrintOptions options = new PrintOptions(false, false, false, false, false, true); // includeAnswers
-            ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -644,7 +644,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
             PrintOptions options = new PrintOptions(false, false, false, false, false, true);
-            ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -680,7 +680,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
             PrintOptions options = new PrintOptions(false, false, false, false, false, true);
-            ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -718,7 +718,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
             PrintOptions options = new PrintOptions(false, false, false, false, false, true);
-            ExportPayload payload = new ExportPayload(List.of(quiz), options, "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), options, "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -746,7 +746,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -770,7 +770,7 @@ class PdfPrintExportRendererEstimateHeightTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
