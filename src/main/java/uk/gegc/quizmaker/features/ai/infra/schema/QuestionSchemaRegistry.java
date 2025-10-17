@@ -258,7 +258,7 @@ public class QuestionSchemaRegistry {
         if (multipleCorrect) {
             options.put("minItems", 4);
             options.put("maxItems", 6);
-            options.put("description", "Options for MCQ_MULTI (4-6 options, at least 2 correct)");
+            options.put("description", "Options for MCQ_MULTI (4-6 options, at least 1 correct)");
         } else {
             options.put("minItems", 4);
             options.put("maxItems", 4);

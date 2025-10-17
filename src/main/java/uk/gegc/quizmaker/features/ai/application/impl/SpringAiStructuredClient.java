@@ -22,13 +22,6 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -221,9 +214,6 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                             : "n/a");
         }
 
-        // Log the request for debugging
-        logAiRequest(systemPrompt, userPrompt, request.getQuestionType(), chatOptions);
-
         ChatResponse response = chatClient.prompt(prompt)
                 .call()
                 .chatResponse();
@@ -243,9 +233,6 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         if (rawResponse == null || rawResponse.trim().isEmpty()) {
             throw new AiServiceException("Empty response received from AI service");
         }
-
-        // Log the response for debugging
-        logAiResponse(rawResponse, request.getQuestionType());
 
         if (log.isDebugEnabled()) {
             String preview = rawResponse.length() > 1000 ? rawResponse.substring(0, 1000) + "..." : rawResponse;
@@ -545,87 +532,6 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new AiServiceException("Interrupted while waiting for rate limit", ie);
-        }
-    }
-    
-    /**
-     * Log AI request to file for debugging
-     */
-    private void logAiRequest(String systemPrompt, String userPrompt, QuestionType questionType, 
-                               OpenAiChatOptions chatOptions) {
-        try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            String filename = String.format("ai-quiz-request_%s_%s.txt", timestamp, questionType.name().toLowerCase());
-            Path logPath = Paths.get("logs", "ai-requests", filename);
-            
-            // Create directories if they don't exist
-            Files.createDirectories(logPath.getParent());
-            
-            StringBuilder content = new StringBuilder();
-            content.append("=== AI QUIZ GENERATION REQUEST ===\n");
-            content.append("Timestamp: ").append(LocalDateTime.now()).append("\n");
-            content.append("Question Type: ").append(questionType).append("\n");
-            
-            if (chatOptions != null) {
-                if (chatOptions.getModel() != null) {
-                    content.append("Model: ").append(chatOptions.getModel()).append("\n");
-                }
-                if (chatOptions.getResponseFormat() != null) {
-                    content.append("Response Format Type: ").append(chatOptions.getResponseFormat().getType()).append("\n");
-                    if (chatOptions.getResponseFormat().getJsonSchema() != null) {
-                        content.append("Schema Name: ").append(chatOptions.getResponseFormat().getJsonSchema().getName()).append("\n");
-                        content.append("Strict Mode: ").append(chatOptions.getResponseFormat().getJsonSchema().getStrict()).append("\n");
-                    }
-                }
-            }
-            
-            content.append("\n=== SYSTEM PROMPT ===\n");
-            content.append(systemPrompt);
-            content.append("\n\n=== USER PROMPT ===\n");
-            content.append(userPrompt);
-            
-            if (chatOptions != null && chatOptions.getResponseFormat() != null 
-                    && chatOptions.getResponseFormat().getJsonSchema() != null) {
-                content.append("\n\n=== JSON SCHEMA ===\n");
-                content.append(chatOptions.getResponseFormat().getJsonSchema().getSchema());
-            }
-            
-            content.append("\n\n=== END REQUEST ===\n");
-            
-            Files.write(logPath, content.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            log.debug("AI request logged to: {}", logPath);
-            
-        } catch (IOException e) {
-            log.warn("Failed to log AI request: {}", e.getMessage());
-        }
-    }
-    
-    /**
-     * Log AI response to file for debugging
-     */
-    private void logAiResponse(String response, QuestionType questionType) {
-        try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            String filename = String.format("ai-quiz-response_%s_%s.txt", timestamp, questionType.name().toLowerCase());
-            Path logPath = Paths.get("logs", "ai-responses", filename);
-            
-            // Create directories if they don't exist
-            Files.createDirectories(logPath.getParent());
-            
-            StringBuilder content = new StringBuilder();
-            content.append("=== AI QUIZ GENERATION RESPONSE ===\n");
-            content.append("Timestamp: ").append(LocalDateTime.now()).append("\n");
-            content.append("Question Type: ").append(questionType).append("\n");
-            content.append("Response Length: ").append(response.length()).append(" characters\n");
-            content.append("\n=== RESPONSE ===\n");
-            content.append(response);
-            content.append("\n\n=== END RESPONSE ===\n");
-            
-            Files.write(logPath, content.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            log.debug("AI response logged to: {}", logPath);
-            
-        } catch (IOException e) {
-            log.warn("Failed to log AI response: {}", e.getMessage());
         }
     }
 }
