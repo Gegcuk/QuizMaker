@@ -86,7 +86,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
                     
                     %s
                     
-                    Please provide the questions in JSON format.
+                    Respond with JSON only (no markdown fences, no commentary) and match the platform schema exactly.
                     """, questionCount, questionType, difficulty, language, chunkContent);
         }
     }

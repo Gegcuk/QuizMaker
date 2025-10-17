@@ -25,6 +25,9 @@ import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.ResponseFormat;
+
 /**
  * Spring AI implementation of StructuredAiClient.
  * Wraps ChatClient with JSON schema validation for structured question generation.
@@ -156,7 +159,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         // Anthropic: claude-3-5-sonnet, claude-3-opus, claude-3-sonnet
         // Note: This is a best-effort check. In Phase 3, read from configuration.
         log.info("Structured output support check - Spring AI 1.0.0-M6+ with ChatClient available");
-        log.info("Supported models: OpenAI (gpt-4o*, gpt-4-turbo, gpt-4.1*), Anthropic (claude-3*)");
+        log.info("Supported models: OpenAI (gpt-4o*, gpt-4.1*, gpt-4o-mini), Anthropic (claude-3*)");
         
         // For now, return true if ChatClient exists
         // Phase 3 TODO: Read spring.ai.openai.chat.options.model from config and validate
@@ -179,18 +182,39 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         // Get JSON schema for this question type
         JsonNode schema = schemaRegistry.getSchemaForQuestionType(request.getQuestionType());
         
-        // Build system message that includes schema instruction
-        String systemPrompt = buildSystemPromptWithSchema(schema);
-        
-        // Call LLM with structured output request
-        log.debug("Sending structured generation request for {} {} questions",
-                request.getQuestionCount(), request.getQuestionType());
-        
-        Prompt prompt = new Prompt(List.of(
-                new SystemMessage(systemPrompt),
-                new UserMessage(userPrompt)
-        ));
-        
+        // Build system message with structured output instructions (schema enforced server-side)
+       
+        String systemPrompt = buildSystemPrompt();
+
+        if (log.isDebugEnabled()) {
+            log.debug("Sending structured generation request for {} {} questions (schema enforced)",
+                    request.getQuestionCount(), request.getQuestionType());
+            log.debug("Schema snapshot for {}: {}", request.getQuestionType(),
+                    schema.toString().length() > 500
+                            ? schema.toString().substring(0, 500) + "..."
+                            : schema.toString());
+        }
+
+        OpenAiChatOptions chatOptions = buildChatOptions(request.getQuestionType(), schema);
+
+        Prompt prompt = chatOptions != null
+                ? new Prompt(List.of(
+                        new SystemMessage(systemPrompt),
+                        new UserMessage(userPrompt)
+                ), chatOptions)
+                : new Prompt(List.of(
+                        new SystemMessage(systemPrompt),
+                        new UserMessage(userPrompt)
+                ));
+
+        if (log.isDebugEnabled() && chatOptions != null && chatOptions.getResponseFormat() != null) {
+            log.debug("Using response format: {} (schema name: {})",
+                    chatOptions.getResponseFormat().getType(),
+                    chatOptions.getResponseFormat().getJsonSchema() != null
+                            ? chatOptions.getResponseFormat().getJsonSchema().getName()
+                            : "n/a");
+        }
+
         ChatResponse response = chatClient.prompt(prompt)
                 .call()
                 .chatResponse();
@@ -200,9 +224,20 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         }
         
         String rawResponse = response.getResult().getOutput().getText();
-        
+
+        if (log.isDebugEnabled() && response.getMetadata() != null) {
+            log.debug("Structured response metadata: model={}, usage={}",
+                    response.getMetadata().getModel(),
+                    response.getMetadata().getUsage());
+        }
+
         if (rawResponse == null || rawResponse.trim().isEmpty()) {
             throw new AiServiceException("Empty response received from AI service");
+        }
+
+        if (log.isDebugEnabled()) {
+            String preview = rawResponse.length() > 1000 ? rawResponse.substring(0, 1000) + "..." : rawResponse;
+            log.debug("Structured raw response preview: {}", preview);
         }
         
         // Parse and validate response
@@ -227,18 +262,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     /**
      * Build system prompt that instructs the model to follow JSON schema
      */
-    private String buildSystemPromptWithSchema(JsonNode schema) {
+    private String buildSystemPrompt() {
         StringBuilder prompt = new StringBuilder();
         prompt.append("You are an expert question generator for educational content.\n\n");
-        prompt.append("CRITICAL: You must respond with valid JSON that exactly matches this schema:\n\n");
-        
-        try {
-            prompt.append(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(schema));
-        } catch (JsonProcessingException e) {
-            log.error("Failed to serialize schema", e);
-            prompt.append(schema.toString());
-        }
-        
+        prompt.append("Structured outputs with JSON schema validation are enforced for this task.\n");
+        prompt.append("Follow the platform schema for the requested question type.\n\n");
         prompt.append("\n\nIMPORTANT RULES:\n");
         prompt.append("1. Return ONLY valid JSON - no markdown, no explanation, no preamble\n");
         prompt.append("2. Follow the schema exactly - all required fields must be present\n");
@@ -247,6 +275,37 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         prompt.append("5. Generate high-quality, educational questions based on the provided content\n");
         
         return prompt.toString();
+    }
+
+    private OpenAiChatOptions buildChatOptions(QuestionType questionType, JsonNode schema) {
+        try {
+            String schemaJson = objectMapper.writeValueAsString(schema);
+            ResponseFormat.JsonSchema jsonSchema = ResponseFormat.JsonSchema.builder()
+                    .name(questionType.name().toLowerCase() + "_schema")
+                    .schema(schemaJson)
+                    .strict(true)
+                    .build();
+
+            ResponseFormat responseFormat = ResponseFormat.builder()
+                    .type(ResponseFormat.Type.JSON_SCHEMA)
+                    .jsonSchema(jsonSchema)
+                    .build();
+
+            OpenAiChatOptions options = OpenAiChatOptions.builder()
+                    .responseFormat(responseFormat)
+                    .build();
+
+            if (log.isDebugEnabled()) {
+                log.debug("Configured structured response format for {} with schema name '{}'",
+                        questionType, jsonSchema.getName());
+            }
+
+            return options;
+
+        } catch (Exception e) {
+            log.error("Failed to build JSON schema response format for {}", questionType, e);
+            return null;
+        }
     }
     
     /**
@@ -498,4 +557,3 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         }
     }
 }
-
