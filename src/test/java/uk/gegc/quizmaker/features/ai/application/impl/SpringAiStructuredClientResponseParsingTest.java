@@ -46,7 +46,10 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Is the sky blue?",
                   "type": "TRUE_FALSE",
                   "difficulty": "EASY",
-                  "content": {"answer": true}
+                  "content": {"answer": true},
+                  "hint": "Think about the color of the sky during the day",
+                  "explanation": "The sky appears blue due to Rayleigh scattering",
+                  "confidence": 0.95
                 }
               ]
             }
@@ -76,19 +79,28 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Question 1",
                   "type": "TRUE_FALSE",
                   "difficulty": "EASY",
-                  "content": {"answer": true}
+                  "content": {"answer": true},
+                  "hint": "Hint 1",
+                  "explanation": "Explanation 1",
+                  "confidence": 0.9
                 },
                 {
                   "questionText": "Question 2",
                   "type": "TRUE_FALSE",
                   "difficulty": "MEDIUM",
-                  "content": {"answer": false}
+                  "content": {"answer": false},
+                  "hint": "Hint 2",
+                  "explanation": "Explanation 2",
+                  "confidence": 0.85
                 },
                 {
                   "questionText": "Question 3",
                   "type": "TRUE_FALSE",
                   "difficulty": "HARD",
-                  "content": {"answer": true}
+                  "content": {"answer": true},
+                  "hint": "Hint 3",
+                  "explanation": "Explanation 3",
+                  "confidence": 0.92
                 }
               ]
             }
@@ -118,7 +130,10 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Explain something",
                   "type": "OPEN",
                   "difficulty": "MEDIUM",
-                  "content": {"answer": "A detailed explanation"}
+                  "content": {"answer": "A detailed explanation"},
+                  "hint": "Think carefully",
+                  "explanation": "This explains the concept",
+                  "confidence": 0.88
                 }
               ]
             }
@@ -151,7 +166,10 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Valid question 1",
                   "type": "TRUE_FALSE",
                   "difficulty": "EASY",
-                  "content": {"answer": true}
+                  "content": {"answer": true},
+                  "hint": "Hint 1",
+                  "explanation": "Explanation 1",
+                  "confidence": 0.9
                 },
                 {
                   "questionText": "Invalid - missing content",
@@ -162,7 +180,10 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Valid question 2",
                   "type": "TRUE_FALSE",
                   "difficulty": "MEDIUM",
-                  "content": {"answer": false}
+                  "content": {"answer": false},
+                  "hint": "Hint 2",
+                  "explanation": "Explanation 2",
+                  "confidence": 0.85
                 }
               ]
             }
@@ -269,7 +290,10 @@ class SpringAiStructuredClientResponseParsingTest {
                   "questionText": "Test question",
                   "type": "TRUE_FALSE",
                   "difficulty": "EASY",
-                  "content": {"answer": true}
+                  "content": {"answer": true},
+                  "hint": "Test hint",
+                  "explanation": "Test explanation",
+                  "confidence": 0.9
                 }
               ]
             }
@@ -300,7 +324,10 @@ class SpringAiStructuredClientResponseParsingTest {
                       "questionText": "Test",
                       "type": "TRUE_FALSE",
                       "difficulty": "EASY",
-                      "content": {"answer": true}
+                      "content": {"answer": true},
+                      "hint": "Test hint",
+                      "explanation": "Test explanation",
+                      "confidence": 0.9
                     }
                   ]
                 }
@@ -333,10 +360,13 @@ class SpringAiStructuredClientResponseParsingTest {
                   "difficulty": "EASY",
                   "content": {
                     "options": [
-                      {"text": "Option 1", "correct": false},
-                      {"text": "Option 2", "correct": true}
+                      {"id": "a", "text": "Option 1", "correct": false},
+                      {"id": "b", "text": "Option 2", "correct": true}
                     ]
-                  }
+                  },
+                  "hint": "Test hint",
+                  "explanation": "Test explanation",
+                  "confidence": 0.95
                 }
               ]
             }

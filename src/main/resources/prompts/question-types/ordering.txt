@@ -1,26 +1,5 @@
 Generate exactly {questionCount} ORDERING questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "Arrange the following items in the correct order",
-      "difficulty": "{difficulty}",
-      "type": "ORDERING",
-      "content": {
-        "items": [
-          {"id": 1, "text": "First item"},
-          {"id": 2, "text": "Second item"},
-          {"id": 3, "text": "Third item"},
-          {"id": 4, "text": "Fourth item"}
-        ]
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of the correct order and why"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, item text, hint, and explanation in {language}; translate faithfully when the source content differs.

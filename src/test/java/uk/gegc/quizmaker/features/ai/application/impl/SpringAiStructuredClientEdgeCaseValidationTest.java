@@ -290,7 +290,7 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         
         content.set("options", options);
         
-        // When/Then - should not throw (parser will validate at least 2 correct)
+        // When/Then - should not throw (parser will validate at least 1 correct)
         invokeValidateContentStructure(content, QuestionType.MCQ_MULTI);
     }
     

@@ -5,7 +5,7 @@ GENERATION PARAMETERS:
 - Question Type: {questionType}
 - Number of Questions: {questionCount}
 - Difficulty Level: {difficulty}
-- Content Source: Document chunk {chunkIndex}
+- Content Source: Document excerpt provided below
 
 INSTRUCTIONS:
 Based on the above content, generate exactly {questionCount} {questionType} questions with {difficulty} difficulty level.
@@ -18,4 +18,7 @@ For {difficulty} difficulty:
 LANGUAGE REQUIREMENT:
 Produce every element (questions, answers, options, hints, explanations) in {language}. If the excerpt is in another language, translate the ideas faithfully into {language} before writing the final output.
 
-IMPORTANT: Respond with valid JSON only, following the exact structure for {questionType} questions. 
+STRUCTURED OUTPUT RULES:
+- Respond with JSON only—no markdown fences, no commentary
+- Follow the exact schema expectations for {questionType} questions
+- Ensure field names and value types match the schema precisely

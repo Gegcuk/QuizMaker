@@ -135,7 +135,8 @@ class SpringAiStructuredClientParsingTest {
                 "answer": true
               },
               "hint": "Think about daylight",
-              "explanation": "Due to Rayleigh scattering"
+              "explanation": "Due to Rayleigh scattering",
+              "confidence": 0.95
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -168,12 +169,15 @@ class SpringAiStructuredClientParsingTest {
               "difficulty": "EASY",
               "content": {
                 "options": [
-                  {"text": "3", "correct": false},
-                  {"text": "4", "correct": true},
-                  {"text": "5", "correct": false},
-                  {"text": "6", "correct": false}
+                  {"id": "a", "text": "3", "correct": false},
+                  {"id": "b", "text": "4", "correct": true},
+                  {"id": "c", "text": "5", "correct": false},
+                  {"id": "d", "text": "6", "correct": false}
                 ]
-              }
+              },
+              "hint": "Basic arithmetic",
+              "explanation": "2+2 equals 4",
+              "confidence": 0.99
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -206,7 +210,10 @@ class SpringAiStructuredClientParsingTest {
                 "gaps": [
                   {"id": 1, "answer": "France"}
                 ]
-              }
+              },
+              "hint": "Think about European countries",
+              "explanation": "France is a country in Europe with Paris as its capital",
+              "confidence": 0.98
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -238,7 +245,10 @@ class SpringAiStructuredClientParsingTest {
                   {"id": 2, "text": "Second event"},
                   {"id": 3, "text": "Third event"}
                 ]
-              }
+              },
+              "hint": "Consider chronological order",
+              "explanation": "Events are ordered from earliest to latest",
+              "confidence": 0.92
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -270,7 +280,10 @@ class SpringAiStructuredClientParsingTest {
                   {"id": 1, "x": 100, "y": 150, "width": 50, "height": 60, "correct": true},
                   {"id": 2, "x": 200, "y": 150, "width": 50, "height": 60, "correct": false}
                 ]
-              }
+              },
+              "hint": "Look for the organ on the left side",
+              "explanation": "The heart is located on the left side of the chest",
+              "confidence": 0.97
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -302,7 +315,10 @@ class SpringAiStructuredClientParsingTest {
                   {"id": 2, "text": "Ignore the issue", "compliant": false},
                   {"id": 3, "text": "Document findings", "compliant": true}
                 ]
-              }
+              },
+              "hint": "Consider regulatory requirements",
+              "explanation": "Compliant actions follow proper protocols and regulations",
+              "confidence": 0.94
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -398,9 +414,9 @@ class SpringAiStructuredClientParsingTest {
     }
     
     @Test
-    @DisplayName("Should handle missing optional fields (hint, explanation)")
+    @DisplayName("Should fail when required fields are missing (hint, explanation, confidence)")
     void shouldHandleMissingOptionalFields() throws Exception {
-        // Given - no hint or explanation
+        // Given - missing required fields (hint, explanation, confidence)
         String questionJson = """
             {
               "questionText": "Test",
@@ -411,19 +427,16 @@ class SpringAiStructuredClientParsingTest {
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
         
-        // When
-        StructuredQuestion question = invokeParseQuestion(questionNode);
-        
-        // Then - should parse successfully
-        assertThat(question).isNotNull();
-        assertThat(question.getHint()).isNull();
-        assertThat(question.getExplanation()).isNull();
+        // When/Then - should fail validation (fields are now required in strict mode)
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("missing required fields");
     }
     
     @Test
-    @DisplayName("Should handle null hint and explanation fields")
+    @DisplayName("Should fail when required fields have null values")
     void shouldHandleNullOptionalFields() throws Exception {
-        // Given
+        // Given - required fields with null values
         String questionJson = """
             {
               "questionText": "Test",
@@ -431,18 +444,15 @@ class SpringAiStructuredClientParsingTest {
               "difficulty": "EASY",
               "content": {"answer": true},
               "hint": null,
-              "explanation": null
+              "explanation": null,
+              "confidence": null
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
         
-        // When
-        StructuredQuestion question = invokeParseQuestion(questionNode);
-        
-        // Then
-        assertThat(question).isNotNull();
-        assertThat(question.getHint()).isNull();
-        assertThat(question.getExplanation()).isNull();
+        // When/Then - should fail (null values not allowed for required fields)
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(Exception.class);
     }
     
     @Test
@@ -467,7 +477,10 @@ class SpringAiStructuredClientParsingTest {
                   {"id": 12, "text": "Definition 3"},
                   {"id": 13, "text": "Definition 4"}
                 ]
-              }
+              },
+              "hint": "Read all definitions carefully before matching",
+              "explanation": "Each term matches with its corresponding definition",
+              "confidence": 0.91
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);
@@ -498,7 +511,10 @@ class SpringAiStructuredClientParsingTest {
               "difficulty": "MEDIUM",
               "content": {
                 "answer": "Photosynthesis is the process by which plants convert light energy into chemical energy"
-              }
+              },
+              "hint": "Think about how plants use sunlight",
+              "explanation": "Plants use chlorophyll to capture light energy and convert it to chemical energy",
+              "confidence": 0.96
             }
             """;
         JsonNode questionNode = objectMapper.readTree(questionJson);

@@ -1,24 +1,5 @@
 Generate exactly {questionCount} COMPLIANCE questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "Evaluate the following statements for compliance",
-      "difficulty": "{difficulty}",
-      "type": "COMPLIANCE",
-      "content": {
-        "statements": [
-          {"id": 1, "text": "Statement to evaluate", "compliant": true},
-          {"id": 2, "text": "Another statement to evaluate", "compliant": false}
-        ]
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of which statements are compliant and why"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every statement, hint, and explanation in {language}; translate faithfully when the source content differs.

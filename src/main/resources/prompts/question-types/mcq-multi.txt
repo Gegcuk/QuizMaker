@@ -1,32 +1,11 @@
 Generate exactly {questionCount} MCQ_MULTI questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "The question text here (select all that apply)",
-      "difficulty": "{difficulty}",
-      "type": "MCQ_MULTI",
-      "content": {
-        "options": [
-          {"id": "a", "text": "Option A text", "correct": true},
-          {"id": "b", "text": "Option B text", "correct": false},
-          {"id": "c", "text": "Option C text", "correct": true},
-          {"id": "d", "text": "Option D text", "correct": false}
-        ]
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of which options are correct and why"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, option, hint, explanation, and feedback in {language}; translate faithfully if the source content differs.
-- Each question must have exactly 4 options (A, B, C, D)
-- At least 2 options must be marked as correct: true
-- At least 1 option must be marked as correct: false
+- Each question must have exactly 4 options with ids (a, b, c, d)
+- At least 1 options must be marked as correct
+- At least 1 option must be marked as not correct
 - Question text should clearly indicate "select all that apply" or similar
 - All options should be plausible
 - Include appropriate hints and explanations

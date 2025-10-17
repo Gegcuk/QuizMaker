@@ -44,16 +44,13 @@ class PromptTemplateServiceMatchingTest {
 
     @Test
     void buildsMatchingPrompt_usesMatchingTemplate() throws IOException {
-        when(resourceLoader.getResource("classpath:prompts/base/system-prompt.txt"))
-                .thenReturn(systemPromptResource);
-        when(systemPromptResource.getInputStream())
-                .thenReturn(new ByteArrayInputStream("SYS".getBytes()));
-
+        // Setup context template (no system prompt needed - sent separately)
         when(resourceLoader.getResource("classpath:prompts/base/context-template.txt"))
                 .thenReturn(contextTemplateResource);
         when(contextTemplateResource.getInputStream())
                 .thenReturn(new ByteArrayInputStream("CTX {content} {language}".getBytes()));
 
+        // Setup matching question template
         when(resourceLoader.getResource("classpath:prompts/question-types/matching.txt"))
                 .thenReturn(matchingTemplateResource);
         when(matchingTemplateResource.getInputStream())

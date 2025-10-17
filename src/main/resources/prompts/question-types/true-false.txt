@@ -1,21 +1,5 @@
 Generate exactly {questionCount} TRUE_FALSE questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "The statement to be evaluated as true or false",
-      "difficulty": "{difficulty}",
-      "type": "TRUE_FALSE",
-      "content": {
-        "answer": true
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of why the statement is true or false"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every statement, hint, and explanation in {language}; translate faithfully when the source content differs.
