@@ -1,21 +1,5 @@
 Generate exactly {questionCount} OPEN questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "The open-ended question that requires explanation",
-      "difficulty": "{difficulty}",
-      "type": "OPEN",
-      "content": {
-        "answer": "A comprehensive answer that demonstrates understanding of the concept"
-      },
-      "hint": "Optional hint text to guide the response",
-      "explanation": "Detailed explanation of the expected answer and key points to include"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, model answer, hint, and explanation in {language}; translate faithfully when the source content differs.

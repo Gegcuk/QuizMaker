@@ -1,32 +1,11 @@
 Generate exactly {questionCount} MCQ_SINGLE questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "The question text here",
-      "difficulty": "{difficulty}",
-      "type": "MCQ_SINGLE",
-      "content": {
-        "options": [
-          {"id": "a", "text": "Option A text", "correct": false},
-          {"id": "b", "text": "Option B text", "correct": true},
-          {"id": "c", "text": "Option C text", "correct": false},
-          {"id": "d", "text": "Option D text", "correct": false}
-        ]
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of why the correct answer is right"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, option, hint, explanation, and feedback in {language}; translate faithfully if the source content differs.
-- Each question must have exactly 4 options (A, B, C, D)
-- Only ONE option must be marked as correct: true
-- All other options must be marked as correct: false
+- Each question must have exactly 4 options with ids (a, b, c, d)
+- Only ONE option must be marked as correct
+- All other options must be marked as not correct
 - Question text should be clear and concise
 - All options should be plausible but only one is definitively correct
 - Include appropriate hints and explanations

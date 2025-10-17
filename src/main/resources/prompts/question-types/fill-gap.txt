@@ -1,24 +1,5 @@
 Generate exactly {questionCount} FILL_GAP questions with {difficulty} difficulty based on the provided content.
 
-JSON STRUCTURE:
-{
-  "questions": [
-    {
-      "questionText": "Complete the sentence with the missing word(s)",
-      "difficulty": "{difficulty}",
-      "type": "FILL_GAP",
-      "content": {
-        "text": "The sentence with ___ gaps to fill",
-        "gaps": [
-          {"id": 1, "answer": "correct answer"}
-        ]
-      },
-      "hint": "Optional hint text",
-      "explanation": "Explanation of the correct answer"
-    }
-  ]
-}
-
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every sentence, gap text, hint, and explanation in {language}; translate faithfully when the source content differs.

@@ -53,18 +53,15 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
         try {
-            // Load system prompt
-            String systemPrompt = buildSystemPrompt();
-
-            // Load context template
+            // Load context template (user message content)
             String contextTemplate = loadPromptTemplate("base/context-template.txt");
 
             // Load question type specific template
             String questionTemplate = loadPromptTemplate("question-types/" + getQuestionTypeTemplateName(questionType));
 
-            // Build the complete prompt
+            // Build the user prompt (context + question template, NO system prompt)
+            // System prompt is sent separately via SystemMessage
             StringBuilder prompt = new StringBuilder();
-            prompt.append(systemPrompt).append("\n\n");
             prompt.append(contextTemplate).append("\n\n");
             prompt.append(questionTemplate);
 
