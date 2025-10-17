@@ -183,8 +183,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         JsonNode schema = schemaRegistry.getSchemaForQuestionType(request.getQuestionType());
         
         // Build system message with structured output instructions (schema enforced server-side)
-       
-        String systemPrompt = buildSystemPrompt();
+        String systemPrompt = promptTemplateService.buildSystemPrompt();
 
         if (log.isDebugEnabled()) {
             log.debug("Sending structured generation request for {} {} questions (schema enforced)",
@@ -257,24 +256,6 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 structuredResponse.getQuestions().size(), request.getQuestionType());
         
         return structuredResponse;
-    }
-    
-    /**
-     * Build system prompt that instructs the model to follow JSON schema
-     */
-    private String buildSystemPrompt() {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are an expert question generator for educational content.\n\n");
-        prompt.append("Structured outputs with JSON schema validation are enforced for this task.\n");
-        prompt.append("Follow the platform schema for the requested question type.\n\n");
-        prompt.append("\n\nIMPORTANT RULES:\n");
-        prompt.append("1. Return ONLY valid JSON - no markdown, no explanation, no preamble\n");
-        prompt.append("2. Follow the schema exactly - all required fields must be present\n");
-        prompt.append("3. Ensure the 'content' field is a valid JSON string (properly escaped)\n");
-        prompt.append("4. Respect all type constraints and validation rules\n");
-        prompt.append("5. Generate high-quality, educational questions based on the provided content\n");
-        
-        return prompt.toString();
     }
 
     private OpenAiChatOptions buildChatOptions(QuestionType questionType, JsonNode schema) {
@@ -376,9 +357,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     private StructuredQuestion parseQuestion(JsonNode questionNode) {
         StructuredQuestion.StructuredQuestionBuilder builder = StructuredQuestion.builder();
         
-        // Required fields
+        // Required fields (strict mode requires all fields)
         if (!questionNode.has("questionText") || !questionNode.has("type") 
-                || !questionNode.has("difficulty") || !questionNode.has("content")) {
+                || !questionNode.has("difficulty") || !questionNode.has("content")
+                || !questionNode.has("hint") || !questionNode.has("explanation")
+                || !questionNode.has("confidence")) {
             throw new AIResponseParseException("Question missing required fields");
         }
         
@@ -401,18 +384,10 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             throw new AIResponseParseException("Failed to serialize content: " + e.getMessage(), e);
         }
         
-        // Optional fields
-        if (questionNode.has("hint") && !questionNode.get("hint").isNull()) {
-            builder.hint(questionNode.get("hint").asText());
-        }
-        
-        if (questionNode.has("explanation") && !questionNode.get("explanation").isNull()) {
-            builder.explanation(questionNode.get("explanation").asText());
-        }
-        
-        if (questionNode.has("confidence") && !questionNode.get("confidence").isNull()) {
-            builder.confidence(questionNode.get("confidence").asDouble());
-        }
+        // Now required fields (strict mode)
+        builder.hint(questionNode.get("hint").asText());
+        builder.explanation(questionNode.get("explanation").asText());
+        builder.confidence(questionNode.get("confidence").asDouble());
         
         return builder.build();
     }

@@ -35,6 +35,7 @@ public class QuestionSchemaRegistry {
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("$schema", "http://json-schema.org/draft-07/schema#");
         schema.put("type", "object");
+        schema.put("additionalProperties", false);
         
         // Add required properties
         ArrayNode required = objectMapper.createArrayNode();
@@ -60,6 +61,7 @@ public class QuestionSchemaRegistry {
         ObjectNode schema = objectMapper.createObjectNode();
         schema.put("$schema", "http://json-schema.org/draft-07/schema#");
         schema.put("type", "object");
+        schema.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("questions");
@@ -93,13 +95,17 @@ public class QuestionSchemaRegistry {
         // For composite, we allow any question type with oneOf
         ObjectNode itemSchema = objectMapper.createObjectNode();
         itemSchema.put("type", "object");
+        itemSchema.put("additionalProperties", false);
         
-        // Base required fields
+        // Base required fields (all fields are required for strict mode)
         ArrayNode required = objectMapper.createArrayNode();
         required.add("questionText");
         required.add("type");
         required.add("difficulty");
         required.add("content");
+        required.add("hint");
+        required.add("explanation");
+        required.add("confidence");
         itemSchema.set("required", required);
         
         // Base properties (common to all types)
@@ -116,13 +122,17 @@ public class QuestionSchemaRegistry {
     private ObjectNode createQuestionItemSchema(QuestionType questionType) {
         ObjectNode itemSchema = objectMapper.createObjectNode();
         itemSchema.put("type", "object");
+        itemSchema.put("additionalProperties", false);
         
-        // Required fields
+        // Required fields (all fields are required for strict mode)
         ArrayNode required = objectMapper.createArrayNode();
         required.add("questionText");
         required.add("type");
         required.add("difficulty");
         required.add("content");
+        required.add("hint");
+        required.add("explanation");
+        required.add("confidence");
         itemSchema.set("required", required);
         
         // Properties
@@ -171,14 +181,14 @@ public class QuestionSchemaRegistry {
         difficulty.set("enum", difficultyEnum);
         properties.set("difficulty", difficulty);
         
-        // hint (optional)
+        // hint (required for strict mode)
         ObjectNode hint = objectMapper.createObjectNode();
         hint.put("type", "string");
-        hint.put("description", "Optional hint text");
+        hint.put("description", "Hint text to guide the user");
         hint.put("maxLength", 500);
         properties.set("hint", hint);
         
-        // explanation (optional)
+        // explanation (required for strict mode)
         ObjectNode explanation = objectMapper.createObjectNode();
         explanation.put("type", "string");
         explanation.put("description", "Explanation of the answer");
@@ -188,10 +198,11 @@ public class QuestionSchemaRegistry {
         // content (type-specific structure - generic for composite)
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         content.put("description", "Type-specific content structure");
         properties.set("content", content);
         
-        // confidence (optional)
+        // confidence (required for strict mode)
         ObjectNode confidence = objectMapper.createObjectNode();
         confidence.put("type", "number");
         confidence.put("description", "Confidence score 0.0-1.0");
@@ -230,6 +241,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createMcqContentSchema(boolean multipleCorrect) {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("options");
@@ -255,19 +267,20 @@ public class QuestionSchemaRegistry {
         
         ObjectNode optionItem = objectMapper.createObjectNode();
         optionItem.put("type", "object");
+        optionItem.put("additionalProperties", false);
         
         ArrayNode optionRequired = objectMapper.createArrayNode();
+        optionRequired.add("id");
         optionRequired.add("text");
         optionRequired.add("correct");
-        // Note: id is optional - parser doesn't validate it, but prompt includes it
         optionItem.set("required", optionRequired);
         
         ObjectNode optionProps = objectMapper.createObjectNode();
         
-        // Optional id field (for ordering/reference, not validated by parser)
+        // id field (required for strict mode)
         ObjectNode optionId = objectMapper.createObjectNode();
         optionId.put("type", "string");
-        optionId.put("description", "Optional identifier (a, b, c, d)");
+        optionId.put("description", "Identifier (a, b, c, d, etc.)");
         optionProps.set("id", optionId);
         
         ObjectNode optionText = objectMapper.createObjectNode();
@@ -296,6 +309,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createTrueFalseContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("answer");
@@ -318,6 +332,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createOpenContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("answer");
@@ -341,6 +356,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createFillGapContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("text");
@@ -361,6 +377,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode gapItem = objectMapper.createObjectNode();
         gapItem.put("type", "object");
+        gapItem.put("additionalProperties", false);
         
         ArrayNode gapRequired = objectMapper.createArrayNode();
         gapRequired.add("id");
@@ -394,6 +411,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createOrderingContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("items");
@@ -409,6 +427,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode itemSchema = objectMapper.createObjectNode();
         itemSchema.put("type", "object");
+        itemSchema.put("additionalProperties", false);
         
         ArrayNode itemRequired = objectMapper.createArrayNode();
         itemRequired.add("id");
@@ -443,6 +462,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createMatchingContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("left");
@@ -459,6 +479,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode leftItem = objectMapper.createObjectNode();
         leftItem.put("type", "object");
+        leftItem.put("additionalProperties", false);
         
         ArrayNode leftRequired = objectMapper.createArrayNode();
         leftRequired.add("id");
@@ -495,6 +516,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode rightItem = objectMapper.createObjectNode();
         rightItem.put("type", "object");
+        rightItem.put("additionalProperties", false);
         
         ArrayNode rightRequired = objectMapper.createArrayNode();
         rightRequired.add("id");
@@ -528,6 +550,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createHotspotContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("imageUrl");
@@ -549,6 +572,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode regionItem = objectMapper.createObjectNode();
         regionItem.put("type", "object");
+        regionItem.put("additionalProperties", false);
         
         ArrayNode regionRequired = objectMapper.createArrayNode();
         regionRequired.add("id");
@@ -610,6 +634,7 @@ public class QuestionSchemaRegistry {
     private ObjectNode createComplianceContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("statements");
@@ -625,6 +650,7 @@ public class QuestionSchemaRegistry {
         
         ObjectNode statementItem = objectMapper.createObjectNode();
         statementItem.put("type", "object");
+        statementItem.put("additionalProperties", false);
         
         ArrayNode statementRequired = objectMapper.createArrayNode();
         statementRequired.add("id");
@@ -657,4 +683,3 @@ public class QuestionSchemaRegistry {
         return content;
     }
 }
-

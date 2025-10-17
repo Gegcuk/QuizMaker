@@ -127,6 +127,7 @@ class SpringAiStructuredClientCancellationTest {
         
         // First attempt was made, but no retry
         verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
+        verify(chatClient, times(1)).prompt(any(Prompt.class));  // Verify stub was used exactly once
     }
     
     @Test
@@ -157,6 +158,7 @@ class SpringAiStructuredClientCancellationTest {
         
         // Should have tried all 3 attempts
         verify(promptTemplateService, times(3)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
+        verify(chatClient, times(3)).prompt(any(Prompt.class));  // Verify stub was used
     }
     
     @Test
@@ -187,6 +189,7 @@ class SpringAiStructuredClientCancellationTest {
         
         // Should have tried all 3 attempts (same as before cancellation feature)
         verify(promptTemplateService, times(3)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
+        verify(chatClient, times(3)).prompt(any(Prompt.class));  // Verify stub was used
     }
     
     @Test
@@ -222,6 +225,7 @@ class SpringAiStructuredClientCancellationTest {
         // Tokens saved: Would have made 2 more attempts (3 total) without cancellation
         // With cancellation: Only 1 attempt made
         verify(promptTemplateService, times(1)).buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString());
+        verify(chatClient, times(1)).prompt(any(Prompt.class));  // Verify stub was used
     }
 }
 

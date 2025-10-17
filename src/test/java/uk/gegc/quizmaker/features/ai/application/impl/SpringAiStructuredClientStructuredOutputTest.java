@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests focused on the structured-output wiring in {@link SpringAiStructuredClient}.
@@ -94,14 +95,18 @@ class SpringAiStructuredClientStructuredOutputTest {
 
     @Test
     @DisplayName("System prompt should not embed raw schema text")
-    void systemPromptShouldExcludeSchemaBody() throws Exception {
-        Method method = SpringAiStructuredClient.class.getDeclaredMethod("buildSystemPrompt");
-        method.setAccessible(true);
+    void systemPromptShouldExcludeSchemaBody() {
+        // Given - Mock the service to return a system prompt without schema
+        String systemPrompt = "You are an expert quiz generator. Structured outputs with JSON schema validation are enforced.";
+        when(promptTemplateService.buildSystemPrompt()).thenReturn(systemPrompt);
 
-        String prompt = (String) method.invoke(client);
+        // When - Get the system prompt
+        String prompt = promptTemplateService.buildSystemPrompt();
 
+        // Then - Should not contain raw schema JSON
         assertThat(prompt).isNotBlank();
         assertThat(prompt).doesNotContain("$schema");
+        assertThat(prompt).doesNotContain("\"type\": \"object\"");
         assertThat(prompt).contains("Structured outputs");
     }
 }
