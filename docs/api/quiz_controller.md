@@ -1434,8 +1434,9 @@ GET /api/v1/quizzes/export
 - `id` (UUID): Question identifier
 - `type` (enum): Question type (MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, OPEN, etc.)
 - `difficulty` (enum): Question difficulty
-- `questionText` (string): The question text
+- `questionText` (string): The question text (generic description for FILL_GAP)
 - `content` (JSON object): Question-specific content (options, correct answers, etc.)
+  - **FILL_GAP Note**: For `FILL_GAP` questions, `content.text` contains the actual prompt with underscores (e.g., "The ___ operates at the ___ layer"). Print formats (HTML_PRINT, PDF_PRINT) display this text instead of the generic `questionText`.
 - `hint` (string, nullable): Optional hint
 - `explanation` (string, nullable): Optional explanation
 - `attachmentUrl` (string, nullable): Optional attachment URL

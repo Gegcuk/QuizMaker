@@ -75,29 +75,23 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append("</style>");
         sb.append("</head><body>");
 
+        // Render cover page if requested
+        boolean hasCover = Boolean.TRUE.equals(payload.printOptions().includeCover());
+        if (hasCover) {
+            renderCoverPage(sb, payload);
+            // Start questions on a new page after cover
+            sb.append("<div class=\"page-break\"></div>");
+        }
+        
         // Collect all questions from all quizzes
         List<QuestionExportDto> allQuestions = new ArrayList<>();
-        boolean firstQuiz = true;
         for (QuizExportDto quiz : payload.quizzes()) {
-            // Always render quiz header (title at minimum)
-            if (payload.quizzes().size() > 1 || Boolean.TRUE.equals(payload.printOptions().includeMetadata())) {
+            // Render quiz header for multiple quizzes, OR for single quiz without cover
+            if (payload.quizzes().size() > 1 || !hasCover) {
                 renderQuizHeader(sb, quiz, payload);
-            } else if (firstQuiz) {
-                // For single quiz without metadata, still show title
-                sb.append("<section class=\"quiz\">");
-                sb.append("<h2>").append(escape(quiz.title())).append("</h2>");
-                sb.append("</section>");
-            }
-            
-            // Table of contents (after quiz title, before questions)
-            if (firstQuiz && Boolean.TRUE.equals(payload.printOptions().includeCover())) {
-                sb.append("<div class=\"cover\">");
-                sb.append("<p><strong>Content:</strong> <a href=\"#answer-key\">Jump to Answer Key</a></p>");
-                sb.append("</div>");
             }
             
             allQuestions.addAll(quiz.questions());
-            firstQuiz = false;
         }
 
         // Determine rendering order (for answer key consistency)
@@ -135,6 +129,47 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         return sb.toString();
     }
 
+    private void renderCoverPage(StringBuilder sb, ExportPayload payload) {
+        sb.append("<div class=\"cover\">");
+        
+        // Use quiz title for single quiz, generic title for multiple
+        if (payload.quizzes().size() == 1) {
+            QuizExportDto quiz = payload.quizzes().get(0);
+            sb.append("<h1>").append(escape(quiz.title())).append("</h1>");
+            
+            // Include metadata if requested
+            if (Boolean.TRUE.equals(payload.printOptions().includeMetadata())) {
+                sb.append("<p class=\"meta\">");
+                sb.append("Difficulty: ").append(quiz.difficulty());
+                if (quiz.category() != null) {
+                    sb.append(" | Category: ").append(escape(quiz.category()));
+                }
+                if (quiz.estimatedTime() != null) {
+                    sb.append(" | Time: ").append(quiz.estimatedTime()).append(" min");
+                }
+                sb.append("</p>");
+                
+                if (quiz.tags() != null && !quiz.tags().isEmpty()) {
+                    sb.append("<p class=\"meta\">Tags: ");
+                    sb.append(quiz.tags().stream().map(this::escape).collect(java.util.stream.Collectors.joining(", ")));
+                    sb.append("</p>");
+                }
+            }
+            
+            if (quiz.description() != null && !quiz.description().isBlank()) {
+                sb.append("<p>").append(escape(quiz.description())).append("</p>");
+            }
+        } else {
+            sb.append("<h1>Quiz Export</h1>");
+            sb.append("<p class=\"meta\">Total Quizzes: ").append(payload.quizzes().size()).append("</p>");
+            int totalQuestions = payload.quizzes().stream().mapToInt(q -> q.questions().size()).sum();
+            sb.append("<p class=\"meta\">Total Questions: ").append(totalQuestions).append("</p>");
+        }
+        
+        sb.append("<p style=\"margin-top:24px;\"><strong>Content:</strong> <a href=\"#answer-key\">Jump to Answer Key</a></p>");
+        sb.append("</div>");
+    }
+    
     private void renderQuizHeader(StringBuilder sb, QuizExportDto quiz, ExportPayload payload) {
         sb.append("<section class=\"quiz\">");
         sb.append("<h2>").append(escape(quiz.title())).append("</h2>");
@@ -163,7 +198,12 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
 
         List<QuestionExportDto> renderOrder = new ArrayList<>();
         int questionNumber = 1;
+        boolean isFirstGroup = true;
         for (Map.Entry<String, List<QuestionExportDto>> entry : grouped.entrySet()) {
+            // Start each group on a new page (except the first)
+            if (!isFirstGroup) {
+                sb.append("<div class=\"page-break\"></div>");
+            }
             sb.append("<div class=\"type-section\">");
             sb.append("<h3>").append(formatQuestionType(entry.getKey())).append(" Questions</h3>");
             for (QuestionExportDto question : entry.getValue()) {
@@ -171,13 +211,18 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 renderOrder.add(question); // Track render order
             }
             sb.append("</div>");
+            isFirstGroup = false;
         }
         return renderOrder; // Return grouped order
     }
 
     private void renderQuestion(StringBuilder sb, QuestionExportDto question, int number, ExportPayload payload) {
         sb.append("<div class=\"question\">");
-        sb.append("<div class=\"question-header\">").append(number).append(". ").append(escape(question.questionText())).append("</div>");
+        
+        // For FILL_GAP questions, use content.text if available (contains prompt with underscores)
+        String displayText = getDisplayText(question);
+        
+        sb.append("<div class=\"question-header\">").append(number).append(". ").append(escape(displayText)).append("</div>");
         
         // Question content (options, etc.)
         sb.append("<div class=\"question-content\">");
@@ -544,6 +589,21 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             case "OPEN" -> "Open-Ended";
             default -> type;
         };
+    }
+
+    /**
+     * Get the display text for a question.
+     * For FILL_GAP questions, prefer content.text (which contains the prompt with underscores).
+     * Otherwise, use the generic questionText.
+     */
+    private String getDisplayText(QuestionExportDto question) {
+        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP 
+            && question.content() != null 
+            && question.content().has("text") 
+            && !question.content().get("text").asText().isBlank()) {
+            return question.content().get("text").asText();
+        }
+        return question.questionText();
     }
 
     private String escape(String s) {

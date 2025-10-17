@@ -55,8 +55,11 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             PDPageContext context = new PDPageContext(document);
 
             // Cover page if requested
-            if (Boolean.TRUE.equals(payload.printOptions().includeCover())) {
+            boolean hasCover = Boolean.TRUE.equals(payload.printOptions().includeCover());
+            if (hasCover) {
                 renderCoverPage(context, payload);
+                // Start questions on a new page after cover
+                context.startNewPage();
             }
 
             // Group and render questions
@@ -64,7 +67,8 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             List<QuestionExportDto> allQuestions = new ArrayList<>();
             
             for (QuizExportDto quiz : quizzes) {
-                if (quizzes.size() > 1 || Boolean.TRUE.equals(payload.printOptions().includeMetadata())) {
+                // Render quiz header for multiple quizzes, OR for single quiz without cover
+                if (quizzes.size() > 1 || !hasCover) {
                     renderQuizHeader(context, quiz, payload);
                 }
                 allQuestions.addAll(quiz.questions());
@@ -106,20 +110,50 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         context.startNewPage();
         context.y = PDRectangle.LETTER.getHeight() - 150;
         
-        context.writeText("Quiz Export", PDType1Font.HELVETICA_BOLD, TITLE_FONT_SIZE * 1.5f);
-        context.y -= 40;
-        context.writeText("Generated: " + java.time.Instant.now().toString().substring(0, 19).replace('T', ' '),
-                         PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
-        context.y -= 20;
-        context.writeText("Total Quizzes: " + payload.quizzes().size(), 
-                         PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        // Use quiz title for single quiz, generic title for multiple
+        if (payload.quizzes().size() == 1) {
+            QuizExportDto quiz = payload.quizzes().get(0);
+            context.writeText(quiz.title(), PDType1Font.HELVETICA_BOLD, TITLE_FONT_SIZE * 1.5f);
+            context.y -= 40;
+            
+            // Include metadata if requested
+            if (Boolean.TRUE.equals(payload.printOptions().includeMetadata())) {
+                String meta = String.format("Difficulty: %s | Category: %s | Time: %d min",
+                        quiz.difficulty(), 
+                        quiz.category() != null ? quiz.category() : "None",
+                        quiz.estimatedTime() != null ? quiz.estimatedTime() : 0);
+                context.writeText(meta, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.y -= 20;
+                
+                if (quiz.tags() != null && !quiz.tags().isEmpty()) {
+                    context.writeText("Tags: " + String.join(", ", quiz.tags()), 
+                                     PDType1Font.HELVETICA, SMALL_FONT_SIZE);
+                    context.y -= 20;
+                }
+            }
+            
+            if (quiz.description() != null && !quiz.description().isBlank()) {
+                context.y -= 10;
+                context.writeWrappedText(quiz.description(), PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                context.y -= 20;
+            }
+        } else {
+            context.writeText("Quiz Export", PDType1Font.HELVETICA_BOLD, TITLE_FONT_SIZE * 1.5f);
+            context.y -= 40;
+            context.writeText("Total Quizzes: " + payload.quizzes().size(), 
+                             PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+            context.y -= 20;
+            
+            int totalQuestions = payload.quizzes().stream()
+                    .mapToInt(q -> q.questions().size())
+                    .sum();
+            context.writeText("Total Questions: " + totalQuestions,
+                             PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+            context.y -= 20;
+        }
         
-        int totalQuestions = payload.quizzes().stream()
-                .mapToInt(q -> q.questions().size())
-                .sum();
-        context.y -= 15;
-        context.writeText("Total Questions: " + totalQuestions,
-                         PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        context.writeText("Generated: " + java.time.Instant.now().toString().substring(0, 19).replace('T', ' '),
+                         PDType1Font.HELVETICA, SMALL_FONT_SIZE);
     }
 
     private void renderQuizHeader(PDPageContext context, QuizExportDto quiz, ExportPayload payload) throws IOException {
@@ -166,7 +200,12 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
         List<QuestionExportDto> renderOrder = new ArrayList<>();
         int questionNumber = 1;
+        boolean isFirstGroup = true;
         for (Map.Entry<String, List<QuestionExportDto>> entry : grouped.entrySet()) {
+            // Start each group on a new page (except the first)
+            if (!isFirstGroup) {
+                context.startNewPage();
+            }
             context.ensureSpace(60);
             context.y -= 10;
             context.writeText(formatQuestionType(entry.getKey()) + " Questions", 
@@ -177,6 +216,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 renderQuestion(context, question, questionNumber++, payload);
                 renderOrder.add(question); // Track render order
             }
+            isFirstGroup = false;
         }
         return renderOrder; // Return grouped order
     }
@@ -188,8 +228,13 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     private float estimateQuestionHeight(QuestionExportDto question, ExportPayload payload) throws IOException {
         float height = 0;
         
-        // Question text (wrapped, average 2 lines)
-        height += NORMAL_FONT_SIZE * LINE_SPACING * 2;
+        // Question text (wrapped)
+        // For FILL_GAP, the prompt with underscores can be longer, so allocate more lines
+        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP) {
+            height += NORMAL_FONT_SIZE * LINE_SPACING * 3; // Average 3 lines for FILL_GAP
+        } else {
+            height += NORMAL_FONT_SIZE * LINE_SPACING * 2; // Average 2 lines for other types
+        }
         height += 12; // Space after question
         
         // Content based on question type
@@ -265,8 +310,11 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         // If not enough space, start a new page
         context.ensureSpace(estimatedHeight);
 
+        // For FILL_GAP questions, use content.text if available (contains prompt with underscores)
+        String displayText = getDisplayText(question);
+        
         // Question number and text
-        context.writeText(number + ". " + question.questionText(), 
+        context.writeText(number + ". " + displayText, 
                          PDType1Font.HELVETICA_BOLD, NORMAL_FONT_SIZE);
         context.y -= 12;
 
@@ -640,6 +688,21 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             idx++;
         }
         return String.join(", ", gapAnswers);
+    }
+
+    /**
+     * Get the display text for a question.
+     * For FILL_GAP questions, prefer content.text (which contains the prompt with underscores).
+     * Otherwise, use the generic questionText.
+     */
+    private String getDisplayText(QuestionExportDto question) {
+        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP 
+            && question.content() != null 
+            && question.content().has("text") 
+            && !question.content().get("text").asText().isBlank()) {
+            return question.content().get("text").asText();
+        }
+        return question.questionText();
     }
 
     private String formatQuestionType(String type) {
