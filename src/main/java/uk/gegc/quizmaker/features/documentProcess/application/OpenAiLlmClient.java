@@ -90,10 +90,7 @@ public class OpenAiLlmClient implements LlmClient {
                             new BeanOutputConverter<>(DocumentStructureRecords.DocumentStructureResponse.class);
                     
                     String promptWithFormat = prompt + "\n\n" + outputConverter.getFormat();
-                    
-                    // Log the request
-                    logAiRequest(promptWithFormat, options);
-                    
+
                     ChatResponse chatResponse = chatModel.call(new Prompt(new UserMessage(promptWithFormat)));
                     
                     String aiResponseText = chatResponse.getResult().getOutput().getText();

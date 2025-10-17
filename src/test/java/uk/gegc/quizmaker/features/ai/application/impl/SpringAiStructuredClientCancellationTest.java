@@ -40,6 +40,12 @@ class SpringAiStructuredClientCancellationTest {
     private ChatClient chatClient;
     
     @Mock
+    private ChatClient.ChatClientRequestSpec requestSpec;
+    
+    @Mock
+    private ChatClient.CallResponseSpec callResponseSpec;
+    
+    @Mock
     private PromptTemplateService promptTemplateService;
     
     @Mock
@@ -115,7 +121,12 @@ class SpringAiStructuredClientCancellationTest {
         // Mock first attempt to fail (triggers retry)
         when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                 .thenReturn("test prompt");
-        when(chatClient.prompt(any(Prompt.class))).thenThrow(new AiServiceException("Temporary failure"));
+        when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
+        
+        // Mock fluent API chain to throw exception
+        when(chatClient.prompt(any(Prompt.class))).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.chatResponse()).thenThrow(new AiServiceException("Temporary failure"));
         
         // When
         StructuredQuestionResponse response = structuredClient.generateQuestions(request);
@@ -146,7 +157,12 @@ class SpringAiStructuredClientCancellationTest {
         // Mock all attempts to fail
         when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                 .thenReturn("test prompt");
-        when(chatClient.prompt(any(Prompt.class))).thenThrow(new AiServiceException("Failure"));
+        when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
+        
+        // Mock fluent API chain to throw exception
+        when(chatClient.prompt(any(Prompt.class))).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.chatResponse()).thenThrow(new AiServiceException("Failure"));
         
         // When/Then - Should exhaust all retries
         try {
@@ -177,7 +193,12 @@ class SpringAiStructuredClientCancellationTest {
         // Mock all attempts to fail
         when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                 .thenReturn("test prompt");
-        when(chatClient.prompt(any(Prompt.class))).thenThrow(new AiServiceException("Failure"));
+        when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
+        
+        // Mock fluent API chain to throw exception
+        when(chatClient.prompt(any(Prompt.class))).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.chatResponse()).thenThrow(new AiServiceException("Failure"));
         
         // When/Then - Should exhaust all retries normally
         try {
@@ -212,7 +233,12 @@ class SpringAiStructuredClientCancellationTest {
         
         when(promptTemplateService.buildPromptForChunk(anyString(), any(), anyInt(), any(), anyString()))
                 .thenReturn("test prompt");
-        when(chatClient.prompt(any(Prompt.class))).thenThrow(new AiServiceException("Failure"));
+        when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt");
+        
+        // Mock fluent API chain to throw exception
+        when(chatClient.prompt(any(Prompt.class))).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(callResponseSpec);
+        when(callResponseSpec.chatResponse()).thenThrow(new AiServiceException("Failure"));
         
         // When
         StructuredQuestionResponse response = structuredClient.generateQuestions(request);
