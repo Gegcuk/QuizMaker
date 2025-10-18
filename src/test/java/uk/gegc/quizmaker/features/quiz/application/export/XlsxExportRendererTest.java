@@ -79,7 +79,7 @@ class XlsxExportRendererTest {
     void render_setsContentTypeToXlsx() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -93,7 +93,7 @@ class XlsxExportRendererTest {
     void render_usesFilenamePrefixWithXlsxExtension() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "quizzes_public_202410141530");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -107,7 +107,7 @@ class XlsxExportRendererTest {
     void render_setsPositiveContentLength() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -121,7 +121,7 @@ class XlsxExportRendererTest {
     void render_contentLengthMatchesActualBytes() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -138,7 +138,7 @@ class XlsxExportRendererTest {
     void render_producesValidXlsxFile() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -156,7 +156,7 @@ class XlsxExportRendererTest {
     void render_producesNonTrivialContent() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -181,7 +181,7 @@ class XlsxExportRendererTest {
                 UUID.randomUUID(), new ArrayList<>(),
                 Instant.now(), Instant.now()
         );
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -197,7 +197,7 @@ class XlsxExportRendererTest {
                 createMinimalQuiz(),
                 createMinimalQuiz()
         );
-        ExportPayload payload = new ExportPayload(quizzes, PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(quizzes, PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -213,7 +213,7 @@ class XlsxExportRendererTest {
                 Difficulty.EASY, 10, null, null, null,
                 new ArrayList<>(), Instant.now(), Instant.now()
         );
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -228,7 +228,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createTrueFalseQuestion("Is Java fun?", true);
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -241,7 +241,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createOpenQuestion("Explain polymorphism", "Polymorphism allows...");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -254,7 +254,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createMcqSingleQuestion("What is 2+2?");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -267,7 +267,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createMcqMultiQuestion("Select programming languages");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -280,7 +280,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createFillGapQuestion("Complete the gaps");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -293,7 +293,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createOrderingQuestion("Order these steps");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -306,7 +306,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createMatchingQuestion("Match countries");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -319,7 +319,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createHotspotQuestion("Select region");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -332,7 +332,7 @@ class XlsxExportRendererTest {
         // Given
         QuestionExportDto question = createComplianceQuestion("Check compliance");
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -351,7 +351,7 @@ class XlsxExportRendererTest {
                 createOrderingQuestion("Q5")
         );
         QuizExportDto quiz = createQuizWithQuestions(questions);
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -368,7 +368,7 @@ class XlsxExportRendererTest {
                 "This is a hint", "This is an explanation", "http://example.com/attachment.pdf"
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -384,7 +384,7 @@ class XlsxExportRendererTest {
                 "Test question", null, null, null, null
         );
         QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -402,7 +402,7 @@ class XlsxExportRendererTest {
         QuizExportDto quiz1 = createQuizWithQuestions(List.of(q1, q2));
         QuizExportDto quiz2 = createQuizWithQuestions(List.of(q3));
         
-        ExportPayload payload = new ExportPayload(List.of(quiz1, quiz2), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz1, quiz2), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -415,7 +415,7 @@ class XlsxExportRendererTest {
     @DisplayName("render: handles empty quiz list")
     void render_emptyQuizList_succeeds() {
         // Given
-        ExportPayload payload = new ExportPayload(new ArrayList<>(), PrintOptions.defaults(), "empty");
+        ExportPayload payload = ExportPayload.of(new ArrayList<>(), PrintOptions.defaults(), "empty");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -427,7 +427,7 @@ class XlsxExportRendererTest {
     void render_quizWithNoQuestions_succeeds() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -439,7 +439,7 @@ class XlsxExportRendererTest {
     void render_contentSupplierIsReusable() throws Exception {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When
         ExportFile file = renderer.render(payload);
@@ -463,7 +463,7 @@ class XlsxExportRendererTest {
     void render_filenameIncludesFilterContext() {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
-        ExportPayload payload = new ExportPayload(
+        ExportPayload payload = ExportPayload.of(
                 List.of(quiz),
                 PrintOptions.defaults(),
                 "quizzes_me_202410141530_cat2_tag3_medium"
@@ -485,8 +485,8 @@ class XlsxExportRendererTest {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
         
-        ExportPayload payloadDefaults = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
-        ExportPayload payloadTeacher = new ExportPayload(List.of(quiz), PrintOptions.teacherEdition(), "test");
+        ExportPayload payloadDefaults = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payloadTeacher = ExportPayload.of(List.of(quiz), PrintOptions.teacherEdition(), "test");
 
         // When
         ExportFile fileDefaults = renderer.render(payloadDefaults);
@@ -509,7 +509,7 @@ class XlsxExportRendererTest {
             questions.add(createOpenQuestion("Question " + i, "Answer " + i));
         }
         QuizExportDto quiz = createQuizWithQuestions(questions);
-        ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
         // When & Then - should not throw
         ExportFile file = renderer.render(payload);
@@ -522,8 +522,8 @@ class XlsxExportRendererTest {
         // Given
         QuizExportDto quiz = createMinimalQuiz();
         
-        ExportPayload payloadSingle = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
-        ExportPayload payloadMultiple = new ExportPayload(
+        ExportPayload payloadSingle = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
+        ExportPayload payloadMultiple = ExportPayload.of(
                 List.of(quiz, quiz, quiz, quiz, quiz),
                 PrintOptions.defaults(),
                 "test"

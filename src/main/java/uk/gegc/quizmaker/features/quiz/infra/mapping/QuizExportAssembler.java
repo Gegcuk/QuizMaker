@@ -32,12 +32,21 @@ public class QuizExportAssembler {
      * Convert a single Quiz entity to export DTO
      */
     public QuizExportDto toExportDto(Quiz quiz) {
+        return toExportDto(quiz, null);
+    }
+
+    /**
+     * Convert a single Quiz entity to export DTO with deterministic shuffling
+     * @param quiz the quiz to convert
+     * @param rng Random instance for deterministic shuffling (null for non-deterministic)
+     */
+    public QuizExportDto toExportDto(Quiz quiz, java.util.Random rng) {
         List<QuestionExportDto> questions = quiz.getQuestions() != null 
                 ? quiz.getQuestions().stream()
                     .sorted(java.util.Comparator
                             .comparing(Question::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
                             .thenComparing(Question::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
-                    .map(this::toQuestionExportDto)
+                    .map(q -> toQuestionExportDto(q, rng))
                     .collect(Collectors.toList())
                 : new ArrayList<>();
 
@@ -67,18 +76,29 @@ public class QuizExportAssembler {
      * Convert a list of Quiz entities to export DTOs
      */
     public List<QuizExportDto> toExportDtos(List<Quiz> quizzes) {
+        return toExportDtos(quizzes, null);
+    }
+
+    /**
+     * Convert a list of Quiz entities to export DTOs with deterministic shuffling
+     * @param quizzes list of quizzes to convert
+     * @param rng Random instance for deterministic shuffling (null for non-deterministic)
+     */
+    public List<QuizExportDto> toExportDtos(List<Quiz> quizzes, java.util.Random rng) {
         if (quizzes == null) {
             return new ArrayList<>();
         }
         return quizzes.stream()
-                .map(this::toExportDto)
+                .map(q -> toExportDto(q, rng))
                 .collect(Collectors.toList());
     }
 
     /**
-     * Convert a Question entity to export DTO
+     * Convert a Question entity to export DTO with deterministic shuffling
+     * @param question the question to convert
+     * @param rng Random instance for deterministic shuffling (null for non-deterministic)
      */
-    private QuestionExportDto toQuestionExportDto(Question question) {
+    private QuestionExportDto toQuestionExportDto(Question question, java.util.Random rng) {
         JsonNode content = parseContent(question.getContent());
         
         // Shuffle ORDERING, MATCHING, MCQ, and COMPLIANCE question content to prevent obvious answers
@@ -87,7 +107,7 @@ public class QuizExportAssembler {
                 || question.getType() == QuestionType.MCQ_SINGLE
                 || question.getType() == QuestionType.MCQ_MULTI
                 || question.getType() == QuestionType.COMPLIANCE) {
-            content = shuffleQuestionContent(content, question.getType());
+            content = shuffleQuestionContent(content, question.getType(), rng);
         }
         
         return new QuestionExportDto(
@@ -115,9 +135,12 @@ public class QuizExportAssembler {
     }
 
     /**
-     * Shuffle question content for ORDERING, MATCHING, MCQ, and COMPLIANCE questions to prevent obvious answers
+     * Shuffle question content with deterministic Random for reproducible exports
+     * @param content the question content to shuffle
+     * @param type the question type
+     * @param rng Random instance for deterministic shuffling (null for non-deterministic)
      */
-    private JsonNode shuffleQuestionContent(JsonNode content, QuestionType type) {
+    private JsonNode shuffleQuestionContent(JsonNode content, QuestionType type, java.util.Random rng) {
         if (content == null || !content.isObject()) {
             return content;
         }
@@ -130,7 +153,11 @@ public class QuizExportAssembler {
                 ArrayNode options = (ArrayNode) content.get("options");
                 List<JsonNode> optionsList = new ArrayList<>();
                 options.forEach(optionsList::add);
-                Collections.shuffle(optionsList);
+                if (rng != null) {
+                    Collections.shuffle(optionsList, rng);
+                } else {
+                    Collections.shuffle(optionsList);
+                }
                 
                 ArrayNode shuffledOptions = objectMapper.createArrayNode();
                 optionsList.forEach(shuffledOptions::add);
@@ -142,7 +169,11 @@ public class QuizExportAssembler {
                 ArrayNode statements = (ArrayNode) content.get("statements");
                 List<JsonNode> statementsList = new ArrayList<>();
                 statements.forEach(statementsList::add);
-                Collections.shuffle(statementsList);
+                if (rng != null) {
+                    Collections.shuffle(statementsList, rng);
+                } else {
+                    Collections.shuffle(statementsList);
+                }
                 
                 ArrayNode shuffledStatements = objectMapper.createArrayNode();
                 statementsList.forEach(shuffledStatements::add);
@@ -162,7 +193,11 @@ public class QuizExportAssembler {
             // Shuffle ORDERING items for display
             List<JsonNode> itemsList = new ArrayList<>();
             items.forEach(itemsList::add);
-            Collections.shuffle(itemsList);
+            if (rng != null) {
+                Collections.shuffle(itemsList, rng);
+            } else {
+                Collections.shuffle(itemsList);
+            }
             
             ArrayNode shuffledItems = objectMapper.createArrayNode();
             itemsList.forEach(shuffledItems::add);
@@ -172,7 +207,11 @@ public class QuizExportAssembler {
             ArrayNode rightItems = (ArrayNode) content.get("right");
             List<JsonNode> rightItemsList = new ArrayList<>();
             rightItems.forEach(rightItemsList::add);
-            Collections.shuffle(rightItemsList);
+            if (rng != null) {
+                Collections.shuffle(rightItemsList, rng);
+            } else {
+                Collections.shuffle(rightItemsList);
+            }
             
             ArrayNode shuffledRightItems = objectMapper.createArrayNode();
             rightItemsList.forEach(shuffledRightItems::add);

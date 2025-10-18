@@ -66,7 +66,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -106,7 +106,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -136,7 +136,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -172,7 +172,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -205,7 +205,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -237,7 +237,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -275,7 +275,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -307,7 +307,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -342,7 +342,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -379,7 +379,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -417,7 +417,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -448,7 +448,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -482,7 +482,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);
@@ -512,7 +512,7 @@ class HtmlPrintExportRendererQuestionContentTest {
             );
             
             QuizExportDto quiz = createQuizWithQuestions(List.of(question));
-            ExportPayload payload = new ExportPayload(List.of(quiz), PrintOptions.defaults(), "test");
+            ExportPayload payload = ExportPayload.of(List.of(quiz), PrintOptions.defaults(), "test");
 
             // When
             ExportFile file = renderer.render(payload);

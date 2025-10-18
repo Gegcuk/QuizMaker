@@ -1483,18 +1483,21 @@ GET /api/v1/quizzes/export
 
 **HTML/PDF Print Options**:
 All print-specific parameters control the output formatting:
-- **Cover page**: Generated timestamp (no redundant title)
-- **Metadata blocks**: Quiz details, difficulty, time estimates
+- **Cover page**: Shows quiz title and metadata for single quiz; generic title for multiple quizzes
+- **Metadata blocks**: Quiz details, difficulty, time estimates, tags
 - **Answer key placement**: Separate pages or inline
 - **Hints**: Warm yellow background with orange border for visibility
 - **Explanations**: Blue background with darker blue border for clarity
-- **Grouping**: Questions organized by type (MCQ, True/False, etc.)
+- **Grouping**: Questions organized by type (MCQ, True/False, etc.); each type starts on a new page
 - **Matching questions**: Clean 2-column grid layout with numbers (1, 2, 3...) on left and letters (A, B, C...) on right (no instruction text)
 - **Ordering questions**: Items labeled with letters (A, B, C, D...)
 - **Answer key formats**:
   - MATCHING: Number-letter combinations (e.g., `1 → A, 2 → B, 3 → C`)
   - ORDERING: Letter sequence (e.g., `C → A → D → B`)
   - COMPLIANCE: Statement positions (e.g., `Compliant: 1, 3, 5`)
+- **Version identifier**: Every export generates a unique 6-character version code (e.g., `A1B2C3`) displayed in the footer of every page. Use this to match student sheets with the correct answer key, especially when content is shuffled.
+- **Page footers**: Left side shows version code, right side shows page numbers (e.g., "Page 1 of 5")
+- **Deterministic shuffling**: Options, statements, and items are shuffled using a seed derived from the export ID, ensuring the answer key always matches the question order for that specific export
 
 **Error Responses**:
 - `400` - Invalid format enum, invalid UUID format, validation error
@@ -1535,6 +1538,14 @@ Authorization: Bearer <token>
 - Print options only apply to `HTML_PRINT` and `PDF_PRINT` formats
 - JSON and XLSX formats preserve full data structure for round-trip import
 - Filename includes timestamp and filter indicators for traceability
+
+**Version Code & Reproducibility**:
+- Each print export generates a unique 6-character version code (e.g., `3F7A2K`) displayed in the footer
+- The version code is derived from a unique export ID and ensures reproducibility
+- For shuffled content (MCQ options, ORDERING items, MATCHING pairs, COMPLIANCE statements), the shuffle is deterministic based on a seed tied to the export
+- **Troubleshooting**: If a student's quiz sheet doesn't match the answer key, check the version code in the footer. Each export version has its own answer key mapping
+- Use the version code to audit which export a student received and match it with the correct answer key
+- The same content with the same filters exported at different times will have different version codes and potentially different shuffled order
 
 ---
 
