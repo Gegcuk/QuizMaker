@@ -183,7 +183,8 @@ class RealAiQuizGenerationIntegrationTest {
                 rateLimitConfig,
                 internalBillingService,
                 transactionTemplate,
-                structuredAiClient
+                structuredAiClient,
+                new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper)
         );
 
         BillingProperties billingProperties = new BillingProperties();

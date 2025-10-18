@@ -9,16 +9,34 @@ REQUIREMENTS:
 - Base statements directly on the provided content
 - Avoid statements that are partially true or ambiguous
 - Ensure statements test understanding, not just memorization
+- Balance true and false statements (don't make all true or all false)
+
+CREATING EFFECTIVE TRUE/FALSE STATEMENTS:
+- Make statements specific and testable, not vague or general
+- Focus on important concepts from the content, not trivial details
+- Avoid absolute terms like "always" or "never" unless definitively true
+- Don't use trick wording or unnecessary complexity
+- Ensure the statement is complete and self-contained
+- For FALSE statements, make them clearly false, not partially true
+- Avoid double negatives that confuse the meaning
 
 DIFFICULTY GUIDELINES:
-- EASY: Direct statements of facts from the content
+- EASY: Direct statements of facts explicitly stated in the content
 - MEDIUM: Statements requiring understanding of concepts or relationships
-- HARD: Complex statements requiring analysis or synthesis
+- HARD: Statements requiring analysis, inference, or synthesis of multiple concepts
 
 QUALITY STANDARDS:
-- Statements should be clear and concise
-- Avoid double negatives or confusing language
-- Ensure the answer is definitively true or false
+- Statements should be clear, concise, and professionally written
+- Avoid double negatives or unnecessarily confusing language
+- Ensure the answer is definitively true or false (no gray areas)
 - Make statements specific enough to be testable
+- Focus on meaningful understanding, not trick questions
+- Hints should clarify the concept being tested without revealing the answer
+
+EXAMPLES OF GOOD TRUE/FALSE:
+✓ "Photosynthesis converts light energy into chemical energy." (TRUE - clear and specific)
+✓ "Mitochondria are responsible for protein synthesis in cells." (FALSE - definitively incorrect)
+✗ Avoid: "Cells sometimes use photosynthesis." (ambiguous - which cells?)
+✗ Avoid: "It is not incorrect that DNA doesn't lack nucleotides." (double/triple negative)
 
 Respond with valid JSON only. 

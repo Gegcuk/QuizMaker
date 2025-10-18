@@ -1,0 +1,101 @@
+{
+  "questions": [
+    {
+      "questionText": "Arrange the following SSL/TLS protocol versions in chronological order from earliest to latest:",
+      "difficulty": "MEDIUM",
+      "type": "ORDERING",
+      "content": {
+        "items": [
+          {
+            "id": 1,
+            "text": "SSL 2.0 first widely deployed version"
+          },
+          {
+            "id": 2,
+            "text": "SSL 3.0 introduced to address security flaws"
+          },
+          {
+            "id": 3,
+            "text": "TLS 1.0 supersedes SSL as new standard"
+          },
+          {
+            "id": 4,
+            "text": "TLS 1.1 adds protection against cipher block chaining attacks"
+          },
+          {
+            "id": 5,
+            "text": "TLS 1.2 becomes widely adopted for modern security"
+          },
+          {
+            "id": 6,
+            "text": "TLS 1.3 streamlines handshake and removes obsolete features"
+          }
+        ]
+      },
+      "hint": "Consider the evolution from SSL to TLS and how each version built upon the previous one's security improvements",
+      "explanation": "SSL/TLS protocols evolved chronologically: SSL 2.0 was the first widely used version (1995), followed by SSL 3.0 (1996). TLS succeeded SSL, starting with TLS 1.0 (1999), then TLS 1.1 (2006), TLS 1.2 (2008), and most recently TLS 1.3 (2018). Each version addressed security concerns from the previous one.",
+      "confidence": 0.98
+    },
+    {
+      "questionText": "Arrange the following steps of photosynthesis in the correct order:",
+      "difficulty": "MEDIUM",
+      "type": "ORDERING",
+      "content": {
+        "items": [
+          {
+            "id": 1,
+            "text": "Light energy is absorbed by chlorophyll"
+          },
+          {
+            "id": 2,
+            "text": "Water molecules are split into hydrogen and oxygen"
+          },
+          {
+            "id": 3,
+            "text": "ATP and NADPH are produced in the light reactions"
+          },
+          {
+            "id": 4,
+            "text": "Carbon dioxide is fixed in the Calvin cycle"
+          },
+          {
+            "id": 5,
+            "text": "Glucose is synthesized from carbon compounds"
+          }
+        ]
+      },
+      "hint": "Think about what happens first in the light-dependent reactions and then moves to the Calvin cycle",
+      "explanation": "Photosynthesis occurs in two main stages: the light-dependent reactions (steps 1-3) where light energy is captured and used to produce ATP and NADPH, followed by the light-independent Calvin cycle (steps 4-5) where carbon dioxide is fixed and glucose is synthesized.",
+      "confidence": 0.95
+    },
+    {
+      "questionText": "Put the following events of the American Revolution in chronological order:",
+      "difficulty": "EASY",
+      "type": "ORDERING",
+      "content": {
+        "items": [
+          {
+            "id": 1,
+            "text": "Boston Tea Party protest against British taxation"
+          },
+          {
+            "id": 2,
+            "text": "First Continental Congress convenes to coordinate colonial response"
+          },
+          {
+            "id": 3,
+            "text": "First military confrontations at Lexington and Concord"
+          },
+          {
+            "id": 4,
+            "text": "Declaration of Independence formally announced"
+          }
+        ]
+      },
+      "hint": "Think about the escalation from protest to political action to armed conflict to formal separation",
+      "explanation": "The sequence follows the escalation of tensions: the Boston Tea Party (1773) was a protest against British taxation, which led to the First Continental Congress (1774), then to armed conflict at Lexington and Concord (1775), and finally to the formal Declaration of Independence (1776). Dates are provided here for learning, but items don't include them to test understanding.",
+      "confidence": 0.98
+    }
+  ]
+}
+

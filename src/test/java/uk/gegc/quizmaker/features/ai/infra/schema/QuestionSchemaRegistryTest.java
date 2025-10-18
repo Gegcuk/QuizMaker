@@ -97,7 +97,7 @@ class QuestionSchemaRegistryTest {
         assertThat(content.has("items")).isTrue();
         JsonNode items = content.get("items");
         assertThat(items.get("type").asText()).isEqualTo("array");
-        assertThat(items.get("minItems").asInt()).isEqualTo(2);
+        assertThat(items.get("minItems").asInt()).isEqualTo(3); // Changed to 3 for better quality
         assertThat(items.get("maxItems").asInt()).isEqualTo(10);
         
         // Verify item structure

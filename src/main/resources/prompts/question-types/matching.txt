@@ -3,24 +3,69 @@ Generate exactly {questionCount} MATCHING questions with {difficulty} difficulty
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, item text, hint, and explanation in {language}; translate faithfully when the source content differs.
-- Provide a list of left items and right items
-- Minimum of 4 pairs required (4 left items and 4 right items)
-- Each left item has: id (integer), text (string), matchId (integer pointing to right item)
+- Provide a list of left items (prompts) and right items (matches)
+- Number of items varies by difficulty (see guidelines below)
+- Each left item has: id (integer), text (string), matchId (integer pointing to the correct right item)
 - Each right item has: id (integer), text (string)
-- Ensure ids are unique within left and right lists
+- Use sequential IDs for left (1, 2, 3, 4...) and distinct IDs for right (10, 20, 30, 40...)
+- Ensure IDs are unique within their respective lists
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
 
-DIFFICULTY GUIDELINES:
+CREATING EFFECTIVE MATCHING QUESTIONS:
+- Left items should be concepts, terms, people, dates, or causes
+- Right items should be their definitions, examples, achievements, events, or effects
+- All items should be related to the same general topic
+- Ensure there is exactly one correct match for each left item
+- Include plausible but incorrect right items as distractors
+- Number of distractors varies by difficulty (see guidelines below)
+- Keep item text concise and parallel in structure
+
+DIFFICULTY GUIDELINES - ITEMS AND DISTRACTORS:
 - EASY: Simple direct matches, obvious relationships
+  • 4 left items + 4 right items (no distractors, 1-to-1 matching)
+  • Right items should be clearly distinguishable
+  • Direct, straightforward relationships
+  
 - MEDIUM: Conceptual matches requiring understanding
+  • 4-5 left items + 4-5 right items (no distractors, 1-to-1 matching)
+  • Requires understanding of concepts and relationships
+  • Items are less obvious than EASY but still clearly paired
+  
 - HARD: Complex relationships, subtle distinctions
+  • 5-6 left items + 7-9 right items (2-3 distractors)
+  • Distractors should be very similar to correct answers
+  • Requires deep understanding to distinguish correct matches
+  • Extra right items provide plausible wrong answers
 
 QUALITY STANDARDS:
-- Matches should be clear and unambiguous
-- Ensure only one correct pairing for each item
-- Items should test meaningful relationships
-- Provide helpful context for making matches
+- Matches should be clear and definitively correct
+- Ensure only one correct pairing for each left item
+- All items should be similar in length and complexity
+- Right items should be plausible distractors for other left items
+- Provide helpful context in the question text for the type of relationship
+- Avoid obvious patterns (like alphabetical matching)
+
+EXAMPLES OF GOOD MATCHING BY DIFFICULTY:
+
+✓ EASY (4 left + 4 right, no distractors):
+  Question: "Match each animal with its class:"
+  Left: 1="Dog" (matchId: 10), 2="Eagle" (matchId: 20), 3="Salmon" (matchId: 30), 4="Frog" (matchId: 40)
+  Right: 10="Mammal", 20="Bird", 30="Fish", 40="Amphibian"
+
+✓ MEDIUM (4 left + 4 right, no distractors):
+  Question: "Match each scientist with their major contribution:"
+  Left: 1="Charles Darwin" (matchId: 10), 2="Isaac Newton" (matchId: 20), 3="Marie Curie" (matchId: 30), 4="Louis Pasteur" (matchId: 40)
+  Right: 10="Theory of Evolution", 20="Laws of Motion", 30="Radioactivity research", 40="Germ theory"
+
+✓ HARD (5 left + 8 right, 3 distractors):
+  Question: "Match each programming paradigm with its primary characteristic:"
+  Left: 1="Object-Oriented" (matchId: 10), 2="Functional" (matchId: 20), 3="Procedural" (matchId: 30), 4="Logic" (matchId: 40), 5="Declarative" (matchId: 50)
+  Right: 10="Encapsulation and inheritance", 20="Pure functions and immutability", 30="Sequential instructions", 40="Rule-based inference", 50="What to compute, not how", 60="Event-driven callbacks", 70="Concurrent processes", 80="Data flow streams"
+  
+✗ Avoid: Mixing categories (e.g., matching dates with colors - unrelated concepts)
+✗ Avoid: Items of vastly different lengths or complexity
+✗ Avoid: Adding distractors for EASY or MEDIUM - only HARD should have them
 
 Respond with valid JSON only.
 

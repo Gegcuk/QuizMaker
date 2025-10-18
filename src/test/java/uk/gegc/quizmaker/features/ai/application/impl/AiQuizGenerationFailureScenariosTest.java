@@ -95,7 +95,8 @@ class AiQuizGenerationFailureScenariosTest {
                 rateLimitConfig,
                 internalBillingService,
                 transactionTemplate,
-                structuredAiClient
+                structuredAiClient,
+                new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper)
         ));
         lenient().when(transactionTemplate.execute(any()))
                 .thenAnswer(invocation -> {

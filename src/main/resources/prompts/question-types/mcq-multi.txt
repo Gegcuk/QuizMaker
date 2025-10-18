@@ -3,18 +3,34 @@ Generate exactly {questionCount} MCQ_MULTI questions with {difficulty} difficult
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, option, hint, explanation, and feedback in {language}; translate faithfully if the source content differs.
-- Each question must have exactly 4 options with ids (a, b, c, d)
+- Each question should have 4-6 options with sequential ids (a, b, c, d, e, f)
 - At least 1 options must be marked as correct
 - At least 1 option must be marked as not correct
-- Question text should clearly indicate "select all that apply" or similar
-- All options should be plausible
+- Question text should clearly indicate "select all that apply" or similar wording
+- All options should be plausible and well-constructed
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
-- Ensure questions test understanding of multiple concepts
+- Ensure questions test understanding of multiple related concepts
+
+OPTION QUALITY (CRITICAL):
+- Correct answers: All marked options must be definitively correct
+- Distractors: Should be plausible but clearly incorrect
+- Typically aim for 1-5 correct answers out of 4-6 total options
+- All options should be similar in length and complexity
+- Avoid patterns like "all correct options are longer" or "all start with same letter"
+- Options should cover different aspects of the concept being tested
+- Ensure incorrect options represent common misconceptions
 
 DIFFICULTY GUIDELINES:
-- EASY: Multiple basic facts from the content
-- MEDIUM: Multiple related concepts or applications
-- HARD: Complex relationships requiring synthesis of multiple ideas
+- EASY: Multiple straightforward facts or characteristics (1-3 correct out of 4)
+- MEDIUM: Multiple related concepts requiring understanding (1-5 correct out of 5)
+- HARD: Complex relationships requiring deep analysis (1-5 correct out of 6)
+
+EXAMPLES OF GOOD MCQ_MULTI:
+✓ Question: "Which of the following are characteristics of mammals? (Select all that apply)"
+  Options: "warm-blooded" (correct), "have hair/fur" (correct), "lay eggs" (wrong), "breathe through gills" (wrong)
+
+✗ Avoid: "All of the above are correct"
+✗ Avoid: Making all options similar so they're all correct or all wrong
 
 Respond with valid JSON only. 

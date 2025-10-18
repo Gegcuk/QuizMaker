@@ -407,11 +407,13 @@ public class QuestionSchemaRegistry {
     /**
      * Schema for ORDERING content
      * Parser expects: content.items [{id: int, text: string}] with unique sequential IDs
+     * CRITICAL: Items MUST be listed in the CORRECT order (1, 2, 3, 4, 5)
      */
     private ObjectNode createOrderingContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
         content.put("additionalProperties", false);
+        content.put("description", "CRITICAL: List items in the CORRECT sequential order. Use IDs 1,2,3,4,5 to indicate the proper sequence. The system will shuffle for display.");
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("items");
@@ -421,8 +423,8 @@ public class QuestionSchemaRegistry {
         
         ObjectNode items = objectMapper.createObjectNode();
         items.put("type", "array");
-        items.put("description", "Items to be ordered (in correct order) with unique sequential IDs");
-        items.put("minItems", 2);
+        items.put("description", "Items listed in CORRECT order with sequential IDs (1=first, 2=second, 3=third, etc.). System shuffles for display.");
+        items.put("minItems", 3);
         items.put("maxItems", 10);
         
         ObjectNode itemSchema = objectMapper.createObjectNode();
@@ -438,12 +440,15 @@ public class QuestionSchemaRegistry {
         
         ObjectNode itemId = objectMapper.createObjectNode();
         itemId.put("type", "integer");
-        itemId.put("description", "Unique sequential ID for this item");
+        itemId.put("description", "Sequential ID matching position in correct order (1=first, 2=second, 3=third, etc.)");
+        itemId.put("minimum", 1);
         itemProps.set("id", itemId);
         
         ObjectNode itemText = objectMapper.createObjectNode();
         itemText.put("type", "string");
-        itemText.put("description", "Text content of this item");
+        itemText.put("description", "Clear, self-contained text describing this step/stage in the sequence");
+        itemText.put("minLength", 5);
+        itemText.put("maxLength", 200);
         itemProps.set("text", itemText);
         
         itemSchema.set("properties", itemProps);

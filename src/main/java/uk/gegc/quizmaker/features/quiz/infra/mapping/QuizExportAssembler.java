@@ -180,17 +180,25 @@ public class QuizExportAssembler {
                 shuffledContent.set("statements", shuffledStatements);
             }
         } else if (type == QuestionType.ORDERING && content.has("items")) {
-            // Preserve the original correct order before shuffling
-            ArrayNode items = (ArrayNode) content.get("items");
-            ArrayNode correctOrder = objectMapper.createArrayNode();
-            for (JsonNode item : items) {
-                if (item.has("id")) {
-                    correctOrder.add(item.get("id").asInt());
+            // Use existing correctOrder if present, otherwise capture from current items order
+            ArrayNode correctOrder;
+            if (content.has("correctOrder")) {
+                // Use the correctOrder that was saved when the question was created
+                correctOrder = (ArrayNode) content.get("correctOrder");
+            } else {
+                // Legacy support: if no correctOrder exists, capture from items
+                ArrayNode items = (ArrayNode) content.get("items");
+                correctOrder = objectMapper.createArrayNode();
+                for (JsonNode item : items) {
+                    if (item.has("id")) {
+                        correctOrder.add(item.get("id").asInt());
+                    }
                 }
             }
             shuffledContent.set("correctOrder", correctOrder);
             
             // Shuffle ORDERING items for display
+            ArrayNode items = (ArrayNode) content.get("items");
             List<JsonNode> itemsList = new ArrayList<>();
             items.forEach(itemsList::add);
             if (rng != null) {
