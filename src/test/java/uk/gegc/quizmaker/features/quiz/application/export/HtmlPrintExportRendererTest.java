@@ -200,7 +200,7 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("<title>Quizzes Export</title>");
+            assertThat(html).contains("<title>Test Quiz</title>");
         }
     }
 
