@@ -1,6 +1,42 @@
 {
   "questions": [
     {
+      "questionText": "Arrange the following SSL/TLS protocol versions in chronological order from earliest to latest:",
+      "difficulty": "MEDIUM",
+      "type": "ORDERING",
+      "content": {
+        "items": [
+          {
+            "id": 1,
+            "text": "SSL 2.0 first widely deployed version"
+          },
+          {
+            "id": 2,
+            "text": "SSL 3.0 introduced to address security flaws"
+          },
+          {
+            "id": 3,
+            "text": "TLS 1.0 supersedes SSL as new standard"
+          },
+          {
+            "id": 4,
+            "text": "TLS 1.1 adds protection against cipher block chaining attacks"
+          },
+          {
+            "id": 5,
+            "text": "TLS 1.2 becomes widely adopted for modern security"
+          },
+          {
+            "id": 6,
+            "text": "TLS 1.3 streamlines handshake and removes obsolete features"
+          }
+        ]
+      },
+      "hint": "Consider the evolution from SSL to TLS and how each version built upon the previous one's security improvements",
+      "explanation": "SSL/TLS protocols evolved chronologically: SSL 2.0 was the first widely used version (1995), followed by SSL 3.0 (1996). TLS succeeded SSL, starting with TLS 1.0 (1999), then TLS 1.1 (2006), TLS 1.2 (2008), and most recently TLS 1.3 (2018). Each version addressed security concerns from the previous one.",
+      "confidence": 0.98
+    },
+    {
       "questionText": "Arrange the following steps of photosynthesis in the correct order:",
       "difficulty": "MEDIUM",
       "type": "ORDERING",
@@ -40,24 +76,24 @@
         "items": [
           {
             "id": 1,
-            "text": "Boston Tea Party (December 1773)"
+            "text": "Boston Tea Party protest against British taxation"
           },
           {
             "id": 2,
-            "text": "First Continental Congress meets (September 1774)"
+            "text": "First Continental Congress convenes to coordinate colonial response"
           },
           {
             "id": 3,
-            "text": "Battles of Lexington and Concord (April 1775)"
+            "text": "First military confrontations at Lexington and Concord"
           },
           {
             "id": 4,
-            "text": "Declaration of Independence signed (July 1776)"
+            "text": "Declaration of Independence formally announced"
           }
         ]
       },
-      "hint": "Look at the dates provided in parentheses to help determine the sequence",
-      "explanation": "The sequence follows the escalation of tensions: the Boston Tea Party was a protest against British taxation, which led to the First Continental Congress, then to armed conflict at Lexington and Concord, and finally to the formal declaration of independence.",
+      "hint": "Think about the escalation from protest to political action to armed conflict to formal separation",
+      "explanation": "The sequence follows the escalation of tensions: the Boston Tea Party (1773) was a protest against British taxation, which led to the First Continental Congress (1774), then to armed conflict at Lexington and Concord (1775), and finally to the formal Declaration of Independence (1776). Dates are provided here for learning, but items don't include them to test understanding.",
       "confidence": 0.98
     }
   ]

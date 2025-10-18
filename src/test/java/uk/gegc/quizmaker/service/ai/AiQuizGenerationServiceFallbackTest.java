@@ -58,6 +58,9 @@ class AiQuizGenerationServiceFallbackTest {
     
     @Mock
     private StructuredAiClient structuredAiClient;
+    
+    @Mock
+    private uk.gegc.quizmaker.features.question.application.QuestionContentShuffler questionContentShuffler;
 
     @InjectMocks
     private AiQuizGenerationServiceImpl aiQuizGenerationService;
@@ -93,6 +96,10 @@ class AiQuizGenerationServiceFallbackTest {
         testChunk.setId(UUID.randomUUID());
         testChunk.setChunkIndex(1);
         testChunk.setContent("This is a comprehensive test chunk content about machine learning algorithms and their applications in artificial intelligence. The content is long enough to generate meaningful questions.");
+        
+        // Mock QuestionContentShuffler to return content as-is (no actual shuffling in tests)
+        lenient().when(questionContentShuffler.shuffleContent(any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0)); // Return content unchanged
     }
 
     private void setupRateLimitConfig() {

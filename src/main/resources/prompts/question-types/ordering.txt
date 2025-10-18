@@ -11,17 +11,30 @@ REQUIREMENTS:
 - Make sure the ordering tests understanding of processes, sequences, or relationships
 
 CRITICAL: LIST ITEMS IN THE CORRECT ORDER
-- The items MUST be listed in the correct sequential order from start to finish
-- For chronological sequences: list from earliest to latest event
-- For process steps: list from first step to last step
-- For cause-effect: list from cause to ultimate effect
-- The system will shuffle the display order - you just provide the correct sequence
-- Use sequential IDs (1, 2, 3, 4, 5) that match the correct order
+⚠️ THIS IS MANDATORY - DO NOT RANDOMIZE THE ORDER ⚠️
+- Items MUST be in the array in the EXACT CORRECT SEQUENCE from start to finish
+- Assign ID=1 to the FIRST item in the sequence, ID=2 to SECOND, ID=3 to THIRD, etc.
+- For chronological sequences: ID=1 is EARLIEST, last ID is LATEST
+- For process steps: ID=1 is FIRST STEP, last ID is LAST STEP
+- For cause-effect: ID=1 is CAUSE, last ID is ULTIMATE EFFECT
+- The system will shuffle items for display - your job is to provide the CORRECT LOGICAL ORDER
+- NEVER assign random IDs - they MUST match the position in correct sequence
+
+STEP-BY-STEP INSTRUCTIONS FOR CHRONOLOGICAL ORDERING:
+1. Identify all items you want to include
+2. Sort them by date/time from EARLIEST to LATEST
+3. Assign ID=1 to earliest, ID=2 to second earliest, etc.
+4. List them in the JSON array in that exact order (earliest first)
 
 EXAMPLES OF CORRECT ORDERING:
 ✓ Process: 1="Gather ingredients", 2="Mix dry ingredients", 3="Add wet ingredients", 4="Bake in oven", 5="Cool and serve"
-✓ History: 1="Declaration of Independence (1776)", 2="Constitution ratified (1788)", 3="Bill of Rights (1791)", 4="Civil War (1861-1865)"
+✓ History: 1="Declaration of Independence signed", 2="Constitution ratified", 3="Bill of Rights added", 4="Civil War begins"
 ✓ Biology: 1="DNA replication begins", 2="Helicase unwinds DNA", 3="Primase adds primers", 4="DNA polymerase synthesizes", 5="Ligase seals gaps"
+✓ Technology: 1="SSL 2.0 released", 2="SSL 3.0 introduced", 3="TLS 1.0 supersedes SSL", 4="TLS 1.1 adds security improvements", 5="TLS 1.2 becomes widely adopted", 6="TLS 1.3 latest version introduced"
+
+✗ WRONG - Including dates: 1="SSL 2.0 (1995)", 2="TLS 1.3 (2018)" - dates make it too easy
+✗ WRONG - Random IDs: 1="TLS 1.0 released", 2="TLS 1.3 latest", 3="TLS 1.1 update", 4="SSL 2.0 first version"
+✗ WRONG - Items not in logical array order even if IDs are sequential
 
 DIFFICULTY GUIDELINES:
 - EASY: Simple sequences, chronological order, basic processes (3-4 steps)
@@ -35,6 +48,10 @@ QUALITY STANDARDS:
 - Avoid items that could be ordered in multiple valid ways
 - Ensure the sequence tests meaningful understanding
 - Provide clear context in the question text for why the order matters
-- Include numbering or time markers in item text when appropriate for clarity
+- DO NOT include explicit dates or years in the item text (e.g., avoid "(1995)", "in 1974")
+- Items should be orderable based on understanding of the content, not just reading dates
+- Focus on the conceptual or logical sequence rather than giving away the answer with timestamps
+- For historical events, describe the event itself without the date
+- Dates can appear in the hint or explanation, but not in the items themselves
 
 Respond with valid JSON only. 
