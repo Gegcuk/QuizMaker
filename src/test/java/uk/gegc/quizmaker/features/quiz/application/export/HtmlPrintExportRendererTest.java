@@ -703,10 +703,10 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            assertThat(html).contains("<div class=\"footer\">");
+            assertThat(html).contains("@page");
+            assertThat(html).contains("@bottom-center");
             assertThat(html).contains("Version: TEST01");
-            assertThat(html).contains("class=\"page-number\"");
-            assertThat(html).contains("class=\"total-pages\"");
+            assertThat(html).contains("margin:0.5in");
         }
     }
 

@@ -73,9 +73,10 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".matching-col ul{list-style:none;padding-left:0;margin:0;} ");
         sb.append(".matching-col li{padding:2px 0;} ");
         sb.append(".footer{display:none;} ");
-        sb.append("@media print{.footer{display:flex;position:fixed;bottom:0;left:0;right:0;padding:8px 24px;font-size:10px;color:#666;border-top:1px solid #ddd;background:white;justify-content:space-between;}} ");
-        sb.append("@media print{.footer .page-number:after{content:counter(page);}} ");
-        sb.append("@media print{.footer .total-pages:after{content:counter(pages);}} ");
+        sb.append("@media print{");
+        sb.append("@page{margin:0.5in;@bottom-center{content:'Version: ").append(escape(payload.versionCode())).append("';font-size:10px;color:#666;}} ");
+        sb.append(".footer{display:none;} ");
+        sb.append("} ");
         sb.append("</style>");
         sb.append("</head><body>");
 
@@ -128,13 +129,6 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             sb.append("</div>");
         }
         sb.append("</section>");
-        
-        // Footer with version code and page numbers (appears on every printed page)
-        sb.append("<div class=\"footer\">");
-        sb.append("<span>Version: ").append(escape(payload.versionCode())).append("</span>");
-        sb.append("<span>Page <span class=\"page-number\"></span> of <span class=\"total-pages\"></span></span>");
-        sb.append("</div>");
-
         sb.append("</body></html>");
         return sb.toString();
     }
