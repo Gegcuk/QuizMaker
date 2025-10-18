@@ -22,6 +22,8 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -93,11 +95,13 @@ class QuizServiceImplModificationMethodsTest {
     @Mock
     private FeatureFlags featureFlags;
     @Mock
-    private uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
+    private QuizJobProperties quizJobProperties;
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private QuizQueryService quizQueryService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -578,7 +582,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setId(UUID.randomUUID());
             job.setStatus(GenerationStatus.PROCESSING); // Not completed
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ValidationException("Generation job is not yet completed. Current status: " + job.getStatus()));
 
             // When & Then - Lines 595-596 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -595,7 +600,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setStatus(GenerationStatus.COMPLETED);
             job.setGeneratedQuizId(null); // Null quiz ID
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ResourceNotFoundException("Generated quiz not found for job: " + job.getId()));
 
             // When & Then - Lines 599-600 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -612,8 +618,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setStatus(GenerationStatus.COMPLETED);
             job.setGeneratedQuizId(UUID.randomUUID());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.empty());
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
 
             // When & Then - Line 605 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -631,10 +637,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(null); // Null creator
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ForbiddenException("Access denied"));
 
             // When & Then - Line 607 covered (null creator)
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -656,10 +660,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(differentUser); // Different creator
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ForbiddenException("Access denied"));
 
             // When & Then - Line 607 covered (creator ID doesn't match)
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -677,14 +679,10 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(testUser); // Matching creator
-            
             QuizDto quizDto = mock(QuizDto.class);
             when(quizDto.id()).thenReturn(testQuiz.getId());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
-            when(quizMapper.toDto(testQuiz)).thenReturn(quizDto);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername())).thenReturn(quizDto);
 
             // When
             QuizDto result = quizService.getGeneratedQuiz(job.getId(), testUser.getUsername());

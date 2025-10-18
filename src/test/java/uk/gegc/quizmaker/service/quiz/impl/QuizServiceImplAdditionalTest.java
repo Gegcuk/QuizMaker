@@ -32,7 +32,9 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -92,7 +94,7 @@ class QuizServiceImplAdditionalTest {
     @Mock
     private DocumentProcessingService documentProcessingService;
     @Mock
-    private uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator quizHashCalculator;
+    private QuizHashCalculator quizHashCalculator;
     @Mock
     private BillingService billingService;
     @Mock
@@ -109,6 +111,8 @@ class QuizServiceImplAdditionalTest {
     private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private Authentication authentication;
+    @Mock
+    QuizQueryService quizQueryService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -173,17 +177,11 @@ class QuizServiceImplAdditionalTest {
             Pageable pageable = PageRequest.of(0, 10);
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
-            Quiz quiz = new Quiz();
-            quiz.setId(UUID.randomUUID());
-            quiz.setVisibility(Visibility.PUBLIC);
-            quiz.setStatus(QuizStatus.PUBLISHED);
-            
-            Page<Quiz> quizPage = new PageImpl<>(List.of(quiz));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            
-            QuizDto quizDto = new QuizDto(quiz.getId(), null, null, "Test", "Desc",
+            QuizDto quizDto = new QuizDto(UUID.randomUUID(), null, null, "Test", "Desc",
                     Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
-            when(quizMapper.toDto(quiz)).thenReturn(quizDto);
+            Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
+            
+            when(quizQueryService.getQuizzes(pageable, criteria, "public", null)).thenReturn(resultPage);
 
             // When - authentication = null, so user = null at line 145
             Page<QuizDto> result = quizService.getQuizzes(pageable, criteria, "public", null);
@@ -199,6 +197,9 @@ class QuizServiceImplAdditionalTest {
             // Given
             Pageable pageable = PageRequest.of(0, 10);
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
+            
+            when(quizQueryService.getQuizzes(pageable, criteria, "me", null))
+                    .thenThrow(new ForbiddenException("Authentication required for scope=me"));
 
             // When & Then
             assertThatThrownBy(() -> quizService.getQuizzes(pageable, criteria, "me", null))
@@ -213,8 +214,8 @@ class QuizServiceImplAdditionalTest {
             Pageable pageable = PageRequest.of(0, 10);
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
-            when(authentication.getName()).thenReturn("testuser");
-            when(authentication.isAuthenticated()).thenReturn(true);
+            when(quizQueryService.getQuizzes(pageable, criteria, "all", authentication))
+                    .thenThrow(new ForbiddenException("Moderator/Admin permissions required for scope=all"));
 
             // When & Then
             assertThatThrownBy(() -> quizService.getQuizzes(pageable, criteria, "all", authentication))
@@ -229,19 +230,11 @@ class QuizServiceImplAdditionalTest {
             Pageable pageable = PageRequest.of(0, 10);
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
-            when(authentication.getName()).thenReturn("testuser");
-            when(authentication.isAuthenticated()).thenReturn(true);
-            
-            Quiz quiz = new Quiz();
-            quiz.setId(UUID.randomUUID());
-            quiz.setCreator(testUser);
-            
-            Page<Quiz> quizPage = new PageImpl<>(List.of(quiz));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            
-            QuizDto quizDto = new QuizDto(quiz.getId(), testUser.getId(), null, "Test", "Desc",
+            QuizDto quizDto = new QuizDto(UUID.randomUUID(), testUser.getId(), null, "Test", "Desc",
                     Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), null, null);
-            when(quizMapper.toDto(quiz)).thenReturn(quizDto);
+            Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
+            
+            when(quizQueryService.getQuizzes(pageable, criteria, "me", authentication)).thenReturn(resultPage);
 
             // When
             Page<QuizDto> result = quizService.getQuizzes(pageable, criteria, "me", authentication);
@@ -249,7 +242,6 @@ class QuizServiceImplAdditionalTest {
             // Then
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(quizRepository).findAll(any(Specification.class), eq(pageable));
         }
 
         @Test
@@ -259,18 +251,11 @@ class QuizServiceImplAdditionalTest {
             Pageable pageable = PageRequest.of(0, 10);
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
-            when(authentication.getName()).thenReturn("moderator");
-            when(authentication.isAuthenticated()).thenReturn(true);
-            
-            Quiz quiz = new Quiz();
-            quiz.setId(UUID.randomUUID());
-            
-            Page<Quiz> quizPage = new PageImpl<>(List.of(quiz));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            
-            QuizDto quizDto = new QuizDto(quiz.getId(), null, null, "Test", "Desc",
+            QuizDto quizDto = new QuizDto(UUID.randomUUID(), null, null, "Test", "Desc",
                     Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
-            when(quizMapper.toDto(quiz)).thenReturn(quizDto);
+            Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
+            
+            when(quizQueryService.getQuizzes(pageable, criteria, "all", authentication)).thenReturn(resultPage);
 
             // When
             Page<QuizDto> result = quizService.getQuizzes(pageable, criteria, "all", authentication);
@@ -278,7 +263,6 @@ class QuizServiceImplAdditionalTest {
             // Then
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(1);
-            verify(quizRepository).findAll(any(Specification.class), eq(pageable));
         }
     }
 
@@ -291,13 +275,9 @@ class QuizServiceImplAdditionalTest {
         void getQuizById_anonymousUserAccessingPrivateQuiz_throwsForbiddenException() {
             // Given
             UUID quizId = UUID.randomUUID();
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-            quiz.setVisibility(Visibility.PRIVATE);
-            quiz.setStatus(QuizStatus.DRAFT);
-
-            when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
+            
+            when(quizQueryService.getQuizById(quizId, null))
+                    .thenThrow(new ForbiddenException("Access denied: quiz is not public"));
 
             // When & Then
             assertThatThrownBy(() -> quizService.getQuizById(quizId, null))
@@ -310,22 +290,12 @@ class QuizServiceImplAdditionalTest {
         void getQuizById_nonOwnerAccessingDraftQuiz_throwsForbiddenException() {
             // Given
             UUID quizId = UUID.randomUUID();
-            User otherUser = new User();
-            otherUser.setId(UUID.randomUUID());
-            otherUser.setUsername("otheruser");
-
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-            quiz.setVisibility(Visibility.PRIVATE);
-            quiz.setStatus(QuizStatus.DRAFT);
-
+            
             lenient().when(authentication.getName()).thenReturn("otheruser");
             lenient().when(authentication.isAuthenticated()).thenReturn(true);
-            lenient().when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
-            lenient().when(userRepository.findByUsername("otheruser")).thenReturn(Optional.of(otherUser));
-            lenient().when(userRepository.findByEmail("otheruser")).thenReturn(Optional.empty());
-            lenient().when(appPermissionEvaluator.hasPermission(eq(otherUser), any(PermissionName.class))).thenReturn(false);
+            
+            when(quizQueryService.getQuizById(quizId, authentication))
+                    .thenThrow(new ForbiddenException("Access denied: quiz is not public"));
 
             // When & Then
             assertThatThrownBy(() -> quizService.getQuizById(quizId, authentication))
@@ -338,16 +308,11 @@ class QuizServiceImplAdditionalTest {
         void getQuizById_anonymousUserPublicQuiz_returnsQuiz() {
             // Given - Line 213: return quizMapper.toDto(quiz);
             UUID quizId = UUID.randomUUID();
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setVisibility(Visibility.PUBLIC);
-            quiz.setStatus(QuizStatus.PUBLISHED);
 
             QuizDto expectedDto = new QuizDto(quizId, null, null, "Test", "Desc",
                     Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
 
-            when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
-            when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+            when(quizQueryService.getQuizById(quizId, null)).thenReturn(expectedDto);
 
             // When
             QuizDto result = quizService.getQuizById(quizId, null);

@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
@@ -52,6 +53,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
@@ -83,12 +85,13 @@ public class QuizServiceImpl implements QuizService {
     private final BillingService billingService;
     private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
-    private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
+    private final FeatureFlags featureFlags;
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
     private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
     private final QuizDefaultsProperties quizDefaultsProperties;
+    private final QuizQueryService quizQueryService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -153,81 +156,13 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria criteria, String scope, Authentication authentication) {
-        final User user;
-        if (authentication != null && authentication.isAuthenticated()) {
-            user = userRepository.findByUsername(authentication.getName())
-                    .or(() -> userRepository.findByEmail(authentication.getName()))
-                    .orElse(null);
-        } else {
-            user = null;
-        }
-
-        Specification<Quiz> spec = QuizSpecifications.build(criteria);
-        
-        // Apply scoping based on the scope parameter
-        switch (scope.toLowerCase()) {
-            case "me":
-                if (user == null) {
-                    throw new ForbiddenException("Authentication required for scope=me");
-                }
-                // Only return quizzes owned by the user
-                spec = spec.and((root, query, cb) -> 
-                    cb.equal(root.get("creator").get("id"), user.getId()));
-                break;
-                
-            case "all":
-                if (user == null || !(appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE) 
-                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-                    throw new ForbiddenException("Moderator/Admin permissions required for scope=all");
-                }
-                // Return all quizzes (no additional filtering)
-                break;
-                
-            case "public":
-            default:
-                // Only return public, published quizzes
-                spec = spec.and((root, query, cb) -> 
-                    cb.and(
-                        cb.equal(root.get("visibility"), Visibility.PUBLIC),
-                        cb.equal(root.get("status"), QuizStatus.PUBLISHED)
-                    ));
-                break;
-        }
-
-        return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
+        return quizQueryService.getQuizzes(pageable, criteria, scope, authentication);
     }
 
     @Override
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
-        Quiz quiz = quizRepository.findByIdWithTags(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + id + " not found"));
-
-        // If user is authenticated, check if they're the owner
-        if (authentication != null && authentication.isAuthenticated()) {
-            User user = userRepository.findByUsername(authentication.getName())
-                    .or(() -> userRepository.findByEmail(authentication.getName()))
-                    .orElse(null);
-            
-            if (user != null) {
-                boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-                boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
-                
-                // Allow access if user is owner or has moderation permissions
-                if (isOwner || hasModerationPermissions) {
-                    return quizMapper.toDto(quiz);
-                }
-            }
-        }
-
-        // For anonymous users or non-owners: only allow access to public quizzes
-        if (quiz.getVisibility() != Visibility.PUBLIC || quiz.getStatus() != QuizStatus.PUBLISHED) {
-            throw new ForbiddenException("Access denied: quiz is not public");
-        }
-
-        return quizMapper.toDto(quiz);
+        return quizQueryService.getQuizById(id, authentication);
     }
 
     @Override
@@ -600,32 +535,14 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
-        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
-        return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
+        return quizQueryService.getGenerationStatus(jobId, username);
     }
 
     @Override
     @Transactional
     public QuizDto getGeneratedQuiz(UUID jobId, String username) {
-        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
 
-        if (job.getStatus() != GenerationStatus.COMPLETED) {
-            throw new ValidationException("Generation job is not yet completed. Current status: " + job.getStatus());
-        }
-
-        if (job.getGeneratedQuizId() == null) {
-            throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
-        }
-
-        // Fix owner access: Use job's owner instead of null auth
-        Quiz quiz = quizRepository.findByIdWithTags(job.getGeneratedQuizId())
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
-
-        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(job.getUser().getId())) {
-            throw new ForbiddenException("Access denied");
-        }
-        
-        return quizMapper.toDto(quiz);
+        return quizQueryService.getGeneratedQuiz(jobId, username);
     }
 
     @Override
@@ -729,14 +646,13 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
-        Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
-        return jobs.map(job -> QuizGenerationStatus.fromEntity(job, featureFlags.isBilling()));
+        return quizQueryService.getGenerationJobs(username, pageable);
     }
 
     @Override
     @Transactional
     public QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username) {
-        return jobService.getJobStatistics(username);
+        return quizQueryService.getGenerationJobStatistics(username);
     }
 
     @EventListener
@@ -1319,19 +1235,10 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getPublicQuizzes(Pageable pageable) {
-        // Enforce visibility invariants: public catalog shows PUBLISHED && PUBLIC
-        return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
-                .map(quizMapper::toDto);
+        return quizQueryService.getPublicQuizzes(pageable);
     }
 
-    /**
-     * Commit tokens for successful quiz generation.
-     * Implements OUTPUT-only commit mode as specified in the billing plan.
-     * 
-     * State gating: Only allows commit for jobs in RESERVED state.
-     * Epsilon policy: Rejects commits that exceed reserved tokens by more than configured epsilon.
-     * Ledger linking: Ensures proper audit trail with reservation ID, job ID, and idempotency keys.
-     */
+
     void commitTokensForSuccessfulGeneration(QuizGenerationJob job, List<Question> allQuestions, 
                                                    GenerateQuizFromDocumentRequest originalRequest) {
         String jobId = job.getId().toString();
@@ -1387,7 +1294,7 @@ public class QuizServiceImpl implements QuizService {
                     inputPromptTokens
             );
 
-            // Cap actual tokens at reserved amount to avoid overcharging users
+            // Cap actual tokens at reserved amount to avoid overcharging users.
             // Users aren't responsible for our estimation accuracy
             long reservedTokens = lockedJob.getBillingEstimatedTokens();
             long tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
