@@ -28,6 +28,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -113,6 +115,10 @@ class QuizServiceImplTest {
     private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private QuizDefaultsProperties quizDefaultsProperties;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -634,34 +640,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        User user = createTestUser();
-        Category defaultCategory = new Category();
-        defaultCategory.setId(DEFAULT_CATEGORY_ID);
-        defaultCategory.setName("Uncategorized");
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-
-        lenient().when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-        lenient().when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        lenient().when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
-        lenient().when(quizMapper.toEntity(any(), eq(user), eq(defaultCategory), any())).thenReturn(quiz);
-        lenient().when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(email, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(email, request);
 
         // Then
         assertThat(result).isNotNull();
-        verify(userRepository).findByEmail(email);
-        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
-        verify(quizMapper).toEntity(any(), eq(user), eq(defaultCategory), any());
-        verify(quizRepository).save(any(Quiz.class));
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -683,32 +670,15 @@ class QuizServiceImplTest {
                 List.of()
         );
 
-        Category defaultCategory = new Category();
-        defaultCategory.setId(DEFAULT_CATEGORY_ID);
-        defaultCategory.setName("Uncategorized");
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(categoryRepository.findById(invalidCategoryId)).thenReturn(Optional.empty());
-        when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
-        when(quizMapper.toEntity(any(), eq(adminUser), eq(defaultCategory), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        verify(categoryRepository).findById(invalidCategoryId);
-        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
-        verify(quizMapper).toEntity(any(), eq(adminUser), eq(defaultCategory), any());
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -730,31 +700,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        Category category = new Category();
-        category.setId(categoryId);
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-        quiz.setVisibility(Visibility.PUBLIC);
-        quiz.setStatus(QuizStatus.DRAFT);
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(quizMapper.toEntity(any(), eq(adminUser), eq(category), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);  // Forced to PUBLISHED
-        verify(quizRepository).save(quiz);
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -776,33 +730,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        User user = createTestUser();
-        Category category = new Category();
-        category.setId(categoryId);
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-        quiz.setVisibility(Visibility.PUBLIC);
-        quiz.setStatus(QuizStatus.PUBLISHED);
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(quizMapper.toEntity(any(), eq(user), eq(category), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PRIVATE);  // Forced to PRIVATE
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);  // Forced to DRAFT
-        verify(quizRepository).save(quiz);
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test

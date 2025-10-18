@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
@@ -83,6 +84,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private QuizJobProperties quizJobProperties;
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
     @Mock private QuizQueryService quizQueryService;
+    @Mock private QuizCommandService quizCommandService;
 
     private ApplicationEventPublisher applicationEventPublisher;
 
@@ -113,7 +115,8 @@ class QuizServiceImplBillingDelegationTest {
                 transactionTemplate,
                 quizJobProperties,
                 quizDefaultsProperties,
-                quizQueryService
+                quizQueryService,
+                quizCommandService
         );
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
                 .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));

@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
@@ -92,6 +93,7 @@ public class QuizServiceImpl implements QuizService {
     private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
     private final QuizDefaultsProperties quizDefaultsProperties;
     private final QuizQueryService quizQueryService;
+    private final QuizCommandService quizCommandService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
@@ -103,54 +105,7 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public UUID createQuiz(String username, CreateQuizRequest request) {
-        User creator = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        Category category = resolveCategoryFor(request);
-
-        Set<Tag> tags = request.tagIds().stream()
-                .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException("Tag " + id + " not found")))
-                .collect(Collectors.toSet());
-
-        Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
-        
-        // Harden quiz creation: non-moderators cannot create PUBLIC/PUBLISHED quizzes directly
-        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN);
-        
-        if (!hasModerationPermissions) {
-            // Force visibility to PRIVATE and status to DRAFT for non-moderators
-            quiz.setVisibility(Visibility.PRIVATE);
-            quiz.setStatus(QuizStatus.DRAFT);
-        } else {
-            // Moderators can set visibility, but enforce invariant: PUBLIC quizzes are published
-            if (quiz.getVisibility() == Visibility.PUBLIC) {
-                quiz.setStatus(QuizStatus.PUBLISHED);
-            }
-        }
-        
-        return quizRepository.save(quiz).getId();
-    }
-
-    private Category resolveCategoryFor(CreateQuizRequest request) {
-        UUID defaultCategoryId = quizDefaultsProperties.getDefaultCategoryId();
-        UUID requestedCategoryId = request.categoryId();
-
-        if (requestedCategoryId == null) {
-            log.info("Quiz '{}' creation request omitted categoryId; using default category {}", request.title(), defaultCategoryId);
-            return categoryRepository.findById(defaultCategoryId)
-                    .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
-        }
-
-        return categoryRepository.findById(requestedCategoryId)
-                .orElseGet(() -> {
-                    log.warn("Quiz '{}' requested category {} which does not exist; using default {}", request.title(), requestedCategoryId, defaultCategoryId);
-                    return categoryRepository.findById(defaultCategoryId)
-                            .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
-                });
+        return quizCommandService.createQuiz(username, request);
     }
 
     @Override
