@@ -45,7 +45,11 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
 
     private String buildHtml(ExportPayload payload) {
         StringBuilder sb = new StringBuilder();
-        sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>Quizzes Export</title>");
+        // Use quiz title for single quiz, or generic title for multiple
+        String pageTitle = payload.quizzes().size() == 1 
+            ? escape(payload.quizzes().get(0).title())
+            : "Multiple Quiz Export";
+        sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>").append(pageTitle).append("</title>");
         sb.append("<style>");
         sb.append("body{font-family:sans-serif;margin:24px;line-height:1.6;padding-bottom:40px;} ");
         sb.append("h1{margin-bottom:0;} ");
@@ -74,7 +78,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".matching-col li{padding:2px 0;} ");
         sb.append(".footer{display:none;} ");
         sb.append("@media print{");
-        sb.append("@page{margin:0.5in;@bottom-center{content:'Version: ").append(escape(payload.versionCode())).append("';font-size:10px;color:#666;}} ");
+        sb.append("@page{margin:0.5in;@top-left{content:none;}@top-center{content:none;}@top-right{content:none;}@bottom-center{content:'Version: ").append(escape(payload.versionCode())).append("';font-size:10px;color:#666;}} ");
         sb.append(".footer{display:none;} ");
         sb.append("} ");
         sb.append("</style>");
@@ -164,7 +168,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 sb.append("<p>").append(escape(quiz.description())).append("</p>");
             }
         } else {
-            sb.append("<h1>Quiz Export</h1>");
+            sb.append("<h1>Multiple Quiz Export</h1>");
             sb.append("<p class=\"meta\">Total Quizzes: ").append(payload.quizzes().size()).append("</p>");
             int totalQuestions = payload.quizzes().stream().mapToInt(q -> q.questions().size()).sum();
             sb.append("<p class=\"meta\">Total Questions: ").append(totalQuestions).append("</p>");

@@ -143,7 +143,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                 context.y -= 20;
             }
         } else {
-            context.writeText("Quiz Export", PDType1Font.HELVETICA_BOLD, TITLE_FONT_SIZE * 1.5f);
+            context.writeText("Multiple Quiz Export", PDType1Font.HELVETICA_BOLD, TITLE_FONT_SIZE * 1.5f);
             context.y -= 40;
             context.writeText("Total Quizzes: " + payload.quizzes().size(), 
                              PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
