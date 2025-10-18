@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.application.QuestionContentShuffler;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -44,6 +45,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -64,6 +66,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final InternalBillingService internalBillingService;
     private final TransactionTemplate transactionTemplate;
     private final StructuredAiClient structuredAiClient;
+    private final QuestionContentShuffler questionContentShuffler;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -509,8 +512,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     /**
      * Convert StructuredQuestion DTOs to domain Question entities.
      * Phase 3: Maps from structured output to domain model.
+     * Applies content shuffling to remove AI positional bias.
      */
-    private List<Question> convertStructuredQuestions(List<StructuredQuestion> structuredQuestions) {
+    public List<Question> convertStructuredQuestions(List<StructuredQuestion> structuredQuestions) {
         List<Question> questions = new ArrayList<>();
         
         for (StructuredQuestion sq : structuredQuestions) {
@@ -518,7 +522,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             question.setQuestionText(sq.getQuestionText());
             question.setType(sq.getType());
             question.setDifficulty(sq.getDifficulty());
-            question.setContent(sq.getContent());  // Already JSON string
+            
+            // Apply content shuffling to remove AI positional bias
+            String shuffledContent = questionContentShuffler.shuffleContent(
+                sq.getContent(), 
+                sq.getType(), 
+                ThreadLocalRandom::current
+            );
+            question.setContent(shuffledContent);
+            
             question.setHint(sq.getHint());
             question.setExplanation(sq.getExplanation());
             
@@ -526,16 +538,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
         
         return questions;
-    }
-
-    private List<Question> generateQuestionsByTypeWithJobId(
-            String chunkContent,
-            QuestionType questionType,
-            int questionCount,
-            Difficulty difficulty,
-            UUID jobId
-    ) {
-        return generateQuestionsByTypeWithJobId(chunkContent, questionType, questionCount, difficulty, jobId, "en");
     }
 
     /**

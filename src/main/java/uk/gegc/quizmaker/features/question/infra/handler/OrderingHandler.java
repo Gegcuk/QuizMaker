@@ -58,9 +58,22 @@ public class OrderingHandler extends QuestionHandler {
                               Question question,
                               JsonNode content,
                               JsonNode response) {
-        List<Integer> correctOrder = StreamSupport.stream(content.get("items").spliterator(), false)
-                .map(item -> item.get("id").asInt())
-                .toList();
+        // Support both legacy format (items order) and new format (correctOrder field)
+        List<Integer> correctOrder;
+        JsonNode correctOrderNode = content.get("correctOrder");
+        
+        if (correctOrderNode != null && correctOrderNode.isArray()) {
+            // New format: use explicit correctOrder field
+            correctOrder = StreamSupport.stream(correctOrderNode.spliterator(), false)
+                    .filter(id -> id.canConvertToInt())
+                    .map(JsonNode::asInt)
+                    .toList();
+        } else {
+            // Legacy format: use items order
+            correctOrder = StreamSupport.stream(content.get("items").spliterator(), false)
+                    .map(item -> item.get("id").asInt())
+                    .toList();
+        }
 
         JsonNode itemIdsNode = response.get("orderedItemIds");
         List<Integer> userOrder = itemIdsNode != null && itemIdsNode.isArray()

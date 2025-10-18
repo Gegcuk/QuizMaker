@@ -99,7 +99,7 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
                                                    StructuredAiClient structuredAiClient) {
             super(chatClient, documentRepository, promptTemplateService, questionResponseParser,
                     jobRepository, userRepository, objectMapper, eventPublisher, rateLimitConfig,
-                    billingService, transactionTemplate, structuredAiClient);
+                    billingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper));
         }
 
         @Override
@@ -260,7 +260,7 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
             AiQuizGenerationServiceImpl actualService = new AiQuizGenerationServiceImpl(
                     chatClient, documentRepository, promptTemplateService, questionResponseParser,
                     jobRepository, userRepository, objectMapper, eventPublisher, rateLimitConfig,
-                    billingService, transactionTemplate, structuredAiClient);
+                    billingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper));
             
             Thread.currentThread().interrupt(); // Interrupt current thread
 

@@ -263,6 +263,12 @@ Triggers analysis of logged AI responses to identify patterns and issues.
 - Identifies non-compliance with instructions
 - Detects common issues (missing JSON, extra text, etc.)
 - Aggregates statistics by question type and difficulty
+
+**Content Shuffling**:
+- AI-generated question content is automatically shuffled at save time to remove positional bias
+- Supported question types: MCQ_SINGLE, MCQ_MULTI, ORDERING, MATCHING, COMPLIANCE, HOTSPOT
+- ORDERING questions include a `correctOrder` field to preserve grading accuracy
+- Shuffling ensures fair presentation of options and reduces AI bias patterns
 - Writes findings to application logs
 
 **When to Use**:
@@ -1020,6 +1026,8 @@ Provide clear, educational questions suitable for a quiz.`;
   return await sendChatMessage(message);
 };
 ```
+
+**Note**: When questions are generated and saved to the database, the content is automatically shuffled to remove AI positional bias. This ensures fair presentation of multiple choice options, ordering items, and other question elements.
 
 ---
 
