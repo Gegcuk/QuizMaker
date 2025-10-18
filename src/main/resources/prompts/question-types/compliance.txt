@@ -3,23 +3,41 @@ Generate exactly {questionCount} COMPLIANCE questions with {difficulty} difficul
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every statement, hint, and explanation in {language}; translate faithfully when the source content differs.
-- Each question should have 2-4 statements to evaluate
-- Statements should be clearly compliant or non-compliant
+- Each question should have 3-6 statements to evaluate
+- Each statement should be definitively compliant or non-compliant
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
 - Ensure compliance criteria are clear and unambiguous
 - Make sure statements test understanding of rules, standards, or requirements
+- Use sequential IDs (1, 2, 3, 4, etc.) for statements
+
+CREATING EFFECTIVE COMPLIANCE STATEMENTS:
+- Each statement should describe a specific action, practice, or scenario
+- Compliance should be based on clear rules or standards from the content
+- Avoid ambiguous statements that could be interpreted differently
+- Balance compliant and non-compliant statements (don't make all compliant or all non-compliant)
+- Typically aim for 2-3 compliant and 2-3 non-compliant statements
+- Statements should be specific enough to evaluate definitively
 
 DIFFICULTY GUIDELINES:
-- EASY: Basic compliance with simple rules or standards
-- MEDIUM: Complex compliance scenarios, multiple criteria
-- HARD: Nuanced compliance situations, interpretation of standards
+- EASY: Basic compliance with simple, explicit rules (3-4 statements)
+- MEDIUM: Complex scenarios requiring interpretation of multiple criteria (4-5 statements)
+- HARD: Nuanced situations requiring deep understanding of standards (5-6 statements)
 
 QUALITY STANDARDS:
-- Statements should be clear and specific
-- Compliance criteria should be unambiguous
-- Avoid statements that are partially compliant
-- Ensure the evaluation tests meaningful understanding
-- Provide clear context for compliance requirements
+- Statements should be clear, specific, and actionable
+- Compliance criteria should be directly traceable to the content
+- Avoid statements that are partially compliant or context-dependent
+- Each statement should test a distinct aspect of compliance
+- Provide clear context in the question for what standard/rule applies
+- Ensure statements are realistic and practical
+
+EXAMPLES OF GOOD COMPLIANCE QUESTIONS:
+✓ Question: "Which of the following practices comply with GDPR data protection requirements?"
+  Statements: 
+  - "Obtaining explicit consent before collecting personal data" (compliant: true)
+  - "Storing passwords in plain text for easy recovery" (compliant: false)
+  - "Providing users the right to access their data" (compliant: true)
+  - "Sharing user data with third parties without consent" (compliant: false)
 
 Respond with valid JSON only. 

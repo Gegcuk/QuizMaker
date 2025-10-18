@@ -267,7 +267,8 @@ Triggers analysis of logged AI responses to identify patterns and issues.
 **Content Shuffling**:
 - AI-generated question content is automatically shuffled at save time to remove positional bias
 - Supported question types: MCQ_SINGLE, MCQ_MULTI, ORDERING, MATCHING, COMPLIANCE, HOTSPOT
-- ORDERING questions include a `correctOrder` field to preserve grading accuracy
+- ORDERING questions: correctOrder is captured BEFORE shuffling to preserve grading accuracy
+- Multiple shuffle points: save time (removes AI bias), attempt time (prevents pattern recognition), export time (prevents answer sharing)
 - Shuffling ensures fair presentation of options and reduces AI bias patterns
 - Writes findings to application logs
 

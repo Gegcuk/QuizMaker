@@ -4,23 +4,44 @@ REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every sentence, gap text, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Each question should have 1-3 gaps to fill
-- Gaps should be marked with underscores (___)
+- Gaps should be marked with exactly three underscores (___)
 - Provide the correct answer for each gap
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
 - Ensure gaps test important concepts or key terms
 - Make sure there is only one correct answer per gap
 
+CREATING EFFECTIVE GAPS:
+- Place gaps on key terms, important concepts, or critical values
+- Ensure the surrounding context provides sufficient clues
+- Gaps should test recall of specific information from the content
+- Use sequential gap IDs (1, 2, 3) matching the order of appearance in text
+- The sentence should read naturally when the answer fills the gap
+- Avoid placing gaps on articles (a, an, the) or common words
+- AVOID interchangeable gaps like "___ and ___" where answers could be swapped
+- Each gap should have a unique, specific answer based on context
+- If using multiple gaps, ensure they test different concepts, not similar terms
+
 DIFFICULTY GUIDELINES:
-- EASY: Key terms, names, or basic facts
-- MEDIUM: Important concepts, definitions, or relationships
-- HARD: Complex terms, specific details, or nuanced concepts
+- EASY: Key terms, names, basic facts (1-2 gaps)
+- MEDIUM: Important concepts, definitions, relationships (2 gaps)
+- HARD: Complex terms, specific technical details, nuanced concepts (2-3 gaps)
 
 QUALITY STANDARDS:
-- Sentences should be clear and grammatically correct
-- Gaps should be placed logically within sentences
+- Sentences should be clear, complete, and grammatically correct
+- Gaps should be placed logically and naturally within sentences
 - Correct answers should be specific and unambiguous
-- Avoid gaps that could have multiple correct answers
-- Ensure the context provides enough clues for the answer
+- Avoid gaps that could have multiple valid answers (e.g., synonyms)
+- Ensure the context provides enough clues without making it too obvious
+- The complete sentence (with gaps filled) should flow naturally
+
+EXAMPLES OF GOOD GAPS:
+✓ "The process of ___ converts light energy into chemical energy in plants." (answer: "photosynthesis")
+✓ "In 1776, the ___ was signed, declaring independence from Britain." (answer: "Declaration of Independence")
+✓ "The ___ is located in the nucleus and contains genetic information." (answer: "DNA" - context makes it specific)
+✗ Avoid: "The ___ is ___." (too vague, multiple answers possible)
+✗ Avoid: "___ occurs in ___." (lacks context)
+✗ Avoid: "___ and ___ are examples of organelles." (interchangeable - could be "mitochondria and ribosomes" or "ribosomes and mitochondria")
+✗ Avoid: "The ___ won the war in ___." (multiple gaps with interchangeable answers)
 
 Respond with valid JSON only. 

@@ -113,18 +113,18 @@ class QuestionContentShufflerTest {
         assertThat(correctOrder.isArray()).isTrue();
         assertThat(correctOrder.size()).isEqualTo(4);
         
-        // Verify correctOrder contains original sequence
+        // CRITICAL: Verify correctOrder contains original AI sequence (captured BEFORE shuffle)
         assertThat(correctOrder.get(0).asInt()).isEqualTo(1);
         assertThat(correctOrder.get(1).asInt()).isEqualTo(2);
         assertThat(correctOrder.get(2).asInt()).isEqualTo(3);
         assertThat(correctOrder.get(3).asInt()).isEqualTo(4);
         
-        // Verify items are shuffled (just check that it's different from original)
+        // Verify items ARE shuffled (different from original to remove AI bias)
         List<Integer> shuffledItemIds = new ArrayList<>();
         for (JsonNode item : items) {
             shuffledItemIds.add(item.get("id").asInt());
         }
-        // Original order was [1, 2, 3, 4], so shuffled should be different
+        // Original order was [1, 2, 3, 4], shuffled should be different
         assertThat(shuffledItemIds).isNotEqualTo(List.of(1, 2, 3, 4));
     }
 

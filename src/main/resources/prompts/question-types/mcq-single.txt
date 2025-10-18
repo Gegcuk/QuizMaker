@@ -12,9 +12,24 @@ REQUIREMENTS:
 - Base questions directly on the provided content
 - Ensure questions test understanding, not just memorization
 
+OPTION QUALITY (CRITICAL):
+- Correct answer: Must be definitively correct based on the content
+- Distractors (wrong answers): Should be plausible but clearly incorrect
+- All options should be similar in length and complexity
+- Avoid obviously wrong options like "None of the above" or joke answers
+- Distractors should represent common misconceptions or related concepts
+- Don't make one option significantly longer or more detailed than others
+- Ensure all options are mutually exclusive (no overlap)
+
 DIFFICULTY GUIDELINES:
-- EASY: Basic facts, definitions, simple recall
-- MEDIUM: Application of concepts, analysis of relationships
-- HARD: Complex analysis, synthesis of multiple concepts
+- EASY: Basic facts, definitions, simple recall (direct from content)
+- MEDIUM: Application of concepts, analysis of relationships, synthesis
+- HARD: Complex analysis, evaluation, synthesis of multiple concepts
+
+EXAMPLES OF GOOD OPTIONS:
+✓ All options are similar concepts: "mitochondria", "ribosome", "nucleus", "chloroplast"
+✓ All options are plausible numbers: "1776", "1783", "1789", "1791"
+✗ Obviously wrong: "correct answer", "wrong answer", "maybe", "I don't know"
+✗ Joke answers: "42", "your mom", "all of the above"
 
 Respond with valid JSON only. 

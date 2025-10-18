@@ -10,16 +10,31 @@ REQUIREMENTS:
 - Ensure there is only one correct order
 - Make sure the ordering tests understanding of processes, sequences, or relationships
 
+CRITICAL: LIST ITEMS IN THE CORRECT ORDER
+- The items MUST be listed in the correct sequential order from start to finish
+- For chronological sequences: list from earliest to latest event
+- For process steps: list from first step to last step
+- For cause-effect: list from cause to ultimate effect
+- The system will shuffle the display order - you just provide the correct sequence
+- Use sequential IDs (1, 2, 3, 4, 5) that match the correct order
+
+EXAMPLES OF CORRECT ORDERING:
+✓ Process: 1="Gather ingredients", 2="Mix dry ingredients", 3="Add wet ingredients", 4="Bake in oven", 5="Cool and serve"
+✓ History: 1="Declaration of Independence (1776)", 2="Constitution ratified (1788)", 3="Bill of Rights (1791)", 4="Civil War (1861-1865)"
+✓ Biology: 1="DNA replication begins", 2="Helicase unwinds DNA", 3="Primase adds primers", 4="DNA polymerase synthesizes", 5="Ligase seals gaps"
+
 DIFFICULTY GUIDELINES:
-- EASY: Simple sequences, chronological order, basic processes
-- MEDIUM: Complex processes, cause-and-effect relationships, multi-step procedures
-- HARD: Abstract concepts, complex relationships, multiple criteria for ordering
+- EASY: Simple sequences, chronological order, basic processes (3-4 steps)
+- MEDIUM: Complex processes, cause-and-effect relationships, multi-step procedures (4-5 steps)
+- HARD: Abstract concepts, complex relationships, multiple criteria for ordering (5 steps)
 
 QUALITY STANDARDS:
-- Items should be clearly stated and related
-- The correct order should be unambiguous
+- Items should be clearly stated and self-contained
+- Each item should represent a distinct step or stage
+- The correct order should be unambiguous and logical
 - Avoid items that could be ordered in multiple valid ways
 - Ensure the sequence tests meaningful understanding
-- Provide clear context for why the order matters
+- Provide clear context in the question text for why the order matters
+- Include numbering or time markers in item text when appropriate for clarity
 
 Respond with valid JSON only. 

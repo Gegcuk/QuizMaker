@@ -24,13 +24,20 @@ import java.util.function.Supplier;
  * <p>Supported question types:</p>
  * <ul>
  *   <li>MCQ_SINGLE/MCQ_MULTI: Shuffles options array</li>
- *   <li>ORDERING: Shuffles items array and adds correctOrder field</li>
+ *   <li>ORDERING: Captures correctOrder BEFORE shuffling, then shuffles items for display</li>
  *   <li>MATCHING: Shuffles right column only</li>
  *   <li>COMPLIANCE: Shuffles statements array</li>
- *   <li>HOTSPOT: Shuffles regions array (optional)</li>
+ *   <li>HOTSPOT: Shuffles regions array</li>
  * </ul>
  * 
  * <p>Types not shuffled: TRUE_FALSE, FILL_GAP, OPEN</p>
+ * 
+ * <p>Note: Questions are shuffled at THREE points:</p>
+ * <ul>
+ *   <li>1. Save time (here) - removes AI positional bias, captures correctOrder for ORDERING</li>
+ *   <li>2. Attempt time (SafeQuestionContentBuilder) - prevents pattern recognition during quiz-taking</li>
+ *   <li>3. Export time (QuizExportAssembler) - ensures each export has different order</li>
+ * </ul>
  * 
  * <p>Educational note: One-time shuffling at save time removes AI positional bias
  * at the source with minimal runtime overhead and reduces the need for repeated
@@ -126,6 +133,7 @@ public class QuestionContentShuffler {
     
     /**
      * Shuffles ORDERING items and adds correctOrder field with canonical sequence.
+     * CRITICAL: Captures correctOrder BEFORE shuffling to preserve AI's correct sequence.
      */
     private void shuffleOrderingItems(ObjectNode contentNode, Random random) {
         JsonNode itemsNode = contentNode.get("items");
@@ -137,7 +145,8 @@ public class QuestionContentShuffler {
         ArrayNode itemsArray = (ArrayNode) itemsNode;
         List<JsonNode> itemsList = new ArrayList<>();
         
-        // Convert to list and build correctOrder
+        // CRITICAL: Build correctOrder BEFORE shuffling
+        // This captures the AI's provided sequence as the correct order
         ArrayNode correctOrder = objectMapper.createArrayNode();
         for (JsonNode item : itemsArray) {
             itemsList.add(item);
@@ -147,7 +156,7 @@ public class QuestionContentShuffler {
             }
         }
         
-        // Shuffle the items
+        // Shuffle the items for display randomization
         Collections.shuffle(itemsList, random);
         
         // Rebuild the array
@@ -158,7 +167,7 @@ public class QuestionContentShuffler {
         
         contentNode.set("items", shuffledArray);
         contentNode.set("correctOrder", correctOrder);
-        log.trace("Shuffled {} ORDERING items and added correctOrder", itemsList.size());
+        log.trace("Shuffled {} ORDERING items and preserved correctOrder", itemsList.size());
     }
     
     /**

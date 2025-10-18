@@ -4,22 +4,37 @@ REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, model answer, hint, and explanation in {language}; translate faithfully when the source content differs.
 - Questions should require detailed explanations, not just short answers
-- Include comprehensive model answers that demonstrate expected depth
-- Provide helpful hints to guide students
+- Include comprehensive model answers that demonstrate expected depth and structure
+- Provide helpful hints to guide students without revealing the answer
 - Base questions directly on the provided content
 - Questions should test higher-order thinking skills
-- Ensure questions are open-ended but focused
+- Ensure questions are open-ended but focused with clear scope
+
+CREATING EFFECTIVE OPEN QUESTIONS:
+- Start with clear question words: "Explain", "Describe", "Compare", "Analyze", "Evaluate"
+- Provide specific context and scope to guide the response
+- Avoid questions that are too broad or could be answered in one sentence
+- Questions should have multiple valid approaches but assess the same core understanding
+- Model answers should be 3-5 sentences demonstrating expected depth
+- Include key points that should be covered in a good answer
 
 DIFFICULTY GUIDELINES:
-- EASY: Basic explanations of concepts or processes
-- MEDIUM: Analysis of relationships, comparison of concepts, application of principles
-- HARD: Synthesis of multiple concepts, evaluation of arguments, complex problem-solving
+- EASY: Basic explanations of single concepts or simple processes (expect 2-3 sentence answers)
+- MEDIUM: Analysis of relationships, comparison of concepts, application of principles (expect 3-4 sentence answers)
+- HARD: Synthesis of multiple concepts, evaluation of arguments, complex problem-solving (expect 4-5 sentence answers)
 
 QUALITY STANDARDS:
-- Questions should be clear and specific
-- Model answers should be comprehensive and well-structured
-- Hints should be helpful but not give away the answer
-- Questions should encourage critical thinking
-- Avoid questions that can be answered with simple yes/no responses
+- Questions should be clear, specific, and focused
+- Model answers should be comprehensive, well-structured, and educational
+- Hints should guide thinking toward key concepts without giving away content
+- Questions should encourage critical thinking and deeper understanding
+- Avoid questions that can be answered with simple yes/no or one-word responses
+- Each question should have a clear learning objective
+
+EXAMPLES OF GOOD OPEN QUESTIONS:
+✓ "Explain how photosynthesis contributes to the oxygen cycle in Earth's atmosphere."
+✓ "Compare and contrast mitosis and meiosis, highlighting their key differences and purposes."
+✗ Avoid: "What is photosynthesis?" (too simple, can be answered in one sentence)
+✗ Avoid: "Discuss biology." (too broad, no clear scope)
 
 Respond with valid JSON only. 

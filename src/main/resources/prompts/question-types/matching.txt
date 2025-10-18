@@ -3,24 +3,44 @@ Generate exactly {questionCount} MATCHING questions with {difficulty} difficulty
 REQUIREMENTS:
 - Exactly {questionCount} questions
 - Write every question, item text, hint, and explanation in {language}; translate faithfully when the source content differs.
-- Provide a list of left items and right items
-- Minimum of 4 pairs required (4 left items and 4 right items)
-- Each left item has: id (integer), text (string), matchId (integer pointing to right item)
+- Provide a list of left items (prompts) and right items (matches)
+- Each question should have 4-6 pairs
+- Each left item has: id (integer), text (string), matchId (integer pointing to the correct right item)
 - Each right item has: id (integer), text (string)
-- Ensure ids are unique within left and right lists
+- Use sequential IDs for left (1, 2, 3, 4...) and distinct IDs for right (10, 20, 30, 40...)
+- Ensure IDs are unique within their respective lists
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
 
+CREATING EFFECTIVE MATCHING QUESTIONS:
+- Left items should be concepts, terms, people, dates, or causes
+- Right items should be their definitions, examples, achievements, events, or effects
+- All items should be related to the same general topic
+- Ensure there is exactly one correct match for each left item
+- Include some plausible but incorrect right items as distractors
+- Typically have 1-2 more right items than left items (e.g., 4 left + 5-6 right)
+- Keep item text concise and parallel in structure
+
 DIFFICULTY GUIDELINES:
-- EASY: Simple direct matches, obvious relationships
-- MEDIUM: Conceptual matches requiring understanding
-- HARD: Complex relationships, subtle distinctions
+- EASY: Simple direct matches, obvious relationships (4 pairs, few distractors)
+- MEDIUM: Conceptual matches requiring understanding (4-5 pairs, moderate similarity)
+- HARD: Complex relationships, subtle distinctions (5-6 pairs, similar distractors)
 
 QUALITY STANDARDS:
-- Matches should be clear and unambiguous
-- Ensure only one correct pairing for each item
-- Items should test meaningful relationships
-- Provide helpful context for making matches
+- Matches should be clear and definitively correct
+- Ensure only one correct pairing for each left item
+- All items should be similar in length and complexity
+- Right items should be plausible distractors for other left items
+- Provide helpful context in the question text for the type of relationship
+- Avoid obvious patterns (like alphabetical matching)
+
+EXAMPLES OF GOOD MATCHING:
+✓ Question: "Match each scientist with their major contribution:"
+  Left: 1="Charles Darwin" (matchId: 10), 2="Isaac Newton" (matchId: 20), 3="Marie Curie" (matchId: 30)
+  Right: 10="Theory of Evolution", 20="Laws of Motion", 30="Radioactivity research", 40="Germ theory"
+  
+✗ Avoid: Mixing categories (e.g., matching dates with colors - unrelated concepts)
+✗ Avoid: Items of vastly different lengths or complexity
 
 Respond with valid JSON only.
 
