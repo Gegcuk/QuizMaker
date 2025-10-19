@@ -35,7 +35,8 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -113,6 +114,8 @@ class QuizServiceImplAdditionalTest {
     private Authentication authentication;
     @Mock
     QuizQueryService quizQueryService;
+    @Mock
+    QuizCommandService quizCommandService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -332,20 +335,10 @@ class QuizServiceImplAdditionalTest {
         void updateQuiz_nonOwner_throwsForbiddenException() {
             // Given
             UUID quizId = UUID.randomUUID();
-            User otherUser = new User();
-            otherUser.setId(UUID.randomUUID());
-            otherUser.setUsername("otheruser");
-
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-
             UpdateQuizRequest request = new UpdateQuizRequest("Updated", "Desc", null, null, null, null, null, null, null, null);
 
-            lenient().when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
-            lenient().when(userRepository.findByUsername("otheruser")).thenReturn(Optional.of(otherUser));
-            lenient().when(userRepository.findByEmail("otheruser")).thenReturn(Optional.empty());
-            lenient().when(appPermissionEvaluator.hasPermission(eq(otherUser), any(PermissionName.class))).thenReturn(false);
+            when(quizCommandService.updateQuiz("otheruser", quizId, request))
+                    .thenThrow(new ForbiddenException("Not allowed to update this quiz"));
 
             // When & Then
             assertThatThrownBy(() -> quizService.updateQuiz("otheruser", quizId, request))
@@ -358,28 +351,18 @@ class QuizServiceImplAdditionalTest {
         void updateQuiz_pendingReview_revertsToNot() {
             // Given
             UUID quizId = UUID.randomUUID();
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-            quiz.setStatus(QuizStatus.PENDING_REVIEW);
-            quiz.setCategory(null);
-            quiz.setTags(new HashSet<>());
-
             UpdateQuizRequest request = new UpdateQuizRequest("Updated", "Desc", null, null, null, null, null, null, null, null);
             QuizDto expectedDto = new QuizDto(quizId, testUser.getId(), null, "Updated", "Desc",
                     Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), null, null);
 
-            when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
-            when(quizRepository.save(quiz)).thenReturn(quiz);
-            when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+            when(quizCommandService.updateQuiz("testuser", quizId, request)).thenReturn(expectedDto);
 
             // When
             QuizDto result = quizService.updateQuiz("testuser", quizId, request);
 
             // Then
             assertThat(result).isNotNull();
-            assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
-            verify(quizRepository).save(quiz);
+            assertThat(result.status()).isEqualTo(QuizStatus.DRAFT);
         }
 
         @Test
@@ -387,14 +370,6 @@ class QuizServiceImplAdditionalTest {
         void updateQuiz_publishedQuizContentHashChanges_setsPendingReview() {
             // Given
             UUID quizId = UUID.randomUUID();
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-            quiz.setStatus(QuizStatus.PUBLISHED);
-            quiz.setContentHash("oldHash");  // IMPORTANT: beforeContentHash != null
-            quiz.setCategory(null);
-            quiz.setTags(new HashSet<>());
-
             UpdateQuizRequest request = new UpdateQuizRequest(
                     "Updated Title", "Updated Desc", 
                     null, null, null, null, null, null, null, null);
@@ -402,35 +377,14 @@ class QuizServiceImplAdditionalTest {
             QuizDto afterDto = new QuizDto(quizId, testUser.getId(), null, "Updated Title", "Updated Desc",
                     Visibility.PRIVATE, null, QuizStatus.PENDING_REVIEW, 10, false, false, 5, List.of(), null, null);
 
-            when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(quiz));
-            // Mock updateEntity - keep status PUBLISHED
-            doAnswer(invocation -> {
-                Quiz q = invocation.getArgument(0);
-                q.setStatus(QuizStatus.PUBLISHED);  // Stays PUBLISHED after update
-                return null;
-            }).when(quizMapper).updateEntity(eq(quiz), eq(request), any(), any());
-            
-            // After updateEntity, toDto is called (line 262)
-            when(quizMapper.toDto(quiz)).thenReturn(afterDto).thenReturn(afterDto);
-            // calculateContentHash returns newHash (different from oldHash)
-            when(quizHashCalculator.calculateContentHash(afterDto)).thenReturn("newHash");
-            when(quizHashCalculator.calculatePresentationHash(afterDto)).thenReturn("presentHash");
-            when(quizRepository.save(quiz)).thenReturn(quiz);
+            when(quizCommandService.updateQuiz("testuser", quizId, request)).thenReturn(afterDto);
 
             // When
             QuizDto result = quizService.updateQuiz("testuser", quizId, request);
 
-            // Then - Lines 272-276 should be covered
+            // Then
             assertThat(result).isNotNull();
-            // Verify the hash calculations were called
-            verify(quizHashCalculator).calculateContentHash(afterDto);
-            verify(quizHashCalculator).calculatePresentationHash(afterDto);
-            // Verify status was changed to PENDING_REVIEW
-            assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PENDING_REVIEW);
-            // Verify review fields were cleared
-            assertThat(quiz.getReviewedAt()).isNull();
-            assertThat(quiz.getReviewedBy()).isNull();
-            assertThat(quiz.getRejectionReason()).isNull();
+            assertThat(result.status()).isEqualTo(QuizStatus.PENDING_REVIEW);
         }
 
     }  // Close UpdateQuizTests

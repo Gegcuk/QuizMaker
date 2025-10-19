@@ -7,6 +7,9 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest;
+import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -19,9 +22,11 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -38,6 +43,7 @@ public class QuizCommandServiceImpl implements QuizCommandService {
     private final QuizRepository quizRepository;
     private final CategoryRepository categoryRepository;
     private final QuizDefaultsProperties quizDefaultsProperties;
+    private final QuizHashCalculator quizHashCalculator;
 
 
     @Transactional
@@ -74,6 +80,73 @@ public class QuizCommandServiceImpl implements QuizCommandService {
 
         return quizRepository.save(quiz).getId();
     }
+
+    @Transactional
+    @Override
+    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
+        Quiz quiz = quizRepository.findByIdWithTags(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have moderation/admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to update this quiz");
+        }
+
+        // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
+        if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
+            // Auto-revert to DRAFT on any edits of PENDING_REVIEW quizzes
+            quiz.setStatus(QuizStatus.DRAFT);
+        }
+
+        Category category;
+        if (req.categoryId() != null) {
+            category = categoryRepository.findById(req.categoryId())
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Category " + req.categoryId() + " not found"));
+        } else {
+            category = quiz.getCategory();
+        }
+
+        Set<Tag> tags = Optional.ofNullable(req.tagIds())
+                .map(ids -> ids.stream()
+                        .map(tagId -> tagRepository.findById(tagId)
+                                .orElseThrow(() ->
+                                        new ResourceNotFoundException("Tag " + tagId + " not found")))
+                        .collect(Collectors.toSet()))
+                .orElse(null);
+
+        String beforeContentHash = quiz.getContentHash();
+
+        quizMapper.updateEntity(quiz, req, category, tags);
+
+        // Recompute hashes on save
+        QuizDto draftDto = quizMapper.toDto(quiz);
+        String newContentHash = quizHashCalculator.calculateContentHash(draftDto);
+        String newPresentationHash = quizHashCalculator.calculatePresentationHash(draftDto);
+        quiz.setContentHash(newContentHash);
+        quiz.setPresentationHash(newPresentationHash);
+
+        // If published and content hash changes, auto transition to PENDING_REVIEW
+        if (beforeContentHash != null
+                && quiz.getStatus() == QuizStatus.PUBLISHED
+                && !beforeContentHash.equalsIgnoreCase(newContentHash)) {
+            quiz.setStatus(QuizStatus.PENDING_REVIEW);
+            // clear review outcome fields when moving to pending
+            quiz.setReviewedAt(null);
+            quiz.setReviewedBy(null);
+            quiz.setRejectionReason(null);
+        }
+
+        return quizMapper.toDto(quizRepository.save(quiz));
+    }
+
 
     private Category resolveCategoryFor(CreateQuizRequest request) {
         UUID defaultCategoryId = quizDefaultsProperties.getDefaultCategoryId();

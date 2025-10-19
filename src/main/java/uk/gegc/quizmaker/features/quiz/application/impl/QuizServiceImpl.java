@@ -10,7 +10,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -40,7 +39,6 @@ import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEven
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
@@ -122,68 +120,8 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     @Transactional
-    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
-        Quiz quiz = quizRepository.findByIdWithTags(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + id + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to update this quiz");
-        }
-
-        // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
-        if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
-            // Auto-revert to DRAFT on any edits of PENDING_REVIEW quizzes
-            quiz.setStatus(QuizStatus.DRAFT);
-        }
-
-        Category category;
-        if (req.categoryId() != null) {
-            category = categoryRepository.findById(req.categoryId())
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException("Category " + req.categoryId() + " not found"));
-        } else {
-            category = quiz.getCategory();
-        }
-
-        Set<Tag> tags = Optional.ofNullable(req.tagIds())
-                .map(ids -> ids.stream()
-                        .map(tagId -> tagRepository.findById(tagId)
-                                .orElseThrow(() ->
-                                        new ResourceNotFoundException("Tag " + tagId + " not found")))
-                        .collect(Collectors.toSet()))
-                .orElse(null);
-
-        String beforeContentHash = quiz.getContentHash();
-
-        quizMapper.updateEntity(quiz, req, category, tags);
-
-        // Recompute hashes on save
-        QuizDto draftDto = quizMapper.toDto(quiz);
-        String newContentHash = quizHashCalculator.calculateContentHash(draftDto);
-        String newPresentationHash = quizHashCalculator.calculatePresentationHash(draftDto);
-        quiz.setContentHash(newContentHash);
-        quiz.setPresentationHash(newPresentationHash);
-
-        // If published and content hash changes, auto transition to PENDING_REVIEW
-        if (beforeContentHash != null
-                && quiz.getStatus() == QuizStatus.PUBLISHED
-                && !beforeContentHash.equalsIgnoreCase(newContentHash)) {
-            quiz.setStatus(QuizStatus.PENDING_REVIEW);
-            // clear review outcome fields when moving to pending
-            quiz.setReviewedAt(null);
-            quiz.setReviewedBy(null);
-            quiz.setRejectionReason(null);
-        }
-
-        return quizMapper.toDto(quizRepository.save(quiz));
+    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest request) {
+        return quizCommandService.updateQuiz(username, id, request);
     }
 
     @Override
