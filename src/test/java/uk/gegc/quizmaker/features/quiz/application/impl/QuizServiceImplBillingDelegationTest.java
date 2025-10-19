@@ -40,6 +40,7 @@ import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionCallback;
@@ -79,7 +80,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private InternalBillingService internalBillingService;
     @Mock private EstimationService estimationService;
     @Mock private FeatureFlags featureFlags;
-    @Mock private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock private AccessPolicy accessPolicy;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private QuizJobProperties quizJobProperties;
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
@@ -110,7 +111,7 @@ class QuizServiceImplBillingDelegationTest {
                 internalBillingService,
                 estimationService,
                 featureFlags,
-                appPermissionEvaluator,
+                accessPolicy,
                 applicationEventPublisher,
                 transactionTemplate,
                 quizJobProperties,

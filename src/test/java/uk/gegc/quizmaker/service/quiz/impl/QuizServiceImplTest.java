@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -119,6 +120,8 @@ class QuizServiceImplTest {
     private QuizQueryService quizQueryService;
     @Mock
     private QuizCommandService quizCommandService;
+    @Mock
+    private AccessPolicy accessPolicy;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -130,7 +133,26 @@ class QuizServiceImplTest {
         adminUser = createAdminUser();
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        setupAccessPolicyMock();
         lenient().when(quizDefaultsProperties.getDefaultCategoryId()).thenReturn(DEFAULT_CATEGORY_ID);
+    }
+    
+    private void setupAccessPolicyMock() {
+        // Default behavior: allow access for admin user (owner or has permissions)
+        lenient().doNothing().when(accessPolicy).requireOwnerOrAny(
+                any(User.class), 
+                any(UUID.class), 
+                any(PermissionName.class), 
+                any(PermissionName.class));
+        
+        // Admin has moderation permissions
+        lenient().when(accessPolicy.hasAny(eq(adminUser), any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(true);
+        
+        // Non-admin users don't have moderation permissions by default
+        lenient().when(accessPolicy.hasAny(argThat(user -> user != null && !user.equals(adminUser)), 
+                any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(false);
     }
 
     private User createAdminUser() {
@@ -756,7 +778,6 @@ class QuizServiceImplTest {
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setVisibility(username, quizId, Visibility.PUBLIC))
@@ -796,7 +817,6 @@ class QuizServiceImplTest {
 
         when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
         when(quizRepository.save(quiz)).thenReturn(quiz);
         when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
 
@@ -826,7 +846,6 @@ class QuizServiceImplTest {
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -856,7 +875,6 @@ class QuizServiceImplTest {
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
         when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
         // Don't throw validation exception - quiz is valid
         when(quizRepository.save(quiz)).thenReturn(quiz);

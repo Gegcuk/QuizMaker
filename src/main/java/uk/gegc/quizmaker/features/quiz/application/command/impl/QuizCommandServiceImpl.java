@@ -22,9 +22,8 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
-import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -37,7 +36,7 @@ public class QuizCommandServiceImpl implements QuizCommandService {
     private final UserRepository userRepository;
     private final TagRepository tagRepository;
     private final QuizMapper quizMapper;
-    private final AppPermissionEvaluator appPermissionEvaluator;
+    private final AccessPolicy accessPolicy;
     private final QuizRepository quizRepository;
     private final CategoryRepository categoryRepository;
     private final QuizDefaultsProperties quizDefaultsProperties;
@@ -62,8 +61,7 @@ public class QuizCommandServiceImpl implements QuizCommandService {
         Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
 
         // Harden quiz creation: non-moderators cannot create PUBLIC/PUBLISHED quizzes directly
-        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN);
+        boolean hasModerationPermissions = accessPolicy.hasAny(creator, PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN);
 
         if (!hasModerationPermissions) {
             // Force visibility to PRIVATE and status to DRAFT for non-moderators
@@ -91,11 +89,10 @@ public class QuizCommandServiceImpl implements QuizCommandService {
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to update this quiz");
-        }
+        accessPolicy.requireOwnerOrAny(user,
+                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
+                PermissionName.QUIZ_MODERATE,
+                PermissionName.QUIZ_ADMIN);
 
         // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
         if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
@@ -156,10 +153,9 @@ public class QuizCommandServiceImpl implements QuizCommandService {
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         // Ownership check: user must be the creator or have admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to delete this quiz");
-        }
+        accessPolicy.requireOwnerOrAny(user,
+                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
+                PermissionName.QUIZ_ADMIN);
 
         quizRepository.deleteById(id);
     }
@@ -175,15 +171,15 @@ public class QuizCommandServiceImpl implements QuizCommandService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
-        boolean hasAdminPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+        boolean hasAdminPermissions = accessPolicy.hasAny(user, PermissionName.QUIZ_ADMIN);
 
         var existing = quizRepository.findAllById(quizIds);
         List<Quiz> quizzesToDelete = new ArrayList<>();
 
         for (Quiz quiz : existing) {
             // Check ownership or admin permissions for each quiz
-            boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-            if (isOwner || hasAdminPermissions) {
+            UUID ownerId = quiz.getCreator() != null ? quiz.getCreator().getId() : null;
+            if (accessPolicy.isOwner(user, ownerId) || hasAdminPermissions) {
                 quizzesToDelete.add(quiz);
             }
             // Silently ignore quizzes the user doesn't have permission to delete

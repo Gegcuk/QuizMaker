@@ -39,7 +39,12 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -85,9 +90,13 @@ class QuizOwnerPrivatePublishTest {
     @Mock private InternalBillingService internalBillingService;
     @Mock private EstimationService estimationService;
     @Mock private FeatureFlags featureFlags;
-    @Mock private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock private AccessPolicy accessPolicy;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
+    @Mock private QuizJobProperties quizJobProperties;
+    @Mock private QuizDefaultsProperties quizDefaultsProperties;
+    @Mock private QuizQueryService quizQueryService;
+    @Mock private QuizCommandService quizCommandService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -352,17 +361,28 @@ class QuizOwnerPrivatePublishTest {
     }
 
     private void setupPermissionEvaluatorMock() {
-        // Owner does not have moderation permissions
-        when(appPermissionEvaluator.hasPermission(eq(ownerUser), eq(PermissionName.QUIZ_MODERATE)))
-                .thenReturn(false);
-        when(appPermissionEvaluator.hasPermission(eq(ownerUser), eq(PermissionName.QUIZ_ADMIN)))
+        // Configure AccessPolicy mock
+        // Owner has no moderation permissions
+        when(accessPolicy.hasAny(eq(ownerUser), eq(PermissionName.QUIZ_MODERATE), eq(PermissionName.QUIZ_ADMIN)))
                 .thenReturn(false);
         
         // Moderator has moderation permissions
-        when(appPermissionEvaluator.hasPermission(eq(moderatorUser), eq(PermissionName.QUIZ_MODERATE)))
+        when(accessPolicy.hasAny(eq(moderatorUser), eq(PermissionName.QUIZ_MODERATE), eq(PermissionName.QUIZ_ADMIN)))
                 .thenReturn(true);
-        when(appPermissionEvaluator.hasPermission(eq(moderatorUser), eq(PermissionName.QUIZ_ADMIN)))
-                .thenReturn(false);
+        
+        // Owner can access their own quizzes (no exception thrown for owner)
+        doNothing().when(accessPolicy).requireOwnerOrAny(
+                eq(ownerUser), 
+                eq(ownerUser.getId()), 
+                eq(PermissionName.QUIZ_MODERATE), 
+                eq(PermissionName.QUIZ_ADMIN));
+        
+        // Moderator can access any quiz (no exception thrown for moderator)
+        doNothing().when(accessPolicy).requireOwnerOrAny(
+                eq(moderatorUser), 
+                any(UUID.class), 
+                eq(PermissionName.QUIZ_MODERATE), 
+                eq(PermissionName.QUIZ_ADMIN));
     }
 }
 

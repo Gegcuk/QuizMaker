@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -102,6 +103,8 @@ class QuizServiceImplModificationMethodsTest {
     private TransactionTemplate transactionTemplate;
     @Mock
     private QuizQueryService quizQueryService;
+    @Mock
+    private AccessPolicy accessPolicy;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -139,6 +142,15 @@ class QuizServiceImplModificationMethodsTest {
         testCategory = new Category();
         testCategory.setId(UUID.randomUUID());
         testCategory.setName("Test Category");
+        
+        // Default AccessPolicy mock behavior: allow owners to access their own resources
+        lenient().doNothing().when(accessPolicy).requireOwnerOrAny(
+                any(User.class), 
+                any(UUID.class), 
+                any(PermissionName.class), 
+                any(PermissionName.class));
+        lenient().when(accessPolicy.hasAny(any(User.class), any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(false);
     }
 
     @Nested
@@ -192,13 +204,14 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
             when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            // Override default behavior: throw exception for null creator
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(accessPolicy).requireOwnerOrAny(any(User.class), any(), 
+                            any(PermissionName.class), any(PermissionName.class));
 
             // When & Then - Lines 1089-1092 covered
             assertThatThrownBy(() -> quizService.addQuestionToQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
 
         @Test
@@ -212,8 +225,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
             when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1090
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1090 covered
@@ -232,9 +243,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
             when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1091
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1091 covered
@@ -321,8 +329,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
             when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1137
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1137 covered
@@ -341,9 +347,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
             when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1138
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1138 covered
@@ -360,13 +363,14 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
             when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            // Override default behavior: throw exception for null creator
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(accessPolicy).requireOwnerOrAny(any(User.class), any(), 
+                            any(PermissionName.class), any(PermissionName.class));
 
             // When & Then - Lines 1136-1139 covered
             assertThatThrownBy(() -> quizService.addTagToQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -430,8 +434,6 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1112
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1112 covered
@@ -449,9 +451,6 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1113
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1113 covered
@@ -467,13 +466,14 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            // Override default behavior: throw exception for null creator
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(accessPolicy).requireOwnerOrAny(any(User.class), any(), 
+                            any(PermissionName.class), any(PermissionName.class));
 
             // When & Then - Lines 1111-1114 covered
             assertThatThrownBy(() -> quizService.removeQuestionFromQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -523,8 +523,6 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1159
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1159 covered
@@ -542,9 +540,6 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1160
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1160 covered
@@ -560,13 +555,14 @@ class QuizServiceImplModificationMethodsTest {
             
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            // Override default behavior: throw exception for null creator
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(accessPolicy).requireOwnerOrAny(any(User.class), any(), 
+                            any(PermissionName.class), any(PermissionName.class));
 
             // When & Then - Lines 1158-1161 covered
             assertThatThrownBy(() -> quizService.removeTagFromQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -741,13 +737,14 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
             when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            // Override default behavior: throw exception for null creator
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(accessPolicy).requireOwnerOrAny(any(User.class), any(), 
+                            any(PermissionName.class), any(PermissionName.class));
 
             // When & Then - Lines 1183-1186 covered
             assertThatThrownBy(() -> quizService.changeCategory(testUser.getUsername(), testQuiz.getId(), testCategory.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
 
         @Test
@@ -762,8 +759,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
             when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1184
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1184 covered
@@ -783,9 +778,6 @@ class QuizServiceImplModificationMethodsTest {
             when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
             when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
             when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1185
             when(quizRepository.save(any())).thenReturn(testQuiz);
 
             // When & Then - Line 1185 covered
