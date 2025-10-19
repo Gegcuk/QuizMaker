@@ -398,18 +398,9 @@ class QuizServiceImplAdditionalTest {
         void deleteQuizById_nonOwner_throwsForbiddenException() {
             // Given
             UUID quizId = UUID.randomUUID();
-            User otherUser = new User();
-            otherUser.setId(UUID.randomUUID());
-            otherUser.setUsername("otheruser");
 
-            Quiz quiz = new Quiz();
-            quiz.setId(quizId);
-            quiz.setCreator(testUser);
-
-            lenient().when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-            lenient().when(userRepository.findByUsername("otheruser")).thenReturn(Optional.of(otherUser));
-            lenient().when(userRepository.findByEmail("otheruser")).thenReturn(Optional.empty());
-            lenient().when(appPermissionEvaluator.hasPermission(eq(otherUser), any(PermissionName.class))).thenReturn(false);
+            doThrow(new ForbiddenException("Not allowed to delete this quiz"))
+                    .when(quizCommandService).deleteQuizById("otheruser", quizId);
 
             // When & Then
             assertThatThrownBy(() -> quizService.deleteQuizById("otheruser", quizId))

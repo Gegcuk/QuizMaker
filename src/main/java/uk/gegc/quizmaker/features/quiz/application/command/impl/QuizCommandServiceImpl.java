@@ -26,9 +26,7 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -146,6 +144,57 @@ public class QuizCommandServiceImpl implements QuizCommandService {
 
         return quizMapper.toDto(quizRepository.save(quiz));
     }
+
+    @Transactional
+    @Override
+    public void deleteQuizById(String username, UUID id) {
+        Quiz quiz = quizRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Ownership check: user must be the creator or have admin permissions
+        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
+                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
+            throw new ForbiddenException("Not allowed to delete this quiz");
+        }
+
+        quizRepository.deleteById(id);
+    }
+
+    @Transactional
+    @Override
+    public void deleteQuizzesByIds(String username, List<UUID> quizIds) {
+        if (quizIds == null || quizIds.isEmpty()) {
+            return;
+        }
+
+        User user = userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        boolean hasAdminPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
+
+        var existing = quizRepository.findAllById(quizIds);
+        List<Quiz> quizzesToDelete = new ArrayList<>();
+
+        for (Quiz quiz : existing) {
+            // Check ownership or admin permissions for each quiz
+            boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
+            if (isOwner || hasAdminPermissions) {
+                quizzesToDelete.add(quiz);
+            }
+            // Silently ignore quizzes the user doesn't have permission to delete
+        }
+
+        if (!quizzesToDelete.isEmpty()) {
+            quizRepository.deleteAll(quizzesToDelete);
+        }
+    }
+
+
 
 
     private Category resolveCategoryFor(CreateQuizRequest request) {
