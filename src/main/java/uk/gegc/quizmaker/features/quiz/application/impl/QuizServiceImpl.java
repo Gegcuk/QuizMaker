@@ -25,13 +25,12 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
-import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
@@ -88,6 +87,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizQueryService quizQueryService;
     private final QuizCommandService quizCommandService;
     private final QuizRelationService quizRelationService;
+    private final QuizPublishingService quizPublishingService;
     private final QuizPublishValidator quizPublishValidator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -900,37 +900,7 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
-        Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-        boolean hasModerationPermissions = accessPolicy.hasAny(user, PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN);
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-        
-        // Refined publishing rules: owners can publish PRIVATE quizzes, but PUBLIC requires moderation
-        if (status == QuizStatus.PUBLISHED && !hasModerationPermissions) {
-            // Owners can only publish when visibility is PRIVATE
-            if (quiz.getVisibility() == Visibility.PUBLIC) {
-                throw new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation.");
-            }
-            // Owner publishing privately - allowed
-        }
-
-        if (status == QuizStatus.PUBLISHED) {
-            quizPublishValidator.ensurePublishable(quiz);
-        }
-
-        quiz.setStatus(status);
-        return quizMapper.toDto(quizRepository.save(quiz));
+        return quizPublishingService.setStatus(username, quizId, status);
     }
 
     @Override
