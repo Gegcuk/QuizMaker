@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
@@ -88,6 +89,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizCommandService quizCommandService;
     private final QuizRelationService quizRelationService;
     private final QuizPublishingService quizPublishingService;
+    private final QuizVisibilityService quizVisibilityService;
     private final QuizPublishValidator quizPublishValidator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -873,28 +875,7 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
-        Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(name)
-                .or(() -> userRepository.findByEmail(name))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + name + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-        boolean hasModerationPermissions = accessPolicy.hasAny(user, PermissionName.QUIZ_MODERATE, PermissionName.QUIZ_ADMIN);
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        // Additional restriction: only moderators/admins can set visibility to PUBLIC
-        if (visibility == Visibility.PUBLIC && !hasModerationPermissions) {
-            throw new ForbiddenException("Only moderators can set quiz visibility to PUBLIC");
-        }
-
-        quiz.setVisibility(visibility);
-        return quizMapper.toDto(quizRepository.save(quiz));
+        return quizVisibilityService.setVisibility(name, quizId, visibility);
     }
 
     @Override
