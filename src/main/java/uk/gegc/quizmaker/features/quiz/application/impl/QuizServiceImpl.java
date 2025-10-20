@@ -21,19 +21,18 @@ import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
-import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
-import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
@@ -75,12 +74,10 @@ public class QuizServiceImpl implements QuizService {
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
     private final UserRepository userRepository;
-    private final QuestionHandlerFactory questionHandlerFactory;
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
     private final AiQuizGenerationService aiQuizGenerationService;
     private final DocumentProcessingService documentProcessingService;
-    private final QuizHashCalculator quizHashCalculator;
     private final BillingService billingService;
     private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
@@ -88,13 +85,12 @@ public class QuizServiceImpl implements QuizService {
     private final AccessPolicy accessPolicy;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
-    private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
-    private final QuizDefaultsProperties quizDefaultsProperties;
+    private final QuizJobProperties quizJobProperties;
     private final QuizQueryService quizQueryService;
     private final QuizCommandService quizCommandService;
+    private final QuizPublishValidator quizPublishValidator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
     private static final int QUIZ_TITLE_MAX_LENGTH = 100;
 
     @PersistenceContext
@@ -139,19 +135,7 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request) {
-        List<UUID> successes = new ArrayList<>();
-        Map<UUID, String> failures = new HashMap<>();
-
-        for (UUID id : request.quizIds()) {
-            try {
-                updateQuiz(username, id, request.update());
-                successes.add(id);
-            } catch (Exception ex) {
-                failures.put(id, ex.getMessage());
-            }
-        }
-
-        return new BulkQuizUpdateOperationResultDto(successes, failures);
+        return quizCommandService.bulkUpdateQuiz(username, request);
     }
 
     @Override
@@ -661,7 +645,7 @@ public class QuizServiceImpl implements QuizService {
         String quizTitle = ensureUniqueQuizTitle(user, baseTitle);
         String quizDescription = String.format("Quiz covering %s from the document", chunkTitle);
 
-        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES,
+        int estimatedTimeMinutes = Math.max(QuizPublishValidator.MINIMUM_ESTIMATED_TIME_MINUTES,
                 (int) Math.ceil(questions.size() * 1.5));
 
         Quiz quiz = new Quiz();
@@ -677,10 +661,6 @@ public class QuizServiceImpl implements QuizService {
         quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
         quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
         quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
-
-        // Add document metadata as custom properties (if supported)
-        // quiz.setCustomProperty("documentId", documentId.toString());
-        // quiz.setCustomProperty("chunkIndex", String.valueOf(chunkIndex));
 
         return quizRepository.save(quiz);
     }
@@ -703,7 +683,7 @@ public class QuizServiceImpl implements QuizService {
         String quizDescription = request.quizDescription() != null ? request.quizDescription() :
                 String.format("Comprehensive quiz covering all %d sections of the document", chunkCount);
 
-        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES,
+        int estimatedTimeMinutes = Math.max(QuizPublishValidator.MINIMUM_ESTIMATED_TIME_MINUTES,
                 (int) Math.ceil(allQuestions.size() * 1.5));
 
         Quiz quiz = new Quiz();
@@ -1025,57 +1005,11 @@ public class QuizServiceImpl implements QuizService {
         }
 
         if (status == QuizStatus.PUBLISHED) {
-            validateQuizForPublishing(quiz);
+            quizPublishValidator.ensurePublishable(quiz);
         }
 
         quiz.setStatus(status);
         return quizMapper.toDto(quizRepository.save(quiz));
-    }
-
-    private void validateQuizForPublishing(Quiz quiz) {
-        List<String> validationErrors = new ArrayList<>();
-
-        // Check if quiz has questions
-        if (quiz.getQuestions().isEmpty()) {
-            validationErrors.add("Cannot publish quiz without questions");
-        }
-
-        // Check minimum estimated time
-        if (quiz.getEstimatedTime() == null || quiz.getEstimatedTime() < MINIMUM_ESTIMATED_TIME_MINUTES) {
-            validationErrors.add("Quiz must have a minimum estimated time of " + MINIMUM_ESTIMATED_TIME_MINUTES + " minute(s)");
-        }
-
-        // Check if all questions have valid correct answers
-        if (!quiz.getQuestions().isEmpty()) {
-            validateQuestionsHaveCorrectAnswers(quiz, validationErrors);
-        }
-
-        if (!validationErrors.isEmpty()) {
-            throw new IllegalArgumentException("Cannot publish quiz: " + String.join("; ", validationErrors));
-        }
-    }
-
-    private void validateQuestionsHaveCorrectAnswers(Quiz quiz, List<String> validationErrors) {
-        for (var question : quiz.getQuestions()) {
-            try {
-                // Get the appropriate handler for this question type
-                QuestionHandler handler = questionHandlerFactory.getHandler(question.getType());
-
-                // Parse the question content
-                var content = objectMapper.readTree(question.getContent());
-                var contentRequest = new EntityQuestionContentRequest(question.getType(), content);
-
-                // Validate that the question content has correct answers defined
-                handler.validateContent(contentRequest);
-
-            } catch (JsonProcessingException e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' has malformed content JSON");
-            } catch (ValidationException e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' is invalid: " + e.getMessage());
-            } catch (Exception e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' failed validation: " + e.getMessage());
-            }
-        }
     }
 
     @Override

@@ -30,6 +30,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -122,6 +123,8 @@ class QuizServiceImplTest {
     private QuizCommandService quizCommandService;
     @Mock
     private AccessPolicy accessPolicy;
+    @Mock
+    private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -153,6 +156,9 @@ class QuizServiceImplTest {
         lenient().when(accessPolicy.hasAny(argThat(user -> user != null && !user.equals(adminUser)), 
                 any(PermissionName.class), any(PermissionName.class)))
                 .thenReturn(false);
+        
+        // Default: allow publishing (tests that need validation failure will override)
+        lenient().doNothing().when(quizPublishValidator).ensurePublishable(any(Quiz.class));
     }
 
     private User createAdminUser() {
@@ -223,6 +229,8 @@ class QuizServiceImplTest {
         Quiz emptyQuiz = createQuizWithoutQuestions();
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(emptyQuiz));
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Cannot publish quiz without questions"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -240,7 +248,8 @@ class QuizServiceImplTest {
         quiz.setEstimatedTime(0); // Invalid time
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -258,7 +267,8 @@ class QuizServiceImplTest {
         quiz.setEstimatedTime(null); // Null time
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -275,8 +285,8 @@ class QuizServiceImplTest {
         Quiz quiz = createQuizWithQuestions(1);
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        doThrow(new ValidationException("MCQ_SINGLE must have exactly one correct answer")).when(questionHandler).validateContent(any());
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Question 'Question 1' is invalid: MCQ_SINGLE must have exactly one correct answer"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -295,12 +305,13 @@ class QuizServiceImplTest {
         quiz.getQuestions().iterator().next().setContent("invalid json {");
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Question 'Question 1' failed validation: Unexpected character"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Question 'Question 1' has malformed content JSON");
+                .hasMessageContaining("Question 'Question 1'");
     }
 
     @Test
@@ -313,6 +324,8 @@ class QuizServiceImplTest {
         quiz.setEstimatedTime(0); // Invalid time
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Cannot publish quiz without questions; Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishValidator).ensurePublishable(any(Quiz.class));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
@@ -333,8 +346,7 @@ class QuizServiceImplTest {
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(quizRepository.save(quiz)).thenReturn(quiz);
         when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        // Mock successful validation - no exception thrown
+        // Validation is now handled by QuizPublishValidator mock (default: allow)
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
@@ -343,7 +355,7 @@ class QuizServiceImplTest {
         assertThat(result).isEqualTo(expectedDto);
         assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
         verify(quizRepository).save(quiz);
-        verify(questionHandler, times(2)).validateContent(any()); // Called once for each question
+        verify(quizPublishValidator).ensurePublishable(quiz);
     }
 
     @Test
@@ -420,7 +432,7 @@ class QuizServiceImplTest {
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(alreadyPublishedQuiz));
         when(quizRepository.save(alreadyPublishedQuiz)).thenReturn(alreadyPublishedQuiz);
         when(quizMapper.toDto(alreadyPublishedQuiz)).thenReturn(expectedDto);
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        // Validation is now handled by QuizPublishValidator mock (default: allow)
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
@@ -429,7 +441,7 @@ class QuizServiceImplTest {
         assertThat(result).isEqualTo(expectedDto);
         assertThat(alreadyPublishedQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
         verify(quizRepository).save(alreadyPublishedQuiz);
-        verify(questionHandler, times(2)).validateContent(any()); // Called once for each question
+        verify(quizPublishValidator).ensurePublishable(alreadyPublishedQuiz);
     }
 
     // Helper methods for creating test data
@@ -875,8 +887,7 @@ class QuizServiceImplTest {
 
         when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        // Don't throw validation exception - quiz is valid
+        // Validation is now handled by QuizPublishValidator mock (default: allow)
         when(quizRepository.save(quiz)).thenReturn(quiz);
         when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
 
@@ -887,6 +898,6 @@ class QuizServiceImplTest {
         assertThat(result).isNotNull();
         assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
         verify(quizRepository).save(quiz);
-        verify(questionHandler).validateContent(any());
+        verify(quizPublishValidator).ensurePublishable(quiz);
     }
 } 

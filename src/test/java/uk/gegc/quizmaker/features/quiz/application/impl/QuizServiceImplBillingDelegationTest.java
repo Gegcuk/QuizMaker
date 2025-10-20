@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
@@ -86,6 +87,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
     @Mock private QuizQueryService quizQueryService;
     @Mock private QuizCommandService quizCommandService;
+    @Mock private QuizPublishValidator quizPublishValidator;
 
     private ApplicationEventPublisher applicationEventPublisher;
 
@@ -101,12 +103,10 @@ class QuizServiceImplBillingDelegationTest {
                 categoryRepository,
                 quizMapper,
                 userRepository,
-                questionHandlerFactory,
                 jobRepository,
                 jobService,
                 aiQuizGenerationService,
                 documentProcessingService,
-                quizHashCalculator,
                 billingService,
                 internalBillingService,
                 estimationService,
@@ -115,9 +115,9 @@ class QuizServiceImplBillingDelegationTest {
                 applicationEventPublisher,
                 transactionTemplate,
                 quizJobProperties,
-                quizDefaultsProperties,
                 quizQueryService,
-                quizCommandService
+                quizCommandService,
+                quizPublishValidator
         );
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
                 .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));

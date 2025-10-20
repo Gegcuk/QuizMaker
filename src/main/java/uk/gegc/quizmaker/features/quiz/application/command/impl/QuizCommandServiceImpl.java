@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateOperationResultDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest;
@@ -188,6 +190,24 @@ public class QuizCommandServiceImpl implements QuizCommandService {
         if (!quizzesToDelete.isEmpty()) {
             quizRepository.deleteAll(quizzesToDelete);
         }
+    }
+
+    @Transactional
+    @Override
+    public BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request) {
+        List<UUID> successes = new ArrayList<>();
+        Map<UUID, String> failures = new HashMap<>();
+
+        for (UUID id : request.quizIds()) {
+            try {
+                updateQuiz(username, id, request.update());
+                successes.add(id);
+            } catch (Exception ex) {
+                failures.put(id, ex.getMessage());
+            }
+        }
+
+        return new BulkQuizUpdateOperationResultDto(successes, failures);
     }
 
 

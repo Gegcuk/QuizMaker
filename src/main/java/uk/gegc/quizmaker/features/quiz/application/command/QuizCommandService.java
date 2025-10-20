@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.application.command;
 
-import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateOperationResultDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest;
@@ -17,4 +18,6 @@ public interface QuizCommandService {
     void deleteQuizById(String username, UUID id);
 
     void deleteQuizzesByIds(String username, List<UUID> quizIds);
+
+    BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request);
 }

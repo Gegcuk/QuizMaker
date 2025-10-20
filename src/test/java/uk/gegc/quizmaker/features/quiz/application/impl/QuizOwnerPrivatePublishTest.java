@@ -43,6 +43,7 @@ import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 
@@ -97,6 +98,7 @@ class QuizOwnerPrivatePublishTest {
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
     @Mock private QuizQueryService quizQueryService;
     @Mock private QuizCommandService quizCommandService;
+    @Mock private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -116,6 +118,9 @@ class QuizOwnerPrivatePublishTest {
         
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        
+        // Mock successful validation for publishing tests
+        lenient().doNothing().when(quizPublishValidator).ensurePublishable(any(Quiz.class));
     }
 
     // =============== setStatus Tests ===============
