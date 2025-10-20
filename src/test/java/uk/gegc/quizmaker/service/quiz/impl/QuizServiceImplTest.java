@@ -28,7 +28,14 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -113,6 +120,20 @@ class QuizServiceImplTest {
     private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private QuizDefaultsProperties quizDefaultsProperties;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+    @Mock
+    private AccessPolicy accessPolicy;
+    @Mock
+    private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -124,7 +145,29 @@ class QuizServiceImplTest {
         adminUser = createAdminUser();
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        setupAccessPolicyMock();
         lenient().when(quizDefaultsProperties.getDefaultCategoryId()).thenReturn(DEFAULT_CATEGORY_ID);
+    }
+    
+    private void setupAccessPolicyMock() {
+        // Default behavior: allow access for admin user (owner or has permissions)
+        lenient().doNothing().when(accessPolicy).requireOwnerOrAny(
+                any(User.class), 
+                any(UUID.class), 
+                any(PermissionName.class), 
+                any(PermissionName.class));
+        
+        // Admin has moderation permissions
+        lenient().when(accessPolicy.hasAny(eq(adminUser), any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(true);
+        
+        // Non-admin users don't have moderation permissions by default
+        lenient().when(accessPolicy.hasAny(argThat(user -> user != null && !user.equals(adminUser)), 
+                any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(false);
+        
+        // Default: allow publishing (tests that need validation failure will override)
+        lenient().doNothing().when(quizPublishValidator).ensurePublishable(any(Quiz.class));
     }
 
     private User createAdminUser() {
@@ -192,14 +235,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz emptyQuiz = createQuizWithoutQuestions();
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(emptyQuiz));
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Cannot publish quiz without questions"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Cannot publish quiz without questions");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -208,16 +253,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createQuizWithQuestions(1);
-        quiz.setEstimatedTime(0); // Invalid time
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("minimum estimated time of 1 minute(s)");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -226,16 +271,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createQuizWithQuestions(1);
-        quiz.setEstimatedTime(null); // Null time
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("minimum estimated time of 1 minute(s)");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -244,16 +289,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createQuizWithQuestions(1);
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        doThrow(new ValidationException("MCQ_SINGLE must have exactly one correct answer")).when(questionHandler).validateContent(any());
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Question 'Question 1' is invalid: MCQ_SINGLE must have exactly one correct answer"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Question 'Question 1' is invalid: MCQ_SINGLE must have exactly one correct answer");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -262,17 +307,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createQuizWithQuestions(1);
-        // Set malformed JSON content
-        quiz.getQuestions().iterator().next().setContent("invalid json {");
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Question 'Question 1' failed validation: Unexpected character"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Question 'Question 1' has malformed content JSON");
+                .hasMessageContaining("Question 'Question 1'");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -281,16 +325,17 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createQuizWithoutQuestions();
-        quiz.setEstimatedTime(0); // Invalid time
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
+        doThrow(new IllegalArgumentException("Cannot publish quiz: Cannot publish quiz without questions; Quiz must have a minimum estimated time of 1 minute(s)"))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Cannot publish quiz without questions")
                 .hasMessageContaining("minimum estimated time of 1 minute(s)");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -299,23 +344,17 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz quiz = createValidQuizForPublishing();
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.PUBLISHED);
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(quizRepository.save(quiz)).thenReturn(quiz);
-        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        // Mock successful validation - no exception thrown
+        when(quizPublishingService.setStatus(username, quizId, QuizStatus.PUBLISHED))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isEqualTo(expectedDto);
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(quiz);
-        verify(questionHandler, times(2)).validateContent(any()); // Called once for each question
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -324,21 +363,17 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz invalidQuiz = createQuizWithoutQuestions();
-        invalidQuiz.setEstimatedTime(0); // Invalid for publishing, but OK for draft
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.DRAFT);
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(invalidQuiz));
-        when(quizRepository.save(invalidQuiz)).thenReturn(invalidQuiz);
-        when(quizMapper.toDto(invalidQuiz)).thenReturn(expectedDto);
+        when(quizPublishingService.setStatus(username, quizId, QuizStatus.DRAFT))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.DRAFT);
 
         // Then
         assertThat(result).isEqualTo(expectedDto);
-        assertThat(invalidQuiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
-        verify(quizRepository).save(invalidQuiz);
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.DRAFT);
     }
 
     @Test
@@ -348,12 +383,15 @@ class QuizServiceImplTest {
         UUID nonExistentQuizId = UUID.randomUUID();
         String username = "admin";
 
-        when(quizRepository.findByIdWithQuestions(nonExistentQuizId)).thenReturn(Optional.empty());
+        doThrow(new ResourceNotFoundException("Quiz " + nonExistentQuizId + " not found"))
+                .when(quizPublishingService).setStatus(username, nonExistentQuizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, nonExistentQuizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Quiz " + nonExistentQuizId + " not found");
+        
+        verify(quizPublishingService).setStatus(username, nonExistentQuizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -362,21 +400,17 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz publishedQuiz = createValidQuizForPublishing();
-        publishedQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.DRAFT);
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(publishedQuiz));
-        when(quizRepository.save(publishedQuiz)).thenReturn(publishedQuiz);
-        when(quizMapper.toDto(publishedQuiz)).thenReturn(expectedDto);
+        when(quizPublishingService.setStatus(username, quizId, QuizStatus.DRAFT))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.DRAFT);
 
         // Then
         assertThat(result).isEqualTo(expectedDto);
-        assertThat(publishedQuiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
-        verify(quizRepository).save(publishedQuiz);
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.DRAFT);
     }
 
     @Test
@@ -385,23 +419,17 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-        Quiz alreadyPublishedQuiz = createValidQuizForPublishing();
-        alreadyPublishedQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto expectedDto = createQuizDto(quizId, QuizStatus.PUBLISHED);
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(alreadyPublishedQuiz));
-        when(quizRepository.save(alreadyPublishedQuiz)).thenReturn(alreadyPublishedQuiz);
-        when(quizMapper.toDto(alreadyPublishedQuiz)).thenReturn(expectedDto);
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
+        when(quizPublishingService.setStatus(username, quizId, QuizStatus.PUBLISHED))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isEqualTo(expectedDto);
-        assertThat(alreadyPublishedQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(alreadyPublishedQuiz);
-        verify(questionHandler, times(2)).validateContent(any()); // Called once for each question
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     // Helper methods for creating test data
@@ -634,34 +662,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        User user = createTestUser();
-        Category defaultCategory = new Category();
-        defaultCategory.setId(DEFAULT_CATEGORY_ID);
-        defaultCategory.setName("Uncategorized");
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-
-        lenient().when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-        lenient().when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        lenient().when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
-        lenient().when(quizMapper.toEntity(any(), eq(user), eq(defaultCategory), any())).thenReturn(quiz);
-        lenient().when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(email, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(email, request);
 
         // Then
         assertThat(result).isNotNull();
-        verify(userRepository).findByEmail(email);
-        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
-        verify(quizMapper).toEntity(any(), eq(user), eq(defaultCategory), any());
-        verify(quizRepository).save(any(Quiz.class));
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -683,32 +692,15 @@ class QuizServiceImplTest {
                 List.of()
         );
 
-        Category defaultCategory = new Category();
-        defaultCategory.setId(DEFAULT_CATEGORY_ID);
-        defaultCategory.setName("Uncategorized");
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(categoryRepository.findById(invalidCategoryId)).thenReturn(Optional.empty());
-        when(categoryRepository.findById(DEFAULT_CATEGORY_ID)).thenReturn(Optional.of(defaultCategory));
-        when(quizMapper.toEntity(any(), eq(adminUser), eq(defaultCategory), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        verify(categoryRepository).findById(invalidCategoryId);
-        verify(categoryRepository).findById(DEFAULT_CATEGORY_ID);
-        verify(quizMapper).toEntity(any(), eq(adminUser), eq(defaultCategory), any());
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -730,31 +722,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        Category category = new Category();
-        category.setId(categoryId);
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-        quiz.setVisibility(Visibility.PUBLIC);
-        quiz.setStatus(QuizStatus.DRAFT);
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(quizMapper.toEntity(any(), eq(adminUser), eq(category), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), eq(PermissionName.QUIZ_MODERATE))).thenReturn(true);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);  // Forced to PUBLISHED
-        verify(quizRepository).save(quiz);
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -776,33 +752,15 @@ class QuizServiceImplTest {
                 List.of()  // tagIds
         );
 
-        User user = createTestUser();
-        Category category = new Category();
-        category.setId(categoryId);
-
-        Quiz quiz = new Quiz();
-        quiz.setId(UUID.randomUUID());
-        quiz.setVisibility(Visibility.PUBLIC);
-        quiz.setStatus(QuizStatus.PUBLISHED);
-
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(quizMapper.toEntity(any(), eq(user), eq(category), any())).thenReturn(quiz);
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz saved = invocation.getArgument(0);
-            saved.setId(UUID.randomUUID());
-            return saved;
-        });
+        UUID quizId = UUID.randomUUID();
+        when(quizCommandService.createQuiz(username, request)).thenReturn(quizId);
 
         // When
         UUID result = quizService.createQuiz(username, request);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PRIVATE);  // Forced to PRIVATE
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.DRAFT);  // Forced to DRAFT
-        verify(quizRepository).save(quiz);
+        assertThat(result).isEqualTo(quizId);
     }
 
     @Test
@@ -811,21 +769,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "testuser";
-        User user = createTestUser();
 
-        Quiz quiz = new Quiz();
-        quiz.setId(quizId);
-        quiz.setCreator(user);
-        quiz.setVisibility(Visibility.PRIVATE);
-
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+        when(quizVisibilityService.setVisibility(username, quizId, Visibility.PUBLIC))
+                .thenThrow(new ForbiddenException("Only moderators can set quiz visibility to PUBLIC"));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setVisibility(username, quizId, Visibility.PUBLIC))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
+        
+        verify(quizVisibilityService).setVisibility(username, quizId, Visibility.PUBLIC);
     }
 
     @Test
@@ -834,11 +787,6 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-
-        Quiz quiz = new Quiz();
-        quiz.setId(quizId);
-        quiz.setCreator(adminUser);
-        quiz.setVisibility(Visibility.PRIVATE);
 
         QuizDto expectedDto = new QuizDto(
                 quizId,                 // id
@@ -858,19 +806,15 @@ class QuizServiceImplTest {
                 null                    // updatedAt
         );
 
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(appPermissionEvaluator.hasPermission(eq(adminUser), any(PermissionName.class))).thenReturn(true);
-        when(quizRepository.save(quiz)).thenReturn(quiz);
-        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+        when(quizVisibilityService.setVisibility(username, quizId, Visibility.PUBLIC))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setVisibility(username, quizId, Visibility.PUBLIC);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PUBLIC);
-        verify(quizRepository).save(quiz);
+        verify(quizVisibilityService).setVisibility(username, quizId, Visibility.PUBLIC);
     }
 
     @Test
@@ -879,23 +823,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "testuser";
-        User user = createTestUser();
 
-        Quiz quiz = new Quiz();
-        quiz.setId(quizId);
-        quiz.setCreator(user);
-        quiz.setVisibility(Visibility.PUBLIC);
-        quiz.setStatus(QuizStatus.DRAFT);
-        quiz.setQuestions(new HashSet<>());
-
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
+        doThrow(new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation."))
+                .when(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // When & Then
         assertThatThrownBy(() -> quizService.setStatus(username, quizId, QuizStatus.PUBLISHED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can publish PUBLIC quizzes");
+        
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 
     @Test
@@ -904,35 +841,22 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "testuser";
-        User user = createTestUser();
-
-        Quiz quiz = createQuizWithQuestions(1);  // Reuse helper
-        quiz.setId(quizId);
-        quiz.setCreator(user);
-        quiz.setVisibility(Visibility.PRIVATE);
-        quiz.setStatus(QuizStatus.DRAFT);
 
         QuizDto expectedDto = new QuizDto(
-                quizId, user.getId(), UUID.randomUUID(), "Test", "Desc",
+                quizId, UUID.randomUUID(), UUID.randomUUID(), "Test", "Desc",
                 Visibility.PRIVATE, Difficulty.MEDIUM, QuizStatus.PUBLISHED,
                 10, false, false, 5, List.of(), null, null
         );
 
-        when(quizRepository.findByIdWithQuestions(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
-        when(appPermissionEvaluator.hasPermission(eq(user), any(PermissionName.class))).thenReturn(false);
-        when(questionHandlerFactory.getHandler(any())).thenReturn(questionHandler);
-        // Don't throw validation exception - quiz is valid
-        when(quizRepository.save(quiz)).thenReturn(quiz);
-        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+        when(quizPublishingService.setStatus(username, quizId, QuizStatus.PUBLISHED))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setStatus(username, quizId, QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(quiz);
-        verify(questionHandler).validateContent(any());
+        assertThat(result.status()).isEqualTo(QuizStatus.PUBLISHED);
+        verify(quizPublishingService).setStatus(username, quizId, QuizStatus.PUBLISHED);
     }
 } 

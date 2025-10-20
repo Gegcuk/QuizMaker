@@ -10,7 +10,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -19,29 +18,27 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
-import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
-import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
-import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
-import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
@@ -52,11 +49,10 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
-import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
-import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
-import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -68,31 +64,26 @@ import java.util.stream.Collectors;
 @Slf4j
 public class QuizServiceImpl implements QuizService {
 
-    private final QuizRepository quizRepository;
-    private final QuestionRepository questionRepository;
-    private final TagRepository tagRepository;
-    private final CategoryRepository categoryRepository;
-    private final QuizMapper quizMapper;
     private final UserRepository userRepository;
-    private final QuestionHandlerFactory questionHandlerFactory;
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
     private final AiQuizGenerationService aiQuizGenerationService;
     private final DocumentProcessingService documentProcessingService;
-    private final QuizHashCalculator quizHashCalculator;
     private final BillingService billingService;
     private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
-    private final uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
-    private final AppPermissionEvaluator appPermissionEvaluator;
+    private final FeatureFlags featureFlags;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
-    private final uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
-    private final QuizDefaultsProperties quizDefaultsProperties;
+    private final QuizJobProperties quizJobProperties;
+    private final QuizQueryService quizQueryService;
+    private final QuizCommandService quizCommandService;
+    private final QuizRelationService quizRelationService;
+    private final QuizPublishingService quizPublishingService;
+    private final QuizVisibilityService quizVisibilityService;
+    private final QuizAssemblyService quizAssemblyService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int MINIMUM_ESTIMATED_TIME_MINUTES = 1;
-    private static final int QUIZ_TITLE_MAX_LENGTH = 100;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -100,267 +91,43 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public UUID createQuiz(String username, CreateQuizRequest request) {
-        User creator = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        Category category = resolveCategoryFor(request);
-
-        Set<Tag> tags = request.tagIds().stream()
-                .map(id -> tagRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException("Tag " + id + " not found")))
-                .collect(Collectors.toSet());
-
-        Quiz quiz = quizMapper.toEntity(request, creator, category, tags);
-        
-        // Harden quiz creation: non-moderators cannot create PUBLIC/PUBLISHED quizzes directly
-        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(creator, PermissionName.QUIZ_ADMIN);
-        
-        if (!hasModerationPermissions) {
-            // Force visibility to PRIVATE and status to DRAFT for non-moderators
-            quiz.setVisibility(Visibility.PRIVATE);
-            quiz.setStatus(QuizStatus.DRAFT);
-        } else {
-            // Moderators can set visibility, but enforce invariant: PUBLIC quizzes are published
-            if (quiz.getVisibility() == Visibility.PUBLIC) {
-                quiz.setStatus(QuizStatus.PUBLISHED);
-            }
-        }
-        
-        return quizRepository.save(quiz).getId();
-    }
-
-    private Category resolveCategoryFor(CreateQuizRequest request) {
-        UUID defaultCategoryId = quizDefaultsProperties.getDefaultCategoryId();
-        UUID requestedCategoryId = request.categoryId();
-
-        if (requestedCategoryId == null) {
-            log.info("Quiz '{}' creation request omitted categoryId; using default category {}", request.title(), defaultCategoryId);
-            return categoryRepository.findById(defaultCategoryId)
-                    .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
-        }
-
-        return categoryRepository.findById(requestedCategoryId)
-                .orElseGet(() -> {
-                    log.warn("Quiz '{}' requested category {} which does not exist; using default {}", request.title(), requestedCategoryId, defaultCategoryId);
-                    return categoryRepository.findById(defaultCategoryId)
-                            .orElseThrow(() -> new IllegalStateException("Configured default category %s is missing".formatted(defaultCategoryId)));
-                });
+        return quizCommandService.createQuiz(username, request);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getQuizzes(Pageable pageable, QuizSearchCriteria criteria, String scope, Authentication authentication) {
-        final User user;
-        if (authentication != null && authentication.isAuthenticated()) {
-            user = userRepository.findByUsername(authentication.getName())
-                    .or(() -> userRepository.findByEmail(authentication.getName()))
-                    .orElse(null);
-        } else {
-            user = null;
-        }
-
-        Specification<Quiz> spec = QuizSpecifications.build(criteria);
-        
-        // Apply scoping based on the scope parameter
-        switch (scope.toLowerCase()) {
-            case "me":
-                if (user == null) {
-                    throw new ForbiddenException("Authentication required for scope=me");
-                }
-                // Only return quizzes owned by the user
-                spec = spec.and((root, query, cb) -> 
-                    cb.equal(root.get("creator").get("id"), user.getId()));
-                break;
-                
-            case "all":
-                if (user == null || !(appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE) 
-                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-                    throw new ForbiddenException("Moderator/Admin permissions required for scope=all");
-                }
-                // Return all quizzes (no additional filtering)
-                break;
-                
-            case "public":
-            default:
-                // Only return public, published quizzes
-                spec = spec.and((root, query, cb) -> 
-                    cb.and(
-                        cb.equal(root.get("visibility"), Visibility.PUBLIC),
-                        cb.equal(root.get("status"), QuizStatus.PUBLISHED)
-                    ));
-                break;
-        }
-
-        return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
+        return quizQueryService.getQuizzes(pageable, criteria, scope, authentication);
     }
 
     @Override
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
-        Quiz quiz = quizRepository.findByIdWithTags(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + id + " not found"));
-
-        // If user is authenticated, check if they're the owner
-        if (authentication != null && authentication.isAuthenticated()) {
-            User user = userRepository.findByUsername(authentication.getName())
-                    .or(() -> userRepository.findByEmail(authentication.getName()))
-                    .orElse(null);
-            
-            if (user != null) {
-                boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-                boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                        || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
-                
-                // Allow access if user is owner or has moderation permissions
-                if (isOwner || hasModerationPermissions) {
-                    return quizMapper.toDto(quiz);
-                }
-            }
-        }
-
-        // For anonymous users or non-owners: only allow access to public quizzes
-        if (quiz.getVisibility() != Visibility.PUBLIC || quiz.getStatus() != QuizStatus.PUBLISHED) {
-            throw new ForbiddenException("Access denied: quiz is not public");
-        }
-
-        return quizMapper.toDto(quiz);
+        return quizQueryService.getQuizById(id, authentication);
     }
 
     @Override
     @Transactional
-    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest req) {
-        Quiz quiz = quizRepository.findByIdWithTags(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + id + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to update this quiz");
-        }
-
-        // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
-        if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {
-            // Auto-revert to DRAFT on any edits of PENDING_REVIEW quizzes
-            quiz.setStatus(QuizStatus.DRAFT);
-        }
-
-        Category category;
-        if (req.categoryId() != null) {
-            category = categoryRepository.findById(req.categoryId())
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException("Category " + req.categoryId() + " not found"));
-        } else {
-            category = quiz.getCategory();
-        }
-
-        Set<Tag> tags = Optional.ofNullable(req.tagIds())
-                .map(ids -> ids.stream()
-                        .map(tagId -> tagRepository.findById(tagId)
-                                .orElseThrow(() ->
-                                        new ResourceNotFoundException("Tag " + tagId + " not found")))
-                        .collect(Collectors.toSet()))
-                .orElse(null);
-
-        String beforeContentHash = quiz.getContentHash();
-
-        quizMapper.updateEntity(quiz, req, category, tags);
-
-        // Recompute hashes on save
-        QuizDto draftDto = quizMapper.toDto(quiz);
-        String newContentHash = quizHashCalculator.calculateContentHash(draftDto);
-        String newPresentationHash = quizHashCalculator.calculatePresentationHash(draftDto);
-        quiz.setContentHash(newContentHash);
-        quiz.setPresentationHash(newPresentationHash);
-
-        // If published and content hash changes, auto transition to PENDING_REVIEW
-        if (beforeContentHash != null
-                && quiz.getStatus() == QuizStatus.PUBLISHED
-                && !beforeContentHash.equalsIgnoreCase(newContentHash)) {
-            quiz.setStatus(QuizStatus.PENDING_REVIEW);
-            // clear review outcome fields when moving to pending
-            quiz.setReviewedAt(null);
-            quiz.setReviewedBy(null);
-            quiz.setRejectionReason(null);
-        }
-
-        return quizMapper.toDto(quizRepository.save(quiz));
+    public QuizDto updateQuiz(String username, UUID id, UpdateQuizRequest request) {
+        return quizCommandService.updateQuiz(username, id, request);
     }
 
     @Override
     @Transactional
     public void deleteQuizById(String username, UUID id) {
-        Quiz quiz = quizRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + id + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to delete this quiz");
-        }
-
-        quizRepository.deleteById(id);
+        quizCommandService.deleteQuizById(username, id);
     }
 
     @Override
     @Transactional
     public void deleteQuizzesByIds(String username, List<UUID> quizIds) {
-        if (quizIds == null || quizIds.isEmpty()) {
-            return;
-        }
-        
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-        
-        boolean hasAdminPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
-        
-        var existing = quizRepository.findAllById(quizIds);
-        List<Quiz> quizzesToDelete = new ArrayList<>();
-        
-        for (Quiz quiz : existing) {
-            // Check ownership or admin permissions for each quiz
-            boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-            if (isOwner || hasAdminPermissions) {
-                quizzesToDelete.add(quiz);
-            }
-            // Silently ignore quizzes the user doesn't have permission to delete
-        }
-        
-        if (!quizzesToDelete.isEmpty()) {
-            quizRepository.deleteAll(quizzesToDelete);
-        }
+        quizCommandService.deleteQuizzesByIds(username, quizIds);
     }
 
     @Override
     @Transactional
     public BulkQuizUpdateOperationResultDto bulkUpdateQuiz(String username, BulkQuizUpdateRequest request) {
-        List<UUID> successes = new ArrayList<>();
-        Map<UUID, String> failures = new HashMap<>();
-
-        for (UUID id : request.quizIds()) {
-            try {
-                updateQuiz(username, id, request.update());
-                successes.add(id);
-            } catch (Exception ex) {
-                failures.put(id, ex.getMessage());
-            }
-        }
-
-        return new BulkQuizUpdateOperationResultDto(successes, failures);
+        return quizCommandService.bulkUpdateQuiz(username, request);
     }
 
     @Override
@@ -600,32 +367,14 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
-        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
-        return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
+        return quizQueryService.getGenerationStatus(jobId, username);
     }
 
     @Override
     @Transactional
     public QuizDto getGeneratedQuiz(UUID jobId, String username) {
-        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
 
-        if (job.getStatus() != GenerationStatus.COMPLETED) {
-            throw new ValidationException("Generation job is not yet completed. Current status: " + job.getStatus());
-        }
-
-        if (job.getGeneratedQuizId() == null) {
-            throw new ResourceNotFoundException("Generated quiz not found for job: " + jobId);
-        }
-
-        // Fix owner access: Use job's owner instead of null auth
-        Quiz quiz = quizRepository.findByIdWithTags(job.getGeneratedQuizId())
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
-
-        if (quiz.getCreator() == null || !quiz.getCreator().getId().equals(job.getUser().getId())) {
-            throw new ForbiddenException("Access denied");
-        }
-        
-        return quizMapper.toDto(quiz);
+        return quizQueryService.getGeneratedQuiz(jobId, username);
     }
 
     @Override
@@ -729,14 +478,13 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
-        Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
-        return jobs.map(job -> QuizGenerationStatus.fromEntity(job, featureFlags.isBilling()));
+        return quizQueryService.getGenerationJobs(username, pageable);
     }
 
     @Override
     @Transactional
     public QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username) {
-        return jobService.getJobStatistics(username);
+        return quizQueryService.getGenerationJobStatistics(username);
     }
 
     @EventListener
@@ -817,11 +565,8 @@ public class QuizServiceImpl implements QuizService {
             UUID documentId = originalRequest.documentId();
 
             // Get category and tags
-            Category category = getOrCreateAICategory();
-            Set<Tag> tags = getTagsFromRequest(originalRequest);
-
-            // Create individual chunk quizzes
-            List<Quiz> chunkQuizzes = new ArrayList<>();
+            Category category = quizAssemblyService.getOrCreateAICategory();
+            Set<Tag> tags = quizAssemblyService.resolveTags(originalRequest);
 
             if (chunkCount > 1) {
                 for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
@@ -832,14 +577,13 @@ public class QuizServiceImpl implements QuizService {
                         continue;
                     }
 
-                    Quiz chunkQuiz = createChunkQuiz(
+                    quizAssemblyService.createChunkQuiz(
                             user, questions, chunkIndex, originalRequest, category, tags, documentId
                     );
-                    chunkQuizzes.add(chunkQuiz);
                 }
             }
 
-            Quiz consolidatedQuiz = createConsolidatedQuiz(
+            Quiz consolidatedQuiz = quizAssemblyService.createConsolidatedQuiz(
                     user, allQuestions, originalRequest, category, tags, documentId, chunkCount
             );
 
@@ -872,466 +616,55 @@ public class QuizServiceImpl implements QuizService {
         }
     }
 
-    /**
-     * Create individual quiz for a document chunk
-     */
-    private Quiz createChunkQuiz(
-            User user,
-            List<Question> questions,
-            int chunkIndex,
-            GenerateQuizFromDocumentRequest request,
-            Category category,
-            Set<Tag> tags,
-            UUID documentId
-    ) {
-        String chunkTitle = getChunkTitle(chunkIndex, questions);
-        String baseTitle = String.format("Quiz: %s", chunkTitle);
-        String quizTitle = ensureUniqueQuizTitle(user, baseTitle);
-        String quizDescription = String.format("Quiz covering %s from the document", chunkTitle);
-
-        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES,
-                (int) Math.ceil(questions.size() * 1.5));
-
-        Quiz quiz = new Quiz();
-        quiz.setTitle(quizTitle);
-        quiz.setDescription(quizDescription);
-        quiz.setCreator(user);
-        quiz.setCategory(category);
-        quiz.setTags(tags);
-        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
-        quiz.setVisibility(Visibility.PRIVATE); // Start as private
-        quiz.setEstimatedTime(estimatedTimeMinutes);
-        quiz.setQuestions(new HashSet<>(questions));
-        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
-        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
-        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
-
-        // Add document metadata as custom properties (if supported)
-        // quiz.setCustomProperty("documentId", documentId.toString());
-        // quiz.setCustomProperty("chunkIndex", String.valueOf(chunkIndex));
-
-        return quizRepository.save(quiz);
-    }
-
-    /**
-     * Create consolidated quiz containing all questions from all chunks
-     */
-    private Quiz createConsolidatedQuiz(
-            User user,
-            List<Question> allQuestions,
-            GenerateQuizFromDocumentRequest request,
-            Category category,
-            Set<Tag> tags,
-            UUID documentId,
-            int chunkCount
-    ) {
-        String requestedTitle = request.quizTitle() != null ? request.quizTitle() :
-                "Complete Document Quiz";
-        String quizTitle = ensureUniqueQuizTitle(user, requestedTitle);
-        String quizDescription = request.quizDescription() != null ? request.quizDescription() :
-                String.format("Comprehensive quiz covering all %d sections of the document", chunkCount);
-
-        int estimatedTimeMinutes = Math.max(MINIMUM_ESTIMATED_TIME_MINUTES,
-                (int) Math.ceil(allQuestions.size() * 1.5));
-
-        Quiz quiz = new Quiz();
-        quiz.setTitle(quizTitle);
-        quiz.setDescription(quizDescription);
-        quiz.setCreator(user);
-        quiz.setCategory(category);
-        quiz.setTags(tags);
-        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
-        quiz.setVisibility(Visibility.PRIVATE); // Start as private
-        quiz.setEstimatedTime(estimatedTimeMinutes);
-        quiz.setQuestions(new HashSet<>(allQuestions));
-        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
-        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
-        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
-
-        // Add document metadata as custom properties (if supported)
-        // quiz.setCustomProperty("documentId", documentId.toString());
-        // quiz.setCustomProperty("quizType", "CONSOLIDATED");
-
-        return quizRepository.save(quiz);
-    }
-
-    /**
-     * Get or create AI Generated category
-     */
-    private Category getOrCreateAICategory() {
-        return categoryRepository.findByName("AI Generated")
-                .orElseGet(() -> categoryRepository.findByName("General")
-                        .orElseGet(() -> {
-                            // Create AI Generated category if it doesn't exist
-                            Category aiCategory = new Category();
-                            aiCategory.setName("AI Generated");
-                            aiCategory.setDescription("Quizzes automatically generated by AI");
-                            return categoryRepository.save(aiCategory);
-                        }));
-    }
-
-    /**
-     * Get tags from request or return empty set
-     */
-    private Set<Tag> getTagsFromRequest(GenerateQuizFromDocumentRequest request) {
-        if (request.tagIds() == null) {
-            return new HashSet<>();
-        }
-
-        return request.tagIds().stream()
-                .map(id -> tagRepository.findById(id).orElse(null))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Generate a unique quiz title for the creator by appending numeric suffixes when collisions occur.
-     */
-    private String ensureUniqueQuizTitle(User user, String requestedTitle) {
-        Objects.requireNonNull(user, "Creator must be provided for unique title generation");
-        String baseTitle = Optional.ofNullable(requestedTitle)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .orElse("Untitled Quiz");
-
-        String normalized = truncateToLength(baseTitle, QUIZ_TITLE_MAX_LENGTH);
-        if (!titleExistsForUser(user, normalized)) {
-            return normalized;
-        }
-
-        String baseForSuffix = deriveSuffixBase(normalized);
-        if (baseForSuffix.isBlank()) {
-            baseForSuffix = normalized;
-        }
-
-        int suffix = 2;
-        while (true) {
-            String numericSuffix = "-" + suffix;
-            int maxBaseLength = QUIZ_TITLE_MAX_LENGTH - numericSuffix.length();
-            if (maxBaseLength <= 0) {
-                throw new IllegalStateException("Unable to generate unique quiz title");
-            }
-
-            String candidateBase = baseForSuffix.length() > maxBaseLength
-                    ? truncateToLength(baseForSuffix, maxBaseLength)
-                    : baseForSuffix;
-
-            candidateBase = removeTrailingHyphen(candidateBase);
-            if (candidateBase.isBlank()) {
-                candidateBase = truncateToLength("Quiz", maxBaseLength);
-                if (candidateBase.isBlank()) {
-                    candidateBase = "Q";
-                }
-            }
-
-            String candidate = candidateBase + numericSuffix;
-            if (!titleExistsForUser(user, candidate)) {
-                return candidate;
-            }
-
-            suffix++;
-        }
-    }
-
-    private boolean titleExistsForUser(User user, String title) {
-        return quizRepository.existsByCreatorIdAndTitle(user.getId(), title);
-    }
-
-    private String truncateToLength(String value, int maxLength) {
-        if (value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength).stripTrailing();
-    }
-
-    private String deriveSuffixBase(String title) {
-        int hyphenIndex = title.lastIndexOf('-');
-        if (hyphenIndex > 0) {
-            String suffixCandidate = title.substring(hyphenIndex + 1);
-            if (!suffixCandidate.isBlank() && suffixCandidate.chars().allMatch(Character::isDigit)) {
-                return title.substring(0, hyphenIndex).stripTrailing();
-            }
-        }
-        return title;
-    }
-
-    private String removeTrailingHyphen(String value) {
-        int end = value.length();
-        while (end > 0 && value.charAt(end - 1) == '-') {
-            end--;
-        }
-        String trimmed = value.substring(0, end);
-        return trimmed.stripTrailing();
-    }
-
-    /**
-     * Generate chunk title based on chunk index and content
-     */
-    private String getChunkTitle(int chunkIndex, List<Question> questions) {
-        // Generate a unique identifier to prevent title conflicts in concurrent tests
-        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
-        
-        // Try to extract meaningful title from questions
-        if (!questions.isEmpty()) {
-            String firstQuestion = questions.get(0).getQuestionText();
-            if (firstQuestion != null && firstQuestion.length() > 10) {
-                // Extract first few words as potential title
-                String[] words = firstQuestion.split("\\s+");
-                if (words.length >= 3) {
-                    String baseTitle = String.join(" ", Arrays.copyOfRange(words, 0, Math.min(5, words.length)));
-                    return baseTitle + " (" + uniqueId + ")";
-                }
-            }
-        }
-
-        // Fallback to generic title with unique identifier
-        return String.format("Section %d (%s)", chunkIndex, uniqueId);
-    }
-
     @Override
     @Transactional
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Question question = questionRepository.findById(questionId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Question " + questionId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to modify this quiz");
-        }
-
-        quiz.getQuestions().add(question);
-        quizRepository.save(quiz);
+        quizRelationService.addQuestionToQuiz(username, quizId, questionId);
     }
 
     @Override
     @Transactional
     public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to modify this quiz");
-        }
-
-        quiz.getQuestions().removeIf(q -> q.getId().equals(questionId));
-        quizRepository.save(quiz);
+        quizRelationService.removeQuestionFromQuiz(username, quizId, questionId);
     }
 
     @Override
     @Transactional
     public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Tag tag = tagRepository.findById(tagId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Tag " + tagId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to modify this quiz");
-        }
-
-        quiz.getTags().add(tag);
-        quizRepository.save(quiz);
+        quizRelationService.addTagToQuiz(username, quizId, tagId);
     }
 
     @Override
     @Transactional
     public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to modify this quiz");
-        }
-
-        quiz.getTags().removeIf(t -> t.getId().equals(tagId));
-        quizRepository.save(quiz);
+        quizRelationService.removeTagFromQuiz(username, quizId, tagId);
     }
 
     @Override
     @Transactional
     public void changeCategory(String username, UUID quizId, UUID categoryId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Category " + categoryId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        if (!(quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId())
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))) {
-            throw new ForbiddenException("Not allowed to modify this quiz");
-        }
-
-        quiz.setCategory(category);
-        quizRepository.save(quiz);
+        quizRelationService.changeCategory(username, quizId, categoryId);
     }
 
     @Override
     @Transactional
     public QuizDto setVisibility(String name, UUID quizId, Visibility visibility) {
-        Quiz quiz = quizRepository.findById(quizId).orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(name)
-                .or(() -> userRepository.findByEmail(name))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + name + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
-        
-        if (!(isOwner || hasModerationPermissions)) {
-            throw new ForbiddenException("Not allowed to change quiz visibility");
-        }
-        
-        // Additional restriction: only moderators/admins can set visibility to PUBLIC
-        if (visibility == Visibility.PUBLIC && !hasModerationPermissions) {
-            throw new ForbiddenException("Only moderators can set quiz visibility to PUBLIC");
-        }
-
-        quiz.setVisibility(visibility);
-        return quizMapper.toDto(quizRepository.save(quiz));
+        return quizVisibilityService.setVisibility(name, quizId, visibility);
     }
 
     @Override
     @Transactional
     public QuizDto setStatus(String username, UUID quizId, QuizStatus status) {
-        Quiz quiz = quizRepository.findByIdWithQuestions(quizId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        // Ownership check: user must be the creator or have moderation/admin permissions
-        boolean isOwner = quiz.getCreator() != null && user.getId().equals(quiz.getCreator().getId());
-        boolean hasModerationPermissions = appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE)
-                || appPermissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN);
-        
-        if (!(isOwner || hasModerationPermissions)) {
-            throw new ForbiddenException("Not allowed to change quiz status");
-        }
-        
-        // Refined publishing rules: owners can publish PRIVATE quizzes, but PUBLIC requires moderation
-        if (status == QuizStatus.PUBLISHED && !hasModerationPermissions) {
-            // Owners can only publish when visibility is PRIVATE
-            if (quiz.getVisibility() == Visibility.PUBLIC) {
-                throw new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation.");
-            }
-            // Owner publishing privately - allowed
-        }
-
-        if (status == QuizStatus.PUBLISHED) {
-            validateQuizForPublishing(quiz);
-        }
-
-        quiz.setStatus(status);
-        return quizMapper.toDto(quizRepository.save(quiz));
-    }
-
-    private void validateQuizForPublishing(Quiz quiz) {
-        List<String> validationErrors = new ArrayList<>();
-
-        // Check if quiz has questions
-        if (quiz.getQuestions().isEmpty()) {
-            validationErrors.add("Cannot publish quiz without questions");
-        }
-
-        // Check minimum estimated time
-        if (quiz.getEstimatedTime() == null || quiz.getEstimatedTime() < MINIMUM_ESTIMATED_TIME_MINUTES) {
-            validationErrors.add("Quiz must have a minimum estimated time of " + MINIMUM_ESTIMATED_TIME_MINUTES + " minute(s)");
-        }
-
-        // Check if all questions have valid correct answers
-        if (!quiz.getQuestions().isEmpty()) {
-            validateQuestionsHaveCorrectAnswers(quiz, validationErrors);
-        }
-
-        if (!validationErrors.isEmpty()) {
-            throw new IllegalArgumentException("Cannot publish quiz: " + String.join("; ", validationErrors));
-        }
-    }
-
-    private void validateQuestionsHaveCorrectAnswers(Quiz quiz, List<String> validationErrors) {
-        for (var question : quiz.getQuestions()) {
-            try {
-                // Get the appropriate handler for this question type
-                QuestionHandler handler = questionHandlerFactory.getHandler(question.getType());
-
-                // Parse the question content
-                var content = objectMapper.readTree(question.getContent());
-                var contentRequest = new EntityQuestionContentRequest(question.getType(), content);
-
-                // Validate that the question content has correct answers defined
-                handler.validateContent(contentRequest);
-
-            } catch (JsonProcessingException e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' has malformed content JSON");
-            } catch (ValidationException e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' is invalid: " + e.getMessage());
-            } catch (Exception e) {
-                validationErrors.add("Question '" + question.getQuestionText() + "' failed validation: " + e.getMessage());
-            }
-        }
+        return quizPublishingService.setStatus(username, quizId, status);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getPublicQuizzes(Pageable pageable) {
-        // Enforce visibility invariants: public catalog shows PUBLISHED && PUBLIC
-        return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
-                .map(quizMapper::toDto);
+        return quizQueryService.getPublicQuizzes(pageable);
     }
 
-    /**
-     * Commit tokens for successful quiz generation.
-     * Implements OUTPUT-only commit mode as specified in the billing plan.
-     * 
-     * State gating: Only allows commit for jobs in RESERVED state.
-     * Epsilon policy: Rejects commits that exceed reserved tokens by more than configured epsilon.
-     * Ledger linking: Ensures proper audit trail with reservation ID, job ID, and idempotency keys.
-     */
+
     void commitTokensForSuccessfulGeneration(QuizGenerationJob job, List<Question> allQuestions, 
                                                    GenerateQuizFromDocumentRequest originalRequest) {
         String jobId = job.getId().toString();
@@ -1387,7 +720,7 @@ public class QuizServiceImpl implements QuizService {
                     inputPromptTokens
             );
 
-            // Cap actual tokens at reserved amount to avoid overcharging users
+            // Cap actual tokens at reserved amount to avoid overcharging users.
             // Users aren't responsible for our estimation accuracy
             long reservedTokens = lockedJob.getBillingEstimatedTokens();
             long tokensToCommit = Math.min(actualBillingTokens, reservedTokens);

@@ -22,6 +22,10 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -93,11 +97,17 @@ class QuizServiceImplModificationMethodsTest {
     @Mock
     private FeatureFlags featureFlags;
     @Mock
-    private uk.gegc.quizmaker.features.quiz.config.QuizJobProperties quizJobProperties;
+    private QuizJobProperties quizJobProperties;
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private AccessPolicy accessPolicy;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -135,6 +145,15 @@ class QuizServiceImplModificationMethodsTest {
         testCategory = new Category();
         testCategory.setId(UUID.randomUUID());
         testCategory.setName("Test Category");
+        
+        // Default AccessPolicy mock behavior: allow owners to access their own resources
+        lenient().doNothing().when(accessPolicy).requireOwnerOrAny(
+                any(User.class), 
+                any(UUID.class), 
+                any(PermissionName.class), 
+                any(PermissionName.class));
+        lenient().when(accessPolicy.hasAny(any(User.class), any(PermissionName.class), any(PermissionName.class)))
+                .thenReturn(false);
     }
 
     @Nested
@@ -147,19 +166,12 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String email = "test@example.com";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
-            when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser)); // Line 1085
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When
+            // Delegation test: just verify no exception is thrown
             assertThatCode(() -> quizService.addQuestionToQuiz(email, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
-
-            // Then - Line 1085 covered
-            verify(userRepository).findByEmail(email);
-            verify(quizRepository).save(any());
+            
+            // Verify delegation happened
+            verify(quizRelationService).addQuestionToQuiz(email, testQuiz.getId(), testQuestion.getId());
         }
 
         @Test
@@ -168,10 +180,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String username = "nonexistent";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(username)).thenReturn(Optional.empty()); // Line 1086
+            doThrow(new ResourceNotFoundException("User " + username + " not found"))
+                    .when(quizRelationService).addQuestionToQuiz(username, testQuiz.getId(), testQuestion.getId());
 
             // When & Then - Line 1086 covered
             assertThatThrownBy(() -> quizService.addQuestionToQuiz(username, testQuiz.getId(), testQuestion.getId()))
@@ -183,59 +193,40 @@ class QuizServiceImplModificationMethodsTest {
         @DisplayName("addQuestionToQuiz: when quiz has no creator and user is not moderator then throws exception")
         void addQuestionToQuiz_noCreatorNoPermissions_throwsForbidden() {
             // Given
-            testQuiz.setCreator(null); // Line 1089 - null creator
-            
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
-            when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(quizRelationService).addQuestionToQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId());
 
             // When & Then - Lines 1089-1092 covered
             assertThatThrownBy(() -> quizService.addQuestionToQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
 
         @Test
         @DisplayName("addQuestionToQuiz: when user has QUIZ_MODERATE permission then succeeds")
         void addQuestionToQuiz_userHasModeratePermission_succeeds() {
             // Given - Different user with moderate permission
-            User moderator = new User();
-            moderator.setId(UUID.randomUUID());
-            moderator.setUsername("moderator");
+            String moderatorUsername = "moderator";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
-            when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1090
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1090 covered
-            assertThatCode(() -> quizService.addQuestionToQuiz(moderator.getUsername(), testQuiz.getId(), testQuestion.getId()))
+            // Delegation test: just verify no exception is thrown
+            assertThatCode(() -> quizService.addQuestionToQuiz(moderatorUsername, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
+            
+            // Verify delegation happened
+            verify(quizRelationService).addQuestionToQuiz(moderatorUsername, testQuiz.getId(), testQuestion.getId());
         }
 
         @Test
         @DisplayName("addQuestionToQuiz: when user has QUIZ_ADMIN permission then succeeds")
         void addQuestionToQuiz_userHasAdminPermission_succeeds() {
             // Given - Different user with admin permission
-            User admin = new User();
-            admin.setId(UUID.randomUUID());
-            admin.setUsername("admin");
+            String adminUsername = "admin";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(questionRepository.findById(testQuestion.getId())).thenReturn(Optional.of(testQuestion));
-            when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1091
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1091 covered
-            assertThatCode(() -> quizService.addQuestionToQuiz(admin.getUsername(), testQuiz.getId(), testQuestion.getId()))
+            // Delegation test: just verify no exception is thrown
+            assertThatCode(() -> quizService.addQuestionToQuiz(adminUsername, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
+            
+            // Verify delegation happened
+            verify(quizRelationService).addQuestionToQuiz(adminUsername, testQuiz.getId(), testQuestion.getId());
         }
     }
 
@@ -249,7 +240,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             UUID nonExistentQuizId = UUID.randomUUID();
             
-            when(quizRepository.findById(nonExistentQuizId)).thenReturn(Optional.empty());
+            doThrow(new ResourceNotFoundException("Quiz " + nonExistentQuizId + " not found"))
+                    .when(quizRelationService).addTagToQuiz(testUser.getUsername(), nonExistentQuizId, testTag.getId());
 
             // When & Then - Line 1126 covered
             assertThatThrownBy(() -> quizService.addTagToQuiz(testUser.getUsername(), nonExistentQuizId, testTag.getId()))
@@ -263,8 +255,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             UUID nonExistentTagId = UUID.randomUUID();
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(nonExistentTagId)).thenReturn(Optional.empty());
+            doThrow(new ResourceNotFoundException("Tag " + nonExistentTagId + " not found"))
+                    .when(quizRelationService).addTagToQuiz(testUser.getUsername(), testQuiz.getId(), nonExistentTagId);
 
             // When & Then - Line 1129 covered
             assertThatThrownBy(() -> quizService.addTagToQuiz(testUser.getUsername(), testQuiz.getId(), nonExistentTagId))
@@ -278,15 +270,12 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String email = "test@example.com";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
-            when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser)); // Line 1132
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1132 covered
+            // Delegation test: just verify no exception is thrown
             assertThatCode(() -> quizService.addTagToQuiz(email, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            
+            // Verify delegation happened
+            verify(quizRelationService).addTagToQuiz(email, testQuiz.getId(), testTag.getId());
         }
 
         @Test
@@ -295,10 +284,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String username = "nonexistent";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(username)).thenReturn(Optional.empty()); // Line 1133
+            doThrow(new ResourceNotFoundException("User " + username + " not found"))
+                    .when(quizRelationService).addTagToQuiz(username, testQuiz.getId(), testTag.getId());
 
             // When & Then - Line 1133 covered
             assertThatThrownBy(() -> quizService.addTagToQuiz(username, testQuiz.getId(), testTag.getId()))
@@ -310,59 +297,40 @@ class QuizServiceImplModificationMethodsTest {
         @DisplayName("addTagToQuiz: when user has QUIZ_MODERATE permission then succeeds")
         void addTagToQuiz_userHasModeratePermission_succeeds() {
             // Given
-            User moderator = new User();
-            moderator.setId(UUID.randomUUID());
-            moderator.setUsername("moderator");
+            String moderatorUsername = "moderator";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
-            when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1137
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1137 covered
-            assertThatCode(() -> quizService.addTagToQuiz(moderator.getUsername(), testQuiz.getId(), testTag.getId()))
+            // Delegation test: just verify no exception is thrown
+            assertThatCode(() -> quizService.addTagToQuiz(moderatorUsername, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            
+            // Verify delegation happened
+            verify(quizRelationService).addTagToQuiz(moderatorUsername, testQuiz.getId(), testTag.getId());
         }
 
         @Test
         @DisplayName("addTagToQuiz: when user has QUIZ_ADMIN permission then succeeds")
         void addTagToQuiz_userHasAdminPermission_succeeds() {
             // Given
-            User admin = new User();
-            admin.setId(UUID.randomUUID());
-            admin.setUsername("admin");
+            String adminUsername = "admin";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
-            when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1138
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1138 covered
-            assertThatCode(() -> quizService.addTagToQuiz(admin.getUsername(), testQuiz.getId(), testTag.getId()))
+            // Delegation test: just verify no exception is thrown
+            assertThatCode(() -> quizService.addTagToQuiz(adminUsername, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            
+            // Verify delegation happened
+            verify(quizRelationService).addTagToQuiz(adminUsername, testQuiz.getId(), testTag.getId());
         }
 
         @Test
         @DisplayName("addTagToQuiz: when quiz has no creator and user has no permissions then throws exception")
         void addTagToQuiz_noCreatorNoPermissions_throwsForbidden() {
             // Given
-            testQuiz.setCreator(null); // Null creator
-            
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(tagRepository.findById(testTag.getId())).thenReturn(Optional.of(testTag));
-            when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(quizRelationService).addTagToQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId());
 
             // When & Then - Lines 1136-1139 covered
             assertThatThrownBy(() -> quizService.addTagToQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -376,7 +344,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             UUID nonExistentQuizId = UUID.randomUUID();
             
-            when(quizRepository.findById(nonExistentQuizId)).thenReturn(Optional.empty());
+            doThrow(new ResourceNotFoundException("Quiz " + nonExistentQuizId + " not found"))
+                    .when(quizRelationService).removeQuestionFromQuiz(testUser.getUsername(), nonExistentQuizId, testQuestion.getId());
 
             // When & Then - Line 1104 covered
             assertThatThrownBy(() -> quizService.removeQuestionFromQuiz(testUser.getUsername(), nonExistentQuizId, testQuestion.getId()))
@@ -390,14 +359,10 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String email = "test@example.com";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser)); // Line 1107
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1107 covered
+            // Delegation test
             assertThatCode(() -> quizService.removeQuestionFromQuiz(email, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeQuestionFromQuiz(email, testQuiz.getId(), testQuestion.getId());
         }
 
         @Test
@@ -406,9 +371,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String username = "nonexistent";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(username)).thenReturn(Optional.empty()); // Line 1108
+            doThrow(new ResourceNotFoundException("User " + username + " not found"))
+                    .when(quizRelationService).removeQuestionFromQuiz(username, testQuiz.getId(), testQuestion.getId());
 
             // When & Then - Line 1108 covered
             assertThatThrownBy(() -> quizService.removeQuestionFromQuiz(username, testQuiz.getId(), testQuestion.getId()))
@@ -420,56 +384,36 @@ class QuizServiceImplModificationMethodsTest {
         @DisplayName("removeQuestionFromQuiz: when user has QUIZ_MODERATE permission then succeeds")
         void removeQuestionFromQuiz_userHasModeratePermission_succeeds() {
             // Given
-            User moderator = new User();
-            moderator.setId(UUID.randomUUID());
-            moderator.setUsername("moderator");
+            String moderatorUsername = "moderator";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1112
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1112 covered
-            assertThatCode(() -> quizService.removeQuestionFromQuiz(moderator.getUsername(), testQuiz.getId(), testQuestion.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.removeQuestionFromQuiz(moderatorUsername, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeQuestionFromQuiz(moderatorUsername, testQuiz.getId(), testQuestion.getId());
         }
 
         @Test
         @DisplayName("removeQuestionFromQuiz: when user has QUIZ_ADMIN permission then succeeds")
         void removeQuestionFromQuiz_userHasAdminPermission_succeeds() {
             // Given
-            User admin = new User();
-            admin.setId(UUID.randomUUID());
-            admin.setUsername("admin");
+            String adminUsername = "admin";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1113
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1113 covered
-            assertThatCode(() -> quizService.removeQuestionFromQuiz(admin.getUsername(), testQuiz.getId(), testQuestion.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.removeQuestionFromQuiz(adminUsername, testQuiz.getId(), testQuestion.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeQuestionFromQuiz(adminUsername, testQuiz.getId(), testQuestion.getId());
         }
 
         @Test
         @DisplayName("removeQuestionFromQuiz: when quiz has no creator and user has no permissions then throws exception")
         void removeQuestionFromQuiz_noCreatorNoPermissions_throwsForbidden() {
             // Given
-            testQuiz.setCreator(null);
-            
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(quizRelationService).removeQuestionFromQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId());
 
             // When & Then - Lines 1111-1114 covered
             assertThatThrownBy(() -> quizService.removeQuestionFromQuiz(testUser.getUsername(), testQuiz.getId(), testQuestion.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -483,14 +427,10 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String email = "test@example.com";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser)); // Line 1154
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1154 covered
+            // Delegation test
             assertThatCode(() -> quizService.removeTagFromQuiz(email, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeTagFromQuiz(email, testQuiz.getId(), testTag.getId());
         }
 
         @Test
@@ -499,9 +439,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String username = "nonexistent";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(username)).thenReturn(Optional.empty()); // Line 1155
+            doThrow(new ResourceNotFoundException("User " + username + " not found"))
+                    .when(quizRelationService).removeTagFromQuiz(username, testQuiz.getId(), testTag.getId());
 
             // When & Then - Line 1155 covered
             assertThatThrownBy(() -> quizService.removeTagFromQuiz(username, testQuiz.getId(), testTag.getId()))
@@ -513,56 +452,36 @@ class QuizServiceImplModificationMethodsTest {
         @DisplayName("removeTagFromQuiz: when user has QUIZ_MODERATE permission then succeeds")
         void removeTagFromQuiz_userHasModeratePermission_succeeds() {
             // Given
-            User moderator = new User();
-            moderator.setId(UUID.randomUUID());
-            moderator.setUsername("moderator");
+            String moderatorUsername = "moderator";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1159
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1159 covered
-            assertThatCode(() -> quizService.removeTagFromQuiz(moderator.getUsername(), testQuiz.getId(), testTag.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.removeTagFromQuiz(moderatorUsername, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeTagFromQuiz(moderatorUsername, testQuiz.getId(), testTag.getId());
         }
 
         @Test
         @DisplayName("removeTagFromQuiz: when user has QUIZ_ADMIN permission then succeeds")
         void removeTagFromQuiz_userHasAdminPermission_succeeds() {
             // Given
-            User admin = new User();
-            admin.setId(UUID.randomUUID());
-            admin.setUsername("admin");
+            String adminUsername = "admin";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1160
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1160 covered
-            assertThatCode(() -> quizService.removeTagFromQuiz(admin.getUsername(), testQuiz.getId(), testTag.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.removeTagFromQuiz(adminUsername, testQuiz.getId(), testTag.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).removeTagFromQuiz(adminUsername, testQuiz.getId(), testTag.getId());
         }
 
         @Test
         @DisplayName("removeTagFromQuiz: when quiz has no creator and user has no permissions then throws exception")
         void removeTagFromQuiz_noCreatorNoPermissions_throwsForbidden() {
             // Given
-            testQuiz.setCreator(null);
-            
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(quizRelationService).removeTagFromQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId());
 
             // When & Then - Lines 1158-1161 covered
             assertThatThrownBy(() -> quizService.removeTagFromQuiz(testUser.getUsername(), testQuiz.getId(), testTag.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
     }
 
@@ -578,7 +497,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setId(UUID.randomUUID());
             job.setStatus(GenerationStatus.PROCESSING); // Not completed
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ValidationException("Generation job is not yet completed. Current status: " + job.getStatus()));
 
             // When & Then - Lines 595-596 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -595,7 +515,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setStatus(GenerationStatus.COMPLETED);
             job.setGeneratedQuizId(null); // Null quiz ID
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ResourceNotFoundException("Generated quiz not found for job: " + job.getId()));
 
             // When & Then - Lines 599-600 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -612,8 +533,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setStatus(GenerationStatus.COMPLETED);
             job.setGeneratedQuizId(UUID.randomUUID());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.empty());
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ResourceNotFoundException("Quiz " + job.getGeneratedQuizId() + " not found"));
 
             // When & Then - Line 605 covered
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -631,10 +552,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(null); // Null creator
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ForbiddenException("Access denied"));
 
             // When & Then - Line 607 covered (null creator)
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -656,10 +575,8 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(differentUser); // Different creator
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
+                    .thenThrow(new ForbiddenException("Access denied"));
 
             // When & Then - Line 607 covered (creator ID doesn't match)
             assertThatThrownBy(() -> quizService.getGeneratedQuiz(job.getId(), testUser.getUsername()))
@@ -677,14 +594,10 @@ class QuizServiceImplModificationMethodsTest {
             job.setGeneratedQuizId(testQuiz.getId());
             job.setUser(testUser);
             
-            testQuiz.setCreator(testUser); // Matching creator
-            
             QuizDto quizDto = mock(QuizDto.class);
             when(quizDto.id()).thenReturn(testQuiz.getId());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), testUser.getUsername())).thenReturn(job);
-            when(quizRepository.findByIdWithTags(job.getGeneratedQuizId())).thenReturn(Optional.of(testQuiz));
-            when(quizMapper.toDto(testQuiz)).thenReturn(quizDto);
+            when(quizQueryService.getGeneratedQuiz(job.getId(), testUser.getUsername())).thenReturn(quizDto);
 
             // When
             QuizDto result = quizService.getGeneratedQuiz(job.getId(), testUser.getUsername());
@@ -704,17 +617,11 @@ class QuizServiceImplModificationMethodsTest {
         void changeCategory_userFoundByEmail_succeeds() {
             // Given
             String email = "test@example.com";
-            testQuiz.setCategory(new Category()); // Set old category
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
-            when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(email)).thenReturn(Optional.of(testUser)); // Line 1179
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1179 covered
+            // Delegation test
             assertThatCode(() -> quizService.changeCategory(email, testQuiz.getId(), testCategory.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).changeCategory(email, testQuiz.getId(), testCategory.getId());
         }
 
         @Test
@@ -723,10 +630,8 @@ class QuizServiceImplModificationMethodsTest {
             // Given
             String username = "nonexistent";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
-            when(userRepository.findByEmail(username)).thenReturn(Optional.empty()); // Line 1180
+            doThrow(new ResourceNotFoundException("User " + username + " not found"))
+                    .when(quizRelationService).changeCategory(username, testQuiz.getId(), testCategory.getId());
 
             // When & Then - Line 1180 covered
             assertThatThrownBy(() -> quizService.changeCategory(username, testQuiz.getId(), testCategory.getId()))
@@ -738,61 +643,36 @@ class QuizServiceImplModificationMethodsTest {
         @DisplayName("changeCategory: when quiz has no creator and user is not moderator then throws exception")
         void changeCategory_noCreatorNoPermissions_throwsForbidden() {
             // Given
-            testQuiz.setCreator(null); // Line 1183 - null creator
-            
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
-            when(userRepository.findByUsername(testUser.getUsername())).thenReturn(Optional.of(testUser));
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
+            doThrow(new ForbiddenException("Owner or elevated permission required"))
+                    .when(quizRelationService).changeCategory(testUser.getUsername(), testQuiz.getId(), testCategory.getId());
 
             // When & Then - Lines 1183-1186 covered
             assertThatThrownBy(() -> quizService.changeCategory(testUser.getUsername(), testQuiz.getId(), testCategory.getId()))
-                    .isInstanceOf(ForbiddenException.class)
-                    .hasMessageContaining("Not allowed to modify this quiz");
+                    .isInstanceOf(ForbiddenException.class);
         }
 
         @Test
         @DisplayName("changeCategory: when user has QUIZ_MODERATE permission then succeeds")
         void changeCategory_userHasModeratePermission_succeeds() {
             // Given
-            User moderator = new User();
-            moderator.setId(UUID.randomUUID());
-            moderator.setUsername("moderator");
-            testQuiz.setCategory(new Category());
+            String moderatorUsername = "moderator";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
-            when(userRepository.findByUsername(moderator.getUsername())).thenReturn(Optional.of(moderator));
-            when(appPermissionEvaluator.hasPermission(moderator, PermissionName.QUIZ_MODERATE))
-                    .thenReturn(true); // Line 1184
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1184 covered
-            assertThatCode(() -> quizService.changeCategory(moderator.getUsername(), testQuiz.getId(), testCategory.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.changeCategory(moderatorUsername, testQuiz.getId(), testCategory.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).changeCategory(moderatorUsername, testQuiz.getId(), testCategory.getId());
         }
 
         @Test
         @DisplayName("changeCategory: when user has QUIZ_ADMIN permission then succeeds")
         void changeCategory_userHasAdminPermission_succeeds() {
             // Given
-            User admin = new User();
-            admin.setId(UUID.randomUUID());
-            admin.setUsername("admin");
-            testQuiz.setCategory(new Category());
+            String adminUsername = "admin";
             
-            when(quizRepository.findById(testQuiz.getId())).thenReturn(Optional.of(testQuiz));
-            when(categoryRepository.findById(testCategory.getId())).thenReturn(Optional.of(testCategory));
-            when(userRepository.findByUsername(admin.getUsername())).thenReturn(Optional.of(admin));
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_MODERATE)).thenReturn(false);
-            when(appPermissionEvaluator.hasPermission(admin, PermissionName.QUIZ_ADMIN))
-                    .thenReturn(true); // Line 1185
-            when(quizRepository.save(any())).thenReturn(testQuiz);
-
-            // When & Then - Line 1185 covered
-            assertThatCode(() -> quizService.changeCategory(admin.getUsername(), testQuiz.getId(), testCategory.getId()))
+            // Delegation test
+            assertThatCode(() -> quizService.changeCategory(adminUsername, testQuiz.getId(), testCategory.getId()))
                     .doesNotThrowAnyException();
+            verify(quizRelationService).changeCategory(adminUsername, testQuiz.getId(), testCategory.getId());
         }
     }
 }

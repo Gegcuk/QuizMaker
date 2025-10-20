@@ -25,13 +25,22 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
-import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -87,6 +96,24 @@ class QuizServiceImplQuizCollectionTest {
     private AppPermissionEvaluator permissionEvaluator;
     @Mock
     private FeatureFlags featureFlags;
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
+    @Mock
+    private TransactionTemplate transactionTemplate;
+    @Mock
+    private QuizJobProperties quizJobProperties;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+    @Mock
+    private QuizAssemblyService quizAssemblyService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -132,6 +159,28 @@ class QuizServiceImplQuizCollectionTest {
         // Default mocks
         lenient().when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
         lenient().when(tagRepository.findAllById(anyList())).thenReturn(List.of());
+        
+        // Mock QuizAssemblyService behavior
+        lenient().when(quizAssemblyService.getOrCreateAICategory()).thenReturn(testCategory);
+        lenient().when(quizAssemblyService.resolveTags(any())).thenReturn(new HashSet<>());
+        lenient().when(quizAssemblyService.ensureUniqueTitle(any(), anyString()))
+                .thenAnswer(inv -> inv.getArgument(1));
+        
+        lenient().when(quizAssemblyService.createChunkQuiz(any(), any(), anyInt(), any(), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    Quiz quiz = new Quiz();
+                    quiz.setId(UUID.randomUUID());
+                    quiz.setQuestions(new HashSet<>((List<Question>) inv.getArgument(1)));
+                    return quizRepository.save(quiz);
+                });
+        
+        lenient().when(quizAssemblyService.createConsolidatedQuiz(any(), any(), any(), any(), any(), any(), anyInt()))
+                .thenAnswer(inv -> {
+                    Quiz quiz = new Quiz();
+                    quiz.setId(UUID.randomUUID());
+                    quiz.setQuestions(new HashSet<>((List<Question>) inv.getArgument(1)));
+                    return quizRepository.save(quiz);
+                });
     }
 
     @Nested

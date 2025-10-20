@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -51,4 +53,12 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificat
 
     List<Quiz> findByCreatorId(UUID creatorId);
     boolean existsByCreatorIdAndTitle(UUID creatorId, String title);
+
+    /**
+     * Override Specification-based findAll to eagerly fetch small associations used in DTO mapping
+     * to avoid N+1 queries on list endpoints.
+     */
+    @Override
+    @EntityGraph(attributePaths = {"creator", "category", "tags"})
+    Page<Quiz> findAll(Specification<Quiz> spec, Pageable pageable);
 }

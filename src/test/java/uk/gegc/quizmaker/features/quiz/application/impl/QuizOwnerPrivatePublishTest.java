@@ -39,7 +39,16 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
+import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -85,9 +94,17 @@ class QuizOwnerPrivatePublishTest {
     @Mock private InternalBillingService internalBillingService;
     @Mock private EstimationService estimationService;
     @Mock private FeatureFlags featureFlags;
-    @Mock private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock private AccessPolicy accessPolicy;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
+    @Mock private QuizJobProperties quizJobProperties;
+    @Mock private QuizDefaultsProperties quizDefaultsProperties;
+    @Mock private QuizQueryService quizQueryService;
+    @Mock private QuizCommandService quizCommandService;
+    @Mock private QuizRelationService quizRelationService;
+    @Mock private QuizPublishingService quizPublishingService;
+    @Mock private QuizVisibilityService quizVisibilityService;
+    @Mock private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -107,6 +124,9 @@ class QuizOwnerPrivatePublishTest {
         
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        
+        // Mock successful validation for publishing tests
+        lenient().doNothing().when(quizPublishValidator).ensurePublishable(any(Quiz.class));
     }
 
     // =============== setStatus Tests ===============
@@ -115,87 +135,66 @@ class QuizOwnerPrivatePublishTest {
     @DisplayName("setStatus: when owner sets PUBLISHED on PRIVATE quiz then succeeds")
     void setStatus_ownerPublishPrivate_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
-        testQuiz.setStatus(QuizStatus.DRAFT);
-        
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(testQuizDto);
-        // Mock question validation
-        when(questionHandlerFactory.getHandler(any(QuestionType.class))).thenReturn(questionHandler);
+        when(quizPublishingService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
+                .thenReturn(testQuizDto);
 
         // When
         QuizDto result = quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(testQuiz);
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     @Test
     @DisplayName("setStatus: when owner sets PUBLISHED on PUBLIC quiz then forbidden")
     void setStatus_ownerPublishPublic_forbidden() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.DRAFT);
-        
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
+        doThrow(new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation."))
+                .when(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // When/Then
         assertThatThrownBy(() -> quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can publish PUBLIC quizzes");
         
-        verify(quizRepository, never()).save(any(Quiz.class));
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     @Test
     @DisplayName("setStatus: when owner sets DRAFT from PUBLISHED then succeeds (unpublish)")
     void setStatus_ownerUnpublish_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto draftDto = createQuizDto(testQuiz.getId(), QuizStatus.DRAFT, Visibility.PUBLIC);
         
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(draftDto);
+        when(quizPublishingService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT))
+                .thenReturn(draftDto);
 
         // When
         QuizDto result = quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
-        verify(quizRepository).save(testQuiz);
+        assertThat(result.status()).isEqualTo(QuizStatus.DRAFT);
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT);
     }
 
     @Test
     @DisplayName("setStatus: when moderator sets PUBLISHED on PUBLIC quiz then succeeds")
     void setStatus_moderatorPublishPublic_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.DRAFT);
         QuizDto publicDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PUBLIC);
         
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(publicDto);
-        // Mock question validation
-        when(questionHandlerFactory.getHandler(any(QuestionType.class))).thenReturn(questionHandler);
+        when(quizPublishingService.setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
+                .thenReturn(publicDto);
 
         // When
         QuizDto result = quizService.setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(testQuiz);
+        assertThat(result.status()).isEqualTo(QuizStatus.PUBLISHED);
+        verify(quizPublishingService).setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     // =============== setVisibility Tests ===============
@@ -204,59 +203,49 @@ class QuizOwnerPrivatePublishTest {
     @DisplayName("setVisibility: when owner sets PRIVATE then succeeds")
     void setVisibility_ownerSetPrivate_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
         QuizDto privateDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PRIVATE);
         
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(privateDto);
+        when(quizVisibilityService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE))
+                .thenReturn(privateDto);
 
         // When
         QuizDto result = quizService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getVisibility()).isEqualTo(Visibility.PRIVATE);
-        verify(quizRepository).save(testQuiz);
+        verify(quizVisibilityService).setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE);
     }
 
     @Test
     @DisplayName("setVisibility: when owner sets PUBLIC then forbidden")
     void setVisibility_ownerSetPublic_forbidden() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
-        
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
+        when(quizVisibilityService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
+                .thenThrow(new ForbiddenException("Only moderators can set quiz visibility to PUBLIC"));
 
         // When/Then
         assertThatThrownBy(() -> quizService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
         
-        verify(quizRepository, never()).save(any(Quiz.class));
+        verify(quizVisibilityService).setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
     }
 
     @Test
     @DisplayName("setVisibility: when moderator sets PUBLIC then succeeds")
     void setVisibility_moderatorSetPublic_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
         QuizDto publicDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PUBLIC);
         
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(publicDto);
+        when(quizVisibilityService.setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
+                .thenReturn(publicDto);
 
         // When
         QuizDto result = quizService.setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getVisibility()).isEqualTo(Visibility.PUBLIC);
-        verify(quizRepository).save(testQuiz);
+        verify(quizVisibilityService).setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
     }
 
     // =============== Helper Methods ===============
@@ -352,17 +341,28 @@ class QuizOwnerPrivatePublishTest {
     }
 
     private void setupPermissionEvaluatorMock() {
-        // Owner does not have moderation permissions
-        when(appPermissionEvaluator.hasPermission(eq(ownerUser), eq(PermissionName.QUIZ_MODERATE)))
-                .thenReturn(false);
-        when(appPermissionEvaluator.hasPermission(eq(ownerUser), eq(PermissionName.QUIZ_ADMIN)))
+        // Configure AccessPolicy mock
+        // Owner has no moderation permissions
+        when(accessPolicy.hasAny(eq(ownerUser), eq(PermissionName.QUIZ_MODERATE), eq(PermissionName.QUIZ_ADMIN)))
                 .thenReturn(false);
         
         // Moderator has moderation permissions
-        when(appPermissionEvaluator.hasPermission(eq(moderatorUser), eq(PermissionName.QUIZ_MODERATE)))
+        when(accessPolicy.hasAny(eq(moderatorUser), eq(PermissionName.QUIZ_MODERATE), eq(PermissionName.QUIZ_ADMIN)))
                 .thenReturn(true);
-        when(appPermissionEvaluator.hasPermission(eq(moderatorUser), eq(PermissionName.QUIZ_ADMIN)))
-                .thenReturn(false);
+        
+        // Owner can access their own quizzes (no exception thrown for owner)
+        doNothing().when(accessPolicy).requireOwnerOrAny(
+                eq(ownerUser), 
+                eq(ownerUser.getId()), 
+                eq(PermissionName.QUIZ_MODERATE), 
+                eq(PermissionName.QUIZ_ADMIN));
+        
+        // Moderator can access any quiz (no exception thrown for moderator)
+        doNothing().when(accessPolicy).requireOwnerOrAny(
+                eq(moderatorUser), 
+                any(UUID.class), 
+                eq(PermissionName.QUIZ_MODERATE), 
+                eq(PermissionName.QUIZ_ADMIN));
     }
 }
 

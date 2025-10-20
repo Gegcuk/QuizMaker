@@ -94,10 +94,7 @@ public class OpenAiLlmClient implements LlmClient {
                     ChatResponse chatResponse = chatModel.call(new Prompt(new UserMessage(promptWithFormat)));
                     
                     String aiResponseText = chatResponse.getResult().getOutput().getText();
-                    
-                    // Log the response
-                    logAiResponse(aiResponseText, options);
-                    
+
                     DocumentStructureRecords.DocumentStructureResponse response = 
                             outputConverter.convert(aiResponseText);
 
@@ -216,8 +213,6 @@ public class OpenAiLlmClient implements LlmClient {
         }
     }
 
-
-
     private long calculateBackoffDelay(int retryCount) {
         long baseDelay = rateLimitConfig.getBaseDelayMs();
         long maxDelay = rateLimitConfig.getMaxDelayMs();
@@ -227,65 +222,5 @@ public class OpenAiLlmClient implements LlmClient {
         long delay = Math.min(baseDelay * (1L << retryCount), maxDelay);
         double jitter = 1.0 + (Math.random() * 2 - 1) * jitterFactor;
         return Math.round(delay * jitter);
-    }
-
-    /**
-     * Log AI request to file for debugging
-     */
-    private void logAiRequest(String prompt, StructureOptions options) {
-        try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            String filename = String.format("ai-structure-request_%s_%s.txt", timestamp, options.profile());
-            Path logPath = Paths.get("logs", "ai-requests", filename);
-            
-            // Create directories if they don't exist
-            Files.createDirectories(logPath.getParent());
-            
-            StringBuilder content = new StringBuilder();
-            content.append("=== AI STRUCTURE GENERATION REQUEST ===\n");
-            content.append("Timestamp: ").append(LocalDateTime.now()).append("\n");
-            content.append("Model: ").append(options.model()).append("\n");
-            content.append("Profile: ").append(options.profile()).append("\n");
-            content.append("Granularity: ").append(options.granularity()).append("\n");
-            content.append("=== PROMPT ===\n");
-            content.append(prompt);
-            content.append("\n=== END REQUEST ===\n");
-            
-            Files.write(logPath, content.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-
-        } catch (IOException e) {
-            log.warn("Failed to log AI request: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * Log AI response to file for debugging
-     */
-    private void logAiResponse(String response, StructureOptions options) {
-        try {
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-            String filename = String.format("ai-structure-response_%s_%s.txt", timestamp, options.profile());
-            Path logPath = Paths.get("logs", "ai-responses", filename);
-            
-            // Create directories if they don't exist
-            Files.createDirectories(logPath.getParent());
-            
-            StringBuilder content = new StringBuilder();
-            content.append("=== AI STRUCTURE GENERATION RESPONSE ===\n");
-            content.append("Timestamp: ").append(LocalDateTime.now()).append("\n");
-            content.append("Model: ").append(options.model()).append("\n");
-            content.append("Profile: ").append(options.profile()).append("\n");
-            content.append("Granularity: ").append(options.granularity()).append("\n");
-            content.append("Response Length: ").append(response.length()).append(" characters\n");
-            content.append("=== RESPONSE ===\n");
-            content.append(response);
-            content.append("\n=== END RESPONSE ===\n");
-            
-            Files.write(logPath, content.toString().getBytes(), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            log.debug("AI response logged to: {}", logPath);
-            
-        } catch (IOException e) {
-            log.warn("Failed to log AI response: {}", e.getMessage());
-        }
     }
 }
