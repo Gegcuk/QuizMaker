@@ -45,6 +45,7 @@ import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -102,6 +103,7 @@ class QuizOwnerPrivatePublishTest {
     @Mock private QuizCommandService quizCommandService;
     @Mock private QuizRelationService quizRelationService;
     @Mock private QuizPublishingService quizPublishingService;
+    @Mock private QuizVisibilityService quizVisibilityService;
     @Mock private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
@@ -201,59 +203,49 @@ class QuizOwnerPrivatePublishTest {
     @DisplayName("setVisibility: when owner sets PRIVATE then succeeds")
     void setVisibility_ownerSetPrivate_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
         QuizDto privateDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PRIVATE);
         
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(privateDto);
+        when(quizVisibilityService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE))
+                .thenReturn(privateDto);
 
         // When
         QuizDto result = quizService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getVisibility()).isEqualTo(Visibility.PRIVATE);
-        verify(quizRepository).save(testQuiz);
+        verify(quizVisibilityService).setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PRIVATE);
     }
 
     @Test
     @DisplayName("setVisibility: when owner sets PUBLIC then forbidden")
     void setVisibility_ownerSetPublic_forbidden() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
-        
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
+        when(quizVisibilityService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
+                .thenThrow(new ForbiddenException("Only moderators can set quiz visibility to PUBLIC"));
 
         // When/Then
         assertThatThrownBy(() -> quizService.setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
         
-        verify(quizRepository, never()).save(any(Quiz.class));
+        verify(quizVisibilityService).setVisibility(ownerUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
     }
 
     @Test
     @DisplayName("setVisibility: when moderator sets PUBLIC then succeeds")
     void setVisibility_moderatorSetPublic_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
         QuizDto publicDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PUBLIC);
         
-        when(quizRepository.findById(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(publicDto);
+        when(quizVisibilityService.setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC))
+                .thenReturn(publicDto);
 
         // When
         QuizDto result = quizService.setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getVisibility()).isEqualTo(Visibility.PUBLIC);
-        verify(quizRepository).save(testQuiz);
+        verify(quizVisibilityService).setVisibility(moderatorUser.getUsername(), testQuiz.getId(), Visibility.PUBLIC);
     }
 
     // =============== Helper Methods ===============

@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
@@ -127,6 +128,8 @@ class QuizServiceImplTest {
     private QuizRelationService quizRelationService;
     @Mock
     private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
     @Mock
     private AccessPolicy accessPolicy;
     @Mock
@@ -766,20 +769,16 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "testuser";
-        User user = createTestUser();
 
-        Quiz quiz = new Quiz();
-        quiz.setId(quizId);
-        quiz.setCreator(user);
-        quiz.setVisibility(Visibility.PRIVATE);
-
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(user));
+        when(quizVisibilityService.setVisibility(username, quizId, Visibility.PUBLIC))
+                .thenThrow(new ForbiddenException("Only moderators can set quiz visibility to PUBLIC"));
 
         // When & Then
         assertThatThrownBy(() -> quizService.setVisibility(username, quizId, Visibility.PUBLIC))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
+        
+        verify(quizVisibilityService).setVisibility(username, quizId, Visibility.PUBLIC);
     }
 
     @Test
@@ -788,11 +787,6 @@ class QuizServiceImplTest {
         // Given
         UUID quizId = UUID.randomUUID();
         String username = "admin";
-
-        Quiz quiz = new Quiz();
-        quiz.setId(quizId);
-        quiz.setCreator(adminUser);
-        quiz.setVisibility(Visibility.PRIVATE);
 
         QuizDto expectedDto = new QuizDto(
                 quizId,                 // id
@@ -812,18 +806,15 @@ class QuizServiceImplTest {
                 null                    // updatedAt
         );
 
-        when(quizRepository.findById(quizId)).thenReturn(Optional.of(quiz));
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(adminUser));
-        when(quizRepository.save(quiz)).thenReturn(quiz);
-        when(quizMapper.toDto(quiz)).thenReturn(expectedDto);
+        when(quizVisibilityService.setVisibility(username, quizId, Visibility.PUBLIC))
+                .thenReturn(expectedDto);
 
         // When
         QuizDto result = quizService.setVisibility(username, quizId, Visibility.PUBLIC);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(quiz.getVisibility()).isEqualTo(Visibility.PUBLIC);
-        verify(quizRepository).save(quiz);
+        verify(quizVisibilityService).setVisibility(username, quizId, Visibility.PUBLIC);
     }
 
     @Test

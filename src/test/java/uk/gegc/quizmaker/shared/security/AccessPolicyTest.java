@@ -702,5 +702,211 @@ class AccessPolicyTest {
             .isInstanceOf(ForbiddenException.class)
             .hasMessageContaining("Owner reference missing");
         }
+        
+        @Test
+        @DisplayName("hasAny: filters out null permissions in array")
+        void hasAny_nullPermissionInArray_filtersIt() {
+            // Given
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE))
+                .thenReturn(true);
+            
+            // When - Array contains null
+            boolean result = accessPolicy.hasAny(user, null, PermissionName.QUIZ_MODERATE, null);
+            
+            // Then
+            assertThat(result).isTrue();
+        }
+        
+        @Test
+        @DisplayName("hasAny: returns false when all permissions are null")
+        void hasAny_allPermissionsNull_returnsFalse() {
+            // When
+            boolean result = accessPolicy.hasAny(user, null, null, null);
+            
+            // Then
+            assertThat(result).isFalse();
+        }
+        
+        @Test
+        @DisplayName("requireOwnerOrMemberOrAny: with null user and GROUP owner")
+        void requireOwnerOrMemberOrAny_nullUserGroupOwner_throwsForbidden() {
+            // Given
+            UUID groupId = UUID.randomUUID();
+            OwnerRef ownerRef = OwnerRef.group(groupId);
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireOwnerOrMemberOrAny(null, ownerRef, 
+                    PermissionName.QUIZ_MODERATE)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Owner/member or elevated permission required");
+        }
+        
+        @Test
+        @DisplayName("requireOwnerOrMemberOrAny: with null user and ORGANIZATION owner")
+        void requireOwnerOrMemberOrAny_nullUserOrgOwner_throwsForbidden() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            OwnerRef ownerRef = OwnerRef.organization(orgId);
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireOwnerOrMemberOrAny(null, ownerRef, 
+                    PermissionName.QUIZ_MODERATE)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Owner/member or elevated permission required");
+        }
+        
+        @Test
+        @DisplayName("requireOwnerOrMemberOrAny: ORGANIZATION owner but user not member")
+        void requireOwnerOrMemberOrAny_orgOwnerNotMember_throwsForbidden() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            OwnerRef ownerRef = OwnerRef.organization(orgId);
+            
+            when(membershipResolver.isMemberOfOrganization(user.getId(), orgId))
+                .thenReturn(false);
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_MODERATE))
+                .thenReturn(false);
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireOwnerOrMemberOrAny(user, ownerRef, 
+                    PermissionName.QUIZ_MODERATE)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Owner/member or elevated permission required");
+        }
+        
+        @Test
+        @DisplayName("requireSameOrganization: with null user")
+        void requireSameOrganization_nullUser_throwsForbidden() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireSameOrganization(null, orgId)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Organization membership required");
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: with null user")
+        void requireOrganizationRoleOrAny_nullUser_throwsForbidden() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(null, orgId, 
+                    new String[]{"ADMIN"}, 
+                    PermissionName.QUIZ_ADMIN)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Organization role or elevated permission required");
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: with null orgId")
+        void requireOrganizationRoleOrAny_nullOrgId_throwsForbidden() {
+            // Given
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))
+                .thenReturn(false);
+            
+            // When & Then
+            assertThatThrownBy(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, null, 
+                    new String[]{"ADMIN"}, 
+                    PermissionName.QUIZ_ADMIN)
+            )
+            .isInstanceOf(ForbiddenException.class)
+            .hasMessageContaining("Organization role or elevated permission required");
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: with null roles array")
+        void requireOrganizationRoleOrAny_nullRoles_checksPermissionsOnly() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))
+                .thenReturn(true);
+            
+            // When & Then - Should succeed via permissions
+            assertThatCode(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, orgId, 
+                    null, 
+                    PermissionName.QUIZ_ADMIN)
+            ).doesNotThrowAnyException();
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: with empty roles array")
+        void requireOrganizationRoleOrAny_emptyRoles_checksPermissionsOnly() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))
+                .thenReturn(true);
+            
+            // When & Then - Should succeed via permissions
+            assertThatCode(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, orgId, 
+                    new String[]{}, 
+                    PermissionName.QUIZ_ADMIN)
+            ).doesNotThrowAnyException();
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: with multiple roles checks all")
+        void requireOrganizationRoleOrAny_multipleRoles_checksAll() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            when(membershipResolver.hasOrganizationRole(user.getId(), orgId, "VIEWER"))
+                .thenReturn(false);
+            when(membershipResolver.hasOrganizationRole(user.getId(), orgId, "EDITOR"))
+                .thenReturn(true);
+            
+            // When & Then - Should succeed with second role
+            assertThatCode(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, orgId, 
+                    new String[]{"VIEWER", "EDITOR", "ADMIN"}, 
+                    PermissionName.QUIZ_ADMIN)
+            ).doesNotThrowAnyException();
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: filters null roles in array")
+        void requireOrganizationRoleOrAny_nullRoleInArray_filtersIt() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            when(membershipResolver.hasOrganizationRole(user.getId(), orgId, "ADMIN"))
+                .thenReturn(true);
+            
+            // When & Then - Should handle null in array
+            assertThatCode(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, orgId, 
+                    new String[]{null, "ADMIN", null}, 
+                    PermissionName.QUIZ_ADMIN)
+            ).doesNotThrowAnyException();
+        }
+        
+        @Test
+        @DisplayName("requireOrganizationRoleOrAny: all roles null falls back to permissions")
+        void requireOrganizationRoleOrAny_allRolesNull_checksPermissions() {
+            // Given
+            UUID orgId = UUID.randomUUID();
+            when(permissionEvaluator.hasPermission(user, PermissionName.QUIZ_ADMIN))
+                .thenReturn(true);
+            
+            // When & Then
+            assertThatCode(() -> 
+                accessPolicy.requireOrganizationRoleOrAny(user, orgId, 
+                    new String[]{null, null}, 
+                    PermissionName.QUIZ_ADMIN)
+            ).doesNotThrowAnyException();
+        }
     }
 }
