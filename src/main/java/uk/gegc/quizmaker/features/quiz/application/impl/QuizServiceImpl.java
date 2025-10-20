@@ -23,12 +23,12 @@ import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
-import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
@@ -69,7 +69,6 @@ import java.util.stream.Collectors;
 public class QuizServiceImpl implements QuizService {
 
     private final QuizRepository quizRepository;
-    private final QuestionRepository questionRepository;
     private final TagRepository tagRepository;
     private final CategoryRepository categoryRepository;
     private final QuizMapper quizMapper;
@@ -88,6 +87,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizJobProperties quizJobProperties;
     private final QuizQueryService quizQueryService;
     private final QuizCommandService quizCommandService;
+    private final QuizRelationService quizRelationService;
     private final QuizPublishValidator quizPublishValidator;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -843,110 +843,31 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public void addQuestionToQuiz(String username, UUID quizId, UUID questionId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Question question = questionRepository.findById(questionId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Question " + questionId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        quiz.getQuestions().add(question);
-        quizRepository.save(quiz);
+        quizRelationService.addQuestionToQuiz(username, quizId, questionId);
     }
 
     @Override
     @Transactional
     public void removeQuestionFromQuiz(String username, UUID quizId, UUID questionId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        quiz.getQuestions().removeIf(q -> q.getId().equals(questionId));
-        quizRepository.save(quiz);
+        quizRelationService.removeQuestionFromQuiz(username, quizId, questionId);
     }
 
     @Override
     @Transactional
     public void addTagToQuiz(String username, UUID quizId, UUID tagId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Tag tag = tagRepository.findById(tagId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Tag " + tagId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        quiz.getTags().add(tag);
-        quizRepository.save(quiz);
+        quizRelationService.addTagToQuiz(username, quizId, tagId);
     }
 
     @Override
     @Transactional
     public void removeTagFromQuiz(String username, UUID quizId, UUID tagId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        quiz.getTags().removeIf(t -> t.getId().equals(tagId));
-        quizRepository.save(quiz);
+        quizRelationService.removeTagFromQuiz(username, quizId, tagId);
     }
 
     @Override
     @Transactional
     public void changeCategory(String username, UUID quizId, UUID categoryId) {
-        Quiz quiz = quizRepository.findById(quizId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Quiz " + quizId + " not found"));
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Category " + categoryId + " not found"));
-
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
-
-        accessPolicy.requireOwnerOrAny(user,
-                quiz.getCreator() != null ? quiz.getCreator().getId() : null,
-                PermissionName.QUIZ_MODERATE,
-                PermissionName.QUIZ_ADMIN);
-
-        quiz.setCategory(category);
-        quizRepository.save(quiz);
+        quizRelationService.changeCategory(username, quizId, categoryId);
     }
 
     @Override

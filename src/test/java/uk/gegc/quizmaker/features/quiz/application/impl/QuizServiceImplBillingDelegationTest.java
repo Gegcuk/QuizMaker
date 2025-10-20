@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -87,6 +88,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
     @Mock private QuizQueryService quizQueryService;
     @Mock private QuizCommandService quizCommandService;
+    @Mock private QuizRelationService quizRelationService;
     @Mock private QuizPublishValidator quizPublishValidator;
 
     private ApplicationEventPublisher applicationEventPublisher;
@@ -98,7 +100,6 @@ class QuizServiceImplBillingDelegationTest {
     void setUp() {
         quizService = new QuizServiceImpl(
                 quizRepository,
-                questionRepository,
                 tagRepository,
                 categoryRepository,
                 quizMapper,
@@ -117,6 +118,7 @@ class QuizServiceImplBillingDelegationTest {
                 quizJobProperties,
                 quizQueryService,
                 quizCommandService,
+                quizRelationService,
                 quizPublishValidator
         );
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
