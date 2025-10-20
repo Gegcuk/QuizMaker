@@ -15,21 +15,18 @@ import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
-import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
-import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
-import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -39,13 +36,10 @@ import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
-import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
-import uk.gegc.quizmaker.shared.security.AccessPolicy;
-import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
@@ -68,23 +62,15 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class QuizServiceImplBillingDelegationTest {
 
-    @Mock private QuizRepository quizRepository;
-    @Mock private QuestionRepository questionRepository;
-    @Mock private TagRepository tagRepository;
-    @Mock private CategoryRepository categoryRepository;
-    @Mock private QuizMapper quizMapper;
     @Mock private UserRepository userRepository;
-    @Mock private QuestionHandlerFactory questionHandlerFactory;
     @Mock private QuizGenerationJobRepository jobRepository;
     @Mock private QuizGenerationJobService jobService;
     @Mock private AiQuizGenerationService aiQuizGenerationService;
     @Mock private DocumentProcessingService documentProcessingService;
-    @Mock private QuizHashCalculator quizHashCalculator;
     @Mock private BillingService billingService;
     @Mock private InternalBillingService internalBillingService;
     @Mock private EstimationService estimationService;
     @Mock private FeatureFlags featureFlags;
-    @Mock private AccessPolicy accessPolicy;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private QuizJobProperties quizJobProperties;
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
@@ -93,6 +79,7 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private QuizRelationService quizRelationService;
     @Mock private QuizPublishingService quizPublishingService;
     @Mock private QuizVisibilityService quizVisibilityService;
+    @Mock private QuizAssemblyService quizAssemblyService;
     @Mock private QuizPublishValidator quizPublishValidator;
 
     private ApplicationEventPublisher applicationEventPublisher;
@@ -103,10 +90,6 @@ class QuizServiceImplBillingDelegationTest {
     @BeforeEach
     void setUp() {
         quizService = new QuizServiceImpl(
-                quizRepository,
-                tagRepository,
-                categoryRepository,
-                quizMapper,
                 userRepository,
                 jobRepository,
                 jobService,
@@ -116,7 +99,6 @@ class QuizServiceImplBillingDelegationTest {
                 internalBillingService,
                 estimationService,
                 featureFlags,
-                accessPolicy,
                 applicationEventPublisher,
                 transactionTemplate,
                 quizJobProperties,
@@ -125,7 +107,7 @@ class QuizServiceImplBillingDelegationTest {
                 quizRelationService,
                 quizPublishingService,
                 quizVisibilityService,
-                quizPublishValidator
+                quizAssemblyService
         );
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
                 .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));

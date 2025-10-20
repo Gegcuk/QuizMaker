@@ -8,20 +8,32 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
-import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
-import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
@@ -37,20 +49,36 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 @DisplayName("Quiz Collection Creation Tests")
 class QuizCollectionCreationTest {
 
     @Mock
+    private uk.gegc.quizmaker.features.user.domain.repository.UserRepository userRepository;
+
+    @Mock
     private QuizGenerationJobRepository jobRepository;
+    
+    @Mock
+    private uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository quizRepository;
+    
+    @Mock
+    private uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository categoryRepository;
+    
+    @Mock
+    private uk.gegc.quizmaker.features.tag.domain.repository.TagRepository tagRepository;
 
     @Mock
-    private QuizRepository quizRepository;
+    private QuizGenerationJobService jobService;
 
     @Mock
-    private CategoryRepository categoryRepository;
+    private AiQuizGenerationService aiQuizGenerationService;
 
     @Mock
-    private TagRepository tagRepository;
+    private DocumentProcessingService documentProcessingService;
+
+    @Mock
+    private BillingService billingService;
 
     @Mock
     private InternalBillingService internalBillingService;
@@ -59,7 +87,37 @@ class QuizCollectionCreationTest {
     private EstimationService estimationService;
 
     @Mock
+    private FeatureFlags featureFlags;
+
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
+
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
+    @Mock
+    private QuizJobProperties quizJobProperties;
+    
+    @Mock
     private QuizDefaultsProperties quizDefaultsProperties;
+
+    @Mock
+    private QuizQueryService quizQueryService;
+
+    @Mock
+    private QuizCommandService quizCommandService;
+
+    @Mock
+    private QuizRelationService quizRelationService;
+
+    @Mock
+    private QuizPublishingService quizPublishingService;
+
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+
+    @Mock
+    private QuizAssemblyService quizAssemblyService;
 
     @InjectMocks
     private QuizServiceImpl quizService;
@@ -112,6 +170,95 @@ class QuizCollectionCreationTest {
         lenient().when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(100L);
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
                 .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        
+        // Mock job repository for commit phase
+        lenient().when(jobRepository.findById(any())).thenReturn(Optional.of(testJob));
+        lenient().when(jobRepository.findByIdForUpdate(any())).thenReturn(Optional.of(testJob));
+        lenient().when(jobRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        
+        // Mock QuizAssemblyService to delegate to actual behavior
+        lenient().when(quizAssemblyService.getOrCreateAICategory()).thenAnswer(inv -> {
+            return categoryRepository.findByName("AI Generated")
+                    .orElseGet(() -> categoryRepository.findByName("General")
+                            .orElseGet(() -> {
+                                Category aiCategory = new Category();
+                                aiCategory.setName("AI Generated");
+                                aiCategory.setDescription("Quizzes automatically generated by AI");
+                                return categoryRepository.save(aiCategory);
+                            }));
+        });
+        
+        lenient().when(quizAssemblyService.resolveTags(any())).thenAnswer(inv -> {
+            GenerateQuizFromDocumentRequest req = inv.getArgument(0);
+            if (req.tagIds() == null) {
+                return new HashSet<>();
+            }
+            return req.tagIds().stream()
+                    .map(tagRepository::findById)
+                    .flatMap(Optional::stream)
+                    .collect(java.util.stream.Collectors.toSet());
+        });
+        
+        lenient().when(quizAssemblyService.ensureUniqueTitle(any(User.class), anyString()))
+                .thenAnswer(inv -> {
+                    User user = inv.getArgument(0);
+                    String requestedTitle = inv.getArgument(1);
+                    if (requestedTitle == null || requestedTitle.isBlank()) {
+                        requestedTitle = "Untitled Quiz";
+                    }
+                    // Check if title exists and append suffix if needed
+                    if (!quizRepository.existsByCreatorIdAndTitle(user.getId(), requestedTitle)) {
+                        return requestedTitle;
+                    }
+                    // Title exists, append -2
+                    return requestedTitle + "-2";
+                });
+        
+        lenient().when(quizAssemblyService.createChunkQuiz(any(), any(), anyInt(), any(), any(), any(), any()))
+                .thenAnswer(inv -> {
+                    User user = inv.getArgument(0);
+                    List<Question> questions = inv.getArgument(1);
+                    int chunkIndex = inv.getArgument(2);
+                    GenerateQuizFromDocumentRequest request = inv.getArgument(3);
+                    Category category = inv.getArgument(4);
+                    Set<uk.gegc.quizmaker.features.tag.domain.model.Tag> tags = inv.getArgument(5);
+                    
+                    Quiz quiz = new Quiz();
+                    quiz.setTitle("Chunk " + chunkIndex);
+                    quiz.setDescription("Chunk quiz " + chunkIndex);
+                    quiz.setCreator(user);
+                    quiz.setCategory(category);
+                    quiz.setTags(tags);
+                    quiz.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus.PUBLISHED);
+                    quiz.setVisibility(uk.gegc.quizmaker.features.quiz.domain.model.Visibility.PRIVATE);
+                    quiz.setEstimatedTime(Math.max(1, (int) Math.ceil(questions.size() * 1.5)));
+                    quiz.setQuestions(new HashSet<>(questions));
+                    return quizRepository.save(quiz);
+                });
+        
+        lenient().when(quizAssemblyService.createConsolidatedQuiz(any(), any(), any(), any(), any(), any(), anyInt()))
+                .thenAnswer(inv -> {
+                    User user = inv.getArgument(0);
+                    List<Question> allQuestions = inv.getArgument(1);
+                    GenerateQuizFromDocumentRequest request = inv.getArgument(2);
+                    Category category = inv.getArgument(3);
+                    Set<uk.gegc.quizmaker.features.tag.domain.model.Tag> tags = inv.getArgument(4);
+                    
+                    String requestedTitle = request.quizTitle() != null ? request.quizTitle() : "Complete Document Quiz";
+                    String uniqueTitle = quizAssemblyService.ensureUniqueTitle(user, requestedTitle);
+                    
+                    Quiz quiz = new Quiz();
+                    quiz.setTitle(uniqueTitle);
+                    quiz.setDescription(request.quizDescription() != null ? request.quizDescription() : "Comprehensive quiz");
+                    quiz.setCreator(user);
+                    quiz.setCategory(category);
+                    quiz.setTags(tags);
+                    quiz.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus.PUBLISHED);
+                    quiz.setVisibility(uk.gegc.quizmaker.features.quiz.domain.model.Visibility.PRIVATE);
+                    quiz.setEstimatedTime(Math.max(1, (int) Math.ceil(allQuestions.size() * 1.5)));
+                    quiz.setQuestions(new HashSet<>(allQuestions));
+                    return quizRepository.save(quiz);
+                });
     }
 
     @Test
@@ -134,10 +281,11 @@ class QuizCollectionCreationTest {
 
         // Then
         verify(jobRepository).findById(testJobId);
-        verify(categoryRepository).findByName("AI Generated");
+        verify(quizAssemblyService).getOrCreateAICategory();
         
         // Should create 2 chunk quizzes + 1 consolidated quiz = 3 total
-        verify(quizRepository, times(3)).save(any(Quiz.class));
+        verify(quizAssemblyService, times(2)).createChunkQuiz(any(), any(), anyInt(), any(), any(), any(), any());
+        verify(quizAssemblyService).createConsolidatedQuiz(any(), any(), any(), any(), any(), any(), anyInt());
         
         // Should update job with completed status
         verify(jobRepository).save(testJob);

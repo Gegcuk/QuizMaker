@@ -18,10 +18,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
-import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
-import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
@@ -30,6 +28,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -40,7 +39,6 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobReposi
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
-import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
@@ -52,11 +50,9 @@ import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
-import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
-import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -68,10 +64,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class QuizServiceImpl implements QuizService {
 
-    private final QuizRepository quizRepository;
-    private final TagRepository tagRepository;
-    private final CategoryRepository categoryRepository;
-    private final QuizMapper quizMapper;
     private final UserRepository userRepository;
     private final QuizGenerationJobRepository jobRepository;
     private final QuizGenerationJobService jobService;
@@ -81,7 +73,6 @@ public class QuizServiceImpl implements QuizService {
     private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
     private final FeatureFlags featureFlags;
-    private final AccessPolicy accessPolicy;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
     private final QuizJobProperties quizJobProperties;
@@ -90,10 +81,9 @@ public class QuizServiceImpl implements QuizService {
     private final QuizRelationService quizRelationService;
     private final QuizPublishingService quizPublishingService;
     private final QuizVisibilityService quizVisibilityService;
-    private final QuizPublishValidator quizPublishValidator;
+    private final QuizAssemblyService quizAssemblyService;
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final int QUIZ_TITLE_MAX_LENGTH = 100;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -575,11 +565,8 @@ public class QuizServiceImpl implements QuizService {
             UUID documentId = originalRequest.documentId();
 
             // Get category and tags
-            Category category = getOrCreateAICategory();
-            Set<Tag> tags = getTagsFromRequest(originalRequest);
-
-            // Create individual chunk quizzes
-            List<Quiz> chunkQuizzes = new ArrayList<>();
+            Category category = quizAssemblyService.getOrCreateAICategory();
+            Set<Tag> tags = quizAssemblyService.resolveTags(originalRequest);
 
             if (chunkCount > 1) {
                 for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
@@ -590,14 +577,13 @@ public class QuizServiceImpl implements QuizService {
                         continue;
                     }
 
-                    Quiz chunkQuiz = createChunkQuiz(
+                    quizAssemblyService.createChunkQuiz(
                             user, questions, chunkIndex, originalRequest, category, tags, documentId
                     );
-                    chunkQuizzes.add(chunkQuiz);
                 }
             }
 
-            Quiz consolidatedQuiz = createConsolidatedQuiz(
+            Quiz consolidatedQuiz = quizAssemblyService.createConsolidatedQuiz(
                     user, allQuestions, originalRequest, category, tags, documentId, chunkCount
             );
 
@@ -628,218 +614,6 @@ public class QuizServiceImpl implements QuizService {
             }
             throw new RuntimeException("Failed to create quiz collection from generated questions", e);
         }
-    }
-
-    /**
-     * Create individual quiz for a document chunk
-     */
-    private Quiz createChunkQuiz(
-            User user,
-            List<Question> questions,
-            int chunkIndex,
-            GenerateQuizFromDocumentRequest request,
-            Category category,
-            Set<Tag> tags,
-            UUID documentId
-    ) {
-        String chunkTitle = getChunkTitle(chunkIndex, questions);
-        String baseTitle = String.format("Quiz: %s", chunkTitle);
-        String quizTitle = ensureUniqueQuizTitle(user, baseTitle);
-        String quizDescription = String.format("Quiz covering %s from the document", chunkTitle);
-
-        int estimatedTimeMinutes = Math.max(QuizPublishValidator.MINIMUM_ESTIMATED_TIME_MINUTES,
-                (int) Math.ceil(questions.size() * 1.5));
-
-        Quiz quiz = new Quiz();
-        quiz.setTitle(quizTitle);
-        quiz.setDescription(quizDescription);
-        quiz.setCreator(user);
-        quiz.setCategory(category);
-        quiz.setTags(tags);
-        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
-        quiz.setVisibility(Visibility.PRIVATE); // Start as private
-        quiz.setEstimatedTime(estimatedTimeMinutes);
-        quiz.setQuestions(new HashSet<>(questions));
-        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
-        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
-        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
-
-        return quizRepository.save(quiz);
-    }
-
-    /**
-     * Create consolidated quiz containing all questions from all chunks
-     */
-    private Quiz createConsolidatedQuiz(
-            User user,
-            List<Question> allQuestions,
-            GenerateQuizFromDocumentRequest request,
-            Category category,
-            Set<Tag> tags,
-            UUID documentId,
-            int chunkCount
-    ) {
-        String requestedTitle = request.quizTitle() != null ? request.quizTitle() :
-                "Complete Document Quiz";
-        String quizTitle = ensureUniqueQuizTitle(user, requestedTitle);
-        String quizDescription = request.quizDescription() != null ? request.quizDescription() :
-                String.format("Comprehensive quiz covering all %d sections of the document", chunkCount);
-
-        int estimatedTimeMinutes = Math.max(QuizPublishValidator.MINIMUM_ESTIMATED_TIME_MINUTES,
-                (int) Math.ceil(allQuestions.size() * 1.5));
-
-        Quiz quiz = new Quiz();
-        quiz.setTitle(quizTitle);
-        quiz.setDescription(quizDescription);
-        quiz.setCreator(user);
-        quiz.setCategory(category);
-        quiz.setTags(tags);
-        quiz.setStatus(QuizStatus.PUBLISHED); // Start as published
-        quiz.setVisibility(Visibility.PRIVATE); // Start as private
-        quiz.setEstimatedTime(estimatedTimeMinutes);
-        quiz.setQuestions(new HashSet<>(allQuestions));
-        quiz.setIsTimerEnabled(false); // Default to no timer for AI-generated quizzes
-        quiz.setIsRepetitionEnabled(false); // Default to no repetition for AI-generated quizzes
-        quiz.setDifficulty(Difficulty.MEDIUM); // Default difficulty for AI-generated quizzes
-
-        // Add document metadata as custom properties (if supported)
-        // quiz.setCustomProperty("documentId", documentId.toString());
-        // quiz.setCustomProperty("quizType", "CONSOLIDATED");
-
-        return quizRepository.save(quiz);
-    }
-
-    /**
-     * Get or create AI Generated category
-     */
-    private Category getOrCreateAICategory() {
-        return categoryRepository.findByName("AI Generated")
-                .orElseGet(() -> categoryRepository.findByName("General")
-                        .orElseGet(() -> {
-                            // Create AI Generated category if it doesn't exist
-                            Category aiCategory = new Category();
-                            aiCategory.setName("AI Generated");
-                            aiCategory.setDescription("Quizzes automatically generated by AI");
-                            return categoryRepository.save(aiCategory);
-                        }));
-    }
-
-    /**
-     * Get tags from request or return empty set
-     */
-    private Set<Tag> getTagsFromRequest(GenerateQuizFromDocumentRequest request) {
-        if (request.tagIds() == null) {
-            return new HashSet<>();
-        }
-
-        return request.tagIds().stream()
-                .map(id -> tagRepository.findById(id).orElse(null))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Generate a unique quiz title for the creator by appending numeric suffixes when collisions occur.
-     */
-    private String ensureUniqueQuizTitle(User user, String requestedTitle) {
-        Objects.requireNonNull(user, "Creator must be provided for unique title generation");
-        String baseTitle = Optional.ofNullable(requestedTitle)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .orElse("Untitled Quiz");
-
-        String normalized = truncateToLength(baseTitle, QUIZ_TITLE_MAX_LENGTH);
-        if (!titleExistsForUser(user, normalized)) {
-            return normalized;
-        }
-
-        String baseForSuffix = deriveSuffixBase(normalized);
-        if (baseForSuffix.isBlank()) {
-            baseForSuffix = normalized;
-        }
-
-        int suffix = 2;
-        while (true) {
-            String numericSuffix = "-" + suffix;
-            int maxBaseLength = QUIZ_TITLE_MAX_LENGTH - numericSuffix.length();
-            if (maxBaseLength <= 0) {
-                throw new IllegalStateException("Unable to generate unique quiz title");
-            }
-
-            String candidateBase = baseForSuffix.length() > maxBaseLength
-                    ? truncateToLength(baseForSuffix, maxBaseLength)
-                    : baseForSuffix;
-
-            candidateBase = removeTrailingHyphen(candidateBase);
-            if (candidateBase.isBlank()) {
-                candidateBase = truncateToLength("Quiz", maxBaseLength);
-                if (candidateBase.isBlank()) {
-                    candidateBase = "Q";
-                }
-            }
-
-            String candidate = candidateBase + numericSuffix;
-            if (!titleExistsForUser(user, candidate)) {
-                return candidate;
-            }
-
-            suffix++;
-        }
-    }
-
-    private boolean titleExistsForUser(User user, String title) {
-        return quizRepository.existsByCreatorIdAndTitle(user.getId(), title);
-    }
-
-    private String truncateToLength(String value, int maxLength) {
-        if (value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength).stripTrailing();
-    }
-
-    private String deriveSuffixBase(String title) {
-        int hyphenIndex = title.lastIndexOf('-');
-        if (hyphenIndex > 0) {
-            String suffixCandidate = title.substring(hyphenIndex + 1);
-            if (!suffixCandidate.isBlank() && suffixCandidate.chars().allMatch(Character::isDigit)) {
-                return title.substring(0, hyphenIndex).stripTrailing();
-            }
-        }
-        return title;
-    }
-
-    private String removeTrailingHyphen(String value) {
-        int end = value.length();
-        while (end > 0 && value.charAt(end - 1) == '-') {
-            end--;
-        }
-        String trimmed = value.substring(0, end);
-        return trimmed.stripTrailing();
-    }
-
-    /**
-     * Generate chunk title based on chunk index and content
-     */
-    private String getChunkTitle(int chunkIndex, List<Question> questions) {
-        // Generate a unique identifier to prevent title conflicts in concurrent tests
-        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
-        
-        // Try to extract meaningful title from questions
-        if (!questions.isEmpty()) {
-            String firstQuestion = questions.get(0).getQuestionText();
-            if (firstQuestion != null && firstQuestion.length() > 10) {
-                // Extract first few words as potential title
-                String[] words = firstQuestion.split("\\s+");
-                if (words.length >= 3) {
-                    String baseTitle = String.join(" ", Arrays.copyOfRange(words, 0, Math.min(5, words.length)));
-                    return baseTitle + " (" + uniqueId + ")";
-                }
-            }
-        }
-
-        // Fallback to generic title with unique identifier
-        return String.format("Section %d (%s)", chunkIndex, uniqueId);
     }
 
     @Override

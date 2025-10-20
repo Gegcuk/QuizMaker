@@ -9,10 +9,12 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.quiz.application.generation.impl.QuizAssemblyServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
-import java.lang.reflect.Method;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,9 +23,11 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for QuizServiceImpl duplicate title handling functionality.
- * Tests the ensureUniqueQuizTitle method which appends numeric suffixes
+ * Unit tests for QuizAssemblyService duplicate title handling functionality.
+ * Tests the ensureUniqueTitle method which appends numeric suffixes
  * when quiz titles already exist for a creator.
+ * 
+ * NOTE: This functionality was moved from QuizServiceImpl to QuizAssemblyService.
  */
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -31,9 +35,15 @@ class QuizServiceImplDuplicateTitleTest {
 
     @Mock
     private QuizRepository quizRepository;
+    
+    @Mock
+    private CategoryRepository categoryRepository;
+    
+    @Mock
+    private TagRepository tagRepository;
 
     @InjectMocks
-    private QuizServiceImpl quizService;
+    private QuizAssemblyServiceImpl assemblyService;
 
     private User testUser;
     private UUID userId;
@@ -271,11 +281,10 @@ class QuizServiceImplDuplicateTitleTest {
     @Test
     @DisplayName("ensureUniqueQuizTitle: when user is null then throw exception")
     void ensureUniqueQuizTitle_whenUserIsNull_thenThrowException() throws Exception {
-        // When & Then
+        // When & Then - Exception is thrown directly, not wrapped
         assertThatThrownBy(() -> invokeEnsureUniqueQuizTitle(null, "Some Title"))
-                .isInstanceOf(Exception.class)
-                .hasCauseInstanceOf(NullPointerException.class)
-                .hasRootCauseMessage("Creator must be provided for unique title generation");
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Creator must be provided for unique title generation");
     }
 
     @Test
@@ -302,12 +311,10 @@ class QuizServiceImplDuplicateTitleTest {
     }
 
     /**
-     * Helper method to invoke the private ensureUniqueQuizTitle method using reflection.
-     * This allows us to test the private method directly.
+     * Helper method to call ensureUniqueTitle on QuizAssemblyService.
+     * The method was moved from QuizServiceImpl to QuizAssemblyService during refactoring.
      */
-    private String invokeEnsureUniqueQuizTitle(User user, String requestedTitle) throws Exception {
-        Method method = QuizServiceImpl.class.getDeclaredMethod("ensureUniqueQuizTitle", User.class, String.class);
-        method.setAccessible(true);
-        return (String) method.invoke(quizService, user, requestedTitle);
+    private String invokeEnsureUniqueQuizTitle(User user, String requestedTitle) {
+        return assemblyService.ensureUniqueTitle(user, requestedTitle);
     }
 }
