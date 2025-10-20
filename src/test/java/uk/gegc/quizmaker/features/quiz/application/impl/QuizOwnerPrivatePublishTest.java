@@ -43,6 +43,8 @@ import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -98,6 +100,8 @@ class QuizOwnerPrivatePublishTest {
     @Mock private QuizDefaultsProperties quizDefaultsProperties;
     @Mock private QuizQueryService quizQueryService;
     @Mock private QuizCommandService quizCommandService;
+    @Mock private QuizRelationService quizRelationService;
+    @Mock private QuizPublishingService quizPublishingService;
     @Mock private QuizPublishValidator quizPublishValidator;
 
     @InjectMocks
@@ -129,87 +133,66 @@ class QuizOwnerPrivatePublishTest {
     @DisplayName("setStatus: when owner sets PUBLISHED on PRIVATE quiz then succeeds")
     void setStatus_ownerPublishPrivate_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PRIVATE);
-        testQuiz.setStatus(QuizStatus.DRAFT);
-        
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(testQuizDto);
-        // Mock question validation
-        when(questionHandlerFactory.getHandler(any(QuestionType.class))).thenReturn(questionHandler);
+        when(quizPublishingService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
+                .thenReturn(testQuizDto);
 
         // When
         QuizDto result = quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(testQuiz);
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     @Test
     @DisplayName("setStatus: when owner sets PUBLISHED on PUBLIC quiz then forbidden")
     void setStatus_ownerPublishPublic_forbidden() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.DRAFT);
-        
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
+        doThrow(new ForbiddenException("Only moderators can publish PUBLIC quizzes. Set visibility to PRIVATE first or submit for moderation."))
+                .when(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // When/Then
         assertThatThrownBy(() -> quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Only moderators can publish PUBLIC quizzes");
         
-        verify(quizRepository, never()).save(any(Quiz.class));
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     @Test
     @DisplayName("setStatus: when owner sets DRAFT from PUBLISHED then succeeds (unpublish)")
     void setStatus_ownerUnpublish_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.PUBLISHED);
         QuizDto draftDto = createQuizDto(testQuiz.getId(), QuizStatus.DRAFT, Visibility.PUBLIC);
         
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(draftDto);
+        when(quizPublishingService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT))
+                .thenReturn(draftDto);
 
         // When
         QuizDto result = quizService.setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.DRAFT);
-        verify(quizRepository).save(testQuiz);
+        assertThat(result.status()).isEqualTo(QuizStatus.DRAFT);
+        verify(quizPublishingService).setStatus(ownerUser.getUsername(), testQuiz.getId(), QuizStatus.DRAFT);
     }
 
     @Test
     @DisplayName("setStatus: when moderator sets PUBLISHED on PUBLIC quiz then succeeds")
     void setStatus_moderatorPublishPublic_succeeds() {
         // Given
-        testQuiz.setVisibility(Visibility.PUBLIC);
-        testQuiz.setStatus(QuizStatus.DRAFT);
         QuizDto publicDto = createQuizDto(testQuiz.getId(), QuizStatus.PUBLISHED, Visibility.PUBLIC);
         
-        when(quizRepository.findByIdWithQuestions(testQuiz.getId()))
-                .thenReturn(Optional.of(testQuiz));
-        when(quizRepository.save(any(Quiz.class))).thenReturn(testQuiz);
-        when(quizMapper.toDto(any(Quiz.class))).thenReturn(publicDto);
-        // Mock question validation
-        when(questionHandlerFactory.getHandler(any(QuestionType.class))).thenReturn(questionHandler);
+        when(quizPublishingService.setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED))
+                .thenReturn(publicDto);
 
         // When
         QuizDto result = quizService.setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(testQuiz.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
-        verify(quizRepository).save(testQuiz);
+        assertThat(result.status()).isEqualTo(QuizStatus.PUBLISHED);
+        verify(quizPublishingService).setStatus(moderatorUser.getUsername(), testQuiz.getId(), QuizStatus.PUBLISHED);
     }
 
     // =============== setVisibility Tests ===============
