@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -54,11 +55,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Targeted tests for QuizServiceImpl.createQuizCollectionFromGeneratedQuestions method.
- * Focuses on uncovered branches and edge cases.
+ * Targeted tests for QuizServiceImpl.createQuizCollectionFromGeneratedQuestions delegation.
+ * 
+ * NOTE: After refactoring, QuizServiceImpl delegates to QuizGenerationFacade.
+ * The actual implementation logic is tested in QuizGenerationFacadeImplBillingTest.
+ * These tests verify the delegation works correctly.
  */
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 @DisplayName("QuizServiceImpl Quiz Collection Tests")
 class QuizServiceImplQuizCollectionTest {
 
@@ -114,8 +119,9 @@ class QuizServiceImplQuizCollectionTest {
     private QuizVisibilityService quizVisibilityService;
     @Mock
     private QuizAssemblyService quizAssemblyService;
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private QuizGenerationJob testJob;
@@ -126,6 +132,16 @@ class QuizServiceImplQuizCollectionTest {
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         jobId = UUID.randomUUID();
         
         testUser = new User();
@@ -181,6 +197,9 @@ class QuizServiceImplQuizCollectionTest {
                     quiz.setQuestions(new HashSet<>((List<Question>) inv.getArgument(1)));
                     return quizRepository.save(quiz);
                 });
+        
+        // Configure facade delegation - tests will override as needed
+        lenient().doNothing().when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(any(), any(), any());
     }
 
     @Nested
@@ -193,24 +212,14 @@ class QuizServiceImplQuizCollectionTest {
             // Given - Map with some empty lists
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
             chunkQuestions.put(0, createQuestions(5));
-            chunkQuestions.put(1, Collections.emptyList()); // Empty list - Line 791 coverage
+            chunkQuestions.put(1, Collections.emptyList());
             chunkQuestions.put(2, createQuestions(3));
-            
-            Quiz mockQuiz = createMockQuiz();
-            
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(testJob));
-            when(quizRepository.save(any(Quiz.class))).thenReturn(mockQuiz);
-            when(jobRepository.save(any())).thenReturn(testJob);
 
             // When
             quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
-            // Then - Line 791 covered (empty list filtered out in count)
-            verify(jobRepository).save(argThat(job -> 
-                job.getStatus() == GenerationStatus.COMPLETED &&
-                job.getGeneratedQuizId() != null &&
-                job.getTotalQuestionsGenerated() == 8 // Only 5 + 3, empty list excluded
-            ));
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
 
         @Test
@@ -219,44 +228,30 @@ class QuizServiceImplQuizCollectionTest {
             // Given - Map with null questions
             Map<Integer, List<Question>> chunkQuestions = new LinkedHashMap<>();
             chunkQuestions.put(0, createQuestions(5));
-            chunkQuestions.put(1, null); // Null questions - Lines 814-815 coverage
+            chunkQuestions.put(1, null);
             chunkQuestions.put(2, createQuestions(3));
-            
-            Quiz mockQuiz = createMockQuiz();
-            
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(testJob));
-            when(quizRepository.save(any(Quiz.class))).thenReturn(mockQuiz);
-            when(jobRepository.save(any())).thenReturn(testJob);
 
             // When
             quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
-            // Then - Lines 814-815 covered (null check and continue)
-            // Only 2 chunk quizzes created (chunks 0 and 2), chunk 1 skipped
-            verify(quizRepository, times(3)).save(any(Quiz.class)); // 2 chunk + 1 consolidated
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
 
         @Test
         @DisplayName("createQuizCollection: when chunkCount > 1 and chunk has empty questions then skips it")
         void createQuizCollection_emptyQuestionsInChunk_skipsIt() {
-            // Given - Map with empty questions during iteration
+            // Given - Map with empty questions
             Map<Integer, List<Question>> chunkQuestions = new LinkedHashMap<>();
             chunkQuestions.put(0, createQuestions(5));
-            chunkQuestions.put(1, Collections.emptyList()); // Empty during iteration - Lines 814-815 coverage
+            chunkQuestions.put(1, Collections.emptyList());
             chunkQuestions.put(2, createQuestions(3));
-            
-            Quiz mockQuiz = createMockQuiz();
-            
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(testJob));
-            when(quizRepository.save(any(Quiz.class))).thenReturn(mockQuiz);
-            when(jobRepository.save(any())).thenReturn(testJob);
 
             // When
             quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
-            // Then - Lines 814-815 covered (empty check and continue)
-            // Only 2 chunk quizzes created (chunks 0 and 2), chunk 1 skipped
-            verify(quizRepository, times(3)).save(any(Quiz.class)); // 2 chunk + 1 consolidated
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
     }
 
@@ -267,29 +262,23 @@ class QuizServiceImplQuizCollectionTest {
         @Test
         @DisplayName("createQuizCollection: when job save fails in error handler then catches and logs")
         void createQuizCollection_jobSaveFailsInErrorHandler_catchesAndLogs() {
-            // Given - Set up to fail during quiz creation
+            // Given
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
             chunkQuestions.put(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId))
-                    .thenReturn(Optional.of(testJob))  // First call succeeds
-                    .thenReturn(Optional.of(testJob)); // Second call in error handler succeeds
-            when(quizRepository.save(any(Quiz.class)))
-                    .thenThrow(new RuntimeException("Quiz save failed")); // Trigger exception
-            
-            // Make the jobRepository.save() fail in the error handler
-            doThrow(new RuntimeException("Job save failed in handler"))
-                    .when(jobRepository).save(any(QuizGenerationJob.class));
+            // Configure facade to throw exception (delegation test)
+            doThrow(new RuntimeException("Failed to create quiz collection from generated questions"))
+                    .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
-            // When & Then - Lines 851-852 covered (exception in error handler)
+            // When & Then
             assertThatThrownBy(() -> 
                 quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest)
             )
             .isInstanceOf(RuntimeException.class)
             .hasMessageContaining("Failed to create quiz collection from generated questions");
 
-            // Verify the error handler attempted to save the job and failed
-            verify(jobRepository, times(1)).save(any(QuizGenerationJob.class));
+            // Verify delegation occurred
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
 
         @Test
@@ -299,12 +288,9 @@ class QuizServiceImplQuizCollectionTest {
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
             chunkQuestions.put(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId))
-                    .thenReturn(Optional.of(testJob))
-                    .thenReturn(Optional.of(testJob)); // Second call in error handler
-            when(quizRepository.save(any(Quiz.class)))
-                    .thenThrow(new RuntimeException("Quiz creation failed"));
-            when(jobRepository.save(any())).thenReturn(testJob);
+            // Configure facade to throw exception (delegation test)
+            doThrow(new RuntimeException("Quiz creation failed"))
+                    .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
             // When
             assertThatThrownBy(() -> 
@@ -312,12 +298,8 @@ class QuizServiceImplQuizCollectionTest {
             )
             .isInstanceOf(RuntimeException.class);
 
-            // Then - Job marked as failed
-            verify(jobRepository).save(argThat(job -> 
-                job.getStatus() == GenerationStatus.FAILED &&
-                job.getErrorMessage() != null &&
-                job.getErrorMessage().contains("Failed to create quiz collection")
-            ));
+            // Verify delegation occurred
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
     }
 
@@ -331,29 +313,17 @@ class QuizServiceImplQuizCollectionTest {
             // Given - Complex scenario with mixed empty, null, and valid chunks
             Map<Integer, List<Question>> chunkQuestions = new LinkedHashMap<>();
             chunkQuestions.put(0, createQuestions(3));
-            chunkQuestions.put(1, Collections.emptyList()); // Empty
-            chunkQuestions.put(2, null); // Null
-            chunkQuestions.put(3, Collections.emptyList()); // Empty again
+            chunkQuestions.put(1, Collections.emptyList());
+            chunkQuestions.put(2, null);
+            chunkQuestions.put(3, Collections.emptyList());
             chunkQuestions.put(4, createQuestions(2));
-            chunkQuestions.put(5, null); // Null again
-            
-            Quiz mockQuiz = createMockQuiz();
-            
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(testJob));
-            when(quizRepository.save(any(Quiz.class))).thenReturn(mockQuiz);
-            when(jobRepository.save(any())).thenReturn(testJob);
+            chunkQuestions.put(5, null);
 
             // When
             quizService.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
 
-            // Then - All empty/null chunks filtered out
-            verify(jobRepository).save(argThat(job -> 
-                job.getStatus() == GenerationStatus.COMPLETED &&
-                job.getTotalQuestionsGenerated() == 5 // Only 3 + 2, all empty/null excluded
-            ));
-            
-            // Only 2 chunk quizzes + 1 consolidated quiz created
-            verify(quizRepository, times(3)).save(any(Quiz.class));
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, testRequest);
         }
     }
 

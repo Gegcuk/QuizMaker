@@ -36,7 +36,11 @@ import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
- import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -116,8 +120,15 @@ class QuizServiceImplAdditionalTest {
     QuizQueryService quizQueryService;
     @Mock
     QuizCommandService quizCommandService;
+    @Mock
+    QuizRelationService quizRelationService;
+    @Mock
+    QuizPublishingService quizPublishingService;
+    @Mock
+    QuizVisibilityService quizVisibilityService;
+    @Mock
+    QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private User testUser;
@@ -125,6 +136,16 @@ class QuizServiceImplAdditionalTest {
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         testUser = createTestUser();
         moderatorUser = createModeratorUser();
         
@@ -137,6 +158,16 @@ class QuizServiceImplAdditionalTest {
         lenient().when(appPermissionEvaluator.hasPermission(eq(moderatorUser), any(PermissionName.class))).thenReturn(true);
         
         lenient().when(quizHashCalculator.calculateContentHash(any())).thenReturn("hash123");
+        
+        // Configure facade delegation - tests will override these as needed
+        lenient().doNothing().when(quizGenerationFacade).verifyDocumentChunks(any(UUID.class), any(GenerateQuizFromUploadRequest.class));
+        lenient().doNothing().when(quizGenerationFacade).verifyDocumentChunks(any(UUID.class), any(GenerateQuizFromTextRequest.class));
+        lenient().when(quizGenerationFacade.processDocumentCompletely(anyString(), any(MultipartFile.class), any(GenerateQuizFromUploadRequest.class)))
+                .thenReturn(mock(DocumentDto.class));
+        lenient().when(quizGenerationFacade.processTextAsDocument(anyString(), any(GenerateQuizFromTextRequest.class)))
+                .thenReturn(mock(DocumentDto.class));
+        lenient().when(quizGenerationFacade.startQuizGeneration(anyString(), any(GenerateQuizFromDocumentRequest.class)))
+                .thenReturn(QuizGenerationResponse.started(UUID.randomUUID(), 60L));
     }
 
     private User createTestUser() {
@@ -439,11 +470,11 @@ class QuizServiceImplAdditionalTest {
             GenerateQuizFromUploadRequest request =
                 mock(GenerateQuizFromUploadRequest.class);
 
-            // Mock calculateTotalChunks to return 0 (no chunks)
-            when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any()))
-                .thenReturn(0);
+            // Configure facade to throw exception (delegation test)
+            doThrow(new RuntimeException("Document has no chunks available for quiz generation"))
+                .when(quizGenerationFacade).verifyDocumentChunks(documentId, request);
 
-            // When & Then - Line 436: throw when totalChunks <= 0
+            // When & Then - Verifies delegation works and exception propagates
             assertThatThrownBy(() -> quizService.verifyDocumentChunks(documentId, request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Document has no chunks available for quiz generation");
@@ -457,11 +488,11 @@ class QuizServiceImplAdditionalTest {
             GenerateQuizFromTextRequest request =
                 mock(GenerateQuizFromTextRequest.class);
 
-            // Mock calculateTotalChunks to return 0 (no chunks)
-            when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any()))
-                .thenReturn(0);
+            // Configure facade to throw exception (delegation test)
+            doThrow(new RuntimeException("Document has no chunks available for quiz generation"))
+                .when(quizGenerationFacade).verifyDocumentChunks(documentId, request);
 
-            // When & Then - Line 450: throw when totalChunks <= 0
+            // When & Then - Verifies delegation works and exception propagates
             assertThatThrownBy(() -> quizService.verifyDocumentChunks(documentId, request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Document has no chunks available for quiz generation");
@@ -475,10 +506,11 @@ class QuizServiceImplAdditionalTest {
             GenerateQuizFromUploadRequest request =
                 mock(GenerateQuizFromUploadRequest.class);
 
-            // Mock file.getBytes() to throw IOException (line 415)
-            when(mockFile.getBytes()).thenThrow(new java.io.IOException("Failed to read file"));
+            // Configure facade to throw exception (delegation test)
+            when(quizGenerationFacade.processDocumentCompletely("testuser", mockFile, request))
+                .thenThrow(new RuntimeException("Failed to read file bytes: Failed to read file"));
 
-            // When & Then - Lines 423-424: catch IOException and wrap in RuntimeException
+            // When & Then - Verifies delegation works and exception propagates
             assertThatThrownBy(() -> quizService.processDocumentCompletely("testuser", mockFile, request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Failed to read file bytes: Failed to read file");
@@ -492,13 +524,11 @@ class QuizServiceImplAdditionalTest {
             GenerateQuizFromUploadRequest request =
                 mock(GenerateQuizFromUploadRequest.class);
 
-            when(mockFile.getBytes()).thenReturn("test content".getBytes());
-            
-            // Mock to throw generic exception during document processing
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("Document upload failed"));
+            // Configure facade to throw exception (delegation test)
+            when(quizGenerationFacade.generateQuizFromUpload("testuser", mockFile, request))
+                .thenThrow(new RuntimeException("Failed to generate quiz from upload: Document upload failed"));
 
-            // When & Then - Lines 375-377: catch Exception and wrap in RuntimeException
+            // When & Then - Verifies delegation works and exception propagates
             assertThatThrownBy(() -> quizService.generateQuizFromUpload("testuser", mockFile, request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Failed to generate quiz from upload: Document upload failed");
@@ -507,62 +537,41 @@ class QuizServiceImplAdditionalTest {
         @Test
         @DisplayName("generateQuizFromUpload InsufficientTokensException propagates")
         void generateQuizFromUpload_insufficientTokens_propagates() throws Exception {
-            // Given - Use spy to mock startQuizGeneration
-            QuizServiceImpl spyService = spy(quizService);
-            
+            // Given
             MultipartFile mockFile = mock(MultipartFile.class);
             GenerateQuizFromUploadRequest request =
                 mock(GenerateQuizFromUploadRequest.class);
-            
-            UUID documentId = UUID.randomUUID();
-            DocumentDto mockDoc = mock(DocumentDto.class);
-            when(mockDoc.getId()).thenReturn(documentId);
-            
-            // Mock processDocumentCompletely to succeed
-            doReturn(mockDoc).when(spyService).processDocumentCompletely(eq("testuser"), eq(mockFile), eq(request));
-            // Mock verifyDocumentChunks to succeed
-            doNothing().when(spyService).verifyDocumentChunks(eq(documentId), eq(request));
 
-            // Mock startQuizGeneration to throw InsufficientTokensException
+            // Configure facade to throw InsufficientTokensException (delegation test)
             InsufficientTokensException expectedException =
                 new InsufficientTokensException(
                     "Not enough tokens", 100L, 50L, 50L, java.time.LocalDateTime.now()
                 );
-            doThrow(expectedException).when(spyService).startQuizGeneration(eq("testuser"), any());
+            when(quizGenerationFacade.generateQuizFromUpload("testuser", mockFile, request))
+                .thenThrow(expectedException);
 
-            // When & Then - Lines 372-374: catch and rethrow InsufficientTokensException
-            assertThatThrownBy(() -> spyService.generateQuizFromUpload("testuser", mockFile, request))
+            // When & Then - Verifies delegation works and exception propagates
+            assertThatThrownBy(() -> quizService.generateQuizFromUpload("testuser", mockFile, request))
                 .isSameAs(expectedException);
         }
 
         @Test
         @DisplayName("generateQuizFromText InsufficientTokensException propagates")
         void generateQuizFromText_insufficientTokens_propagates() throws Exception {
-            // Given - Use spy to mock startQuizGeneration
-            QuizServiceImpl spyService = spy(quizService);
-            
+            // Given
             GenerateQuizFromTextRequest request =
                 mock(GenerateQuizFromTextRequest.class);
-            when(request.text()).thenReturn("test text");
-            
-            UUID documentId = UUID.randomUUID();
-            DocumentDto mockDoc = mock(DocumentDto.class);
-            when(mockDoc.getId()).thenReturn(documentId);
-            
-            // Mock processTextAsDocument to succeed
-            doReturn(mockDoc).when(spyService).processTextAsDocument(eq("testuser"), eq(request));
-            // Mock verifyDocumentChunks to succeed
-            doNothing().when(spyService).verifyDocumentChunks(eq(documentId), eq(request));
 
-            // Mock startQuizGeneration to throw InsufficientTokensException
+            // Configure facade to throw InsufficientTokensException (delegation test)
             InsufficientTokensException expectedException =
                 new InsufficientTokensException(
                     "Not enough tokens", 100L, 50L, 50L, java.time.LocalDateTime.now()
                 );
-            doThrow(expectedException).when(spyService).startQuizGeneration(eq("testuser"), any());
+            when(quizGenerationFacade.generateQuizFromText("testuser", request))
+                .thenThrow(expectedException);
 
-            // When & Then - Lines 398-400: catch and rethrow InsufficientTokensException
-            assertThatThrownBy(() -> spyService.generateQuizFromText("testuser", request))
+            // When & Then - Verifies delegation works and exception propagates
+            assertThatThrownBy(() -> quizService.generateQuizFromText("testuser", request))
                 .isSameAs(expectedException);
         }
 
@@ -572,68 +581,22 @@ class QuizServiceImplAdditionalTest {
             // Given
             GenerateQuizFromDocumentRequest request =
                 mock(GenerateQuizFromDocumentRequest.class);
-            when(request.documentId()).thenReturn(UUID.randomUUID());
 
             UUID jobId = UUID.randomUUID();
-            QuizGenerationJob mockJob =
-                new QuizGenerationJob();
-            mockJob.setId(jobId);
-
-            // Mock user lookup
-            when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+            QuizGenerationResponse expectedResponse = QuizGenerationResponse.started(jobId, 60L);
             
-            // Mock estimation and reservation
-            when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(
-                new EstimationDto(
-                    100L, 100L, null, "USD", true, "~100 tokens", UUID.randomUUID()
-                )
-            );
-            
-            ReservationDto mockReservation =
-                new ReservationDto(
-                    UUID.randomUUID(), testUser.getId(), 
-                    ReservationState.ACTIVE,
-                    100L, 100L, LocalDateTime.now().plusMinutes(30),
-                    null, LocalDateTime.now(), LocalDateTime.now()
-                );
-            when(billingService.reserve(eq(testUser.getId()), eq(100L), eq("quiz-generation"), anyString())).thenReturn(mockReservation);
-            
-            when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(3);
-            when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(60);
-
-            // First call throws DataIntegrityViolationException with active_user_id in message
-            DataIntegrityViolationException firstException =
-                new DataIntegrityViolationException("Constraint violation on active_user_id");
-            
-            QuizGenerationJob staleJob =
-                new QuizGenerationJob();
-            staleJob.setId(UUID.randomUUID());
-            
-            // Use doThrow for the first call, then doReturn for retry
-            doThrow(firstException).doReturn(mockJob)
-                .when(jobService).createJob(eq(testUser), any(), any(), eq(3), eq(60));
-            when(jobService.findAndCancelStaleJobForUser("testuser")).thenReturn(Optional.of(staleJob));
-            when(jobRepository.save(any())).thenReturn(mockJob);
-
-            // Mock transactionTemplate to actually execute the callback
-            when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-                TransactionCallback<?> callback = invocation.getArgument(0);
-                return callback.doInTransaction(null);
-            });
+            // Configure facade to return successful response (delegation test)
+            when(quizGenerationFacade.startQuizGeneration("testuser", request))
+                .thenReturn(expectedResponse);
 
             // When
             QuizGenerationResponse result =
                 quizService.startQuizGeneration("testuser", request);
 
-            // Then - Lines 524-529: stale job cancelled and retry succeeds
+            // Then - Verifies delegation works
             assertThat(result).isNotNull();
             assertThat(result.jobId()).isEqualTo(jobId);
-            // Verify stale job cancellation was attempted
-            verify(jobService).findAndCancelStaleJobForUser("testuser");
-            // Verify job creation was called twice (first fails, retry succeeds)
-            verify(jobService, times(2)).createJob(eq(testUser), any(), any(), eq(3), eq(60));
-            // Verify the stale job was found
-            verify(jobService).findAndCancelStaleJobForUser("testuser");
+            verify(quizGenerationFacade).startQuizGeneration("testuser", request);
         }
 
     }

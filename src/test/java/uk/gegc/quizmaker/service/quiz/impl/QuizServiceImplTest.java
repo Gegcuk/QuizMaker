@@ -33,6 +33,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
@@ -134,19 +135,34 @@ class QuizServiceImplTest {
     private AccessPolicy accessPolicy;
     @Mock
     private QuizPublishValidator quizPublishValidator;
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private User adminUser;
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         adminUser = createAdminUser();
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
         setupAccessPolicyMock();
         lenient().when(quizDefaultsProperties.getDefaultCategoryId()).thenReturn(DEFAULT_CATEGORY_ID);
+        
+        // Configure facade delegation
+        lenient().when(quizGenerationFacade.generateQuizFromText(anyString(), any()))
+                .thenReturn(QuizGenerationResponse.started(UUID.randomUUID(), 180L));
     }
     
     private void setupAccessPolicyMock() {
@@ -557,72 +573,10 @@ class QuizServiceImplTest {
                 null, // categoryId
                 null  // tagIds
         );
-
-        DocumentDto documentDto = new DocumentDto();
-        documentDto.setId(documentId);
-        documentDto.setOriginalFilename("text-input.txt");
-        documentDto.setContentType("text/plain");
-        documentDto.setFileSize(1024L);
-        documentDto.setStatus(Document.DocumentStatus.PROCESSED);
-        documentDto.setUploadedAt(LocalDateTime.now());
-        documentDto.setProcessedAt(LocalDateTime.now());
-        documentDto.setTotalChunks(3);
-
-
-        // Mock document processing
-        when(documentProcessingService.uploadAndProcessDocument(
-                eq(username), 
-                any(byte[].class), 
-                eq("text-input.txt"), 
-                any()
-        )).thenReturn(documentDto);
-
-        // Mock user repository
-        User testUser = createTestUser();
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
-
-        // Mock estimation service
-        EstimationDto mockEstimation = new EstimationDto(
-                1000L, // estimatedLlmTokens
-                100L,  // estimatedBillingTokens
-                null,  // approxCostCents
-                "USD", // currency
-                true,  // estimate
-                "~100 billing tokens (1,000 LLM tokens)", // humanizedEstimate
-                UUID.randomUUID() // estimationId
-        );
-        when(estimationService.estimateQuizGeneration(eq(documentId), any(GenerateQuizFromDocumentRequest.class)))
-                .thenReturn(mockEstimation);
-
-        // Mock billing service
-        ReservationDto mockReservation = new ReservationDto(
-                UUID.randomUUID(), // id
-                testUser.getId(),   // userId
-                ReservationState.ACTIVE, // state
-                100L,              // estimatedTokens
-                100L,              // committedTokens
-                LocalDateTime.now().plusMinutes(30), // expiresAt
-                null,              // jobId
-                LocalDateTime.now(), // createdAt
-                LocalDateTime.now()  // updatedAt
-        );
-        when(billingService.reserve(eq(testUser.getId()), eq(100L), eq("quiz-generation"), anyString()))
-                .thenReturn(mockReservation);
-
-        // Mock chunk verification and generation start
-        when(aiQuizGenerationService.calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class)))
-                .thenReturn(3);
-        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), anyMap()))
-                .thenReturn(60);
-
-        // Mock job service
-        QuizGenerationJob mockJob = new QuizGenerationJob();
-        mockJob.setId(jobId);
-        when(jobService.createJob(eq(testUser), eq(documentId), anyString(), eq(3), eq(60)))
-                .thenReturn(mockJob);
-
-        // Mock job repository save
-        when(jobRepository.save(any(QuizGenerationJob.class))).thenReturn(mockJob);
+        
+        // Configure facade to return expected response
+        when(quizGenerationFacade.generateQuizFromText(username, request))
+                .thenReturn(QuizGenerationResponse.started(jobId, 60L));
 
         // When
         QuizGenerationResponse result = quizService.generateQuizFromText(username, request);
@@ -632,16 +586,8 @@ class QuizServiceImplTest {
         assertThat(result.jobId()).isEqualTo(jobId);
         assertThat(result.estimatedTimeSeconds()).isEqualTo(60L);
         
-        // Verify document processing was called
-        verify(documentProcessingService).uploadAndProcessDocument(
-                eq(username), 
-                any(byte[].class), 
-                eq("text-input.txt"), 
-                any()
-        );
-        
-        // Verify chunk verification was called
-        verify(aiQuizGenerationService, times(2)).calculateTotalChunks(eq(documentId), any(GenerateQuizFromDocumentRequest.class));
+        // Verify delegation to facade
+        verify(quizGenerationFacade).generateQuizFromText(username, request);
     }
 
     @Test
