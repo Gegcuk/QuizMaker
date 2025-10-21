@@ -100,36 +100,15 @@ The API enforces per-minute quotas to prevent abuse. Exceeding limits returns HT
 | Field | Type | Required | Validation | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `title` | string | Yes | 3-100 characters | - | Quiz title |
-| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `description` | string | No | Max 1000 characters | `null` | Quiz description |
 | `visibility` | `Visibility` enum | No | `PUBLIC` or `PRIVATE` | `PRIVATE` | Visibility setting |
 | `difficulty` | `Difficulty` enum | No | `EASY`, `MEDIUM`, `HARD` | `MEDIUM` | Difficulty level |
-| `status` | `QuizStatus` enum | No | Valid status | `DRAFT` | Initial status |
-| `timeLimitMinutes` | integer | No | > 0 | `null` | Time limit in minutes (null = no limit) |
-| `showHints` | boolean | No | - | `true` | Whether to show hints |
-| `shuffleQuestions` | boolean | No | - | `false` | Shuffle question order |
-| `showResults` | boolean | No | - | `true` | Show results after completion |
+| `isRepetitionEnabled` | boolean | Yes | - | - | Enable spaced repetition for this quiz |
+| `timerEnabled` | boolean | Yes | - | - | Enable timer for this quiz |
+| `estimatedTime` | integer | Yes | 1-180 minutes | - | Estimated time to complete quiz |
+| `timerDuration` | integer | Yes | 1-180 minutes | - | Timer duration in minutes (if timer enabled) |
 | `categoryId` | UUID | No | Valid category UUID | `null` | Category assignment; omitted or invalid IDs fall back to the configured default category |
-| `tagIds` | array of UUIDs | No | Valid tag UUIDs | `[]` | Associated tags |
-
-**Example**:
-```json
-{
-  "title": "Java Fundamentals Quiz",
-  "description": "Test your knowledge of Java basics",
-  "visibility": "PRIVATE",
-  "difficulty": "MEDIUM",
-  "status": "DRAFT",
-  "timeLimitMinutes": 30,
-  "showHints": true,
-  "shuffleQuestions": false,
-  "showResults": true,
-  "categoryId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "tagIds": [
-    "11111111-2222-3333-4444-555555555555",
-    "66666666-7777-8888-9999-000000000000"
-  ]
-}
-```
+| `tagIds` | List of UUIDs | No | Valid tag UUIDs | `[]` | Associated tags |
 
 ---
 
@@ -142,27 +121,20 @@ All fields are optional. Omitted fields keep existing values.
 | Field | Type | Required | Validation | Description |
 | --- | --- | --- | --- | --- |
 | `title` | string | No | 3-100 characters | Updated title |
-| `description` | string | No | Max 500 characters | Updated description |
-| `difficulty` | `Difficulty` enum | No | Valid difficulty | Updated difficulty |
-| `timeLimitMinutes` | Integer | No | > 0 or null | Updated time limit |
-| `showHints` | Boolean | No | - | Updated hint visibility |
-| `shuffleQuestions` | Boolean | No | - | Updated shuffle setting |
-| `showResults` | Boolean | No | - | Updated results visibility |
+| `description` | string | No | Max 1000 characters | Updated description |
+| `visibility` | `Visibility` enum | No | `PUBLIC` or `PRIVATE` | Updated visibility |
+| `difficulty` | `Difficulty` enum | No | `EASY`, `MEDIUM`, `HARD` | Updated difficulty |
+| `isRepetitionEnabled` | Boolean | No | - | Enable/disable spaced repetition |
+| `timerEnabled` | Boolean | No | - | Enable/disable timer |
+| `estimatedTime` | Integer | No | 1-180 minutes | Updated estimated time |
+| `timerDuration` | Integer | No | 1-180 minutes | Updated timer duration |
 | `categoryId` | UUID | No | Valid category UUID | Updated category |
-
-**Example**:
-```json
-{
-  "title": "Updated Quiz Title",
-  "difficulty": "HARD",
-  "timeLimitMinutes": 45
-}
-```
+| `tagIds` | List of UUIDs | No | Valid tag UUIDs | Updated tags |
 
 **Notes**:
 - Use Boolean (capitalized) for nullable boolean fields
-- Visibility and status have dedicated endpoints
-- Tags and questions managed via separate endpoints
+- Status has a dedicated endpoint (`PATCH /quizzes/{id}/status`)
+- Individual questions and tags can be managed via dedicated endpoints
 
 ---
 
@@ -175,21 +147,6 @@ All fields are optional. Omitted fields keep existing values.
 | `quizIds` | array of UUIDs | Yes | Non-empty, valid UUIDs | Quizzes to update |
 | `updates` | `UpdateQuizRequest` | Yes | Valid update object | Changes to apply |
 
-**Example**:
-```json
-{
-  "quizIds": [
-    "quiz-uuid-1",
-    "quiz-uuid-2",
-    "quiz-uuid-3"
-  ],
-  "updates": {
-    "difficulty": "MEDIUM",
-    "showHints": true
-  }
-}
-```
-
 ---
 
 #### VisibilityUpdateRequest
@@ -200,12 +157,6 @@ All fields are optional. Omitted fields keep existing values.
 | --- | --- | --- | --- | --- |
 | `isPublic` | boolean | Yes | - | `true` for PUBLIC, `false` for PRIVATE |
 
-**Example**:
-```json
-{
-  "isPublic": true
-}
-```
 
 **Authorization Note**: Setting `isPublic: true` requires `QUIZ_MODERATE` or `QUIZ_ADMIN` permission.
 
@@ -219,12 +170,6 @@ All fields are optional. Omitted fields keep existing values.
 | --- | --- | --- | --- | --- |
 | `status` | `QuizStatus` enum | Yes | Valid status | New status |
 
-**Example**:
-```json
-{
-  "status": "PUBLISHED"
-}
-```
 
 **Valid Transitions**:
 - `DRAFT` → `PENDING_REVIEW`, `PUBLISHED`, `ARCHIVED`
@@ -239,22 +184,27 @@ All fields are optional. Omitted fields keep existing values.
 
 **Used by**: `GET /quizzes` (query parameters)
 
+**Pagination Parameters** (Spring Data standard):
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `page` | integer | No | 0 | Page number (0-indexed) |
+| `size` | integer | No | 20 | Page size (1-100) |
+| `sort` | string | No | `createdAt,desc` | Sort specification (e.g., "title,asc") |
+
+**Scope Parameter** (access control):
+| Parameter | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `scope` | string | No | `public` | Filter scope: `public`, `me`, `all` |
+
+**Filter Parameters** (QuizSearchCriteria):
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `page` | integer | No | Page number (0-indexed), default: 0 |
-| `size` | integer | No | Page size (1-100), default: 20 |
-| `sort` | string | No | Sort specification (e.g., "title,asc"), default: "createdAt,desc" |
-| `scope` | string | No | Filter scope: `public` (default), `me`, `all` |
-| `search` | string | No | Search term for title/description |
-| `categoryNames` | array | No | Filter by category names |
-| `tagNames` | array | No | Filter by tag names |
+| `category` | array of strings | No | Filter by category names (comma-delimited) |
+| `tag` | array of strings | No | Filter by tag names (comma-delimited) |
 | `authorName` | string | No | Filter by author username |
-| `difficulty` | string | No | Filter by difficulty: `EASY`, `MEDIUM`, `HARD` |
+| `search` | string | No | Full-text search on title/description |
+| `difficulty` | `Difficulty` enum | No | Filter by difficulty: `EASY`, `MEDIUM`, `HARD` |
 
-**Example URL**:
-```
-GET /api/v1/quizzes?scope=me&difficulty=MEDIUM&search=java&page=0&size=20&sort=title,asc
-```
 
 ---
 
@@ -271,52 +221,15 @@ GET /api/v1/quizzes?scope=me&difficulty=MEDIUM&search=java&page=0&size=20&sort=t
 | `chunkIndices` | array of integers | Conditional | Required if scope=`SPECIFIC_CHUNKS` | `null` | Chunk indices to use |
 | `chapterTitle` | string | Conditional | Required if scope=`SPECIFIC_CHAPTER` | `null` | Chapter to use |
 | `chapterNumber` | integer | Conditional | Alternative to chapterTitle | `null` | Chapter number |
-| `sectionTitle` | string | Conditional | For `SPECIFIC_SECTION` | `null` | Section to use |
-| `title` | string | Yes | 3-100 characters | - | Generated quiz title |
-| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `quizTitle` | string | No | Max 100 characters | `null` | Custom quiz title (AI generates if omitted) |
+| `quizDescription` | string | No | Max 500 characters | `null` | Custom quiz description (AI generates if omitted) |
 | `questionsPerType` | object (map) | Yes | 1-10 per type | - | Question type → count mapping |
 | `difficulty` | `Difficulty` enum | Yes | Valid difficulty | - | Question difficulty |
-| `estimatedTimePerQuestion` | integer | No | > 0 | `2` | Minutes per question |
+| `estimatedTimePerQuestion` | integer | No | 1-10 minutes | `1` | Minutes per question |
 | `categoryId` | UUID | No | Valid category | `null` | Category assignment |
 | `tagIds` | array of UUIDs | No | Valid tag UUIDs | `[]` | Tags to assign |
-| `language` | string | No | ISO language code | `en` | Target language |
 
-**Example**:
-```json
-{
-  "documentId": "doc-uuid-here",
-  "quizScope": "ENTIRE_DOCUMENT",
-  "title": "Java Basics Generated Quiz",
-  "description": "Auto-generated from Java tutorial document",
-  "questionsPerType": {
-    "MCQ_SINGLE": 5,
-    "MCQ_MULTI": 3,
-    "TRUE_FALSE": 4,
-    "OPEN": 2
-  },
-  "difficulty": "MEDIUM",
-  "estimatedTimePerQuestion": 2,
-  "categoryId": "category-uuid",
-  "tagIds": ["tag-uuid-1", "tag-uuid-2"],
-  "language": "en"
-}
-```
 
-**Example with Specific Chunks**:
-```json
-{
-  "documentId": "doc-uuid-here",
-  "quizScope": "SPECIFIC_CHUNKS",
-  "chunkIndices": [0, 2, 5],
-  "title": "Selected Chapters Quiz",
-  "questionsPerType": {
-    "MCQ_SINGLE": 3,
-    "TRUE_FALSE": 2
-  },
-  "difficulty": "EASY",
-  "language": "en"
-}
-```
 
 ---
 
@@ -328,35 +241,25 @@ GET /api/v1/quizzes?scope=me&difficulty=MEDIUM&search=java&page=0&size=20&sort=t
 | --- | --- | --- | --- | --- | --- |
 | `file` | file | Yes | Supported types, < max size | - | Document file to upload |
 | `chunkingStrategy` | string | No | `CHAPTER_BASED`, `FIXED_SIZE`, `SEMANTIC` | `CHAPTER_BASED` | How to split document |
-| `maxChunkSize` | integer | No | > 0 | `250000` | Max characters per chunk |
-| `title` | string | Yes | 3-100 characters | - | Quiz title |
-| `description` | string | No | Max 500 characters | `null` | Quiz description |
-| `questionsPerType` | JSON string | Yes | Valid JSON map | - | Question type → count (as JSON string) |
-| `difficulty` | string | Yes | Valid difficulty | - | Question difficulty |
+| `maxChunkSize` | integer | No | 1000-100000 | `250000` | Max characters per chunk |
 | `quizScope` | string | No | Valid scope | `ENTIRE_DOCUMENT` | Generation scope |
-| `chunkIndices` | array | Conditional | For SPECIFIC_CHUNKS | `null` | Chunk indices |
-| `language` | string | No | ISO code | `en` | Target language |
+| `chunkIndices` | array of integers | Conditional | For SPECIFIC_CHUNKS | `null` | Chunk indices |
+| `chapterTitle` | string | Conditional | For SPECIFIC_CHAPTER | `null` | Chapter title |
+| `chapterNumber` | integer | Conditional | For SPECIFIC_CHAPTER | `null` | Chapter number |
+| `quizTitle` | string | No | Max 100 characters | `null` | Custom quiz title (AI generates if omitted) |
+| `quizDescription` | string | No | Max 500 characters | `null` | Custom quiz description (AI generates if omitted) |
+| `questionsPerType` | JSON string | Yes | Valid JSON map, 1-10 per type | - | Question type → count (as JSON string) |
+| `difficulty` | string | Yes | `EASY`, `MEDIUM`, `HARD` | - | Question difficulty |
+| `estimatedTimePerQuestion` | integer | No | 1-10 minutes | `1` | Minutes per question |
 | `categoryId` | UUID string | No | Valid UUID | `null` | Category |
-| `tagIds` | array | No | Valid UUIDs | `[]` | Tags |
+| `tagIds` | array of UUIDs | No | Valid UUIDs | `[]` | Tags |
+| `language` | string | No | ISO 639-1 code | `en` | Target language |
 
-**Example (multipart form)**:
-```
-POST /api/v1/quizzes/generate-from-upload
-Content-Type: multipart/form-data
-
-file: [binary file data]
-title: "Uploaded Document Quiz"
-description: "Generated from uploaded PDF"
-questionsPerType: "{\"MCQ_SINGLE\":5,\"TRUE_FALSE\":3}"
-difficulty: "MEDIUM"
-chunkingStrategy: "CHAPTER_BASED"
-maxChunkSize: 250000
-language: "en"
-```
 
 **Notes**:
 - `questionsPerType` must be a JSON string (not raw object)
-- File must be PDF, DOCX, TXT, or other supported formats
+- `quizTitle` and `quizDescription` are optional - AI will generate if omitted
+- Supported file formats: PDF, DOCX, TXT (check server config for others)
 - File size limits apply (check server configuration)
 
 ---
@@ -368,31 +271,21 @@ language: "en"
 | Field | Type | Required | Validation | Default | Description |
 | --- | --- | --- | --- | --- | --- |
 | `text` | string | Yes | Non-empty, ≤ 300,000 chars | - | Raw text to generate from |
-| `title` | string | Yes | 3-100 characters | - | Quiz title |
-| `description` | string | No | Max 500 characters | `null` | Quiz description |
+| `language` | string | No | ISO 639-1 code | `en` | Language of text content |
+| `chunkingStrategy` | string | No | `CHAPTER_BASED`, `FIXED_SIZE`, `SEMANTIC` | `CHAPTER_BASED` | How to chunk text |
+| `maxChunkSize` | integer | No | 1000-100000 | `250000` | Max chars per chunk |
+| `quizScope` | `QuizScope` enum | No | Valid scope | `ENTIRE_DOCUMENT` | Generation scope |
+| `chunkIndices` | array of integers | Conditional | For SPECIFIC_CHUNKS | `null` | Chunk indices |
+| `chapterTitle` | string | Conditional | For SPECIFIC_CHAPTER | `null` | Chapter title |
+| `chapterNumber` | integer | Conditional | For SPECIFIC_CHAPTER | `null` | Chapter number |
+| `quizTitle` | string | No | Max 100 characters | `null` | Custom quiz title (AI generates if omitted) |
+| `quizDescription` | string | No | Max 500 characters | `null` | Custom quiz description (AI generates if omitted) |
 | `questionsPerType` | object (map) | Yes | 1-10 per type | - | Question type → count |
 | `difficulty` | `Difficulty` enum | Yes | Valid difficulty | - | Question difficulty |
-| `chunkingStrategy` | string | No | Valid strategy | `SEMANTIC` | How to chunk text |
-| `maxChunkSize` | integer | No | > 0 | `250000` | Max chars per chunk |
-| `language` | string | No | ISO code | `en` | Target language |
+| `estimatedTimePerQuestion` | integer | No | 1-10 minutes | `1` | Minutes per question |
 | `categoryId` | UUID | No | Valid UUID | `null` | Category |
-| `tagIds` | array | No | Valid UUIDs | `[]` | Tags |
+| `tagIds` | array of UUIDs | No | Valid UUIDs | `[]` | Tags |
 
-**Example**:
-```json
-{
-  "text": "Long text content here... Java is a programming language...",
-  "title": "Java Concepts Quiz",
-  "description": "Generated from custom text",
-  "questionsPerType": {
-    "MCQ_SINGLE": 4,
-    "TRUE_FALSE": 3
-  },
-  "difficulty": "EASY",
-  "chunkingStrategy": "SEMANTIC",
-  "language": "en"
-}
-```
 
 ---
 
@@ -407,49 +300,21 @@ language: "en"
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | UUID | Quiz unique identifier |
+| `creatorId` | UUID | User who created the quiz |
+| `categoryId` | UUID (nullable) | Associated category |
 | `title` | string | Quiz title |
 | `description` | string (nullable) | Quiz description |
 | `visibility` | `Visibility` enum | `PUBLIC` or `PRIVATE` |
 | `difficulty` | `Difficulty` enum | `EASY`, `MEDIUM`, or `HARD` |
 | `status` | `QuizStatus` enum | Current status |
-| `creatorId` | UUID | User who created the quiz |
-| `creatorUsername` | string | Creator's username |
-| `categoryId` | UUID (nullable) | Associated category |
-| `categoryName` | string (nullable) | Category name |
-| `tagIds` | array of UUIDs | Associated tag IDs |
-| `tagNames` | array of strings | Tag names |
-| `questionCount` | integer | Number of questions |
-| `timeLimitMinutes` | integer (nullable) | Time limit (null = no limit) |
-| `showHints` | boolean | Whether hints are shown |
-| `shuffleQuestions` | boolean | Whether questions are shuffled |
-| `showResults` | boolean | Whether results shown after completion |
+| `estimatedTime` | Integer (nullable) | Estimated time in minutes |
+| `isRepetitionEnabled` | Boolean (nullable) | Spaced repetition enabled |
+| `timerEnabled` | Boolean (nullable) | Timer enabled |
+| `timerDuration` | Integer (nullable) | Timer duration in minutes |
+| `tagIds` | List of UUIDs | Associated tag IDs |
 | `createdAt` | ISO 8601 datetime | Creation timestamp |
 | `updatedAt` | ISO 8601 datetime | Last update timestamp |
 
-**Example**:
-```json
-{
-  "id": "quiz-uuid-here",
-  "title": "Java Fundamentals",
-  "description": "Test your Java knowledge",
-  "visibility": "PUBLIC",
-  "difficulty": "MEDIUM",
-  "status": "PUBLISHED",
-  "creatorId": "user-uuid",
-  "creatorUsername": "john_doe",
-  "categoryId": "category-uuid",
-  "categoryName": "Programming",
-  "tagIds": ["tag-uuid-1", "tag-uuid-2"],
-  "tagNames": ["Java", "OOP"],
-  "questionCount": 15,
-  "timeLimitMinutes": 30,
-  "showHints": true,
-  "shuffleQuestions": false,
-  "showResults": true,
-  "createdAt": "2024-01-15T10:00:00Z",
-  "updatedAt": "2024-01-16T14:30:00Z"
-}
-```
 
 ---
 
@@ -462,19 +327,6 @@ language: "en"
 | `successfulIds` | array of UUIDs | Successfully updated quiz IDs |
 | `failures` | object (map) | UUID → error message for failed updates |
 
-**Example**:
-```json
-{
-  "successfulIds": [
-    "quiz-uuid-1",
-    "quiz-uuid-2"
-  ],
-  "failures": {
-    "quiz-uuid-3": "Quiz not found",
-    "quiz-uuid-4": "Unauthorized: not the owner"
-  }
-}
-```
 
 ---
 
@@ -491,15 +343,6 @@ language: "en"
 | `message` | string | Human-readable status message |
 | `estimatedTimeSeconds` | integer (nullable) | Estimated completion time |
 
-**Example**:
-```json
-{
-  "jobId": "job-uuid-here",
-  "status": "PROCESSING",
-  "message": "Quiz generation started successfully",
-  "estimatedTimeSeconds": 120
-}
-```
 
 ---
 
@@ -526,47 +369,7 @@ language: "en"
 | `startedAt` | ISO 8601 datetime | Job start time |
 | `completedAt` | ISO 8601 datetime (nullable) | Job completion time |
 
-**Example (In Progress)**:
-```json
-{
-  "jobId": "job-uuid",
-  "status": "PROCESSING",
-  "totalChunks": 5,
-  "processedChunks": 3,
-  "progressPercentage": 60.0,
-  "currentChunk": "Processing chunk 3/5",
-  "totalTasks": 15,
-  "completedTasks": 9,
-  "estimatedCompletion": "2024-01-15T10:45:00Z",
-  "errorMessage": null,
-  "totalQuestionsGenerated": 12,
-  "elapsedTimeSeconds": 90,
-  "estimatedTimeRemainingSeconds": 60,
-  "generatedQuizId": null,
-  "startedAt": "2024-01-15T10:30:00Z",
-  "completedAt": null
-}
-```
 
-**Example (Completed)**:
-```json
-{
-  "jobId": "job-uuid",
-  "status": "COMPLETED",
-  "totalChunks": 5,
-  "processedChunks": 5,
-  "progressPercentage": 100.0,
-  "currentChunk": "Completed",
-  "totalTasks": 15,
-  "completedTasks": 15,
-  "totalQuestionsGenerated": 20,
-  "generatedQuizId": "generated-quiz-uuid",
-  "startedAt": "2024-01-15T10:30:00Z",
-  "completedAt": "2024-01-15T10:35:00Z",
-  "elapsedTimeSeconds": 300,
-  "errorMessage": null
-}
-```
 
 ---
 
@@ -598,23 +401,6 @@ Stable structure designed for round-trip import/export. Used in JSON_EDITABLE fo
 - Uses category/tag names instead of IDs for better readability
 - Questions are nested inline (not separate entities)
 
-**Example**:
-```json
-{
-  "id": "quiz-uuid",
-  "title": "Java Fundamentals",
-  "description": "Test your Java knowledge",
-  "visibility": "PUBLIC",
-  "difficulty": "MEDIUM",
-  "estimatedTime": 30,
-  "tags": ["java", "oop"],
-  "category": "Programming",
-  "creatorId": "user-uuid",
-  "questions": [ /* array of QuestionExportDto */ ],
-  "createdAt": "2024-01-15T10:00:00Z",
-  "updatedAt": "2024-01-16T14:30:00Z"
-}
-```
 
 ---
 
@@ -635,24 +421,6 @@ Preserves question structure with JSON content for round-trip compatibility.
 | `explanation` | string (nullable) | Optional explanation text |
 | `attachmentUrl` | string (nullable) | Optional attachment URL |
 
-**Example**:
-```json
-{
-  "id": "question-uuid",
-  "type": "MCQ_SINGLE",
-  "difficulty": "EASY",
-  "questionText": "What is polymorphism?",
-  "content": {
-    "options": [
-      {"id": "opt-1", "text": "Many forms", "isCorrect": true},
-      {"id": "opt-2", "text": "Single form", "isCorrect": false}
-    ]
-  },
-  "hint": "Think about OOP principles",
-  "explanation": "Polymorphism allows objects to take many forms",
-  "attachmentUrl": null
-}
-```
 
 ---
 
@@ -683,27 +451,6 @@ Preserves question structure with JSON content for round-trip compatibility.
 | `averageTimeSeconds` | number | Average time spent |
 | `difficulty` | `Difficulty` enum | Question difficulty |
 
-**Example**:
-```json
-{
-  "quizId": "quiz-uuid",
-  "attemptsCount": 150,
-  "averageScore": 75.5,
-  "bestScore": 100.0,
-  "worstScore": 30.0,
-  "passRate": 82.0,
-  "questionStats": [
-    {
-      "questionId": "question-uuid-1",
-      "questionText": "What is polymorphism?",
-      "attemptsCount": 150,
-      "correctCount": 120,
-      "averageTimeSeconds": 45.0,
-      "difficulty": "MEDIUM"
-    }
-  ]
-}
-```
 
 ---
 
@@ -718,23 +465,6 @@ Preserves question structure with JSON content for round-trip compatibility.
 | `bestScore` | number | User's best score (0-100) |
 | `rank` | integer | Leaderboard rank |
 
-**Example**:
-```json
-[
-  {
-    "userId": "user-uuid-1",
-    "username": "john_doe",
-    "bestScore": 98.5,
-    "rank": 1
-  },
-  {
-    "userId": "user-uuid-2",
-    "username": "jane_smith",
-    "bestScore": 95.0,
-    "rank": 2
-  }
-]
-```
 
 ---
 
@@ -807,6 +537,16 @@ Preserves question structure with JSON content for round-trip compatibility.
 | `MATCHING` | Match items between lists |
 | `COMPLIANCE` | Compliance statements |
 | `HOTSPOT` | Click regions on image |
+
+**Usage in `questionsPerType` field:**
+```json
+{
+  "MCQ_SINGLE": 5,
+  "TRUE_FALSE": 3,
+  "OPEN": 2
+}
+```
+Each key is a `QuestionType`, each value is the count (1-10) to generate per chunk.
 
 ---
 
@@ -923,15 +663,6 @@ PATCH /api/v1/quizzes/bulk-update
 
 **Success Response**: `200 OK` - `BulkQuizUpdateOperationResultDto`
 
-**Example Response**:
-```json
-{
-  "successfulIds": ["uuid-1", "uuid-2"],
-  "failures": {
-    "uuid-3": "Quiz not found"
-  }
-}
-```
 
 ---
 
@@ -1098,9 +829,34 @@ GET /api/v1/quizzes/{quizId}/attempts
 
 ---
 
+#### 16. Get Attempt Stats for Quiz Owner
+
+```
+GET /api/v1/quizzes/{quizId}/attempts/{attemptId}/stats
+```
+
+**Path Parameters**:
+- `{quizId}` - Quiz UUID
+- `{attemptId}` - Attempt UUID
+
+**Required Authentication**: Yes (must be authenticated)
+
+**Success Response**: `200 OK` - `AttemptStatsDto`
+
+**Error Responses**:
+- `401` - Unauthorized (not authenticated)
+- `403` - Not quiz owner
+- `404` - Quiz or attempt not found
+
+**Notes**:
+- Only quiz owners can access detailed attempt statistics
+- Returns comprehensive statistics including score, time taken, correct/incorrect answers breakdown
+
+---
+
 ### Visibility & Status
 
-#### 16. Update Visibility
+#### 17. Update Visibility
 
 ```
 PATCH /api/v1/quizzes/{quizId}/visibility
@@ -1119,7 +875,7 @@ PATCH /api/v1/quizzes/{quizId}/visibility
 
 ---
 
-#### 17. Update Status
+#### 18. Update Status
 
 ```
 PATCH /api/v1/quizzes/{quizId}/status
@@ -1138,7 +894,7 @@ PATCH /api/v1/quizzes/{quizId}/status
 
 ---
 
-#### 18. Submit for Review
+#### 19. Submit for Review
 
 ```
 POST /api/v1/quizzes/{quizId}/submit-for-review
@@ -1160,7 +916,7 @@ POST /api/v1/quizzes/{quizId}/submit-for-review
 
 ### AI Generation Lifecycle
 
-#### 19. Generate from Document
+#### 20. Generate from Document
 
 ```
 POST /api/v1/quizzes/generate-from-document
@@ -1182,7 +938,7 @@ POST /api/v1/quizzes/generate-from-document
 
 ---
 
-#### 20. Generate from Upload
+#### 21. Generate from Upload
 
 ```
 POST /api/v1/quizzes/generate-from-upload
@@ -1211,7 +967,7 @@ Content-Type: multipart/form-data
 
 ---
 
-#### 21. Generate from Text
+#### 22. Generate from Text
 
 ```
 POST /api/v1/quizzes/generate-from-text
@@ -1233,7 +989,7 @@ POST /api/v1/quizzes/generate-from-text
 
 ---
 
-#### 22. Poll Generation Status
+#### 23. Poll Generation Status
 
 ```
 GET /api/v1/quizzes/generation-status/{jobId}
@@ -1251,7 +1007,7 @@ GET /api/v1/quizzes/generation-status/{jobId}
 
 ---
 
-#### 23. Get Generated Quiz
+#### 24. Get Generated Quiz
 
 ```
 GET /api/v1/quizzes/generated-quiz/{jobId}
@@ -1266,7 +1022,7 @@ GET /api/v1/quizzes/generated-quiz/{jobId}
 
 ---
 
-#### 24. Cancel Generation
+#### 25. Cancel Generation
 
 ```
 DELETE /api/v1/quizzes/generation-status/{jobId}
@@ -1284,7 +1040,7 @@ DELETE /api/v1/quizzes/generation-status/{jobId}
 
 ---
 
-#### 25. List Generation Jobs
+#### 26. List Generation Jobs
 
 ```
 GET /api/v1/quizzes/generation-jobs
@@ -1300,7 +1056,7 @@ GET /api/v1/quizzes/generation-jobs
 
 ---
 
-#### 26. Get Generation Statistics
+#### 27. Get Generation Statistics
 
 ```
 GET /api/v1/quizzes/generation-jobs/statistics
@@ -1322,7 +1078,7 @@ GET /api/v1/quizzes/generation-jobs/statistics
 
 ### Data Export
 
-#### 27. Export Quizzes
+#### 28. Export Quizzes
 
 ```
 GET /api/v1/quizzes/export
@@ -1506,31 +1262,6 @@ All print-specific parameters control the output formatting:
 - `404` - No quizzes match the filters (returns empty result, not error)
 - `429` - Rate limit exceeded
 
-**Example Requests**:
-
-**Public JSON export (anonymous)**:
-```
-GET /api/v1/quizzes/export?format=JSON_EDITABLE&scope=public
-```
-
-**User's quizzes in XLSX**:
-```
-GET /api/v1/quizzes/export?format=XLSX_EDITABLE&scope=me
-Authorization: Bearer <token>
-```
-
-**Filtered PDF export with options**:
-```
-GET /api/v1/quizzes/export?format=PDF_PRINT&scope=me&difficulty=MEDIUM&tags=java&includeCover=true&includeHints=true&groupQuestionsByType=true
-Authorization: Bearer <token>
-```
-
-**Specific quizzes HTML export**:
-```
-GET /api/v1/quizzes/export?format=HTML_PRINT&quizIds=uuid1&quizIds=uuid2&answersOnSeparatePages=true
-Authorization: Bearer <token>
-```
-
 **Notes**:
 - Response is streamed to prevent OOM for large exports
 - Questions are ordered deterministically (by createdAt, then id)
@@ -1551,7 +1282,7 @@ Authorization: Bearer <token>
 
 ### Admin Operations
 
-#### 28. Cleanup Stale Jobs
+#### 29. Cleanup Stale Jobs
 
 ```
 POST /api/v1/quizzes/generation-jobs/cleanup-stale
@@ -1569,7 +1300,7 @@ Cleaned up 5 stale generation jobs
 
 ---
 
-#### 29. Force Cancel Job
+#### 30. Force Cancel Job
 
 ```
 POST /api/v1/quizzes/generation-jobs/{jobId}/force-cancel
@@ -1589,7 +1320,7 @@ Job forcefully cancelled
 
 ---
 
-#### 30. Get Public Quizzes (No Auth Required)
+#### 31. Get Public Quizzes (No Auth Required)
 
 ```
 GET /api/v1/quizzes/public
@@ -1613,21 +1344,20 @@ GET /api/v1/quizzes/public
 
 ## Error Handling
 
-### ProblemDetail Format
+### Error Response Format
 
-```json
-{
-  "type": "about:blank",
-  "title": "Bad Request",
-  "status": 400,
-  "detail": "Title must be between 3 and 100 characters",
-  "instance": "/api/v1/quizzes"
-}
-```
+All errors return the same `ErrorResponse` structure:
 
-### Common HTTP Status Codes
+| Field | Type | Description |
+| --- | --- | --- |
+| `timestamp` | ISO 8601 datetime | When the error occurred |
+| `status` | integer | HTTP status code |
+| `error` | string | Error category (e.g., "Bad Request", "Not Found") |
+| `details` | array of strings | Error details/validation messages |
 
-| Code | Meaning | When to Expect |
+### HTTP Status Codes
+
+| Code | Error Category | Common Causes |
 | --- | --- | --- |
 | `400` | Bad Request | Validation errors, invalid data, malformed JSON |
 | `401` | Unauthorized | Missing or invalid authentication token |
@@ -1636,370 +1366,8 @@ GET /api/v1/quizzes/public
 | `409` | Conflict | Duplicate operation, invalid state transition |
 | `415` | Unsupported Media Type | Invalid file type in upload |
 | `422` | Unprocessable Entity | Document/text processing failed |
-| `429` | Too Many Requests | Rate limit exceeded |
+| `429` | Too Many Requests | Rate limit exceeded (includes `Retry-After` header) |
 | `500` | Internal Server Error | Unexpected server error |
-
-### Common Error Scenarios
-
-**Invalid Quiz Title**:
-```json
-{
-  "status": 400,
-  "detail": "Title must be between 3 and 100 characters"
-}
-```
-
-**Rate Limit Exceeded**:
-```json
-{
-  "status": 429,
-  "detail": "Rate limit exceeded. Please try again in 30 seconds"
-}
-```
-Headers: `Retry-After: 30`
-
-**Unauthorized Visibility Change**:
-```json
-{
-  "status": 403,
-  "detail": "Only moderators can set quiz to PUBLIC visibility"
-}
-```
-
-**Generation Job Not Complete**:
-```json
-{
-  "status": 409,
-  "detail": "Quiz generation job is still in progress. Please wait for completion."
-}
-```
-
-**Unsupported File Type**:
-```json
-{
-  "status": 415,
-  "detail": "Unsupported file type: .exe. Supported types: pdf, docx, txt"
-}
-```
-
----
-
-## Integration Guide
-
-### Creating a Quiz
-
-**Simple Quiz Creation**:
-```javascript
-const createQuiz = async () => {
-  const response = await fetch('/api/v1/quizzes', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      title: 'My First Quiz',
-      description: 'A test quiz',
-      difficulty: 'EASY',
-      visibility: 'PRIVATE',
-      status: 'DRAFT',
-      showHints: true,
-      shuffleQuestions: false,
-      timeLimitMinutes: 30
-    })
-  });
-  
-  if (response.ok) {
-    const { quizId } = await response.json();
-    console.log('Quiz created:', quizId);
-    return quizId;
-  }
-};
-```
-
----
-
-### AI Generation Workflow
-
-**Complete generation flow from document**:
-```javascript
-const generateQuiz = async (documentId) => {
-  // 1. Start generation
-  const startResponse = await fetch('/api/v1/quizzes/generate-from-document', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      documentId: documentId,
-      quizScope: 'ENTIRE_DOCUMENT',
-      title: 'Generated Quiz',
-      questionsPerType: {
-        'MCQ_SINGLE': 5,
-        'TRUE_FALSE': 3
-      },
-      difficulty: 'MEDIUM',
-      language: 'en'
-    })
-  });
-
-  if (startResponse.status === 429) {
-    const retryAfter = startResponse.headers.get('Retry-After');
-    console.log(`Rate limited. Retry after ${retryAfter} seconds`);
-    return;
-  }
-
-  const { jobId } = await startResponse.json();
-  console.log('Generation started:', jobId);
-
-  // 2. Poll for status
-  const pollStatus = async () => {
-    const statusResponse = await fetch(
-      `/api/v1/quizzes/generation-status/${jobId}`,
-      {
-        headers: { 'Authorization': `Bearer ${token}` }
-      }
-    );
-    
-    const status = await statusResponse.json();
-    console.log(`Progress: ${status.progressPercentage}%`);
-    console.log(`Status: ${status.currentChunk}`);
-
-    if (status.status === 'COMPLETED') {
-      return status.generatedQuizId;
-    } else if (status.status === 'FAILED') {
-      throw new Error(status.errorMessage);
-    } else if (status.status === 'CANCELLED') {
-      throw new Error('Generation was cancelled');
-    }
-
-    // Still processing, poll again
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    return pollStatus();
-  };
-
-  const quizId = await pollStatus();
-
-  // 3. Fetch generated quiz
-  const quizResponse = await fetch(
-    `/api/v1/quizzes/generated-quiz/${jobId}`,
-    {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }
-  );
-  
-  const quiz = await quizResponse.json();
-  console.log('Generated quiz:', quiz);
-  return quiz;
-};
-```
-
----
-
-### Upload and Generate
-
-**Generate quiz from uploaded file**:
-```javascript
-const uploadAndGenerate = async (file) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('title', 'Quiz from Upload');
-  formData.append('description', 'Generated from uploaded document');
-  formData.append('questionsPerType', JSON.stringify({
-    'MCQ_SINGLE': 5,
-    'TRUE_FALSE': 3
-  }));
-  formData.append('difficulty', 'MEDIUM');
-  formData.append('chunkingStrategy', 'CHAPTER_BASED');
-  formData.append('language', 'en');
-
-  const response = await fetch('/api/v1/quizzes/generate-from-upload', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`
-      // Don't set Content-Type - browser will set it with boundary
-    },
-    body: formData
-  });
-
-  if (response.status === 415) {
-    const error = await response.json();
-    console.error('Unsupported file type:', error.detail);
-    return;
-  }
-
-  const { jobId } = await response.json();
-  // Continue with polling as above
-  return jobId;
-};
-```
-
----
-
-### Listing with Caching
-
-**Efficient list with ETag caching**:
-```javascript
-let cachedETag = null;
-
-const listQuizzes = async () => {
-  const headers = {
-    'Authorization': `Bearer ${token}`
-  };
-  
-  if (cachedETag) {
-    headers['If-None-Match'] = cachedETag;
-  }
-
-  const response = await fetch(
-    '/api/v1/quizzes?scope=me&page=0&size=20&sort=title,asc',
-    { headers }
-  );
-
-  if (response.status === 304) {
-    console.log('List unchanged, using cached data');
-    return; // Use cached data
-  }
-
-  cachedETag = response.headers.get('ETag');
-  const data = await response.json();
-  return data;
-};
-```
-
----
-
-### Publishing Workflow
-
-**Submit quiz for review and publish**:
-```javascript
-const publishWorkflow = async (quizId) => {
-  // 1. Submit for review
-  await fetch(`/api/v1/quizzes/${quizId}/submit-for-review`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  console.log('Submitted for review');
-
-  // 2. (After moderator approval) Change visibility to PUBLIC
-  await fetch(`/api/v1/quizzes/${quizId}/visibility`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${moderatorToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ isPublic: true })
-  });
-
-  // 3. Publish
-  await fetch(`/api/v1/quizzes/${quizId}/status`, {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${moderatorToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ status: 'PUBLISHED' })
-  });
-  
-  console.log('Quiz published successfully');
-};
-```
-
----
-
-### Bulk Operations
-
-**Bulk update multiple quizzes**:
-```javascript
-const bulkUpdate = async (quizIds, updates) => {
-  const response = await fetch('/api/v1/quizzes/bulk-update', {
-    method: 'PATCH',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      quizIds: quizIds,
-      updates: updates
-    })
-  });
-
-  const result = await response.json();
-  console.log('Successful:', result.successfulIds);
-  console.log('Failed:', result.failures);
-  
-  // Handle partial failures
-  Object.entries(result.failures).forEach(([quizId, error]) => {
-    console.error(`Failed to update ${quizId}: ${error}`);
-  });
-};
-
-// Usage
-bulkUpdate(
-  ['quiz-1', 'quiz-2', 'quiz-3'],
-  { difficulty: 'HARD', showHints: false }
-);
-```
-
----
-
-### Error Handling
-
-**Comprehensive error handling**:
-```javascript
-const handleQuizOperation = async () => {
-  try {
-    const response = await fetch('/api/v1/quizzes/generate-from-text', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ /* request data */ })
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      
-      switch (response.status) {
-        case 400:
-          console.error('Validation error:', error.detail);
-          // Show user-friendly validation message
-          break;
-        case 401:
-          console.error('Unauthorized');
-          // Redirect to login
-          break;
-        case 403:
-          console.error('Forbidden:', error.detail);
-          // Show permission error
-          break;
-        case 409:
-          console.error('Conflict:', error.detail);
-          // Handle state conflict
-          break;
-        case 429:
-          const retryAfter = response.headers.get('Retry-After');
-          console.log(`Rate limited. Retry after ${retryAfter}s`);
-          // Implement backoff
-          break;
-        case 500:
-          console.error('Server error');
-          // Show generic error, maybe retry
-          break;
-      }
-      return;
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Network error:', error);
-    // Handle network failures
-  }
-};
-```
 
 ---
 
