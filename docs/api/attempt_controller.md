@@ -67,12 +67,6 @@ Optional request body to configure attempt mode.
 | --- | --- | --- | --- | --- |
 | `mode` | `AttemptMode` enum | No | Must be one of: `ONE_BY_ONE`, `ALL_AT_ONCE`, `TIMED` | Defaults to `ALL_AT_ONCE` if omitted |
 
-**Example**:
-```json
-{
-  "mode": "ONE_BY_ONE"
-}
-```
 
 ---
 
@@ -87,7 +81,19 @@ Submit a single answer for a question.
 | `questionId` | UUID string | Yes | Must be valid UUID | ID of the question being answered |
 | `response` | JSON object | Yes | Non-null, structure depends on `QuestionType` | User's answer payload |
 
-**Response structure by QuestionType**:
+**Response payload structure by QuestionType**:
+
+| Question Type | Response Field | Type | Example Value |
+| --- | --- | --- | --- |
+| `MCQ_SINGLE` | `selectedOptionId` | integer | `1` |
+| `MCQ_MULTI` | `selectedOptionIds` | array of integers | `[1, 3, 4]` |
+| `TRUE_FALSE` | `answer` | boolean | `true` |
+| `OPEN` | `answer` | string | `"User's text answer"` |
+| `FILL_GAP` | `gaps` | object (map) | `{"0": "answer1", "1": "answer2"}` |
+| `ORDERING` | `orderedItems` | array of integers | `[3, 1, 4, 2]` (item IDs in user's order) |
+| `MATCHING` | `pairs` | object (map) | `{"1": "A", "2": "C"}` (left ID → right ID) |
+| `COMPLIANCE` | `statements` | object (map) | `{"1": true, "2": false}` (statement ID → compliant) |
+| `HOTSPOT` | `selectedRegionIds` | array of integers | `[1, 3]` |
 
 **MCQ_SINGLE**:
 ```json
@@ -202,21 +208,6 @@ Submit multiple answers at once. Only valid for `ALL_AT_ONCE` mode.
 | --- | --- | --- | --- | --- |
 | `answers` | Array of `AnswerSubmissionRequest` | Yes | Must be non-empty array | List of answer submissions |
 
-**Example**:
-```json
-{
-  "answers": [
-    {
-      "questionId": "uuid-1",
-      "response": { "selectedOptionId": 2 }
-    },
-    {
-      "questionId": "uuid-2",
-      "response": { "answer": true }
-    }
-  ]
-}
-```
 
 ---
 
@@ -235,17 +226,6 @@ Submit multiple answers at once. Only valid for `ALL_AT_ONCE` mode.
 | `timeLimitMinutes` | integer (nullable) | Time limit in minutes (null if no limit) |
 | `startedAt` | ISO 8601 datetime | When the attempt was started |
 
-**Example**:
-```json
-{
-  "attemptId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-  "quizId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "mode": "ONE_BY_ONE",
-  "totalQuestions": 10,
-  "timeLimitMinutes": 30,
-  "startedAt": "2024-01-15T10:30:00Z"
-}
-```
 
 **Note**: Does not include question content. Call `GET /{attemptId}/current-question` to fetch the first question.
 
@@ -257,28 +237,13 @@ Submit multiple answers at once. Only valid for `ALL_AT_ONCE` mode.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `attemptId` | UUID string | Unique identifier |
-| `quizId` | UUID string | Associated quiz ID |
-| `userId` | UUID string | User who created this attempt |
-| `mode` | `AttemptMode` enum | Attempt mode |
-| `status` | `AttemptStatus` enum | Current status |
+| `attemptId` | UUID | Unique identifier |
+| `quizId` | UUID | Associated quiz ID |
+| `userId` | UUID | User who created this attempt |
 | `startedAt` | ISO 8601 datetime | Start timestamp |
-| `score` | integer (nullable) | Current score (null until completed) |
-| `maxScore` | integer | Maximum possible score |
+| `status` | `AttemptStatus` enum | Current status |
+| `mode` | `AttemptMode` enum | Attempt mode |
 
-**Example**:
-```json
-{
-  "attemptId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-  "quizId": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
-  "userId": "user-uuid",
-  "mode": "ALL_AT_ONCE",
-  "status": "IN_PROGRESS",
-  "startedAt": "2024-01-15T10:30:00Z",
-  "score": null,
-  "maxScore": 100
-}
-```
 
 ---
 
@@ -286,23 +251,16 @@ Submit multiple answers at once. Only valid for `ALL_AT_ONCE` mode.
 
 **Returned by**: `GET /{attemptId}`
 
-Extends `AttemptDto` with additional fields:
-
 | Field | Type | Description |
 | --- | --- | --- |
-| *(all fields from AttemptDto)* | | Base attempt information |
-| `completedAt` | ISO 8601 datetime (nullable) | Completion timestamp (null if not completed) |
-| `answers` | Array of `SubmittedAnswerDto` | All submitted answers |
-
-**SubmittedAnswerDto** structure:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `questionId` | UUID string | Question identifier |
-| `response` | JSON object | User's submitted answer |
-| `submittedAt` | ISO 8601 datetime | Submission timestamp |
-| `isCorrect` | boolean (nullable) | Correctness (null for OPEN questions) |
-| `scoreAwarded` | integer | Points awarded |
+| `attemptId` | UUID | Unique identifier |
+| `quizId` | UUID | Associated quiz ID |
+| `userId` | UUID | User who created this attempt |
+| `startedAt` | ISO 8601 datetime | Start timestamp |
+| `completedAt` | ISO 8601 datetime (nullable) | Completion timestamp |
+| `status` | `AttemptStatus` enum | Current status |
+| `mode` | `AttemptMode` enum | Attempt mode |
+| `answers` | Array of `AnswerSubmissionDto` | All submitted answers |
 
 ---
 
@@ -410,9 +368,11 @@ Safe question representation without correct answers.
 
 | Field | Type | Description |
 | --- | --- | --- |
+| `answerId` | UUID | Answer record identifier |
+| `questionId` | UUID | Question identifier |
 | `isCorrect` | boolean (nullable) | Whether answer is correct (null for OPEN) |
-| `scoreAwarded` | integer | Points awarded for this answer |
-| `submittedAt` | ISO 8601 datetime | Submission timestamp |
+| `score` | double | Score awarded for this answer |
+| `answeredAt` | ISO 8601 datetime | Submission timestamp |
 | `nextQuestion` | `QuestionForAttemptDto` (nullable) | Next question (only in ONE_BY_ONE mode) |
 
 ---
@@ -423,18 +383,15 @@ Safe question representation without correct answers.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `attemptId` | UUID string | Attempt identifier |
-| `quizId` | UUID string | Quiz identifier |
-| `status` | `AttemptStatus` enum | Will be `COMPLETED` |
-| `score` | integer | Final score achieved |
-| `maxScore` | integer | Maximum possible score |
-| `percentageScore` | number | Score as percentage (0-100) |
-| `totalQuestions` | integer | Number of questions |
-| `correctAnswers` | integer | Number of correct answers |
+| `attemptId` | UUID | Attempt identifier |
+| `quizId` | UUID | Quiz identifier |
+| `userId` | UUID | User identifier |
 | `startedAt` | ISO 8601 datetime | Start timestamp |
 | `completedAt` | ISO 8601 datetime | Completion timestamp |
-| `durationSeconds` | integer | Time taken in seconds |
-| `answers` | Array of `SubmittedAnswerDto` | All submitted answers |
+| `totalScore` | double | Final score achieved |
+| `correctCount` | integer | Number of correct answers |
+| `totalQuestions` | integer | Total number of questions |
+| `answers` | Array of `AnswerSubmissionDto` | All submitted answers |
 
 ---
 
@@ -444,26 +401,16 @@ Safe question representation without correct answers.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `attemptId` | UUID string | Attempt identifier |
-| `totalQuestions` | integer | Number of questions |
-| `answeredQuestions` | integer | Questions answered |
+| `attemptId` | UUID | Attempt identifier |
+| `totalTime` | Duration (ISO 8601) | Total time spent (e.g., "PT15M30S") |
+| `averageTimePerQuestion` | Duration (ISO 8601) | Average time per question |
+| `questionsAnswered` | integer | Questions answered |
 | `correctAnswers` | integer | Correct answer count |
-| `accuracyPercentage` | number | Accuracy (0-100) |
-| `averageTimePerQuestion` | number | Average seconds per question |
-| `totalTimeSeconds` | integer | Total time spent |
-| `completionPercentage` | number | Completion (0-100) |
-| `questionStats` | Array of `QuestionTimingStatsDto` | Per-question timing |
-
-**QuestionTimingStatsDto** structure:
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `questionId` | UUID string | Question identifier |
-| `questionNumber` | integer | Question position (1-indexed) |
-| `questionType` | `QuestionType` enum | Type of question |
-| `timeSpentSeconds` | integer | Time spent on this question |
-| `isCorrect` | boolean (nullable) | Correctness (null for OPEN) |
-| `scoreAwarded` | integer | Points awarded |
+| `accuracyPercentage` | double | Accuracy (0-100) |
+| `completionPercentage` | double | Completion (0-100) |
+| `questionTimings` | Array of `QuestionTimingStatsDto` | Per-question timing |
+| `startedAt` | ISO 8601 datetime | Start timestamp |
+| `completedAt` | ISO 8601 datetime (nullable) | Completion timestamp |
 
 ---
 
@@ -813,15 +760,16 @@ All errors return an `ErrorResponse` object:
 
 ---
 
-## Integration Guide
+
+# Integration Guide
 
 ### Starting an Attempt Flow
 
 1. **Start attempt**: `POST /quizzes/{quizId}` with optional mode
 2. **Get first question**: `GET /{attemptId}/current-question`
 3. **Submit answers**:
-   - ONE_BY_ONE: `POST /{attemptId}/answers` for each question
-   - ALL_AT_ONCE: Collect all answers, then `POST /{attemptId}/answers/batch`
+    - ONE_BY_ONE: `POST /{attemptId}/answers` for each question
+    - ALL_AT_ONCE: Collect all answers, then `POST /{attemptId}/answers/batch`
 4. **Complete attempt**: `POST /{attemptId}/complete`
 5. **View results**: `GET /{attemptId}/review`
 
