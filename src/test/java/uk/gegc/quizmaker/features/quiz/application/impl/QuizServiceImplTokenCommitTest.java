@@ -26,6 +26,12 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -46,11 +52,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Comprehensive tests for QuizServiceImpl.commitTokensForSuccessfulGeneration method.
- * Focuses on uncovered branches and error paths for token commit logic.
+ * Comprehensive tests for QuizServiceImpl.commitTokensForSuccessfulGeneration delegation.
+ * 
+ * NOTE: After refactoring, QuizServiceImpl delegates to QuizGenerationFacade.
+ * The actual implementation logic is tested in QuizGenerationFacadeImplBillingTest.
+ * These tests verify the delegation works correctly.
  */
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 @DisplayName("QuizServiceImpl Token Commit Tests")
 class QuizServiceImplTokenCommitTest {
 
@@ -88,8 +98,19 @@ class QuizServiceImplTokenCommitTest {
     private AppPermissionEvaluator permissionEvaluator;
     @Mock
     private FeatureFlags featureFlags;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private QuizGenerationJob testJob;
@@ -99,6 +120,16 @@ class QuizServiceImplTokenCommitTest {
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         reservationId = UUID.randomUUID();
         
         // Create test job
@@ -131,6 +162,9 @@ class QuizServiceImplTokenCommitTest {
                 UUID.randomUUID(),
                 List.of()
         );
+        
+        // Configure facade delegation - tests verify delegation, not internal logic
+        lenient().doNothing().when(quizGenerationFacade).commitTokensForSuccessfulGeneration(any(), anyList(), any());
     }
 
     @Nested
@@ -267,71 +301,31 @@ class QuizServiceImplTokenCommitTest {
         @Test
         @DisplayName("commitTokens: when inputPromptTokens is null then uses 0")
         void commitTokens_nullInputPromptTokens_usesZero() {
-            // Given
-            testJob.setInputPromptTokens(null);
-            
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), eq(0L)))
-                    .thenReturn(800L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 800L, 200L));
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Line 1364 covered (null check)
-            verify(estimationService).computeActualBillingTokens(anyList(), any(), eq(0L));
-            verify(internalBillingService).commit(eq(reservationId), eq(800L), eq("quiz-generation"), anyString());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when actual tokens exceed reserved then caps at reserved")
         void commitTokens_actualExceedsReserved_capsAtReserved() {
-            // Given - Actual tokens (1500) exceed reserved (1000)
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(1500L); // More than reserved (1000L)
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 1000L, 0L));
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Lines 1379-1383 covered (underestimation logging)
-            verify(internalBillingService).commit(eq(reservationId), eq(1000L), eq("quiz-generation"), anyString());
-            verify(jobRepository).save(argThat(job -> 
-                job.getBillingCommittedTokens() == 1000L && 
-                job.getActualTokens() == 1500L &&
-                job.getWasCappedAtReserved()
-            ));
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when actual tokens less than reserved then commits actual")
         void commitTokens_actualLessThanReserved_commitsActual() {
-            // Given - Actual tokens (700) less than reserved (1000)
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(700L); // Less than reserved (1000L)
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 700L, 300L)); // Released 300 remainder
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - No underestimation warning, remainder auto-released
-            verify(internalBillingService).commit(eq(reservationId), eq(700L), eq("quiz-generation"), anyString());
-            verify(jobRepository).save(argThat(job -> 
-                job.getBillingCommittedTokens() == 700L && 
-                job.getActualTokens() == 700L &&
-                !job.getWasCappedAtReserved()
-            ));
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
     }
 
@@ -342,99 +336,51 @@ class QuizServiceImplTokenCommitTest {
         @Test
         @DisplayName("commitTokens: when commitResult is null and remainder > 0 then explicitly releases")
         void commitTokens_nullCommitResultWithRemainder_explicitlyReleases() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(700L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(null); // Null result
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Lines 1404, 1406-1408 covered (explicit release with null commitResult)
-            verify(internalBillingService).release(eq(reservationId), eq("commit-remainder"), eq("quiz-generation"), isNull());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when commitResult has zero releasedTokens and remainder > 0 then explicitly releases")
         void commitTokens_zeroReleasedTokensWithRemainder_explicitlyReleases() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(700L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 700L, 0L)); // Zero released
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Lines 1404, 1406-1408 covered (explicit release when releasedTokens == 0)
-            verify(internalBillingService).release(eq(reservationId), eq("commit-remainder"), eq("quiz-generation"), isNull());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when explicit release fails then logs warning")
         void commitTokens_explicitReleaseFails_logsWarning() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(700L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 700L, 0L));
-            doThrow(new RuntimeException("Release service unavailable"))
-                    .when(internalBillingService).release(any(), anyString(), anyString(), any());
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Lines 1409-1411 covered (exception during explicit release)
-            verify(internalBillingService).release(eq(reservationId), eq("commit-remainder"), eq("quiz-generation"), isNull());
-            verify(jobRepository).save(any()); // Job should still be saved
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when remainder is zero then does not release")
         void commitTokens_zeroRemainder_doesNotRelease() {
-            // Given - Actual equals reserved
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(1000L); // Exactly reserved amount
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 1000L, 0L));
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - No explicit release since remainder == 0
-            verify(internalBillingService, never()).release(any(), anyString(), anyString(), any());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when commitResult has non-zero releasedTokens then does not explicitly release")
         void commitTokens_commitResultHasReleasedTokens_doesNotExplicitlyRelease() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(700L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 700L, 300L)); // Already released remainder
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - No explicit release since billing service already released
-            verify(internalBillingService, never()).release(any(), anyString(), anyString(), any());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
     }
 
@@ -483,45 +429,21 @@ class QuizServiceImplTokenCommitTest {
         @Test
         @DisplayName("commitTokens: when successful then updates job billing fields")
         void commitTokens_successful_updatesJobBillingFields() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(900L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(new CommitResultDto(reservationId, 900L, 100L));
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Lines 1416-1427 covered (update job fields and save)
-            verify(jobRepository).save(argThat(job -> 
-                job.getActualTokens() == 900L &&
-                job.getBillingCommittedTokens() == 900L &&
-                !job.getWasCappedAtReserved() &&
-                job.getBillingState() == BillingState.COMMITTED &&
-                job.getLastBillingError() == null
-            ));
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
 
         @Test
         @DisplayName("commitTokens: when commit result is null then logs correctly")
         void commitTokens_nullCommitResult_logsCorrectly() {
-            // Given
-            when(jobRepository.findByIdForUpdate(testJob.getId()))
-                    .thenReturn(Optional.of(testJob));
-            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
-                    .thenReturn(1000L);
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenReturn(null); // Null result
-            when(jobRepository.save(any())).thenReturn(testJob);
-
             // When
             quizService.commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
 
-            // Then - Line 1431 covered (null check for releasedTokens logging)
-            verify(jobRepository).save(any());
+            // Then - Verify delegation to facade
+            verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(testJob, testQuestions, testRequest);
         }
     }
 

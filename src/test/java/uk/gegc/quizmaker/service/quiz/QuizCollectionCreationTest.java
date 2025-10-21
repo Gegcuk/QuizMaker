@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
@@ -118,8 +119,10 @@ class QuizCollectionCreationTest {
 
     @Mock
     private QuizAssemblyService quizAssemblyService;
+    
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private User testUser;
@@ -131,6 +134,16 @@ class QuizCollectionCreationTest {
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         testUser = new User();
         testUser.setUsername("testuser");
 
@@ -259,6 +272,9 @@ class QuizCollectionCreationTest {
                     quiz.setQuestions(new HashSet<>(allQuestions));
                     return quizRepository.save(quiz);
                 });
+        
+        // Configure facade delegation
+        lenient().doNothing().when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(any(), any(), any());
     }
 
     @Test
@@ -266,32 +282,12 @@ class QuizCollectionCreationTest {
     void shouldCreateQuizCollectionSuccessfully() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
 
-        // Then
-        verify(jobRepository).findById(testJobId);
-        verify(quizAssemblyService).getOrCreateAICategory();
-        
-        // Should create 2 chunk quizzes + 1 consolidated quiz = 3 total
-        verify(quizAssemblyService, times(2)).createChunkQuiz(any(), any(), anyInt(), any(), any(), any(), any());
-        verify(quizAssemblyService).createConsolidatedQuiz(any(), any(), any(), any(), any(), any(), anyInt());
-        
-        // Should update job with completed status
-        verify(jobRepository).save(testJob);
-        assertEquals(GenerationStatus.COMPLETED, testJob.getStatus());
-        assertNotNull(testJob.getGeneratedQuizId());
-        assertEquals(6, testJob.getTotalQuestionsGenerated()); // 2 chunks * 3 questions each
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
     }
 
     @Test
@@ -299,26 +295,12 @@ class QuizCollectionCreationTest {
     void shouldCreateAICategoryIfNotExists() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.empty());
-        when(categoryRepository.findByName("General")).thenReturn(Optional.empty());
-        when(categoryRepository.save(any(Category.class))).thenReturn(testCategory);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
 
-        // Then
-        verify(categoryRepository).findByName("AI Generated");
-        verify(categoryRepository).findByName("General");
-        verify(categoryRepository).save(any(Category.class));
-        verify(quizRepository, times(3)).save(any(Quiz.class));
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
     }
 
     @Test
@@ -326,24 +308,12 @@ class QuizCollectionCreationTest {
     void shouldHandleEmptyChunkQuestions() {
         // Given
         Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
 
-        // Then
-        verify(quizRepository, times(1)).save(any(Quiz.class)); // Only consolidated quiz
-        verify(jobRepository).save(testJob);
-        assertEquals(GenerationStatus.COMPLETED, testJob.getStatus());
-        assertEquals(0, testJob.getTotalQuestionsGenerated());
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
     }
 
     @Test
@@ -352,12 +322,17 @@ class QuizCollectionCreationTest {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
         
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.empty());
+        // Configure facade to throw exception
+        doThrow(new RuntimeException("Generation job not found"))
+                .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
 
         // When & Then
         assertThrows(RuntimeException.class, () -> {
             quizService.createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
         });
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
     }
 
     @Test
@@ -366,19 +341,17 @@ class QuizCollectionCreationTest {
         // Given
         Map<Integer, List<Question>> chunkQuestions = createTestChunkQuestions();
         
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.save(any(Quiz.class))).thenThrow(new RuntimeException("Database error"));
+        // Configure facade to throw exception
+        doThrow(new RuntimeException("Database error"))
+                .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
 
         // When & Then
         assertThrows(RuntimeException.class, () -> {
             quizService.createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
         });
-
-        // Should mark job as failed
-        verify(jobRepository, times(1)).save(testJob); // Only once for failure
-        assertEquals(GenerationStatus.FAILED, testJob.getStatus());
-        assertNotNull(testJob.getErrorMessage());
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, chunkQuestions, testRequest);
     }
 
     // ========== Single-Chunk Quiz Generation Tests ==========
@@ -388,32 +361,12 @@ class QuizCollectionCreationTest {
     void singleChunk_shouldCreateOnlyConsolidatedQuiz() {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.existsByCreatorIdAndTitle(any(), anyString())).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, testRequest);
 
-        // Then
-        verify(jobRepository).findById(testJobId);
-        verify(categoryRepository).findByName("AI Generated");
-        
-        // Should create ONLY 1 consolidated quiz (no per-chunk quiz for single-chunk)
-        verify(quizRepository, times(1)).save(any(Quiz.class));
-        
-        // Should update job with completed status
-        verify(jobRepository).save(testJob);
-        assertEquals(GenerationStatus.COMPLETED, testJob.getStatus());
-        assertNotNull(testJob.getGeneratedQuizId());
-        assertEquals(3, testJob.getTotalQuestionsGenerated()); // 1 chunk * 3 questions
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, testRequest);
     }
 
     @Test
@@ -422,44 +375,25 @@ class QuizCollectionCreationTest {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
         
-        // Create request with SPECIFIC_CHUNKS scope and single chunk index
-        Map<QuestionType, Integer> questionsPerType = new HashMap<>();
-        questionsPerType.put(QuestionType.MCQ_SINGLE, 2);
-        questionsPerType.put(QuestionType.TRUE_FALSE, 1);
-        
         GenerateQuizFromDocumentRequest specificChunksRequest = new GenerateQuizFromDocumentRequest(
                 testDocumentId,
                 QuizScope.SPECIFIC_CHUNKS,
-                List.of(0), // Single chunk index
-                null, // chapterTitle
-                null, // chapterNumber
+                List.of(0),
+                null, null,
                 "Specific Chunk Quiz",
                 "Quiz for a specific chunk",
-                questionsPerType,
+                Map.of(QuestionType.MCQ_SINGLE, 2, QuestionType.TRUE_FALSE, 1),
                 Difficulty.MEDIUM,
                 2,
                 null,
                 List.of()
         );
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.existsByCreatorIdAndTitle(any(), anyString())).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, specificChunksRequest);
 
-        // Then
-        // Should create ONLY 1 consolidated quiz
-        verify(quizRepository, times(1)).save(any(Quiz.class));
-        assertEquals(GenerationStatus.COMPLETED, testJob.getStatus());
-        assertNotNull(testJob.getGeneratedQuizId());
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, specificChunksRequest);
     }
 
     @Test
@@ -467,48 +401,25 @@ class QuizCollectionCreationTest {
     void singleChunk_shouldUseUserProvidedTitleAndDescription() {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
-        String customTitle = "My Custom Quiz Title";
-        String customDescription = "My custom quiz description";
-        
-        Map<QuestionType, Integer> questionsPerType = new HashMap<>();
-        questionsPerType.put(QuestionType.MCQ_SINGLE, 2);
         
         GenerateQuizFromDocumentRequest customRequest = new GenerateQuizFromDocumentRequest(
                 testDocumentId,
                 QuizScope.ENTIRE_DOCUMENT,
-                null,
-                null,
-                null,
-                customTitle,
-                customDescription,
-                questionsPerType,
+                null, null, null,
+                "My Custom Quiz Title",
+                "My custom quiz description",
+                Map.of(QuestionType.MCQ_SINGLE, 2),
                 Difficulty.MEDIUM,
                 2,
                 null,
                 List.of()
         );
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.existsByCreatorIdAndTitle(any(), eq(customTitle))).thenReturn(false);
-        
-        final Quiz[] savedQuiz = new Quiz[1];
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            savedQuiz[0] = quiz;
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, customRequest);
 
-        // Then
-        verify(quizRepository, times(1)).save(any(Quiz.class));
-        assertNotNull(savedQuiz[0]);
-        assertThat(savedQuiz[0].getTitle()).isEqualTo(customTitle);
-        assertThat(savedQuiz[0].getDescription()).isEqualTo(customDescription);
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, customRequest);
     }
 
     @Test
@@ -516,49 +427,25 @@ class QuizCollectionCreationTest {
     void singleChunk_withTitleCollision_shouldAppendSuffix() {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
-        String customTitle = "Duplicate Quiz Title";
-        String expectedUniqueTitle = "Duplicate Quiz Title-2";
-        
-        Map<QuestionType, Integer> questionsPerType = new HashMap<>();
-        questionsPerType.put(QuestionType.MCQ_SINGLE, 2);
         
         GenerateQuizFromDocumentRequest customRequest = new GenerateQuizFromDocumentRequest(
                 testDocumentId,
                 QuizScope.ENTIRE_DOCUMENT,
-                null,
-                null,
-                null,
-                customTitle,
+                null, null, null,
+                "Duplicate Quiz Title",
                 "Test description",
-                questionsPerType,
+                Map.of(QuestionType.MCQ_SINGLE, 2),
                 Difficulty.MEDIUM,
                 2,
                 null,
                 List.of()
         );
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        // Simulate title collision
-        when(quizRepository.existsByCreatorIdAndTitle(any(), eq(customTitle))).thenReturn(true);
-        when(quizRepository.existsByCreatorIdAndTitle(any(), eq(expectedUniqueTitle))).thenReturn(false);
-        
-        final Quiz[] savedQuiz = new Quiz[1];
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            savedQuiz[0] = quiz;
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, customRequest);
 
-        // Then
-        verify(quizRepository, times(1)).save(any(Quiz.class));
-        assertNotNull(savedQuiz[0]);
-        assertThat(savedQuiz[0].getTitle()).isEqualTo(expectedUniqueTitle);
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, customRequest);
     }
 
     @Test
@@ -566,28 +453,12 @@ class QuizCollectionCreationTest {
     void singleChunk_shouldSetCorrectJobCompletionFields() {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
-        UUID consolidatedQuizId = UUID.randomUUID();
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.existsByCreatorIdAndTitle(any(), anyString())).thenReturn(false);
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(consolidatedQuizId);
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, testRequest);
 
-        // Then
-        verify(jobRepository).save(testJob);
-        
-        // Assert job completion fields
-        assertThat(testJob.getStatus()).isEqualTo(GenerationStatus.COMPLETED);
-        assertThat(testJob.getGeneratedQuizId()).isEqualTo(consolidatedQuizId);
-        assertThat(testJob.getTotalQuestionsGenerated()).isEqualTo(3);
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, testRequest);
     }
 
     @Test
@@ -596,45 +467,23 @@ class QuizCollectionCreationTest {
         // Given
         Map<Integer, List<Question>> singleChunkQuestions = createSingleChunkQuestions();
         
-        Map<QuestionType, Integer> questionsPerType = new HashMap<>();
-        questionsPerType.put(QuestionType.MCQ_SINGLE, 2);
-        
         GenerateQuizFromDocumentRequest requestWithoutTitle = new GenerateQuizFromDocumentRequest(
                 testDocumentId,
                 QuizScope.ENTIRE_DOCUMENT,
-                null,
-                null,
-                null,
-                null, // No custom title
-                null, // No custom description
-                questionsPerType,
+                null, null, null,
+                null, null,
+                Map.of(QuestionType.MCQ_SINGLE, 2),
                 Difficulty.MEDIUM,
                 2,
                 null,
                 List.of()
         );
-        
-        when(jobRepository.findById(testJobId)).thenReturn(Optional.of(testJob));
-        when(jobRepository.findByIdForUpdate(testJobId)).thenReturn(Optional.of(testJob));
-        when(categoryRepository.findByName("AI Generated")).thenReturn(Optional.of(testCategory));
-        when(quizRepository.existsByCreatorIdAndTitle(any(), anyString())).thenReturn(false);
-        
-        final Quiz[] savedQuiz = new Quiz[1];
-        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
-            Quiz quiz = invocation.getArgument(0);
-            quiz.setId(UUID.randomUUID());
-            savedQuiz[0] = quiz;
-            return quiz;
-        });
 
         // When
         quizService.createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, requestWithoutTitle);
 
-        // Then
-        verify(quizRepository, times(1)).save(any(Quiz.class));
-        assertNotNull(savedQuiz[0]);
-        // Should fallback to default title
-        assertThat(savedQuiz[0].getTitle()).isEqualTo("Complete Document Quiz");
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(testJobId, singleChunkQuestions, requestWithoutTitle);
     }
 
     // ========== Helper Methods ==========

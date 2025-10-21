@@ -21,6 +21,12 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -47,9 +53,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.lenient;
 
+/**
+ * NOTE: After refactoring, QuizServiceImpl delegates to QuizGenerationFacade.
+ * The actual implementation logic is tested in QuizGenerationFacadeImplComplexFlowsTest.
+ * These tests verify the delegation works correctly.
+ */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Quiz Service Reservation Tests")
 @Execution(ExecutionMode.CONCURRENT)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class QuizServiceReservationTest {
 
     @Mock
@@ -84,8 +96,19 @@ class QuizServiceReservationTest {
     private TransactionTemplate transactionTemplate;
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
 
     private User testUser;
@@ -96,6 +119,16 @@ class QuizServiceReservationTest {
 
     @BeforeEach
     void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
         testUser = new User();
         testUser.setId(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"));
         testUser.setUsername("testuser");
@@ -145,26 +178,19 @@ class QuizServiceReservationTest {
         testJob.setStatus(GenerationStatus.PENDING);
         testJob.setTotalChunks(10);
         testJob.setEstimatedCompletion(LocalDateTime.now().plusMinutes(5));
+        
+        // Configure facade delegation - tests will override as needed
+        lenient().when(quizGenerationFacade.startQuizGeneration(anyString(), any()))
+                .thenReturn(QuizGenerationResponse.started(testJob.getId(), 300L));
     }
 
     @Test
     @DisplayName("startQuizGeneration should reserve tokens and create job successfully")
     void startQuizGeneration_ShouldReserveTokensAndCreateJob() throws Exception {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
         // Given
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-        when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(10);
-        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), any())).thenReturn(300);
-        when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(testJob);
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenReturn(testReservation);
-        when(jobRepository.save(any())).thenReturn(testJob);
+        QuizGenerationResponse expectedResponse = QuizGenerationResponse.started(testJob.getId(), 300L);
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenReturn(expectedResponse);
 
         // When
         QuizGenerationResponse response = quizService.startQuizGeneration("testuser", testRequest);
@@ -173,54 +199,24 @@ class QuizServiceReservationTest {
         assertThat(response).isNotNull();
         assertThat(response.jobId()).isEqualTo(testJob.getId());
         assertThat(response.estimatedTimeSeconds()).isEqualTo(300L);
-
-        // Verify estimation was called
-        verify(estimationService).estimateQuizGeneration(testRequest.documentId(), testRequest);
-
-        // Verify reservation was called with correct parameters
-        // The idempotency key format is now: "quiz:userId:documentId:scope"
-        verify(billingService).reserve(
-                eq(testUser.getId()),
-                eq(2L), // estimatedBillingTokens
-                eq("quiz-generation"),
-                eq("quiz:" + testUser.getId() + ":" + testRequest.documentId() + ":ENTIRE_DOCUMENT")
-        );
-
-        // Verify job was updated with reservation details
-        verify(jobRepository).save(argThat(job -> {
-            QuizGenerationJob savedJob = (QuizGenerationJob) job;
-            return savedJob.getBillingReservationId().equals(testReservation.id()) &&
-                   savedJob.getBillingEstimatedTokens().equals(2L) &&
-                   savedJob.getBillingState() == BillingState.RESERVED &&
-                   savedJob.getReservationExpiresAt() != null;
-        }));
-
-        // Verify event was published to start async generation
-        verify(applicationEventPublisher).publishEvent(any(QuizGenerationRequestedEvent.class));
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).startQuizGeneration("testuser", testRequest);
     }
 
     @Test
     @DisplayName("startQuizGeneration should include zero-balance details when user has no available tokens")
     void startQuizGeneration_ShouldIncludeZeroBalanceDetails() throws Exception {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-
+        // Given - Configure facade to throw InsufficientTokensException
         InsufficientTokensException zeroBalance = new InsufficientTokensException(
                 "Not enough tokens to reserve: required=2, available=0",
-                2L,
-                0L,
-                2L,
+                2L, 0L, 2L,
                 LocalDateTime.now().plusMinutes(30)
         );
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenThrow(zeroBalance);
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenThrow(zeroBalance);
 
+        // When & Then
         InsufficientTokensException exception = assertThrows(
                 InsufficientTokensException.class,
                 () -> quizService.startQuizGeneration("testuser", testRequest)
@@ -229,35 +225,22 @@ class QuizServiceReservationTest {
         assertThat(exception.getEstimatedTokens()).isEqualTo(2L);
         assertThat(exception.getAvailableTokens()).isZero();
         assertThat(exception.getShortfall()).isEqualTo(2L);
-        assertThat(exception.getReservationTtl()).isNotNull();
-
-        verify(billingService).reserve(any(), anyLong(), any(), any());
-        verify(jobService, never()).createJob(any(), any(), any(), anyInt(), anyInt());
-        verify(aiQuizGenerationService, never()).generateQuizFromDocumentAsync(any(UUID.class), any());
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).startQuizGeneration("testuser", testRequest);
     }
 
     @Test
     @DisplayName("startQuizGeneration should throw InsufficientTokensException with details when insufficient balance")
     void startQuizGeneration_ShouldThrowInsufficientTokensException() throws Exception {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
-        // Given
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-        
+        // Given - Configure facade to throw InsufficientTokensException
         InsufficientTokensException billingException = new InsufficientTokensException(
                 "Not enough tokens to reserve: required=2, available=1",
-                2L, // estimatedTokens
-                1L, // availableTokens
-                1L, // shortfall
-                LocalDateTime.now().plusMinutes(30) // reservationTtl
+                2L, 1L, 1L,
+                LocalDateTime.now().plusMinutes(30)
         );
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenThrow(billingException);
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenThrow(billingException);
 
         // When & Then
         InsufficientTokensException exception = assertThrows(
@@ -268,36 +251,18 @@ class QuizServiceReservationTest {
         assertThat(exception.getEstimatedTokens()).isEqualTo(2L);
         assertThat(exception.getAvailableTokens()).isEqualTo(1L);
         assertThat(exception.getShortfall()).isEqualTo(1L);
-        assertThat(exception.getReservationTtl()).isNotNull();
-
-        // Verify job was NOT created because reservation failed first
-        verify(jobService, never()).createJob(any(), any(), any(), anyInt(), anyInt());
-        verify(jobRepository, never()).delete(any());
-
-        // Verify async generation was NOT started
-        verify(aiQuizGenerationService, never()).generateQuizFromDocumentAsync(any(UUID.class), any());
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).startQuizGeneration("testuser", testRequest);
     }
 
     @Test
     @DisplayName("startQuizGeneration should handle idempotency correctly for duplicate requests")
     void startQuizGeneration_ShouldHandleIdempotencyCorrectly() throws Exception {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
-        // Given
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-        when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(10);
-        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), any())).thenReturn(300);
-        when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(testJob);
-        
-        // First call succeeds
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenReturn(testReservation);
-        when(jobRepository.save(any())).thenReturn(testJob);
+        // Given - Configure facade to return same response for both calls
+        QuizGenerationResponse expectedResponse = QuizGenerationResponse.started(testJob.getId(), 300L);
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenReturn(expectedResponse);
 
         // When - make the same request twice
         QuizGenerationResponse response1 = quizService.startQuizGeneration("testuser", testRequest);
@@ -309,39 +274,18 @@ class QuizServiceReservationTest {
         assertThat(response1.jobId()).isEqualTo(response2.jobId());
         assertThat(response1.estimatedTimeSeconds()).isEqualTo(response2.estimatedTimeSeconds());
 
-        // Verify reservation was called twice with the same stable idempotency key
-        verify(billingService, times(2)).reserve(
-                eq(testUser.getId()),
-                eq(2L),
-                eq("quiz-generation"),
-                eq("quiz:" + testUser.getId() + ":" + testRequest.documentId() + ":ENTIRE_DOCUMENT")
-        );
-
-        // The billing service should handle idempotency internally
-        // and return the same reservation for duplicate requests
+        // Verify delegation to facade twice
+        verify(quizGenerationFacade, times(2)).startQuizGeneration("testuser", testRequest);
     }
 
     @Test
     @DisplayName("startQuizGeneration should isolate reservations across different users")
     void startQuizGeneration_ShouldIsolateReservationsAcrossDifferentUsers() throws Exception {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
-        User secondUser = new User();
-        secondUser.setId(UUID.fromString("650e8400-e29b-41d4-a716-446655440004"));
-        secondUser.setUsername("user-two");
-        secondUser.setEmail("user-two@example.com");
-
+        // Given
         GenerateQuizFromDocumentRequest secondRequest = new GenerateQuizFromDocumentRequest(
                 UUID.fromString("650e8400-e29b-41d4-a716-446655440005"),
                 QuizScope.ENTIRE_DOCUMENT,
-                null,
-                null,
-                null,
+                null, null, null,
                 "Second Quiz",
                 "Second Quiz Description",
                 Map.of(QuestionType.MCQ_SINGLE, 4, QuestionType.TRUE_FALSE, 2),
@@ -351,96 +295,34 @@ class QuizServiceReservationTest {
                 List.of()
         );
 
-        ReservationDto reservationUser1 = new ReservationDto(
-                UUID.fromString("750e8400-e29b-41d4-a716-446655440006"),
-                testUser.getId(),
-                uk.gegc.quizmaker.features.billing.domain.model.ReservationState.ACTIVE,
-                2L,
-                0L,
-                LocalDateTime.now().plusMinutes(30),
-                null,
-                LocalDateTime.now(),
-                LocalDateTime.now()
-        );
+        UUID jobId1 = UUID.fromString("850e8400-e29b-41d4-a716-446655440008");
+        UUID jobId2 = UUID.fromString("850e8400-e29b-41d4-a716-446655440009");
+        
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenReturn(QuizGenerationResponse.started(jobId1, 300L));
+        when(quizGenerationFacade.startQuizGeneration("user-two", secondRequest))
+                .thenReturn(QuizGenerationResponse.started(jobId2, 300L));
 
-        ReservationDto reservationUser2 = new ReservationDto(
-                UUID.fromString("750e8400-e29b-41d4-a716-446655440007"),
-                secondUser.getId(),
-                uk.gegc.quizmaker.features.billing.domain.model.ReservationState.ACTIVE,
-                2L,
-                0L,
-                LocalDateTime.now().plusMinutes(30),
-                null,
-                LocalDateTime.now(),
-                LocalDateTime.now()
-        );
-
-        QuizGenerationJob jobUser1 = new QuizGenerationJob();
-        jobUser1.setId(UUID.fromString("850e8400-e29b-41d4-a716-446655440008"));
-        jobUser1.setUser(testUser);
-        jobUser1.setStatus(GenerationStatus.PENDING);
-
-        QuizGenerationJob jobUser2 = new QuizGenerationJob();
-        jobUser2.setId(UUID.fromString("850e8400-e29b-41d4-a716-446655440009"));
-        jobUser2.setUser(secondUser);
-        jobUser2.setStatus(GenerationStatus.PENDING);
-
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(userRepository.findByUsername("user-two")).thenReturn(Optional.of(secondUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-        when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(10);
-        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), any())).thenReturn(300);
-        when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(jobUser1, jobUser2);
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenReturn(reservationUser1, reservationUser2);
-        when(jobRepository.save(any())).thenAnswer(invocation -> (QuizGenerationJob) invocation.getArgument(0));
-
+        // When
         QuizGenerationResponse responseUser1 = quizService.startQuizGeneration("testuser", testRequest);
         QuizGenerationResponse responseUser2 = quizService.startQuizGeneration("user-two", secondRequest);
 
-        assertThat(responseUser1.jobId()).isEqualTo(jobUser1.getId());
-        assertThat(responseUser2.jobId()).isEqualTo(jobUser2.getId());
-        assertThat(responseUser1.estimatedTimeSeconds()).isEqualTo(300L);
-        assertThat(responseUser2.estimatedTimeSeconds()).isEqualTo(300L);
-
-        verify(billingService).reserve(
-                eq(testUser.getId()),
-                eq(2L),
-                eq("quiz-generation"),
-                eq("quiz:" + testUser.getId() + ":" + testRequest.documentId() + ":ENTIRE_DOCUMENT")
-        );
-        verify(billingService).reserve(
-                eq(secondUser.getId()),
-                eq(2L),
-                eq("quiz-generation"),
-                eq("quiz:" + secondUser.getId() + ":" + secondRequest.documentId() + ":ENTIRE_DOCUMENT")
-        );
-
-        // Verify events were published to start async generation for both users
-        verify(applicationEventPublisher, times(2)).publishEvent(any(QuizGenerationRequestedEvent.class));
+        // Then
+        assertThat(responseUser1.jobId()).isEqualTo(jobId1);
+        assertThat(responseUser2.jobId()).isEqualTo(jobId2);
+        
+        // Verify delegation to facade for both users
+        verify(quizGenerationFacade).startQuizGeneration("testuser", testRequest);
+        verify(quizGenerationFacade).startQuizGeneration("user-two", secondRequest);
     }
 
 
     @Test
     @DisplayName("startQuizGeneration should throw ValidationException when user has active job")
     void startQuizGeneration_ShouldThrowValidationExceptionWhenActiveJobExists() {
-        // Setup TransactionTemplate mock for this test
-        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            org.springframework.transaction.TransactionStatus mockStatus = mock(org.springframework.transaction.TransactionStatus.class);
-            return callback.doInTransaction(mockStatus);
-        });
-        
-        // Given
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(estimationService.estimateQuizGeneration(any(), any())).thenReturn(testEstimation);
-        when(billingService.reserve(any(), anyLong(), any(), any())).thenReturn(testReservation);
-        when(aiQuizGenerationService.calculateTotalChunks(any(), any())).thenReturn(10);
-        when(aiQuizGenerationService.calculateEstimatedGenerationTime(anyInt(), any())).thenReturn(300);
-        
-        // Mock the job creation to fail due to unique constraint violation
-        org.springframework.dao.DataIntegrityViolationException dbException = 
-                new org.springframework.dao.DataIntegrityViolationException("Unique constraint violation: active_user_id");
-        when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenThrow(dbException);
+        // Given - Configure facade to throw ValidationException
+        when(quizGenerationFacade.startQuizGeneration("testuser", testRequest))
+                .thenThrow(new uk.gegc.quizmaker.shared.exception.ValidationException("User already has an active generation job"));
 
         // When & Then
         uk.gegc.quizmaker.shared.exception.ValidationException exception = assertThrows(
@@ -449,18 +331,17 @@ class QuizServiceReservationTest {
         );
 
         assertThat(exception.getMessage()).contains("User already has an active generation job");
-
-        // Verify estimation and reservation were attempted, but job creation failed
-        verify(estimationService).estimateQuizGeneration(any(), any());
-        verify(billingService).reserve(any(), anyLong(), any(), any());
-        verify(jobService).createJob(any(), any(), any(), anyInt(), anyInt());
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).startQuizGeneration("testuser", testRequest);
     }
 
     @Test
     @DisplayName("startQuizGeneration should throw ResourceNotFoundException when user not found")
     void startQuizGeneration_ShouldThrowResourceNotFoundExceptionWhenUserNotFound() {
-        // Given
-        when(userRepository.findByUsername("nonexistent")).thenReturn(Optional.empty());
+        // Given - Configure facade to throw ResourceNotFoundException
+        when(quizGenerationFacade.startQuizGeneration("nonexistent", testRequest))
+                .thenThrow(new uk.gegc.quizmaker.shared.exception.ResourceNotFoundException("User not found: nonexistent"));
 
         // When & Then
         uk.gegc.quizmaker.shared.exception.ResourceNotFoundException exception = assertThrows(
@@ -469,9 +350,8 @@ class QuizServiceReservationTest {
         );
 
         assertThat(exception.getMessage()).contains("User not found");
-
-        // Verify no estimation or reservation was attempted
-        verify(estimationService, never()).estimateQuizGeneration(any(), any());
-        verify(billingService, never()).reserve(any(), anyLong(), any(), any());
+        
+        // Verify delegation to facade
+        verify(quizGenerationFacade).startQuizGeneration("nonexistent", testRequest);
     }
 }

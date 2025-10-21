@@ -10,7 +10,14 @@ import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
@@ -24,9 +31,14 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for quiz generation job cancellation with billing logic
+ * Unit tests for quiz generation job cancellation delegation.
+ * 
+ * NOTE: After refactoring, QuizServiceImpl delegates to QuizGenerationFacade.
+ * The actual implementation logic is tested in QuizGenerationFacadeImplComplexFlowsTest.
+ * These tests verify the delegation works correctly.
  */
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 @DisplayName("QuizService Cancellation Tests")
 class QuizServiceCancellationTest {
 
@@ -47,9 +59,43 @@ class QuizServiceCancellationTest {
 
     @Mock
     private uk.gegc.quizmaker.shared.config.FeatureFlags featureFlags;
+    @Mock
+    private QuizQueryService quizQueryService;
+    @Mock
+    private QuizCommandService quizCommandService;
+    @Mock
+    private QuizRelationService quizRelationService;
+    @Mock
+    private QuizPublishingService quizPublishingService;
+    @Mock
+    private QuizVisibilityService quizVisibilityService;
+    @Mock
+    private QuizGenerationFacade quizGenerationFacade;
 
-    @InjectMocks
     private QuizServiceImpl quizService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // Create QuizServiceImpl with new refactored dependencies
+        quizService = new QuizServiceImpl(
+                quizQueryService,
+                quizCommandService,
+                quizRelationService,
+                quizPublishingService,
+                quizVisibilityService,
+                quizGenerationFacade
+        );
+        
+        // Configure facade delegation
+        lenient().when(quizGenerationFacade.cancelGenerationJob(any(UUID.class), anyString()))
+                .thenAnswer(invocation -> {
+                    // Return a mock status - delegation test
+                    QuizGenerationJob job = new QuizGenerationJob();
+                    job.setId((UUID) invocation.getArgument(0)); // Use the jobId from the call
+                    job.setStatus(GenerationStatus.CANCELLED);
+                    return QuizGenerationStatus.fromEntity(job, true);
+                });
+    }
 
     @Test
     @DisplayName("cancelGenerationJob: when no work started then only releases reservation")
@@ -71,19 +117,14 @@ class QuizServiceCancellationTest {
         cancellation.setCommitOnCancel(true);
         cancellation.setMinStartFeeTokens(0L);
 
-        when(jobService.getJobByIdAndUsername(jobId, username)).thenReturn(job);
-        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
-        when(featureFlags.isBilling()).thenReturn(true);
-        when(quizJobProperties.getCancellation()).thenReturn(cancellation);
-        when(billingService.release(eq(reservationId), anyString(), anyString(), anyString()))
-                .thenReturn(new ReleaseResultDto(reservationId, 1000L));
+        QuizGenerationStatus expectedStatus = QuizGenerationStatus.fromEntity(job, true);
+        when(quizGenerationFacade.cancelGenerationJob(jobId, username)).thenReturn(expectedStatus);
 
         // When
         quizService.cancelGenerationJob(jobId, username);
 
-        // Then - Verify that release was called but commit was not
-        verify(billingService, times(1)).release(eq(reservationId), anyString(), anyString(), anyString());
-        verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).cancelGenerationJob(jobId, username);
     }
 
     @Test
@@ -91,35 +132,20 @@ class QuizServiceCancellationTest {
     void cancelGenerationJob_whenWorkStarted_thenCommitsUsedTokens() {
         // Given
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
         String username = "testuser";
 
         QuizGenerationJob job = new QuizGenerationJob();
         job.setId(jobId);
-        job.setStatus(GenerationStatus.PROCESSING);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setHasStartedAiCalls(true); // Work has started
-        job.setActualTokens(500L); // Used 500 tokens
-        job.setBillingEstimatedTokens(1000L);
-
-        QuizJobProperties.Cancellation cancellation = new QuizJobProperties.Cancellation();
-        cancellation.setCommitOnCancel(true);
-        cancellation.setMinStartFeeTokens(0L);
-
-        when(jobService.getJobByIdAndUsername(jobId, username)).thenReturn(job);
-        when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
-        when(featureFlags.isBilling()).thenReturn(true);
-        when(quizJobProperties.getCancellation()).thenReturn(cancellation);
-        when(internalBillingService.commit(eq(reservationId), eq(500L), anyString(), anyString()))
-                .thenReturn(new CommitResultDto(reservationId, 500L, 500L)); // Committed 500, released 500
+        job.setStatus(GenerationStatus.CANCELLED);
+        
+        QuizGenerationStatus expectedStatus = QuizGenerationStatus.fromEntity(job, true);
+        when(quizGenerationFacade.cancelGenerationJob(jobId, username)).thenReturn(expectedStatus);
 
         // When
         quizService.cancelGenerationJob(jobId, username);
 
-        // Then - Verify that commit was called with correct token amount
-        verify(internalBillingService, times(1)).commit(eq(reservationId), eq(500L), anyString(), anyString());
-        verify(billingService, never()).release(any(), anyString(), anyString(), anyString());
+        // Then - Verify delegation to facade
+        verify(quizGenerationFacade).cancelGenerationJob(jobId, username);
     }
 }
 

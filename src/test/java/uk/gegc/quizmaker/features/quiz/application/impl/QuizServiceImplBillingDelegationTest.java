@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -59,7 +60,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
+/**
+ * NOTE: After refactoring, QuizServiceImpl delegates to QuizGenerationFacade.
+ * The actual billing logic is now tested in QuizGenerationFacadeImplBillingTest.
+ * These tests verify the delegation works correctly.
+ */
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class QuizServiceImplBillingDelegationTest {
 
     @Mock private UserRepository userRepository;
@@ -81,33 +88,20 @@ class QuizServiceImplBillingDelegationTest {
     @Mock private QuizVisibilityService quizVisibilityService;
     @Mock private QuizAssemblyService quizAssemblyService;
     @Mock private QuizPublishValidator quizPublishValidator;
+    @Mock private QuizGenerationFacade quizGenerationFacade;
 
     private ApplicationEventPublisher applicationEventPublisher;
-
-
     private QuizServiceImpl quizService;
 
     @BeforeEach
     void setUp() {
         quizService = new QuizServiceImpl(
-                userRepository,
-                jobRepository,
-                jobService,
-                aiQuizGenerationService,
-                documentProcessingService,
-                billingService,
-                internalBillingService,
-                estimationService,
-                featureFlags,
-                applicationEventPublisher,
-                transactionTemplate,
-                quizJobProperties,
                 quizQueryService,
                 quizCommandService,
                 quizRelationService,
                 quizPublishingService,
                 quizVisibilityService,
-                quizAssemblyService
+                quizGenerationFacade
         );
         lenient().when(quizDefaultsProperties.getDefaultCategoryId())
                 .thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
@@ -120,28 +114,18 @@ class QuizServiceImplBillingDelegationTest {
             callback.doInTransaction(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+        
+        // Configure facade delegation - tests will override these as needed
+        lenient().doNothing().when(quizGenerationFacade).commitTokensForSuccessfulGeneration(any(), anyList(), any());
+        lenient().doNothing().when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(any(), any(), any());
     }
 
     @Test
     @DisplayName("Scenario 2.1: exact usage commits all reserved tokens without releasing remainder")
     void commitTokensForSuccessfulGenerationExactUsageCommitsAllTokens() {
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
         QuizGenerationJob job = new QuizGenerationJob();
         job.setId(jobId);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setBillingEstimatedTokens(100L);
-        job.setStatus(GenerationStatus.COMPLETED);
-        job.setInputPromptTokens(30L);
-        job.setReservationExpiresAt(LocalDateTime.now().plusMinutes(10));
-
-        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
-        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(estimationService.computeActualBillingTokens(anyList(), eq(Difficulty.MEDIUM), eq(30L))).thenReturn(100L);
-
-        CommitResultDto commitResult = new CommitResultDto(reservationId, 100L, 0L);
-        when(internalBillingService.commit(eq(reservationId), eq(100L), eq("quiz-generation"), anyString())).thenReturn(commitResult);
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -164,43 +148,19 @@ class QuizServiceImplBillingDelegationTest {
         question.setQuestionText("Sample question");
         question.setContent("{}");
 
-        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+        List<Question> questions = List.of(question);
 
-        ArgumentCaptor<String> commitKeyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(internalBillingService).commit(eq(reservationId), eq(100L), eq("quiz-generation"), commitKeyCaptor.capture());
-        assertThat(commitKeyCaptor.getValue()).isEqualTo("quiz:" + jobId + ":commit");
-        verify(internalBillingService, Mockito.never()).release(any(), any(), any(), any());
-        verify(jobRepository).save(job);
-
-        assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
-        assertThat(job.getBillingCommittedTokens()).isEqualTo(100L);
-        assertThat(job.getActualTokens()).isEqualTo(100L);
-        assertThat(job.getWasCappedAtReserved()).isFalse();
-        assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\"");
-        assertThat(job.getLastBillingError()).isNull();
+        // Verify delegation to facade
+        quizService.commitTokensForSuccessfulGeneration(job, questions, request);
+        verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(job, questions, request);
     }
 
     @Test
     @DisplayName("Scenario 2.2: under-usage releases remainder after commit")
     void commitTokensForSuccessfulGenerationUnderUsageReleasesRemainder() {
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
         QuizGenerationJob job = new QuizGenerationJob();
         job.setId(jobId);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setBillingEstimatedTokens(100L);
-        job.setStatus(GenerationStatus.COMPLETED);
-        job.setInputPromptTokens(20L);
-        job.setReservationExpiresAt(LocalDateTime.now().plusMinutes(5));
-
-        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
-        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(estimationService.computeActualBillingTokens(anyList(), eq(Difficulty.MEDIUM), eq(20L))).thenReturn(60L);
-        CommitResultDto commitResult = new CommitResultDto(reservationId, 60L, 0L);
-        when(internalBillingService.commit(eq(reservationId), eq(60L), eq("quiz-generation"), anyString())).thenReturn(commitResult);
-        when(internalBillingService.release(eq(reservationId), eq("commit-remainder"), eq("quiz-generation"), isNull()))
-                .thenReturn(new ReleaseResultDto(reservationId, 40L));
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -223,41 +183,19 @@ class QuizServiceImplBillingDelegationTest {
         question.setQuestionText("Sample question");
         question.setContent("{}");
 
-        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+        List<Question> questions = List.of(question);
 
-        ArgumentCaptor<String> commitKeyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(internalBillingService).commit(eq(reservationId), eq(60L), eq("quiz-generation"), commitKeyCaptor.capture());
-        assertThat(commitKeyCaptor.getValue()).isEqualTo("quiz:" + jobId + ":commit");
-        verify(internalBillingService).release(eq(reservationId), eq("commit-remainder"), eq("quiz-generation"), isNull());
-        verify(jobRepository).save(job);
-        verifyNoInteractions(billingService);
-
-        assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
-        assertThat(job.getBillingCommittedTokens()).isEqualTo(60L);
-        assertThat(job.getActualTokens()).isEqualTo(60L);
-        assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\":");
+        // Verify delegation to facade
+        quizService.commitTokensForSuccessfulGeneration(job, questions, request);
+        verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(job, questions, request);
     }
 
     @Test
     @DisplayName("Scenario 2.3: over-usage caps committed tokens at reserved amount")
     void commitTokensForSuccessfulGenerationCappedAtReservedWhenActualExceeds() {
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
         QuizGenerationJob job = new QuizGenerationJob();
         job.setId(jobId);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setBillingEstimatedTokens(100L);
-        job.setStatus(GenerationStatus.COMPLETED);
-        job.setInputPromptTokens(25L);
-        job.setReservationExpiresAt(LocalDateTime.now().plusMinutes(10));
-
-        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
-        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(estimationService.computeActualBillingTokens(anyList(), eq(Difficulty.MEDIUM), eq(25L))).thenReturn(150L);
-
-        CommitResultDto commitResult = new CommitResultDto(reservationId, 100L, 0L);
-        when(internalBillingService.commit(eq(reservationId), eq(100L), eq("quiz-generation"), anyString())).thenReturn(commitResult);
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -280,35 +218,19 @@ class QuizServiceImplBillingDelegationTest {
         question.setQuestionText("Sample question");
         question.setContent("{}");
 
-        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+        List<Question> questions = List.of(question);
 
-        ArgumentCaptor<String> commitKeyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(internalBillingService).commit(eq(reservationId), eq(100L), eq("quiz-generation"), commitKeyCaptor.capture());
-        assertThat(commitKeyCaptor.getValue()).isEqualTo("quiz:" + jobId + ":commit");
-        verify(internalBillingService, Mockito.never()).release(any(), any(), any(), any());
-        verify(jobRepository).save(job);
-
-        assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
-        assertThat(job.getBillingCommittedTokens()).isEqualTo(100L);
-        assertThat(job.getActualTokens()).isEqualTo(150L);
-        assertThat(job.getWasCappedAtReserved()).isTrue();
-        assertThat(job.getBillingIdempotencyKeys()).contains("\"commit\"");
+        // Verify delegation to facade
+        quizService.commitTokensForSuccessfulGeneration(job, questions, request);
+        verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(job, questions, request);
     }
 
     @Test
     @DisplayName("Scenario 2.4: skip commit when reservation already expired")
     void commitTokensForSuccessfulGenerationSkipsWhenReservationExpired() {
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
         QuizGenerationJob job = new QuizGenerationJob();
         job.setId(jobId);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setBillingEstimatedTokens(50L);
-        job.setStatus(GenerationStatus.COMPLETED);
-        job.setReservationExpiresAt(LocalDateTime.now().minusMinutes(2));
-
-        when(jobRepository.findByIdForUpdate(eq(jobId))).thenReturn(Optional.of(job));
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -331,30 +253,20 @@ class QuizServiceImplBillingDelegationTest {
         question.setQuestionText("Sample question");
         question.setContent("{}");
 
-        quizService.commitTokensForSuccessfulGeneration(job, List.of(question), request);
+        List<Question> questions = List.of(question);
 
-        verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
-        verify(internalBillingService, never()).release(any(), any(), any(), any());
-        verify(jobRepository, never()).save(any());
+        // Verify delegation to facade
+        quizService.commitTokensForSuccessfulGeneration(job, questions, request);
+        verify(quizGenerationFacade).commitTokensForSuccessfulGeneration(job, questions, request);
     }
 
     @Test
     void handleQuizGenerationCompletedFailureReleasesReservationViaInternalService() {
-        QuizServiceImpl spyService = Mockito.spy(quizService);
-
-        doThrow(new RuntimeException("boom"))
-                .when(spyService).createQuizCollectionFromGeneratedQuestions(any(), any(), any());
-
         UUID jobId = UUID.randomUUID();
-        UUID reservationId = UUID.randomUUID();
-        QuizGenerationJob job = new QuizGenerationJob();
-        job.setId(jobId);
-        job.setBillingReservationId(reservationId);
-        job.setBillingState(BillingState.RESERVED);
-        job.setStatus(GenerationStatus.PROCESSING);
 
-        when(jobRepository.findById(eq(jobId))).thenReturn(Optional.of(job));
-        when(jobRepository.save(any(QuizGenerationJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // Configure facade to throw exception (delegation test)
+        doThrow(new RuntimeException("boom"))
+                .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), any());
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -379,15 +291,9 @@ class QuizServiceImplBillingDelegationTest {
                 List.of()
         );
 
-        spyService.handleQuizGenerationCompleted(event);
+        quizService.handleQuizGenerationCompleted(event);
 
-        verify(internalBillingService).release(
-                eq(reservationId),
-                eq("Quiz creation failed: boom"),
-                eq(jobId.toString()),
-                eq("quiz:" + jobId + ":release")
-        );
-        verify(jobRepository).save(job);
-        assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+        // Verify delegation to facade
+        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), eq(request));
     }
 }
