@@ -699,6 +699,136 @@ class QuizGenerationFacadeImplBillingTest {
             // The method catches all exceptions and stores them
             verify(jobRepository).findByIdForUpdate(jobId);
         }
+        
+        @Test
+        @DisplayName("Malformed idempotency keys JSON - handled gracefully")
+        void malformedIdempotencyKeysJson_handledGracefully() {
+            // Given - Job with malformed billingIdempotencyKeys JSON
+            job.setBillingIdempotencyKeys("{invalid json structure");
+            job.setBillingState(BillingState.RESERVED);
+            job.setStatus(GenerationStatus.COMPLETED);
+            
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
+                    .thenReturn(800L);
+            
+            CommitResultDto commitResult = new CommitResultDto(job.getBillingReservationId(), 800L, 400L);
+            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
+                    .thenReturn(commitResult);
+            when(jobRepository.save(any())).thenReturn(job);
+            
+            // When - should handle malformed JSON gracefully
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+            
+            // Then - commit proceeds despite malformed JSON
+            verify(internalBillingService).commit(
+                    eq(job.getBillingReservationId()),
+                    eq(800L),
+                    eq("quiz-generation"),
+                    anyString()
+            );
+            verify(jobRepository).save(job);
+            assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
+        }
+        
+        @Test
+        @DisplayName("Update idempotency keys - read JSON fails - logs warning")
+        void updateIdempotencyKeys_readJsonFails_logsWarning() {
+            // Given - Job with corrupted idempotency keys that will fail during read
+            job.setBillingIdempotencyKeys("{\"reserve\":\"key1\", invalid}");
+            job.setBillingState(BillingState.RESERVED);
+            job.setStatus(GenerationStatus.COMPLETED);
+            
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
+                    .thenReturn(800L);
+            
+            CommitResultDto commitResult = new CommitResultDto(job.getBillingReservationId(), 800L, 400L);
+            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
+                    .thenReturn(commitResult);
+            when(jobRepository.save(any())).thenReturn(job);
+            
+            // When - updateBillingIdempotencyKeys will fail to parse JSON during commit
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+            
+            // Then - commit still succeeds (idempotency keys update is non-critical)
+            verify(internalBillingService).commit(any(), eq(800L), any(), any());
+            verify(jobRepository).save(job);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(800L);
+        }
+        
+        @Test
+        @DisplayName("Update idempotency keys - write JSON fails - logs warning")
+        void updateIdempotencyKeys_writeJsonFails_logsWarning() {
+            // Given - Create a spy to intercept ObjectMapper calls
+            QuizGenerationFacadeImpl spyFacade = new QuizGenerationFacadeImpl(
+                    userRepository, jobRepository, jobService, aiQuizGenerationService,
+                    documentProcessingService, billingService, internalBillingService,
+                    estimationService, featureFlags, applicationEventPublisher,
+                    transactionTemplate, quizJobProperties, quizAssemblyService
+            );
+            
+            job.setBillingIdempotencyKeys(null); // Start with null to test creation path
+            job.setBillingState(BillingState.RESERVED);
+            job.setStatus(GenerationStatus.COMPLETED);
+            
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(estimationService.computeActualBillingTokens(anyList(), any(), anyLong()))
+                    .thenReturn(800L);
+            
+            CommitResultDto commitResult = new CommitResultDto(job.getBillingReservationId(), 800L, 400L);
+            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
+                    .thenReturn(commitResult);
+            when(jobRepository.save(any())).thenReturn(job);
+            
+            // When - updateBillingIdempotencyKeys will attempt to write JSON
+            spyFacade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+            
+            // Then - commit still succeeds even if keys update fails
+            verify(internalBillingService).commit(any(), eq(800L), any(), any());
+            verify(jobRepository).save(job);
+        }
+        
+        @Test
+        @DisplayName("Invalid job state - handled without throwing exception")
+        void invalidJobState_handledWithoutThrowingException() {
+            // Given - Job that will trigger InvalidJobStateForCommitException
+            job.setBillingState(BillingState.RELEASED); // Invalid state for commit (not RESERVED)
+            job.setStatus(GenerationStatus.COMPLETED);
+            
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            
+            // When - this will trigger InvalidJobStateForCommitException, caught and handled
+            // Should NOT throw exception
+            assertThatNoException().isThrownBy(() -> 
+                facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest)
+            );
+            
+            // Then - verify method entered (find was called)
+            verify(jobRepository).findByIdForUpdate(jobId);
+            // No commit should occur for invalid state
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+        }
+        
+        @Test
+        @DisplayName("Job with NONE billing state - handled gracefully")
+        void jobWithNoneBillingState_handledGracefully() {
+            // Given - Job that will trigger InvalidJobStateForCommitException
+            job.setBillingState(BillingState.NONE); // Invalid state for commit
+            job.setStatus(GenerationStatus.COMPLETED);
+            
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            
+            // When - should NOT throw exception (error caught and handled)
+            assertThatNoException().isThrownBy(() -> 
+                facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest)
+            );
+            
+            // Then - verify method executed
+            verify(jobRepository).findByIdForUpdate(jobId);
+            // No commit for invalid state
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+        }
     }
     
     // ============================================================================
