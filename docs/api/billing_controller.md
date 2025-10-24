@@ -1,213 +1,160 @@
-# Billing Controller API Reference
+# BillingController API Spec
 
-Documentation for billing endpoints exposed under `/api/v1/billing`. They cover configuration, token balances, transaction history, Stripe checkout, subscriptions, and webhook handling.
+Base path: `/api/v1/billing`\
+Content type: `application/json` (webhooks consume raw payload strings)
 
-## Overview
-- **Base path**: `/api/v1/billing`
-- **Authentication**: Required for all endpoints except `/config` and webhook receivers
-- **Authorization**:
-  - `BILLING_READ` for balance, transactions, estimation, checkout session status, and Stripe customer reads
-  - `BILLING_WRITE` for checkout session creation, customer creation, and subscription management
-- **Feature flag**: When billing is disabled (`featureFlags.isBilling() == false`), most endpoints return `404 Not Found`
-- **Rate limits** (per authenticated user unless noted):
-  - Balance: 60/min (`billing-balance`)
-  - Transactions: 30/min (`billing-transactions`)
-  - Quiz generation estimate: 10/min (`quiz-estimation`)
-  - Checkout session creation: 5/min (`checkout-session-create`)
-  - Stripe customer creation: 3/min (`billing-create-customer`)
-  - Share-link related endpoints unaffected (handled elsewhere)
-- **Error schema**: `ErrorResponse` (`timestamp`, `status`, `error`, `details`); Stripe concurrency conflicts may surface as `ProblemDetail`
+## Auth
 
-## DTO Snapshot
-### ConfigResponse
-| Field | Type | Notes |
-| --- | --- | --- |
-| `publishableKey` | string | Stripe publishable key |
-| `prices` | array<PackDto> | Available packs |
+| Operation group | Auth | Permissions |
+| ---------------- | ---- | ----------- |
+| Billing config | none | Public (feature flag must be enabled) |
+| Checkout status, balance, transactions, quiz-generation estimate | JWT | `BILLING_READ` |
+| Checkout session creation, Stripe customer & subscription management | JWT | `BILLING_WRITE` |
+| Stripe customer lookup | JWT | `BILLING_READ` |
+| Stripe webhooks (`/stripe/webhook`, `/webhooks`) | none | Signed by Stripe; auth not required |
 
-### PackDto
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | UUID | Internal pack id |
-| `name` | string | Display name |
-| `tokens` | long | Billing tokens granted |
-| `priceCents` | long | Price in smallest currency unit |
-| `currency` | string | ISO currency code |
-| `stripePriceId` | string | Stripe price identifier |
+---
 
-### BalanceDto
-| Field | Type | Notes |
-| --- | --- | --- |
-| `userId` | UUID | Owner |
-| `availableTokens` | long | Spendable tokens |
-| `reservedTokens` | long | Locked tokens |
-| `updatedAt` | datetime | Last update timestamp |
+## DTOs
 
-### TransactionDto
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | UUID | Transaction id |
-| `type` | enum `TokenTransactionType` | `DEBIT` / `CREDIT` |
-| `source` | enum `TokenTransactionSource` | e.g., `PURCHASE`, `GENERATION`, `ADJUSTMENT` |
-| `amountTokens` | long | Positive values; sign inferred by `type` |
-| `refId` | string \| null | Stripe payment id or related reference |
-| `idempotencyKey` | string \| null | Duplicate detection key |
-| `balanceAfterAvailable` / `balanceAfterReserved` | long \| null | Snapshot balances |
-| `metaJson` | string \| null | Additional JSON metadata |
-| `createdAt` | datetime | Timestamp |
+**ConfigResponse / PackDto**
 
-### CheckoutSessionStatus
-| Field | Type | Notes |
-| --- | --- | --- |
-| `sessionId` | string | Stripe session id |
-| `status` | string | Stripe status (`open`, `complete`, etc.) |
-| `credited` | boolean | Whether tokens credited |
-| `creditedTokens` | long \| null | Tokens applied |
+```ts
+{ publishableKey: string; prices: PackDto[]; }
 
-### CheckoutSessionResponse
-| Field | Type | Notes |
-| --- | --- | --- |
-| `url` | string | Stripe-hosted checkout URL |
-| `sessionId` | string | Created session id |
+type PackDto = {
+  id: string;              // UUID
+  name: string;
+  tokens: number;
+  priceCents: number;
+  currency: string;        // e.g., "usd"
+  stripePriceId: string;
+};
+```
 
-### EstimationDto
-| Field | Type | Notes |
-| --- | --- | --- |
-| `estimatedLlmTokens` | long | Raw token estimate |
-| `estimatedBillingTokens` | long | Converted billing tokens |
-| `approxCostCents` | long \| null | Optional future pricing |
-| `currency` | string | Currency code |
-| `estimate` | boolean | Always `true` |
-| `humanizedEstimate` | string | Friendly summary |
-| `estimationId` | UUID | Trace identifier |
+**BalanceDto**
 
-### CustomerResponse
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | string | Stripe customer id |
-| `email` | string | Customer email |
-| `name` | string \| null | Stripe-side name |
+```ts
+{ userId: string; availableTokens: number; reservedTokens: number; updatedAt: string; }
+```
 
-### SubscriptionResponse
-| Field | Type | Notes |
-| --- | --- | --- |
-| `subscriptionId` | string | Stripe subscription id |
-| `clientSecret` | string | Payment intent client secret (if applicable) |
+**TransactionDto**
 
-### Request DTOs
-| DTO | Purpose | Required Fields |
-| --- | --- | --- |
-| `CreateCheckoutSessionRequest` | Start token pack purchase | `priceId` (`string`), optional `packId` (UUID) |
-| `CreateCustomerRequest` | Create Stripe customer | `email` (`string`, valid email) |
-| `CreateSubscriptionRequest` | Start subscription | `priceId` (`string`) |
-| `UpdateSubscriptionRequest` | Change subscription price | `subscriptionId`, `newPriceLookupKey` |
-| `CancelSubscriptionRequest` | Cancel subscription | `subscriptionId` |
-| `GenerateQuizFromDocumentRequest` | Estimate quiz generation cost | See [Quiz documentation](quiz_controller.md) for full field list |
+```ts
+{
+  id: string;
+  userId: string;
+  type: 'CREDIT' | 'DEBIT';
+  source: string;          // TokenTransactionSource
+  amountTokens: number;
+  refId?: string | null;
+  idempotencyKey?: string | null;
+  balanceAfterAvailable?: number | null;
+  balanceAfterReserved?: number | null;
+  metaJson?: string | null;
+  createdAt: string;
+}
+```
 
-## Endpoint Summary
-| Method | Path | Auth | Description | Success |
-| --- | --- | --- | --- | --- |
-| GET | `/config` | Public | Fetch Stripe publishable key and packs | `200 OK` → `ConfigResponse` |
-| GET | `/checkout-sessions/{sessionId}` | `BILLING_READ` | Retrieve checkout status | `200 OK` → `CheckoutSessionStatus` |
-| GET | `/balance` | `BILLING_READ` | Current token balance | `200 OK` → `BalanceDto` |
-| GET | `/transactions` | `BILLING_READ` | Paginated transaction history | `200 OK` → `Page<TransactionDto>` |
-| POST | `/estimate/quiz-generation` | `BILLING_READ` | Estimate tokens for AI quiz generation | `200 OK` → `EstimationDto` |
-| POST | `/checkout-sessions` | `BILLING_WRITE` | Create Stripe checkout session | `200 OK` → `CheckoutSessionResponse` |
-| POST | `/create-customer` | `BILLING_WRITE` | Create Stripe customer for user | `200 OK` → `CustomerResponse` |
-| GET | `/customers/{customerId}` | `BILLING_READ` | Fetch Stripe customer (ownership validated) | `200 OK` → `CustomerResponse` |
-| POST | `/create-subscription` | `BILLING_WRITE` | Start subscription using price id | `200 OK` → `SubscriptionResponse` |
-| POST | `/update-subscription` | `BILLING_WRITE` | Change existing subscription price | `200 OK` → Stripe JSON string |
-| POST | `/cancel-subscription` | `BILLING_WRITE` | Cancel subscription | `200 OK` → Stripe JSON string |
-| POST | `/stripe/webhook` | Public | Stripe webhook endpoint | `200 OK` (empty body) |
-| POST | `/webhooks` | Public | Alternate webhook endpoint | `200 OK` (empty body) |
+**EstimationDto**
 
-## Endpoint Details
-### GET /api/v1/billing/config
-- No authentication required.
-- Returns Stripe publishable key and list of purchasable packs.
-- Responds `404` when billing feature disabled.
+```ts
+{
+  estimatedLlmTokens: number;
+  estimatedBillingTokens: number;
+  approxCostCents?: number | null;
+  currency: string;
+  estimate: boolean;
+  humanizedEstimate: string;
+  estimationId: string;
+}
+```
 
-### GET /api/v1/billing/checkout-sessions/{sessionId}
-- Requires `BILLING_READ`.
-- Returns checkout status and whether tokens were credited.
-- Respects billing feature flag (`404` when disabled).
-- Used to poll Stripe checkout completion from the frontend.
+**Checkout/Customer/Subscription DTOs**
 
-### GET /api/v1/billing/balance
-- Requires `BILLING_READ`.
-- Rate limited to 60 requests per minute per user.
-- Response adds `Cache-Control: private, max-age=30` to encourage short-term caching.
+```ts
+type CheckoutSessionStatus = {
+  sessionId: string;
+  status: string;
+  credited: boolean;
+  creditedTokens?: number | null;
+};
 
-### GET /api/v1/billing/transactions
-- Requires `BILLING_READ`.
-- Rate limited to 30 requests/min.
-- Query parameters:
-  - `page`, `size` (pagination; defaults 0/20)
-  - `type` (`TokenTransactionType`)
-  - `source` (`TokenTransactionSource`)
-  - `dateFrom`, `dateTo` (`ISO-8601`)
-- Response includes `Page<TransactionDto>` with private cache headers (`max-age=60`).
+type CheckoutSessionResponse = { url: string; sessionId: string; };
 
-### POST /api/v1/billing/estimate/quiz-generation
-- Requires `BILLING_READ`.
-- Rate limited to 10 requests/min.
-- Accepts `GenerateQuizFromDocumentRequest`; see quiz documentation for detailed field semantics.
-- Returns token estimate (`EstimationDto`).
+type CreateCheckoutSessionRequest = { priceId: string; packId?: string | null; };
 
-### POST /api/v1/billing/checkout-sessions
-- Requires `BILLING_WRITE`.
-- Rate limited to 5 requests/min.
-- Body: `CreateCheckoutSessionRequest` with Stripe price id (optionally product pack id).
-- Returns checkout URL and session id.
+type CreateCustomerRequest = { email: string; };
 
-### POST /api/v1/billing/create-customer
-- Requires `BILLING_WRITE`.
-- Rate limited to 3 requests/min.
-- Body: `CreateCustomerRequest` containing email.
-- Returns Stripe customer metadata. When billing is disabled returns `404`.
+type CreateSubscriptionRequest = { priceId: string; };
 
-### GET /api/v1/billing/customers/{customerId}
-- Requires `BILLING_READ`.
-- Validates ownership via Stripe metadata (`userId`) and optional email fallback (config dependent).
-- Returns `403 Forbidden` if customer does not belong to caller.
+type UpdateSubscriptionRequest = { subscriptionId: string; newPriceLookupKey: string; };
 
-### POST /api/v1/billing/create-subscription
-- Requires `BILLING_WRITE`.
-- Automatically resolves or creates Stripe customer for authenticated user.
-- Body: `CreateSubscriptionRequest`.
-- Returns `SubscriptionResponse` (`subscriptionId`, `clientSecret`).
+type CancelSubscriptionRequest = { subscriptionId: string; };
 
-### POST /api/v1/billing/update-subscription
-- Requires `BILLING_WRITE`.
-- Body: `UpdateSubscriptionRequest` (`subscriptionId`, `newPriceLookupKey`).
-- Exchanges lookup key for Stripe price id, updates subscription, and returns Stripe JSON string (prettified).
+type CustomerResponse = { id: string; email: string; name?: string | null; };
 
-### POST /api/v1/billing/cancel-subscription
-- Requires `BILLING_WRITE`.
-- Body: `CancelSubscriptionRequest`.
-- Cancels Stripe subscription and returns Stripe JSON string (prettified).
+type SubscriptionResponse = { subscriptionId: string; clientSecret: string; };
+```
 
-### Webhook Endpoints
-- `POST /api/v1/billing/stripe/webhook` and `/api/v1/billing/webhooks` are unauthenticated for Stripe callbacks.
-- Both delegate to the same handler; if billing disabled they return `404`.
-- Expect `Stripe-Signature` header; invalid signatures raise `StripeWebhookInvalidSignatureException` leading to `400 Bad Request`.
-- Successful processing returns `200 OK` with empty response body.
+**ErrorResponse / ProblemDetail**
 
-## Error Handling
-| Status | When Returned |
-| --- | --- |
-| `400 Bad Request` | Invalid payloads, unsupported feature flag operations, Stripe validation errors |
-| `401 Unauthorized` | Missing/invalid JWT |
-| `403 Forbidden` | Caller lacks `BILLING_*` permission or fails ownership checks |
-| `404 Not Found` | Billing feature disabled or resource not found (session/customer) |
-| `409 Conflict` | Stripe/API idempotency conflicts (via `ProblemDetail`) |
-| `422 Unprocessable Entity` | Generated when underlying billing rules reject request |
-| `429 Too Many Requests` | Rate limit exceeded (includes `Retry-After`) |
-| `500 Internal Server Error` | Unexpected Stripe or persistence failure |
+```ts
+{ timestamp: string; status: number; error: string; details: string[]; }
+// Some endpoints return RFC 7807 ProblemDetail for Stripe/idempotency errors.
+```
 
-## Integration Notes
-- Guard UI features behind the same billing feature flag to avoid surfacing 404 errors when billing is disabled.
-- Cache `/config` (public) results client-side; refresh on application load.
-- Always poll `/checkout-sessions/{id}` after redirect to detect successful purchases before updating balances in UI.
-- When handling webhooks, ensure the endpoint URL matches the configured Stripe webhook secret; log processing results for auditing.
-- Store returned `subscriptionId` client-side to enable change/cancel operations without additional lookup.
+---
+
+## Endpoints
+
+| Method | Path | ReqBody | Resp | Auth | Notes |
+| ------ | ---- | ------- | ---- | ---- | ----- |
+| GET | `/config` | – | `ConfigResponse` | none | Returns 404 when billing feature disabled |
+| GET | `/checkout-sessions/{sessionId}` | – | `CheckoutSessionStatus` | `BILLING_READ` | Validates ownership via Stripe metadata |
+| GET | `/balance` | – | `BalanceDto` | `BILLING_READ` | Rate limited 60/min per user; `Cache-Control: private, max-age=30` |
+| GET | `/transactions` | – | `Page<TransactionDto>` | `BILLING_READ` | Filters: `type`, `source`, `dateFrom`, `dateTo`; rate limited 30/min |
+| POST | `/estimate/quiz-generation` | `GenerateQuizFromDocumentRequest` | `EstimationDto` | `BILLING_READ` | Rate limited 10/min |
+| POST | `/checkout-sessions` | `CreateCheckoutSessionRequest` | `CheckoutSessionResponse` | `BILLING_WRITE` | Rate limited 5/min |
+| POST | `/create-customer` | `CreateCustomerRequest` | `CustomerResponse` | `BILLING_WRITE` | Rate limited 3/min |
+| GET | `/customers/{customerId}` | – | `CustomerResponse` | `BILLING_READ` | Ownership verified via Stripe metadata/email fallback |
+| POST | `/create-subscription` | `CreateSubscriptionRequest` | `SubscriptionResponse` | `BILLING_WRITE` | Automatically creates/reuses Stripe customer |
+| POST | `/update-subscription` | `UpdateSubscriptionRequest` | `string` (JSON text) | `BILLING_WRITE` | Response is Stripe JSON via `PRETTY_PRINT_GSON` |
+| POST | `/cancel-subscription` | `CancelSubscriptionRequest` | `string` (JSON text) | `BILLING_WRITE` | Cancels Stripe subscription |
+| POST | `/stripe/webhook` | raw string | `string` | none | Stripe-signed callback; returns empty string on success |
+| POST | `/webhooks` | raw string | `string` | none | Alias of `/stripe/webhook` |
+
+---
+
+## Errors
+
+| Code | Meaning | Notes |
+| ---- | ------- | ----- |
+| 400 | Validation error / unsupported request | Includes invalid feature flag usage or bad Stripe payloads |
+| 401 | Unauthorized | Missing/invalid JWT |
+| 403 | Forbidden | Caller lacks billing permission or Stripe ownership check fails |
+| 404 | Not found | Feature flag disabled or resource not owned/found |
+| 409 | Conflict | Stripe/idempotency conflicts (ProblemDetail) |
+| 422 | Unprocessable entity | Downstream processing failure (e.g., document estimate constraints) |
+| 429 | Too many requests | Rate limiter triggered (balance, transactions, estimation, checkout) |
+| 500 | Server error | Unexpected internal/Stripe error |
+
+---
+
+## Validation Summary
+
+- Billing endpoints return `404 Not Found` when `featureFlags.isBilling()` is false; clients should handle as “billing disabled”.
+- Multiple rate limits enforced via `RateLimitService` (`billing-balance`, `billing-transactions`, `quiz-estimation`, `checkout-session-create`, `billing-create-customer`).
+- Ownership of Stripe customers checked via metadata or optional email fallback (`billingProperties.isAllowEmailFallbackForCustomerOwnership`).
+- Subscription operations auto-create Stripe customers if none exist.
+- Webhook handlers expect valid `Stripe-Signature`; invalid signatures raise `StripeWebhookInvalidSignatureException` (`400`).
+
+---
+
+## Notes for Agents
+
+- Always send `Authorization: Bearer <jwt>` along with appropriate billing permissions except for `/config` and webhook endpoints.
+- Cache `/config` client-side and refresh only when billing feature toggles.
+- After checkout creation, redirect users to `CheckoutSessionResponse.url` then poll `/checkout-sessions/{sessionId}` for completion.
+- Treat 404 on authenticated endpoints as “billing disabled”; hide billing UI accordingly.
+- Webhook endpoints should only be called by Stripe—never expose them in the client.
