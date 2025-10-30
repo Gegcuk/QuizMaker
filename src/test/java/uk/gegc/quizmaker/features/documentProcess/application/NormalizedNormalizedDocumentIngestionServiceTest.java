@@ -36,11 +36,14 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
     @Mock
     private MimeTypeDetector mimeTypeDetector;
 
+    @Mock
+    private LinkFetchService linkFetchService;
+
     private DocumentIngestionService ingestionService;
 
     @BeforeEach
     void setUp() {
-        ingestionService = new DocumentIngestionService(conversionService, normalizationService, normalizedDocumentRepository, mimeTypeDetector);
+        ingestionService = new DocumentIngestionService(conversionService, normalizationService, normalizedDocumentRepository, mimeTypeDetector, linkFetchService);
     }
 
     @Test

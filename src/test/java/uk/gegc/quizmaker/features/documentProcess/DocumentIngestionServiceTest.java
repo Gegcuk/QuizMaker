@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionResult;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
+import uk.gegc.quizmaker.features.documentProcess.application.LinkFetchService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationResult;
@@ -40,11 +41,14 @@ class DocumentIngestionServiceTest {
     @Mock
     private MimeTypeDetector mimeTypeDetector;
 
+    @Mock
+    private LinkFetchService linkFetchService;
+
     private DocumentIngestionService service;
 
     @BeforeEach
     void setUp() {
-        service = new DocumentIngestionService(conversionService, normalizationService, documentRepository, mimeTypeDetector);
+        service = new DocumentIngestionService(conversionService, normalizationService, documentRepository, mimeTypeDetector, linkFetchService);
     }
 
     @Test

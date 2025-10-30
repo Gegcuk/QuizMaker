@@ -26,6 +26,9 @@ import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
+import uk.gegc.quizmaker.features.documentProcess.domain.LinkFetchException;
+import uk.gegc.quizmaker.features.documentProcess.domain.SsrfProtectionException;
+import uk.gegc.quizmaker.features.documentProcess.domain.ContentSizeLimitException;
 
 import java.time.LocalDateTime;
 import java.net.URI;
@@ -77,15 +80,36 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         );
     }
 
-    @ExceptionHandler({ConversionFailedException.class, NormalizationFailedException.class})
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
-    public ErrorResponse handleProcessingFailed(RuntimeException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNPROCESSABLE_ENTITY.value(),
-                "Processing Failed",
-                List.of(ex.getMessage())
-        );
+    @ExceptionHandler({ConversionFailedException.class, NormalizationFailedException.class, LinkFetchException.class})
+    public ResponseEntity<ProblemDetail> handleProcessingFailed(RuntimeException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        pd.setTitle("Processing Failed");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://api.quizmaker.com/problems/processing-failed"));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(pd);
+    }
+
+    @ExceptionHandler(SsrfProtectionException.class)
+    public ResponseEntity<ProblemDetail> handleSsrfProtection(SsrfProtectionException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        pd.setTitle("Invalid URL");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://api.quizmaker.com/problems/invalid-url"));
+        pd.setProperty("errorCode", "INVALID_URL");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    }
+
+    @ExceptionHandler(ContentSizeLimitException.class)
+    public ResponseEntity<ProblemDetail> handleContentSizeLimit(ContentSizeLimitException ex, HttpServletRequest r) {
+        var pd = ProblemDetail.forStatus(HttpStatus.PAYLOAD_TOO_LARGE);
+        pd.setTitle("Content Too Large");
+        pd.setDetail(ex.getMessage());
+        pd.setInstance(URI.create(r.getRequestURI()));
+        pd.setType(URI.create("https://api.quizmaker.com/problems/content-too-large"));
+        pd.setProperty("errorCode", "CONTENT_TOO_LARGE");
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(pd);
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)

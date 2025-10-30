@@ -147,8 +147,8 @@ class DocumentProcessControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"))
-                .andExpect(jsonPath("$.details[0]").value("PDF conversion failed"));
+                .andExpect(jsonPath("$.title").value("Processing Failed"))
+                .andExpect(jsonPath("$.detail").value("PDF conversion failed"));
     }
 
     @Test
@@ -166,8 +166,8 @@ class DocumentProcessControllerTest {
                         .content(objectMapper.writeValueAsString(testIngestRequest)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"))
-                .andExpect(jsonPath("$.details[0]").value("Text normalization failed"));
+                .andExpect(jsonPath("$.title").value("Processing Failed"))
+                .andExpect(jsonPath("$.detail").value("Text normalization failed"));
     }
 
     @Test

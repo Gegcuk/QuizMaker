@@ -28,6 +28,7 @@ public class DocumentIngestionService {
     private final NormalizationService normalizationService;
     private final NormalizedDocumentRepository documentRepository;
     private final MimeTypeDetector mimeTypeDetector;
+    private final LinkFetchService linkFetchService;
 
     /**
      * Ingests text directly without file conversion.
@@ -128,6 +129,50 @@ public class DocumentIngestionService {
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
             documentRepository.save(document);
             throw new ConversionFailedException("Document ingestion failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Ingests a document from a URL by fetching, extracting text, normalizing, and persisting.
+     * 
+     * @param url the URL to fetch
+     * @param language optional language code
+     * @return the persisted Document entity
+     */
+    @Transactional
+    public NormalizedDocument ingestFromLink(String url, String language) {
+        log.info("Ingesting link document: {}", url);
+
+        NormalizedDocument document = new NormalizedDocument();
+        document.setOriginalName(url);
+        document.setSource(NormalizedDocument.DocumentSource.LINK);
+        document.setLanguage(language);
+        document.setStatus(NormalizedDocument.DocumentStatus.PENDING);
+        
+        try {
+            // Fetch and extract text from URL
+            ConversionResult conversionResult = linkFetchService.fetchAndExtractText(url);
+            
+            // Normalize the extracted text
+            NormalizationResult normalizationResult = normalizationService.normalize(conversionResult.text());
+            
+            // Update document with results
+            document.setMime("text/html");
+            document.setNormalizedText(normalizationResult.text());
+            document.setCharCount(normalizationResult.charCount());
+            document.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
+
+            NormalizedDocument saved = documentRepository.save(document);
+            log.info("Successfully ingested link document: {} (id={})", url, saved.getId());
+            
+            return saved;
+        } catch (Exception e) {
+            log.error("Failed to ingest link document: {}", url, e);
+            document.setMime("text/html");
+            document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
+            documentRepository.save(document);
+            // Re-throw to be handled by GlobalExceptionHandler
+            throw e;
         }
     }
 }

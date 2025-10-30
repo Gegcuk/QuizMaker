@@ -58,7 +58,7 @@ public class NormalizedDocument {
     }
 
     public enum DocumentSource {
-        UPLOAD, TEXT
+        UPLOAD, TEXT, LINK
     }
 
     public enum DocumentStatus {
