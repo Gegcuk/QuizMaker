@@ -42,5 +42,17 @@ public class LinkFetchConfig {
      * Default: QuizMaker-Bot/1.0
      */
     private String userAgent = "QuizMaker-Bot/1.0";
+
+    /**
+     * Maximum number of retries for transient failures (IOExceptions, HTTP 5xx).
+     * Default: 2 (total attempts = maxRetries + 1)
+     */
+    private int maxRetries = 2;
+
+    /**
+     * Base backoff in milliseconds between retries. Jittered exponential backoff is applied.
+     * Default: 200 ms
+     */
+    private long retryBackoffMs = 200L;
 }
 

@@ -396,5 +396,48 @@ class LinkFetchServiceTest {
             // Config will be used when methods are actually called
             // (no need to verify interactions here as it's checked by other tests)
         }
+
+        @Test
+        @DisplayName("LinkFetchConfig: defaults include retry settings")
+        void linkFetchConfig_defaults_includeRetrySettings() {
+            // Given
+            LinkFetchConfig defaults = new LinkFetchConfig();
+
+            // Then
+            assertThat(defaults.getMaxRetries()).isEqualTo(2);
+            assertThat(defaults.getRetryBackoffMs()).isEqualTo(200L);
+        }
+    }
+
+    @Nested
+    @DisplayName("Retry Backoff Tests")
+    class RetryBackoffTests {
+
+        @Test
+        @DisplayName("computeBackoffWithJitter: delay within expected jittered exponential range")
+        void computeBackoffWithJitter_withinExpectedRange() throws Exception {
+            // Given
+            // Access private method via reflection
+            var method = LinkFetchService.class.getDeclaredMethod("computeBackoffWithJitter", int.class);
+            method.setAccessible(true);
+
+            // attemptIndex = 0 => base * [0.5..1.5]
+            long base = config.getRetryBackoffMs();
+            long min0 = (long) (base * 0.5);
+            long max0 = (long) (base * 1.5);
+            long delay0 = (long) method.invoke(linkFetchService, 0);
+            assertThat(delay0).isBetween(min0, max0);
+
+            // attemptIndex = 2 => base * 4 * [0.5..1.5]
+            long factor = 1L << 2; // 4
+            long min2 = (long) (base * factor * 0.5);
+            long max2 = (long) Math.min(base * factor * 1.5, 30_000);
+            long delay2 = (long) method.invoke(linkFetchService, 2);
+            assertThat(delay2).isBetween(min2, max2);
+
+            // attemptIndex = large should cap at 30s
+            long delayLarge = (long) method.invoke(linkFetchService, 10);
+            assertThat(delayLarge).isBetween(0L, 30_000L);
+        }
     }
 }

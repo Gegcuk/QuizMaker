@@ -22,6 +22,7 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Service for safely fetching web content with SSRF protection.
@@ -111,6 +112,28 @@ public class LinkFetchService {
     }
 
     private String fetchHtml(URI startingUri) {
+        int attempt = 0;
+        IOException lastIoException = null;
+        while (attempt <= config.getMaxRetries()) {
+            try {
+                return attemptFetchHtml(startingUri);
+            } catch (IOException ioEx) {
+                lastIoException = ioEx;
+                if (attempt == config.getMaxRetries()) {
+                    break;
+                }
+                long sleepMs = computeBackoffWithJitter(attempt);
+                log.warn("Transient fetch error (attempt {}/{}). Retrying in {} ms: {}", attempt + 1,
+                        config.getMaxRetries() + 1, sleepMs, ioEx.getMessage());
+                sleepQuietly(sleepMs);
+                attempt++;
+            }
+        }
+        throw new LinkFetchException("Failed to fetch URL after " + (config.getMaxRetries() + 1)
+                + " attempts: " + (lastIoException != null ? lastIoException.getMessage() : "unknown error"), lastIoException);
+    }
+
+    private String attemptFetchHtml(URI startingUri) throws IOException {
         HttpURLConnection connection = null;
         URI currentUri = startingUri;
         int redirectCount = 0;
@@ -140,6 +163,10 @@ public class LinkFetchService {
             }
 
             if (responseCode != HttpURLConnection.HTTP_OK) {
+                if (responseCode >= 500 && responseCode < 600) {
+                    // Transient server error -> signal retry by throwing IOException
+                    throw new IOException("Server error: " + responseCode);
+                }
                 throw new LinkFetchException("HTTP error code: " + responseCode);
             }
 
@@ -158,12 +185,27 @@ public class LinkFetchService {
             try (InputStream inputStream = connection.getInputStream()) {
                 return readWithSizeLimit(inputStream);
             }
-        } catch (IOException ex) {
-            throw new LinkFetchException("Failed to fetch URL: " + ex.getMessage(), ex);
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    private long computeBackoffWithJitter(int attemptIndex) {
+        long base = config.getRetryBackoffMs();
+        long exponent = 1L << attemptIndex; // 1,2,4,...
+        long rawDelay = base * exponent;
+        double jitterFactor = ThreadLocalRandom.current().nextDouble(0.5, 1.5);
+        long delay = (long) Math.max(0, Math.min(rawDelay * jitterFactor, 30_000)); // cap at 30s
+        return delay;
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
