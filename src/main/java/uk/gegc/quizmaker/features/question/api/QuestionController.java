@@ -23,8 +23,11 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionSchemaResponse;
 import uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest;
+import uk.gegc.quizmaker.features.question.application.QuestionSchemaService;
 import uk.gegc.quizmaker.features.question.application.QuestionService;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +42,7 @@ import java.util.UUID;
 public class QuestionController {
 
     private final QuestionService questionService;
+    private final QuestionSchemaService questionSchemaService;
 
     @Operation(
             summary = "Create a question",
@@ -174,5 +178,65 @@ public class QuestionController {
             Authentication authentication
     ) {
         questionService.deleteQuestion(authentication.getName(), id);
+    }
+
+    @Operation(
+            summary = "Get JSON schemas for all question types",
+            description = """
+                    Returns JSON Schema definitions and examples for each question type's content structure.
+                    Use this to understand the correct JSON format for the 'content' field when creating questions.
+                    
+                    Each schema includes:
+                    - schema: JSON Schema definition with validation rules
+                    - example: Sample content JSON for this question type
+                    - description: Human-readable explanation
+                    
+                    Designed for efficient consumption by AI models and developers.
+                    """,
+            tags = {"Questions"}
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Schemas retrieved successfully",
+                    content = @Content(schema = @Schema(implementation = Map.class))
+            )
+    })
+    @GetMapping("/schemas")
+    public ResponseEntity<Map<QuestionType, QuestionSchemaResponse>> getAllSchemas() {
+        return ResponseEntity.ok(questionSchemaService.getAllQuestionSchemas());
+    }
+
+    @Operation(
+            summary = "Get JSON schema for a specific question type",
+            description = """
+                    Returns JSON Schema definition and example for a single question type.
+                    
+                    Returns:
+                    - schema: JSON Schema with field definitions and validation rules
+                    - example: Sample content JSON
+                    - description: Human-readable explanation of the question type
+                    """,
+            tags = {"Questions"}
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Schema retrieved successfully",
+                    content = @Content(schema = @Schema(implementation = QuestionSchemaResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid question type")
+    })
+    @GetMapping("/schemas/{questionType}")
+    public ResponseEntity<QuestionSchemaResponse> getSchema(
+            @Parameter(
+                    description = "Question type",
+                    example = "MCQ_SINGLE",
+                    required = true,
+                    in = ParameterIn.PATH
+            )
+            @PathVariable QuestionType questionType
+    ) {
+        return ResponseEntity.ok(questionSchemaService.getQuestionSchema(questionType));
     }
 }

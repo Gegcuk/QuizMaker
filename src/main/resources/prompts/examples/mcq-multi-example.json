@@ -1,0 +1,36 @@
+{
+  "questions": [
+    {
+      "questionText": "Which of the following are characteristics of mammals? (Select all that apply)",
+      "difficulty": "MEDIUM",
+      "type": "MCQ_MULTI",
+      "content": {
+        "options": [
+          {
+            "id": "a",
+            "text": "They have hair or fur",
+            "correct": true
+          },
+          {
+            "id": "b",
+            "text": "They produce milk to feed their young",
+            "correct": true
+          },
+          {
+            "id": "c",
+            "text": "They lay eggs exclusively",
+            "correct": false
+          },
+          {
+            "id": "d",
+            "text": "They are warm-blooded",
+            "correct": true
+          }
+        ]
+      },
+      "hint": "Think about what defines mammals as a class of animals",
+      "explanation": "Mammals are characterized by having hair or fur, producing milk for their young, and being warm-blooded (maintaining constant body temperature). While most mammals give live birth, a few like the platypus do lay eggs, so option C is not universally true."
+    }
+  ]
+}
+

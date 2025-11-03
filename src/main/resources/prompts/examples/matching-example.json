@@ -1,0 +1,32 @@
+{
+  "questions": [
+    {
+      "questionText": "Match each organelle with its primary function",
+      "difficulty": "MEDIUM",
+      "type": "MATCHING",
+      "content": {
+        "pairs": [
+          {
+            "left": "Mitochondria",
+            "right": "Energy production"
+          },
+          {
+            "left": "Ribosome",
+            "right": "Protein synthesis"
+          },
+          {
+            "left": "Nucleus",
+            "right": "Genetic information storage"
+          },
+          {
+            "left": "Golgi apparatus",
+            "right": "Protein packaging and modification"
+          }
+        ]
+      },
+      "hint": "Think about the main job each organelle performs in the cell",
+      "explanation": "Each organelle has a specific function: mitochondria produce energy through cellular respiration, ribosomes synthesize proteins, the nucleus stores DNA, and the Golgi apparatus modifies and packages proteins for transport."
+    }
+  ]
+}
+

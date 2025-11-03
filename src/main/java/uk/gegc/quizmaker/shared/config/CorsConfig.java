@@ -85,13 +85,16 @@ public class CorsConfig {
         // Apply configuration to all endpoints or just /api/**
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         
-        // Register for API endpoints
+        // Register for core API endpoints
         source.registerCorsConfiguration("/api/**", configuration);
-        
-        // Also register for Swagger/OpenAPI endpoints if needed
+
+        // Explicitly expose documentation endpoints for both browsers and AI agents
+        source.registerCorsConfiguration("/api/v1/docs/**", configuration);
+        source.registerCorsConfiguration("/api/v1/api-summary", configuration);
+        source.registerCorsConfiguration("/api/v1/api-docs/**", configuration);
         source.registerCorsConfiguration("/v3/api-docs/**", configuration);
         source.registerCorsConfiguration("/swagger-ui/**", configuration);
         
         return source;
     }
-} 
+}

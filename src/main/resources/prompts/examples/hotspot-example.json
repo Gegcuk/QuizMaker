@@ -1,0 +1,35 @@
+{
+  "questions": [
+    {
+      "questionText": "Click on the nucleus in this cell diagram",
+      "difficulty": "EASY",
+      "type": "HOTSPOT",
+      "content": {
+        "imageUrl": "https://example.com/cell-diagram.png",
+        "hotspots": [
+          {
+            "x": 250,
+            "y": 180,
+            "radius": 30,
+            "correct": true
+          },
+          {
+            "x": 120,
+            "y": 200,
+            "radius": 25,
+            "correct": false
+          },
+          {
+            "x": 350,
+            "y": 220,
+            "radius": 20,
+            "correct": false
+          }
+        ]
+      },
+      "hint": "The nucleus is typically the largest and most centrally located organelle",
+      "explanation": "The nucleus is the large, centrally located organelle that contains the cell's genetic material (DNA). It's usually the most prominent structure in a eukaryotic cell diagram."
+    }
+  ]
+}
+
