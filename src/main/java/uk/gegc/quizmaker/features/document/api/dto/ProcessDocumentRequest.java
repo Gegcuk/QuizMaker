@@ -1,20 +1,37 @@
 package uk.gegc.quizmaker.features.document.api.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 @Data
+@Schema(name = "ProcessDocumentRequest", description = "Document processing and chunking configuration")
 public class ProcessDocumentRequest {
+    @Schema(description = "Chunking strategy", example = "CHAPTER_BASED")
     private ChunkingStrategy chunkingStrategy;
-    private Integer maxChunkSize; // characters
-    private Integer minChunkSize = 1000; // characters - minimum chunk size
-    private Integer aggressiveCombinationThreshold = 3000; // characters - combine chunks smaller than this
-    private Boolean storeChunks = true; // Whether to store chunks in database
+    
+    @Schema(description = "Maximum chunk size in characters", example = "50000")
+    private Integer maxChunkSize;
+    
+    @Schema(description = "Minimum chunk size in characters", example = "1000")
+    private Integer minChunkSize = 1000;
+    
+    @Schema(description = "Threshold for combining small chunks", example = "3000")
+    private Integer aggressiveCombinationThreshold = 3000;
+    
+    @Schema(description = "Whether to store chunks in database", example = "true")
+    private Boolean storeChunks = true;
 
+    @Schema(description = "Chunking strategy options")
     public enum ChunkingStrategy {
-        AUTO,           // Automatically determine best strategy
-        CHAPTER_BASED,  // Split by chapters only
-        SECTION_BASED,  // Split by sections only
-        SIZE_BASED,     // Split by size only
-        PAGE_BASED      // Split by page count
+        @Schema(description = "Automatically determine best strategy")
+        AUTO,
+        @Schema(description = "Split by chapters only")
+        CHAPTER_BASED,
+        @Schema(description = "Split by sections only")
+        SECTION_BASED,
+        @Schema(description = "Split by size only")
+        SIZE_BASED,
+        @Schema(description = "Split by page count")
+        PAGE_BASED
     }
 } 

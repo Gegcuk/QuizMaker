@@ -1,5 +1,14 @@
 package uk.gegc.quizmaker.features.document.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -29,17 +38,33 @@ import java.util.UUID;
 @RequestMapping("/api/documents")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Documents", description = "Document upload, chunking, and retrieval (legacy API)")
+@SecurityRequirement(name = "Bearer Authentication")
 public class DocumentController {
 
     private final DocumentProcessingService documentProcessingService;
     private final DocumentValidationService documentValidationService;
     private final DocumentProcessingConfig documentConfig;
 
+    @Operation(
+            summary = "Upload and process document",
+            description = "Uploads a document, extracts text, and chunks it for quiz generation"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "201",
+                    description = "Document uploaded and processed successfully",
+                    content = @Content(schema = @Schema(implementation = DocumentDto.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid file or parameters"),
+            @ApiResponse(responseCode = "403", description = "Access denied"),
+            @ApiResponse(responseCode = "422", description = "Processing failed")
+    })
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentDto> uploadDocument(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
-            @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
+            @Parameter(description = "Document file to upload", required = true) @RequestParam("file") MultipartFile file,
+            @Parameter(description = "Chunking strategy (AUTO, CHAPTER_BASED, SECTION_BASED, SIZE_BASED, PAGE_BASED)") @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
+            @Parameter(description = "Maximum chunk size in characters") @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
             Authentication authentication) {
 
         String username = authentication.getName();
@@ -74,8 +99,23 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get document by ID",
+            description = "Retrieves a document by ID (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Document retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentDto.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{documentId}")
-    public ResponseEntity<DocumentDto> getDocument(@PathVariable UUID documentId, Authentication authentication) {
+    public ResponseEntity<DocumentDto> getDocument(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            Authentication authentication) {
         try {
             String username = authentication.getName();
             DocumentDto document = documentProcessingService.getDocumentById(documentId, username);
@@ -99,10 +139,22 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get user documents",
+            description = "Retrieves all documents for the authenticated user with pagination"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Documents retrieved",
+                    content = @Content(schema = @Schema(implementation = Page.class))
+            ),
+            @ApiResponse(responseCode = "500", description = "Failed to retrieve documents")
+    })
     @GetMapping
     public ResponseEntity<Page<DocumentDto>> getUserDocuments(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Page number (0-indexed)", example = "0") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size", example = "10") @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         try {
             String username = authentication.getName();
@@ -115,8 +167,26 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get document chunks",
+            description = "Retrieves all chunks for a document (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Chunks retrieved",
+                    content = @Content(
+                            mediaType = "application/json",
+                            array = @ArraySchema(schema = @Schema(implementation = DocumentChunkDto.class))
+                    )
+            ),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{documentId}/chunks")
-    public ResponseEntity<List<DocumentChunkDto>> getDocumentChunks(@PathVariable UUID documentId, Authentication authentication) {
+    public ResponseEntity<List<DocumentChunkDto>> getDocumentChunks(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            Authentication authentication) {
         try {
             String username = authentication.getName();
             List<DocumentChunkDto> chunks = documentProcessingService.getDocumentChunks(documentId, username);
@@ -140,10 +210,24 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get specific document chunk",
+            description = "Retrieves a specific chunk by index (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Chunk retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentChunkDto.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document or chunk not found")
+    })
     @GetMapping("/{documentId}/chunks/{chunkIndex}")
-    public ResponseEntity<DocumentChunkDto> getDocumentChunk(@PathVariable UUID documentId,
-                                                             @PathVariable Integer chunkIndex,
-                                                             Authentication authentication) {
+    public ResponseEntity<DocumentChunkDto> getDocumentChunk(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            @Parameter(description = "Chunk index (0-based)", required = true) @PathVariable Integer chunkIndex,
+            Authentication authentication) {
         try {
             String username = authentication.getName();
             DocumentChunkDto chunk = documentProcessingService.getDocumentChunk(documentId, chunkIndex, username);
@@ -167,8 +251,19 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Delete document",
+            description = "Deletes a document and all associated chunks (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Document deleted successfully"),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @DeleteMapping("/{documentId}")
-    public ResponseEntity<Void> deleteDocument(@PathVariable UUID documentId, Authentication authentication) {
+    public ResponseEntity<Void> deleteDocument(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            Authentication authentication) {
         try {
             String username = authentication.getName();
             documentProcessingService.deleteDocument(username, documentId);
@@ -192,9 +287,28 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Reprocess document",
+            description = "Reprocesses a document with new chunking settings (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Document reprocessed successfully",
+                    content = @Content(schema = @Schema(implementation = DocumentDto.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid processing request"),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document not found"),
+            @ApiResponse(responseCode = "422", description = "Reprocessing failed")
+    })
     @PostMapping("/{documentId}/reprocess")
     public ResponseEntity<DocumentDto> reprocessDocument(
-            @PathVariable UUID documentId,
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Reprocessing settings",
+                    required = true
+            )
             @RequestBody ProcessDocumentRequest request,
             Authentication authentication) {
         try {
@@ -223,8 +337,23 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get document status",
+            description = "Retrieves document processing status (ownership validated)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Document status retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentDto.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{documentId}/status")
-    public ResponseEntity<DocumentDto> getDocumentStatus(@PathVariable UUID documentId, Authentication authentication) {
+    public ResponseEntity<DocumentDto> getDocumentStatus(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID documentId,
+            Authentication authentication) {
         try {
             String username = authentication.getName();
             DocumentDto document = documentProcessingService.getDocumentStatus(documentId, username);
@@ -241,6 +370,17 @@ public class DocumentController {
         }
     }
 
+    @Operation(
+            summary = "Get document processing configuration",
+            description = "Returns default chunking settings"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Configuration retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentConfigDto.class))
+            )
+    })
     @GetMapping("/config")
     public ResponseEntity<DocumentConfigDto> getConfiguration() {
         DocumentConfigDto config = new DocumentConfigDto(
