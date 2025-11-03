@@ -91,6 +91,12 @@
             <version>3.0.0</version>
         </dependency>
 
+        <!-- Thymeleaf for HTML documentation landing page -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+
         <!-- MapStruct for compile-time DTO mapping -->
         <dependency>
             <groupId>org.mapstruct</groupId>

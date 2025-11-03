@@ -67,11 +67,17 @@ public class SecurityConfig {
                         // Tag and category endpoints
                         .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
+                        // Question schemas - allow public access for documentation
+                        .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas").permitAll()
                         // Question endpoints - require authentication for general access
                         .requestMatchers("/api/v1/questions/**").authenticated()
+                        // API Documentation - allow public access
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/docs/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/api-docs/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/api-summary").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()

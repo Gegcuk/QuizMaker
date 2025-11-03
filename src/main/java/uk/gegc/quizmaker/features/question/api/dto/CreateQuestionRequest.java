@@ -44,7 +44,25 @@ public class CreateQuestionRequest implements QuestionContentRequest {
     private String questionText;
 
     @Schema(
-            description = "Content JSON specific to the question type",
+            description = """
+                    Content JSON specific to the question type.
+                    
+                    Structure varies by question type and is validated at runtime.
+                    
+                    📖 To see the exact schema and examples for each type:
+                       GET /api/v1/questions/schemas
+                       GET /api/v1/questions/schemas/{questionType}
+                    
+                    Example for MCQ_SINGLE:
+                    {
+                      "options": [
+                        {"id": "a", "text": "Option A", "correct": false},
+                        {"id": "b", "text": "Option B", "correct": true},
+                        {"id": "c", "text": "Option C", "correct": false},
+                        {"id": "d", "text": "Option D", "correct": false}
+                      ]
+                    }
+                    """,
             requiredMode = Schema.RequiredMode.REQUIRED,
             type = "object"
     )

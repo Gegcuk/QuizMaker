@@ -1,0 +1,52 @@
+{
+  "questions": [
+    {
+      "questionText": "Evaluate whether the following data handling practice complies with GDPR",
+      "difficulty": "HARD",
+      "type": "COMPLIANCE",
+      "content": {
+        "statements": [
+          {
+            "id": 1,
+            "text": "A company stores customer email addresses indefinitely without obtaining explicit consent and uses them for marketing purposes without providing an opt-out mechanism.",
+            "compliant": false
+          },
+          {
+            "id": 2,
+            "text": "The company provides clear opt-in checkboxes for marketing emails and allows users to unsubscribe at any time.",
+            "compliant": true
+          }
+        ]
+      },
+      "hint": "Consider GDPR requirements for consent, data retention, and user rights",
+      "explanation": "This practice violates GDPR in multiple ways: (1) explicit consent is required for marketing purposes, (2) data should not be retained indefinitely without justification, and (3) users must have the ability to opt-out of marketing communications. GDPR requires lawful basis for processing, data minimization, and respect for user rights."
+    },
+    {
+      "questionText": "Evaluate these password policies for security compliance",
+      "difficulty": "MEDIUM",
+      "type": "COMPLIANCE",
+      "content": {
+        "statements": [
+          {
+            "id": 1,
+            "text": "Passwords must be at least 12 characters long with mixed character types",
+            "compliant": true
+          },
+          {
+            "id": 2,
+            "text": "Passwords must be changed every 90 days",
+            "compliant": true
+          },
+          {
+            "id": 3,
+            "text": "Users can write passwords on sticky notes for convenience",
+            "compliant": false
+          }
+        ]
+      },
+      "hint": "Consider modern password security best practices like NIST guidelines",
+      "explanation": "This policy is compliant with most security standards. It enforces strong password complexity (12+ characters with mixed character types) and regular rotation. While some modern guidance suggests password rotation may not always be necessary, a 90-day rotation is still considered acceptable for high-security environments."
+    }
+  ]
+}
+

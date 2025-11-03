@@ -1,0 +1,25 @@
+{
+  "questions": [
+    {
+      "questionText": "Complete the sentence about cellular respiration",
+      "difficulty": "MEDIUM",
+      "type": "FILL_GAP",
+      "content": {
+        "text": "Cellular respiration occurs in the ___ and converts glucose into ___ which is used for energy.",
+        "gaps": [
+          {
+            "id": 1,
+            "answer": "mitochondria"
+          },
+          {
+            "id": 2,
+            "answer": "ATP"
+          }
+        ]
+      },
+      "hint": "Think about the organelle known as the powerhouse of the cell and the energy currency molecule",
+      "explanation": "Cellular respiration takes place in the mitochondria, where glucose is broken down to produce ATP (adenosine triphosphate), the cell's main energy currency."
+    }
+  ]
+}
+
