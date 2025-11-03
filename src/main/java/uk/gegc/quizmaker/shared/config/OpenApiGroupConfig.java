@@ -28,14 +28,22 @@ public class OpenApiGroupConfig {
     public GroupedOpenApi quizzesGroup() {
         return GroupedOpenApi.builder()
                 .group("quizzes")
-                .displayName("Quizzes & Questions")
+                .displayName("Quizzes")
                 .pathsToMatch(
                     "/api/v1/quizzes/**",
-                    "/api/v1/questions/**",
                     "/api/v1/tags/**",
                     "/api/v1/categories/**",
                     "/api/v1/share-links/**"
                 )
+                .build();
+    }
+
+    @Bean
+    public GroupedOpenApi questionsGroup() {
+        return GroupedOpenApi.builder()
+                .group("questions")
+                .displayName("Questions")
+                .pathsToMatch("/api/v1/questions/**")
                 .build();
     }
 

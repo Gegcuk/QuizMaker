@@ -149,10 +149,10 @@ public class QuestionSchemaService {
                     .put("answer", "Sample answer text here");
             
             case FILL_GAP -> objectMapper.createObjectNode()
-                    .put("template", "The capital of France is ___.")
-                    .set("blanks", objectMapper.createArrayNode()
+                    .put("text", "The capital of France is ___.")
+                    .set("gaps", objectMapper.createArrayNode()
                             .add(objectMapper.createObjectNode()
-                                    .put("position", 0)
+                                    .put("id", 1)
                                     .put("answer", "Paris")));
             
             case ORDERING -> objectMapper.createObjectNode()
@@ -170,27 +170,55 @@ public class QuestionSchemaService {
                                     .put("text", "Third step")
                                     .put("correctOrder", 3)));
             
-            case MATCHING -> objectMapper.createObjectNode()
-                    .set("pairs", objectMapper.createArrayNode()
-                            .add(objectMapper.createObjectNode()
-                                    .put("left", "Term 1")
-                                    .put("right", "Definition 1"))
-                            .add(objectMapper.createObjectNode()
-                                    .put("left", "Term 2")
-                                    .put("right", "Definition 2")));
+            case MATCHING -> {
+                var content = objectMapper.createObjectNode();
+                content.set("left", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("text", "Term 1")
+                                .put("matchId", 1))
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 2)
+                                .put("text", "Term 2")
+                                .put("matchId", 2)));
+                content.set("right", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("text", "Definition 1"))
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 2)
+                                .put("text", "Definition 2")));
+                yield content;
+            }
             
             case HOTSPOT -> objectMapper.createObjectNode()
                     .put("imageUrl", "https://example.com/image.png")
-                    .set("hotspots", objectMapper.createArrayNode()
+                    .set("regions", objectMapper.createArrayNode()
                             .add(objectMapper.createObjectNode()
+                                    .put("id", 1)
                                     .put("x", 100)
                                     .put("y", 150)
-                                    .put("radius", 20)
-                                    .put("correct", true)));
+                                    .put("width", 40)
+                                    .put("height", 40)
+                                    .put("correct", true))
+                            .add(objectMapper.createObjectNode()
+                                    .put("id", 2)
+                                    .put("x", 200)
+                                    .put("y", 200)
+                                    .put("width", 40)
+                                    .put("height", 40)
+                                    .put("correct", false)));
             
             case COMPLIANCE -> objectMapper.createObjectNode()
-                    .put("statement", "This practice complies with GDPR")
-                    .put("compliant", true);
+                    .set("statements", objectMapper.createArrayNode()
+                            .add(objectMapper.createObjectNode()
+                                    .put("id", 1)
+                                    .put("text", "Practice complies with GDPR requirements")
+                                    .put("compliant", true))
+                            .add(objectMapper.createObjectNode()
+                                    .put("id", 2)
+                                    .put("text", "Practice violates user privacy rights")
+                                    .put("compliant", false)));
         };
     }
 

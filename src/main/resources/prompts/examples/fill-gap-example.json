@@ -5,14 +5,14 @@
       "difficulty": "MEDIUM",
       "type": "FILL_GAP",
       "content": {
-        "template": "Cellular respiration occurs in the ___ and converts glucose into ___ which is used for energy.",
-        "blanks": [
+        "text": "Cellular respiration occurs in the ___ and converts glucose into ___ which is used for energy.",
+        "gaps": [
           {
-            "position": 0,
+            "id": 1,
             "answer": "mitochondria"
           },
           {
-            "position": 1,
+            "id": 2,
             "answer": "ATP"
           }
         ]

@@ -6,23 +6,29 @@
       "type": "HOTSPOT",
       "content": {
         "imageUrl": "https://example.com/cell-diagram.png",
-        "hotspots": [
+        "regions": [
           {
-            "x": 250,
-            "y": 180,
-            "radius": 30,
+            "id": 1,
+            "x": 220,
+            "y": 150,
+            "width": 60,
+            "height": 60,
             "correct": true
           },
           {
-            "x": 120,
-            "y": 200,
-            "radius": 25,
+            "id": 2,
+            "x": 100,
+            "y": 175,
+            "width": 40,
+            "height": 50,
             "correct": false
           },
           {
-            "x": 350,
-            "y": 220,
-            "radius": 20,
+            "id": 3,
+            "x": 330,
+            "y": 195,
+            "width": 40,
+            "height": 50,
             "correct": false
           }
         ]

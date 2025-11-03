@@ -28,10 +28,17 @@ public class ApiDocumentationService {
             ),
             ApiGroupSummary.of(
                     "quizzes",
-                    "Quizzes & Questions",
-                    "Create and manage quizzes, questions, tags, categories, and share links",
+                    "Quizzes",
+                    "Create and manage quizzes, tags, categories, and share links",
                     "📝",
-                    60
+                    40
+            ),
+            ApiGroupSummary.of(
+                    "questions",
+                    "Questions",
+                    "Create and manage questions, question types, and content schemas",
+                    "❓",
+                    35
             ),
             ApiGroupSummary.of(
                     "attempts",

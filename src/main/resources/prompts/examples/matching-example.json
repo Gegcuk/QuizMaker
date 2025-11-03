@@ -5,22 +5,44 @@
       "difficulty": "MEDIUM",
       "type": "MATCHING",
       "content": {
-        "pairs": [
+        "left": [
           {
-            "left": "Mitochondria",
-            "right": "Energy production"
+            "id": 1,
+            "text": "Mitochondria",
+            "matchId": 1
           },
           {
-            "left": "Ribosome",
-            "right": "Protein synthesis"
+            "id": 2,
+            "text": "Ribosome",
+            "matchId": 2
           },
           {
-            "left": "Nucleus",
-            "right": "Genetic information storage"
+            "id": 3,
+            "text": "Nucleus",
+            "matchId": 3
           },
           {
-            "left": "Golgi apparatus",
-            "right": "Protein packaging and modification"
+            "id": 4,
+            "text": "Golgi apparatus",
+            "matchId": 4
+          }
+        ],
+        "right": [
+          {
+            "id": 1,
+            "text": "Energy production"
+          },
+          {
+            "id": 2,
+            "text": "Protein synthesis"
+          },
+          {
+            "id": 3,
+            "text": "Genetic information storage"
+          },
+          {
+            "id": 4,
+            "text": "Protein packaging and modification"
           }
         ]
       },
