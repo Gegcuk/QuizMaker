@@ -1,7 +1,14 @@
 package uk.gegc.quizmaker.features.admin.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +38,7 @@ import java.util.UUID;
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Admin", description = "System administration, roles, permissions, and policy management")
 @SecurityRequirement(name = "Bearer Authentication")
 public class AdminController {
 
@@ -43,9 +51,22 @@ public class AdminController {
     @Value("${app.admin.system-initialization.enabled:true}")
     private boolean systemInitializationEnabled;
 
-    // Example using annotation-based permission checking
     @GetMapping("/roles")
-    @Operation(summary = "Get all roles")
+    @Operation(
+            summary = "Get all roles",
+            description = "Returns all roles in the system. Requires ROLE_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Roles retrieved",
+                    content = @Content(
+                            mediaType = "application/json",
+                            array = @ArraySchema(schema = @Schema(implementation = RoleDto.class))
+                    )
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission")
+    })
     @RequirePermission(PermissionName.ROLE_READ)
     public ResponseEntity<List<RoleDto>> getAllRoles() {
         List<RoleDto> roles = roleService.getAllRoles();
@@ -53,11 +74,22 @@ public class AdminController {
     }
 
     @GetMapping("/roles/paginated")
-    @Operation(summary = "Get roles with pagination and filtering")
+    @Operation(
+            summary = "Get roles with pagination and filtering",
+            description = "Returns paginated list of roles with optional search. Requires ROLE_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Roles retrieved",
+                    content = @Content(schema = @Schema(implementation = Page.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission")
+    })
     @RequirePermission(PermissionName.ROLE_READ)
     public ResponseEntity<Page<RoleDto>> getAllRolesPaginated(
-            @PageableDefault(size = 20, sort = "roleName") Pageable pageable,
-            @RequestParam(required = false) String search) {
+            @Parameter(description = "Pagination parameters") @PageableDefault(size = 20, sort = "roleName") Pageable pageable,
+            @Parameter(description = "Search query for role name") @RequestParam(required = false) String search) {
         Page<RoleDto> roles = roleService.getAllRoles(pageable, search);
         return ResponseEntity.ok(roles);
     }
@@ -326,24 +358,45 @@ public class AdminController {
     }
 
     // DTOs for permission operations
+    @Schema(name = "CreatePermissionRequest", description = "Request to create a new permission")
     public record CreatePermissionRequest(
+        @Schema(description = "Permission name (uppercase)", example = "QUIZ_CREATE")
         @NotBlank String permissionName,
+        
+        @Schema(description = "Permission description", example = "Create new quizzes")
         String description,
+        
+        @Schema(description = "Resource type", example = "QUIZ")
         String resource,
+        
+        @Schema(description = "Action type", example = "CREATE")
         String action
     ) {}
 
+    @Schema(name = "UpdatePermissionRequest", description = "Request to update an existing permission")
     public record UpdatePermissionRequest(
+        @Schema(description = "Updated description")
         String description,
+        
+        @Schema(description = "Updated resource type")
         String resource,
+        
+        @Schema(description = "Updated action type")
         String action
     ) {}
 
-    // Email provider status DTO
+    @Schema(name = "EmailProviderStatus", description = "Current email provider configuration")
     public record EmailProviderStatus(
+        @Schema(description = "Email provider class name", example = "AwsSesEmailService")
         String providerClass,
+        
+        @Schema(description = "Whether using no-op provider", example = "false")
         boolean isNoop,
+        
+        @Schema(description = "Whether using AWS SES", example = "true")
         boolean isSes,
+        
+        @Schema(description = "Whether using SMTP", example = "false")
         boolean isSmtp
     ) {}
 }

@@ -1,5 +1,13 @@
 package uk.gegc.quizmaker.features.documentProcess.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +43,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Validated
 @Slf4j
+@Tag(name = "Document Processing", description = "Document ingestion, normalization, and structure extraction")
+@SecurityRequirement(name = "Bearer Authentication")
 public class DocumentProcessController {
 
     private final DocumentIngestionService ingestionService;
@@ -42,17 +52,27 @@ public class DocumentProcessController {
     private final StructureService structureService;
     private final DocumentMapper mapper;
 
-    /**
-     * Ingests a document from JSON text.
-     * 
-     * @param request JSON request with text content
-     * @param originalName original filename (optional)
-     * @return ingestion response with document ID and status
-     */
+    @Operation(
+            summary = "Ingest text document",
+            description = "Ingests plain text content, normalizes it, and stores for quiz generation"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "201",
+                    description = "Document ingested successfully",
+                    content = @Content(schema = @Schema(implementation = IngestResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request - text is blank or validation failed"),
+            @ApiResponse(responseCode = "422", description = "Normalization failed")
+    })
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<IngestResponse> ingestJson(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Text content and language",
+                    required = true
+            )
             @Valid @RequestBody IngestRequest request,
-            @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
+            @Parameter(description = "Optional original filename") @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
         
         log.info("Ingesting JSON document: originalName={}", originalName);
         
@@ -63,17 +83,24 @@ public class DocumentProcessController {
         return ResponseEntity.created(location).body(mapper.toIngestResponse(document));
     }
 
-    /**
-     * Ingests a document from multipart file upload.
-     * 
-     * @param file multipart file upload
-     * @param originalName original filename (optional)
-     * @return ingestion response with document ID and status
-     */
+    @Operation(
+            summary = "Ingest file document",
+            description = "Uploads and ingests a document file (PDF, DOCX, TXT, etc.), converts to text, normalizes, and stores for quiz generation"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "201",
+                    description = "Document ingested successfully",
+                    content = @Content(schema = @Schema(implementation = IngestResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "File is empty or missing"),
+            @ApiResponse(responseCode = "415", description = "Unsupported file format"),
+            @ApiResponse(responseCode = "422", description = "Conversion or normalization failed")
+    })
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<IngestResponse> ingestFile(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
+            @Parameter(description = "Document file to upload", required = true) @RequestParam("file") MultipartFile file,
+            @Parameter(description = "Optional original filename override") @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
         
         log.info("Ingesting file document: originalName={}", originalName);
         
@@ -89,45 +116,65 @@ public class DocumentProcessController {
         return ResponseEntity.created(location).body(mapper.toIngestResponse(document));
     }
 
-    /**
-     * Retrieves document metadata by ID.
-     * 
-     * @param id the document ID
-     * @return document metadata
-     */
+    @Operation(
+            summary = "Get document metadata",
+            description = "Retrieves document metadata including status, character count, language, and timestamps"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Document metadata retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentView.class))
+            ),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{id}")
-    public DocumentView getDocument(@PathVariable UUID id) {
+    public DocumentView getDocument(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
 
         NormalizedDocument document = queryService.getDocument(id);
         return mapper.toDocumentView(document);
     }
 
-    /**
-     * Retrieves lightweight document info (id, charCount, status) without loading the full text.
-     * 
-     * @param id the document ID
-     * @return lightweight document info
-     */
+    @Operation(
+            summary = "Get document head (lightweight metadata)",
+            description = "Retrieves document metadata without loading the full normalized text"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Document metadata retrieved",
+                    content = @Content(schema = @Schema(implementation = DocumentView.class))
+            ),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{id}/head")
-    public DocumentView getDocumentHead(@PathVariable UUID id) {
+    public DocumentView getDocumentHead(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
 
         NormalizedDocument document = queryService.getDocument(id);
         return mapper.toDocumentView(document);
     }
 
-    /**
-     * Retrieves a text slice from a document.
-     * 
-     * @param id the document ID
-     * @param start start offset (inclusive, default 0)
-     * @param end end offset (exclusive, optional - defaults to end of text)
-     * @return text slice response
-     */
+    @Operation(
+            summary = "Get text slice",
+            description = "Retrieves a portion of the normalized text by character offsets (start inclusive, end exclusive)"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Text slice retrieved",
+                    content = @Content(schema = @Schema(implementation = TextSliceResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid offsets (negative or end < start)"),
+            @ApiResponse(responseCode = "404", description = "Document not found"),
+            @ApiResponse(responseCode = "422", description = "Document has no normalized text")
+    })
     @GetMapping("/{id}/text")
     public TextSliceResponse getTextSlice(
-            @PathVariable UUID id,
-            @RequestParam(value = "start", defaultValue = "0") @Min(0) int start,
-            @RequestParam(value = "end", required = false) @Min(0) Integer end) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            @Parameter(description = "Start offset (inclusive)", example = "0") @RequestParam(value = "start", defaultValue = "0") @Min(0) int start,
+            @Parameter(description = "End offset (exclusive, defaults to document length)") @RequestParam(value = "end", required = false) @Min(0) Integer end) {
 
         if (end == null) {
             // Use char count to compute default end without loading the whole text
@@ -138,18 +185,22 @@ public class DocumentProcessController {
         return mapper.toTextSliceResponse(id, start, end, sliceText);
     }
 
-    /**
-     * Retrieves the document structure in the specified format.
-     * Phase 2: Returns empty structure as AI functionality is not yet implemented.
-     * 
-     * @param id the document ID
-     * @param format structure format: "tree" (hierarchical) or "flat" (linear)
-     * @return structure response based on format
-     */
+    @Operation(
+            summary = "Get document structure",
+            description = "Retrieves the hierarchical structure of the document (chapters, sections, etc.) in tree or flat format"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Structure retrieved (format depends on 'format' parameter)"
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid format parameter (use 'tree' or 'flat')"),
+            @ApiResponse(responseCode = "404", description = "Document not found")
+    })
     @GetMapping("/{id}/structure")
     public ResponseEntity<?> getStructure(
-            @PathVariable UUID id,
-            @RequestParam(value = "format", defaultValue = "tree") String format) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            @Parameter(description = "Format: 'tree' (hierarchical) or 'flat' (linear)", example = "tree") @RequestParam(value = "format", defaultValue = "tree") String format) {
 
         return switch (format.toLowerCase()) {
             case "tree" -> {
@@ -168,15 +219,23 @@ public class DocumentProcessController {
         };
     }
 
-    /**
-     * Builds the structure for a document using AI.
-     * Phase 3: Single-pass AI structure generation.
-     * 
-     * @param id the document ID
-     * @return response indicating structure building status
-     */
+    @Operation(
+            summary = "Build document structure",
+            description = "Triggers AI-based structure extraction to identify chapters, sections, and hierarchical organization"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Structure built successfully",
+                    content = @Content(schema = @Schema(implementation = StructureBuildResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Structure building failed (see message)"),
+            @ApiResponse(responseCode = "404", description = "Document not found"),
+            @ApiResponse(responseCode = "500", description = "Unexpected error during structure building")
+    })
     @PostMapping("/{id}/structure")
-    public ResponseEntity<StructureBuildResponse> buildStructure(@PathVariable UUID id) {
+    public ResponseEntity<StructureBuildResponse> buildStructure(
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
         log.info("Structure building requested for document: {}", id);
         
         try {
@@ -199,18 +258,23 @@ public class DocumentProcessController {
         }
     }
 
-    /**
-     * Extracts text content for a specific node.
-     * This endpoint provides precise node-based extraction using pre-calculated offsets.
-     * 
-     * @param id the document ID
-     * @param nodeId the node ID to extract (required)
-     * @return extracted content with node metadata
-     */
+    @Operation(
+            summary = "Extract text by node",
+            description = "Extracts text content for a specific structural node (chapter, section, etc.) using pre-calculated offsets"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Node content extracted",
+                    content = @Content(schema = @Schema(implementation = ExtractResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Node does not belong to document"),
+            @ApiResponse(responseCode = "404", description = "Document or node not found")
+    })
     @GetMapping("/{id}/extract")
     public ExtractResponse extractByNode(
-            @PathVariable UUID id,
-            @RequestParam("nodeId") UUID nodeId) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            @Parameter(description = "Node UUID to extract", required = true) @RequestParam("nodeId") UUID nodeId) {
 
         return structureService.extractByNode(id, nodeId);
     }
@@ -218,5 +282,9 @@ public class DocumentProcessController {
     /**
      * Response DTO for structure building operations.
      */
-    public record StructureBuildResponse(String status, String message) {}
+    @Schema(name = "StructureBuildResponse", description = "Result of structure building operation")
+    public record StructureBuildResponse(
+            @Schema(description = "Status: STRUCTURED, FAILED, or ERROR", example = "STRUCTURED") String status,
+            @Schema(description = "Human-readable message", example = "Structure built successfully") String message
+    ) {}
 }

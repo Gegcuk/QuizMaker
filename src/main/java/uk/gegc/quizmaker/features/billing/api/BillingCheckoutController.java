@@ -1,5 +1,13 @@
 package uk.gegc.quizmaker.features.billing.api;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -40,6 +48,8 @@ import java.util.UUID;
 @RequestMapping("/api/v1/billing")
 @RequiredArgsConstructor
 @Validated
+@Tag(name = "Billing", description = "Token billing, checkout, balance, and transaction management")
+@SecurityRequirement(name = "Bearer Authentication")
 public class BillingCheckoutController {
 
     private final BillingService billingService;
@@ -52,9 +62,24 @@ public class BillingCheckoutController {
     private final BillingProperties billingProperties;
     private final FeatureFlags featureFlags;
 
+    @Operation(
+            summary = "Get checkout session status",
+            description = "Retrieves the status of a Stripe checkout session. Requires BILLING_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Checkout session status retrieved",
+                    content = @Content(schema = @Schema(implementation = CheckoutSessionStatus.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
+            @ApiResponse(responseCode = "404", description = "Session not found or billing feature disabled")
+    })
     @GetMapping("/checkout-sessions/{sessionId}")
     @RequirePermission(PermissionName.BILLING_READ)
-    public ResponseEntity<CheckoutSessionStatus> getCheckoutSessionStatus(@PathVariable String sessionId, Authentication authentication) {
+    public ResponseEntity<CheckoutSessionStatus> getCheckoutSessionStatus(
+            @Parameter(description = "Stripe checkout session ID", required = true) @PathVariable String sessionId,
+            Authentication authentication) {
         if (!featureFlags.isBilling()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -64,6 +89,18 @@ public class BillingCheckoutController {
         return ResponseEntity.ok(status);
     }
 
+    @Operation(
+            summary = "Get billing configuration",
+            description = "Returns available token packs and pricing configuration"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Configuration retrieved",
+                    content = @Content(schema = @Schema(implementation = ConfigResponse.class))
+            ),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled")
+    })
     @GetMapping("/config")
     public ResponseEntity<ConfigResponse> getConfig() {
         if (!featureFlags.isBilling()) {
@@ -74,6 +111,20 @@ public class BillingCheckoutController {
         return ResponseEntity.ok(config);
     }
 
+    @Operation(
+            summary = "Get token balance",
+            description = "Returns the authenticated user's current token balance. Requires BILLING_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Balance retrieved",
+                    content = @Content(schema = @Schema(implementation = BalanceDto.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+    })
     @GetMapping("/balance")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<BalanceDto> getBalance(Authentication authentication) {
@@ -93,14 +144,28 @@ public class BillingCheckoutController {
                 .body(balance);
     }
 
+    @Operation(
+            summary = "Get transaction history",
+            description = "Returns paginated token transaction history with optional filters. Requires BILLING_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Transactions retrieved",
+                    content = @Content(schema = @Schema(implementation = Page.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+    })
     @GetMapping("/transactions")
     @RequirePermission(PermissionName.BILLING_READ)
     public ResponseEntity<Page<TransactionDto>> getTransactions(
-            @PageableDefault(size = 20) Pageable pageable,
-            @RequestParam(required = false) TokenTransactionType type,
-            @RequestParam(required = false) TokenTransactionSource source,
-            @RequestParam(required = false) LocalDateTime dateFrom,
-            @RequestParam(required = false) LocalDateTime dateTo,
+            @Parameter(description = "Pagination parameters") @PageableDefault(size = 20) Pageable pageable,
+            @Parameter(description = "Filter by transaction type") @RequestParam(required = false) TokenTransactionType type,
+            @Parameter(description = "Filter by transaction source") @RequestParam(required = false) TokenTransactionSource source,
+            @Parameter(description = "Filter from date") @RequestParam(required = false) LocalDateTime dateFrom,
+            @Parameter(description = "Filter to date") @RequestParam(required = false) LocalDateTime dateTo,
             Authentication authentication) {
         if (!featureFlags.isBilling()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -119,10 +184,30 @@ public class BillingCheckoutController {
                 .body(transactions);
     }
 
+    @Operation(
+            summary = "Estimate quiz generation cost",
+            description = "Estimates token cost for quiz generation from a document. Requires BILLING_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Estimation completed",
+                    content = @Content(schema = @Schema(implementation = EstimationDto.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled or document not found"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (10/min)")
+    })
     @PostMapping("/estimate/quiz-generation")
     @RequirePermission(PermissionName.BILLING_READ)
-    public ResponseEntity<EstimationDto> estimateQuizGeneration(@Valid @RequestBody GenerateQuizFromDocumentRequest request,
-                                                               Authentication authentication) {
+    public ResponseEntity<EstimationDto> estimateQuizGeneration(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Quiz generation request for estimation",
+                    required = true
+            )
+            @Valid @RequestBody GenerateQuizFromDocumentRequest request,
+            Authentication authentication) {
         if (!featureFlags.isBilling()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -141,10 +226,30 @@ public class BillingCheckoutController {
         return ResponseEntity.ok(estimation);
     }
 
+    @Operation(
+            summary = "Create checkout session",
+            description = "Creates a Stripe checkout session for purchasing token packs. Requires BILLING_WRITE permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Checkout session created",
+                    content = @Content(schema = @Schema(implementation = CheckoutSessionResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled or pack not found"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (5/min)")
+    })
     @PostMapping("/checkout-sessions")
     @RequirePermission(PermissionName.BILLING_WRITE)
-    public ResponseEntity<CheckoutSessionResponse> createCheckoutSession(@Valid @RequestBody CreateCheckoutSessionRequest request,
-                                                                         Authentication authentication) {
+    public ResponseEntity<CheckoutSessionResponse> createCheckoutSession(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Checkout session request",
+                    required = true
+            )
+            @Valid @RequestBody CreateCheckoutSessionRequest request,
+            Authentication authentication) {
         if (!featureFlags.isBilling()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -167,10 +272,29 @@ public class BillingCheckoutController {
         return ResponseEntity.ok(session);
     }
 
+    @Operation(
+            summary = "Create Stripe customer",
+            description = "Creates a Stripe customer for the authenticated user. Requires BILLING_WRITE permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Customer created",
+                    content = @Content(schema = @Schema(implementation = CustomerResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (3/min)")
+    })
     @PostMapping("/create-customer")
     @RequirePermission(PermissionName.BILLING_WRITE)
-    public ResponseEntity<CustomerResponse> createCustomer(@Valid @RequestBody CreateCustomerRequest request,
-                                                           Authentication authentication) throws StripeException {
+    public ResponseEntity<CustomerResponse> createCustomer(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Customer creation request",
+                    required = true
+            )
+            @Valid @RequestBody CreateCustomerRequest request,
+            Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         // Rate limiting: 3 requests per minute per user (Stripe customer creation is expensive)
@@ -181,10 +305,24 @@ public class BillingCheckoutController {
         CustomerResponse customer = stripeService.createCustomer(currentUserId, request.email());
         return ResponseEntity.ok(customer);
     }
+    @Operation(
+            summary = "Get Stripe customer",
+            description = "Retrieves Stripe customer details (ownership validated). Requires BILLING_READ permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Customer retrieved",
+                    content = @Content(schema = @Schema(implementation = CustomerResponse.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Access denied - not customer owner or missing permission"),
+            @ApiResponse(responseCode = "404", description = "Customer not found")
+    })
     @GetMapping("/customers/{customerId}")
     @RequirePermission(PermissionName.BILLING_READ)
-    public ResponseEntity<CustomerResponse> getCustomer(@PathVariable String customerId,
-                                                        Authentication authentication) throws StripeException {
+    public ResponseEntity<CustomerResponse> getCustomer(
+            @Parameter(description = "Stripe customer ID", required = true) @PathVariable String customerId,
+            Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         // Verify ownership via Stripe customer metadata userId
@@ -213,10 +351,29 @@ public class BillingCheckoutController {
         CustomerResponse customer = stripeService.retrieveCustomer(customerId);
         return ResponseEntity.ok(customer);
     }
+    @Operation(
+            summary = "Create subscription",
+            description = "Creates a Stripe subscription for recurring billing. Requires BILLING_WRITE permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Subscription created",
+                    content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
+            @ApiResponse(responseCode = "404", description = "Price not found")
+    })
     @PostMapping("/create-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
-    public ResponseEntity<SubscriptionResponse> createSubscription(@Valid @RequestBody CreateSubscriptionRequest request,
-                                                                   Authentication authentication) throws StripeException {
+    public ResponseEntity<SubscriptionResponse> createSubscription(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Subscription creation request",
+                    required = true
+            )
+            @Valid @RequestBody CreateSubscriptionRequest request,
+            Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         // Resolve or create Stripe customer for this user
@@ -228,10 +385,28 @@ public class BillingCheckoutController {
         SubscriptionResponse subscription = stripeService.createSubscription(customerId, request.priceId());
         return ResponseEntity.ok(subscription);
     }
+    @Operation(
+            summary = "Update subscription",
+            description = "Updates an existing Stripe subscription to a new price. Requires BILLING_WRITE permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Subscription updated (returns Stripe subscription JSON)"
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
+            @ApiResponse(responseCode = "404", description = "Subscription or price not found")
+    })
     @PostMapping("/update-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
-    public ResponseEntity<String> updateSubscription(@Valid @RequestBody UpdateSubscriptionRequest request,
-                                                     Authentication authentication) throws StripeException {
+    public ResponseEntity<String> updateSubscription(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Subscription update request",
+                    required = true
+            )
+            @Valid @RequestBody UpdateSubscriptionRequest request,
+            Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         // Resolve price ID from lookup key via Stripe
@@ -244,10 +419,28 @@ public class BillingCheckoutController {
         // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }
+    @Operation(
+            summary = "Cancel subscription",
+            description = "Cancels an existing Stripe subscription. Requires BILLING_WRITE permission."
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Subscription cancelled (returns Stripe subscription JSON)"
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid request"),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
+            @ApiResponse(responseCode = "404", description = "Subscription not found")
+    })
     @PostMapping("/cancel-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
-    public ResponseEntity<String> cancelSubscription(@Valid @RequestBody CancelSubscriptionRequest request,
-                                                     Authentication authentication) throws StripeException {
+    public ResponseEntity<String> cancelSubscription(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Subscription cancellation request",
+                    required = true
+            )
+            @Valid @RequestBody CancelSubscriptionRequest request,
+            Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);

@@ -1,6 +1,11 @@
 package uk.gegc.quizmaker.features.ai.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,14 +27,24 @@ import java.util.Map;
 @RequestMapping("/api/v1/ai-analysis")
 @RequiredArgsConstructor
 @Slf4j
+@SecurityRequirement(name = "Bearer Authentication")
 public class AiAnalysisController {
 
     private final AiResponseAnalyzer aiResponseAnalyzer;
 
     @Operation(
             summary = "Analyze AI responses",
-            description = "Analyze logged AI responses to identify patterns of non-compliance with instructions"
+            description = "Analyze logged AI responses to identify patterns of non-compliance with instructions. Requires ADMIN role."
     )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Analysis completed successfully",
+                    content = @Content(schema = @Schema(implementation = Map.class))
+            ),
+            @ApiResponse(responseCode = "403", description = "Missing ADMIN role"),
+            @ApiResponse(responseCode = "500", description = "Error during analysis")
+    })
     @PostMapping("/analyze")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> analyzeAiResponses() {
