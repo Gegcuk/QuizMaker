@@ -24,56 +24,56 @@ public class ApiDocumentationService {
                     "Authentication & Users",
                     "User authentication, registration, two-factor setup, and profile endpoints",
                     "🔐",
-                    30
+                    24
             ),
             ApiGroupSummary.of(
                     "quizzes",
                     "Quizzes",
                     "Create and manage quizzes, tags, categories, and share links",
                     "📝",
-                    40
+                    121
             ),
             ApiGroupSummary.of(
                     "questions",
                     "Questions",
                     "Create and manage questions, question types, and content schemas",
                     "❓",
-                    35
+                    18
             ),
             ApiGroupSummary.of(
                     "attempts",
                     "Quiz Attempts & Scoring",
                     "Lifecycle of quiz attempts, scoring, and participant progress tracking",
                     "🎯",
-                    25
+                    36
             ),
             ApiGroupSummary.of(
                     "documents",
                     "Document Processing",
                     "Document ingestion, parsing, AI analysis, and transcript retrieval",
                     "📄",
-                    40
+                    34
             ),
             ApiGroupSummary.of(
                     "billing",
                     "Billing & Payments",
                     "Billing configuration, balances, Stripe webhooks, and purchase flows",
                     "💳",
-                    25
+                    27
             ),
             ApiGroupSummary.of(
                     "ai",
                     "AI Features",
                     "AI-powered quiz generation, document analysis, and recommendation endpoints",
                     "🤖",
-                    20
+                    4
             ),
             ApiGroupSummary.of(
                     "admin",
                     "Administration",
                     "Administrative operations for managing organizations, roles, and system health",
                     "⚙️",
-                    20
+                    49
             )
     );
 

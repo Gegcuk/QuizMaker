@@ -18,7 +18,7 @@ public record ApiGroupSummary(
     @Schema(description = "Icon/emoji for UI representation", example = "🔐")
     String icon,
     
-    @Schema(description = "URL to OpenAPI spec for this group", example = "/v3/api-docs?group=auth")
+    @Schema(description = "URL to OpenAPI spec for this group", example = "/v3/api-docs/auth")
     String specUrl,
     
     @Schema(description = "URL to Swagger UI for this group", example = "/swagger-ui/index.html?urls.primaryName=auth")
@@ -37,7 +37,7 @@ public record ApiGroupSummary(
                 .displayName(displayName)
                 .description(description)
                 .icon(icon)
-                .specUrl("/v3/api-docs?group=" + group)
+                .specUrl("/v3/api-docs/" + group)
                 .docsUrl("/swagger-ui/index.html?urls.primaryName=" + group)
                 .estimatedSizeKB(estimatedSizeKB)
                 .build();
