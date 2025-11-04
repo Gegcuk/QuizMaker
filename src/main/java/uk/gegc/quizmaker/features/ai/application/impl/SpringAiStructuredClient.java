@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -58,6 +59,14 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     private final PromptTemplateService promptTemplateService;
     private final ObjectMapper objectMapper;
     private final AiRateLimitConfig rateLimitConfig;
+    
+    /**
+     * Maximum completion tokens to prevent truncated JSON responses.
+     * Default: 16000 tokens (sufficient for 10 complex questions)
+     * Prevents hitting model's hard limit (32k for gpt-4.1-mini) which causes truncated JSON.
+     */
+    @Value("${spring.ai.openai.chat.options.max-tokens:16000}")
+    private Integer maxCompletionTokens;
     
     @Override
     public StructuredQuestionResponse generateQuestions(StructuredQuestionRequest request) {
@@ -274,11 +283,12 @@ public class SpringAiStructuredClient implements StructuredAiClient {
 
             OpenAiChatOptions options = OpenAiChatOptions.builder()
                     .responseFormat(responseFormat)
+                    .maxTokens(maxCompletionTokens)
                     .build();
 
             if (log.isDebugEnabled()) {
-                log.debug("Configured structured response format for {} with schema name '{}'",
-                        questionType, jsonSchema.getName());
+                log.debug("Configured structured response format for {} with schema name '{}', maxTokens={}",
+                        questionType, jsonSchema.getName(), maxCompletionTokens);
             }
 
             return options;
@@ -347,6 +357,22 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             
         } catch (JsonProcessingException e) {
             log.error("Failed to parse structured response as JSON", e);
+            
+            // Check if this is a truncation error (EOF while parsing)
+            if (e.getMessage() != null && 
+                (e.getMessage().contains("end-of-input") || 
+                 e.getMessage().contains("Unexpected end") ||
+                 e.getMessage().contains("EOF"))) {
+                log.error("JSON response appears to be truncated. This may indicate:");
+                log.error("  1. max-tokens ({}) is too high and hit model's hard limit", maxCompletionTokens);
+                log.error("  2. Question count ({}) is too large for the configured token limit", expectedType);
+                log.error("  3. Content complexity requires fewer questions or higher token limit");
+                throw new AIResponseParseException(
+                    "JSON response truncated due to token limit. " +
+                    "Current max-tokens: " + maxCompletionTokens + ". " +
+                    "Try reducing question count or increasing max-tokens in configuration.", e);
+            }
+            
             throw new AIResponseParseException("Invalid JSON in structured response: " + e.getMessage(), e);
         }
     }
