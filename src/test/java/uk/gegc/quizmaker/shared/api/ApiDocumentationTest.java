@@ -317,11 +317,20 @@ class ApiDocumentationTest {
         assertThat(json.has("example")).isTrue();
         assertThat(json.has("description")).isTrue();
         
-        // Verify example has options array with 4 items
+        // Verify example has full question structure
         JsonNode example = json.get("example");
-        assertThat(example.has("options")).isTrue();
-        assertThat(example.get("options").isArray()).isTrue();
-        assertThat(example.get("options").size()).isEqualTo(4);
+        assertThat(example.has("questionText")).isTrue();
+        assertThat(example.has("type")).isTrue();
+        assertThat(example.has("difficulty")).isTrue();
+        assertThat(example.has("content")).isTrue();
+        assertThat(example.has("hint")).isTrue();
+        assertThat(example.has("explanation")).isTrue();
+        
+        // Verify content has options array with 4 items
+        JsonNode content = example.get("content");
+        assertThat(content.has("options")).isTrue();
+        assertThat(content.get("options").isArray()).isTrue();
+        assertThat(content.get("options").size()).isEqualTo(4);
         
         // Verify description mentions 4 options
         assertThat(json.get("description").asText()).contains("4 options");
@@ -338,10 +347,17 @@ class ApiDocumentationTest {
         assertThat(json.has("schema")).isTrue();
         assertThat(json.has("example")).isTrue();
         
-        // Verify example has boolean answer
+        // Verify example has full question structure
         JsonNode example = json.get("example");
-        assertThat(example.has("answer")).isTrue();
-        assertThat(example.get("answer").isBoolean()).isTrue();
+        assertThat(example.has("questionText")).isTrue();
+        assertThat(example.has("content")).isTrue();
+        assertThat(example.has("hint")).isTrue();
+        assertThat(example.has("explanation")).isTrue();
+        
+        // Verify content has boolean answer
+        JsonNode content = example.get("content");
+        assertThat(content.has("answer")).isTrue();
+        assertThat(content.get("answer").isBoolean()).isTrue();
         
         assertThat(json.get("description").asText()).contains("True or False");
     }
@@ -355,9 +371,16 @@ class ApiDocumentationTest {
         
         JsonNode json = objectMapper.readTree(response.getBody());
         JsonNode example = json.get("example");
-        assertThat(example.has("text")).isTrue();
-        assertThat(example.has("gaps")).isTrue();
-        assertThat(example.get("gaps").isArray()).isTrue();
+        assertThat(example.has("questionText")).isTrue();
+        assertThat(example.has("content")).isTrue();
+        assertThat(example.has("hint")).isTrue();
+        assertThat(example.has("explanation")).isTrue();
+        
+        // Verify content has text and gaps
+        JsonNode content = example.get("content");
+        assertThat(content.has("text")).isTrue();
+        assertThat(content.has("gaps")).isTrue();
+        assertThat(content.get("gaps").isArray()).isTrue();
     }
 
     @Test
@@ -369,10 +392,17 @@ class ApiDocumentationTest {
         
         JsonNode json = objectMapper.readTree(response.getBody());
         JsonNode example = json.get("example");
-        assertThat(example.has("left")).isTrue();
-        assertThat(example.has("right")).isTrue();
-        assertThat(example.get("left").isArray()).isTrue();
-        assertThat(example.get("right").isArray()).isTrue();
+        assertThat(example.has("questionText")).isTrue();
+        assertThat(example.has("content")).isTrue();
+        assertThat(example.has("hint")).isTrue();
+        assertThat(example.has("explanation")).isTrue();
+        
+        // Verify content has left and right arrays
+        JsonNode content = example.get("content");
+        assertThat(content.has("left")).isTrue();
+        assertThat(content.has("right")).isTrue();
+        assertThat(content.get("left").isArray()).isTrue();
+        assertThat(content.get("right").isArray()).isTrue();
     }
 
     @Test
@@ -384,9 +414,16 @@ class ApiDocumentationTest {
         
         JsonNode json = objectMapper.readTree(response.getBody());
         JsonNode example = json.get("example");
-        assertThat(example.has("statements")).isTrue();
-        assertThat(example.get("statements").isArray()).isTrue();
-        assertThat(example.get("statements").size()).isGreaterThanOrEqualTo(2);
+        assertThat(example.has("questionText")).isTrue();
+        assertThat(example.has("content")).isTrue();
+        assertThat(example.has("hint")).isTrue();
+        assertThat(example.has("explanation")).isTrue();
+        
+        // Verify content has statements array
+        JsonNode content = example.get("content");
+        assertThat(content.has("statements")).isTrue();
+        assertThat(content.get("statements").isArray()).isTrue();
+        assertThat(content.get("statements").size()).isGreaterThanOrEqualTo(2);
     }
 
     @Test

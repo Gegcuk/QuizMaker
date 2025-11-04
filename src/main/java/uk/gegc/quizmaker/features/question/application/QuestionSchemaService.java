@@ -67,10 +67,8 @@ public class QuestionSchemaService {
                     if (fullExample.has("questions") && fullExample.get("questions").isArray() 
                             && fullExample.get("questions").size() > 0) {
                         JsonNode firstQuestion = fullExample.get("questions").get(0);
-                        // Return just the content field as the example
-                        if (firstQuestion.has("content")) {
-                            return firstQuestion.get("content");
-                        }
+                        // Return the full question (questionText, hint, explanation, content, etc.)
+                        return firstQuestion;
                     }
                 }
             }
@@ -101,9 +99,11 @@ public class QuestionSchemaService {
 
     /**
      * Create programmatic example if file doesn't exist
+     * Returns full question structure with questionText, hint, explanation, and content
      */
     private JsonNode createProgrammaticExample(QuestionType type) {
-        return switch (type) {
+        // Create the content field specific to each type
+        JsonNode content = switch (type) {
             case MCQ_SINGLE -> objectMapper.createObjectNode()
                     .set("options", objectMapper.createArrayNode()
                             .add(objectMapper.createObjectNode()
@@ -158,21 +158,18 @@ public class QuestionSchemaService {
             case ORDERING -> objectMapper.createObjectNode()
                     .set("items", objectMapper.createArrayNode()
                             .add(objectMapper.createObjectNode()
-                                    .put("id", "1")
-                                    .put("text", "First step")
-                                    .put("correctOrder", 1))
+                                    .put("id", 1)
+                                    .put("text", "First step"))
                             .add(objectMapper.createObjectNode()
-                                    .put("id", "2")
-                                    .put("text", "Second step")
-                                    .put("correctOrder", 2))
+                                    .put("id", 2)
+                                    .put("text", "Second step"))
                             .add(objectMapper.createObjectNode()
-                                    .put("id", "3")
-                                    .put("text", "Third step")
-                                    .put("correctOrder", 3)));
+                                    .put("id", 3)
+                                    .put("text", "Third step")));
             
             case MATCHING -> {
-                var content = objectMapper.createObjectNode();
-                content.set("left", objectMapper.createArrayNode()
+                var matchContent = objectMapper.createObjectNode();
+                matchContent.set("left", objectMapper.createArrayNode()
                         .add(objectMapper.createObjectNode()
                                 .put("id", 1)
                                 .put("text", "Term 1")
@@ -181,14 +178,14 @@ public class QuestionSchemaService {
                                 .put("id", 2)
                                 .put("text", "Term 2")
                                 .put("matchId", 2)));
-                content.set("right", objectMapper.createArrayNode()
+                matchContent.set("right", objectMapper.createArrayNode()
                         .add(objectMapper.createObjectNode()
                                 .put("id", 1)
                                 .put("text", "Definition 1"))
                         .add(objectMapper.createObjectNode()
                                 .put("id", 2)
                                 .put("text", "Definition 2")));
-                yield content;
+                yield matchContent;
             }
             
             case HOTSPOT -> objectMapper.createObjectNode()
@@ -219,6 +216,58 @@ public class QuestionSchemaService {
                                     .put("id", 2)
                                     .put("text", "Practice violates user privacy rights")
                                     .put("compliant", false)));
+        };
+        
+        // Wrap content in a full question structure
+        var fullQuestion = objectMapper.createObjectNode();
+        fullQuestion.put("questionText", getExampleQuestionText(type));
+        fullQuestion.put("type", type.name());
+        fullQuestion.put("difficulty", "MEDIUM");
+        fullQuestion.set("content", content);
+        fullQuestion.put("hint", getExampleHint(type));
+        fullQuestion.put("explanation", getExampleExplanation(type));
+        return fullQuestion;
+    }
+    
+    private String getExampleQuestionText(QuestionType type) {
+        return switch (type) {
+            case MCQ_SINGLE -> "What is the primary function of mitochondria in cells?";
+            case MCQ_MULTI -> "Which of the following are characteristics of mammals?";
+            case TRUE_FALSE -> "Photosynthesis occurs only in plant cells.";
+            case OPEN -> "Explain the process of cellular respiration and its importance.";
+            case FILL_GAP -> "Complete the sentence about cellular respiration.";
+            case ORDERING -> "Arrange these events in the history of SSL/TLS in chronological order.";
+            case MATCHING -> "Match each cell organelle with its primary function.";
+            case HOTSPOT -> "Click on the mitochondria in this cell diagram.";
+            case COMPLIANCE -> "Which practices comply with GDPR data protection requirements?";
+        };
+    }
+    
+    private String getExampleHint(QuestionType type) {
+        return switch (type) {
+            case MCQ_SINGLE -> "Think about where cellular energy is produced.";
+            case MCQ_MULTI -> "Consider all characteristics that define the mammal class.";
+            case TRUE_FALSE -> "Consider where chloroplasts are found.";
+            case OPEN -> "Consider the three main stages and ATP production.";
+            case FILL_GAP -> "Think about where this process occurs and what it produces.";
+            case ORDERING -> "SSL was developed before TLS.";
+            case MATCHING -> "Each organelle has a specialized role in the cell.";
+            case HOTSPOT -> "The mitochondria are bean-shaped structures.";
+            case COMPLIANCE -> "GDPR requires explicit consent for data processing.";
+        };
+    }
+    
+    private String getExampleExplanation(QuestionType type) {
+        return switch (type) {
+            case MCQ_SINGLE -> "Mitochondria are the powerhouses of the cell, producing ATP through cellular respiration.";
+            case MCQ_MULTI -> "Mammals are warm-blooded vertebrates with hair/fur that produce milk for their young.";
+            case TRUE_FALSE -> "False. Photosynthesis occurs in organisms with chloroplasts, including some bacteria and protists.";
+            case OPEN -> "Cellular respiration converts glucose to ATP through glycolysis, Krebs cycle, and electron transport chain.";
+            case FILL_GAP -> "Cellular respiration occurs in mitochondria and produces ATP for cellular energy.";
+            case ORDERING -> "SSL 2.0 (1995) → SSL 3.0 (1996) → TLS 1.0 (1999) → TLS 1.1 (2006) → TLS 1.2 (2008) → TLS 1.3 (2018).";
+            case MATCHING -> "Each organelle has evolved to perform specific functions critical to cell survival and operation.";
+            case HOTSPOT -> "Mitochondria are typically located throughout the cytoplasm and are responsible for ATP production.";
+            case COMPLIANCE -> "GDPR requires explicit consent, purpose limitation, and data minimization for lawful processing.";
         };
     }
 
