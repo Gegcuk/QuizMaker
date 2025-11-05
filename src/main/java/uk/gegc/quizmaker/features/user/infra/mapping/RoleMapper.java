@@ -12,23 +12,45 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RoleMapper {
 
-    public RoleDto toDto(Role role) {
+    /**
+     * Convert Role entity to RoleDto with userCount.
+     * For single role conversions, userCount should be provided by the service layer.
+     * 
+     * @param role The role entity
+     * @param userCount The count of users assigned to this role
+     * @return RoleDto
+     */
+    public RoleDto toDto(Role role, int userCount) {
         if (role == null) {
             return null;
         }
 
-        return RoleDto.builder()
-                .roleId(role.getRoleId())
-                .roleName(role.getRoleName())
-                .description(role.getDescription())
-                .isDefault(role.isDefault())
-                .permissions(role.getPermissions() != null ?
+        return new RoleDto(
+                role.getRoleId(),
+                role.getRoleName(),
+                role.getDescription(),
+                role.isDefault(),
+                role.getPermissions() != null ?
                         role.getPermissions().stream()
                                 .map(permission -> permission.getPermissionName())
-                                .collect(Collectors.toSet()) : null)
-                .build();
+                                .collect(Collectors.toSet()) : null,
+                userCount
+        );
     }
 
+    /**
+     * Convenience method for converting a single role without user count.
+     * Sets userCount to 0 - use toDto(Role, int) when count is needed.
+     */
+    public RoleDto toDto(Role role) {
+        return toDto(role, 0);
+    }
+
+    /**
+     * Convert list of roles to DTOs.
+     * Note: This sets userCount to 0 for all roles.
+     * Use service layer methods that fetch counts in batch for accurate counts.
+     */
     public List<RoleDto> toDtoList(List<Role> roles) {
         if (roles == null) {
             return null;

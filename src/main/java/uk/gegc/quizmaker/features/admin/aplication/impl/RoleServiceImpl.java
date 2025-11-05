@@ -23,8 +23,10 @@ import uk.gegc.quizmaker.shared.security.PermissionUtil;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -43,13 +45,13 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public RoleDto createRole(CreateRoleRequest request) {
-        if (roleExists(request.getRoleName())) {
-            throw new IllegalArgumentException("Role already exists: " + request.getRoleName());
+        if (roleExists(request.roleName())) {
+            throw new IllegalArgumentException("Role already exists: " + request.roleName());
         }
 
         Role role = Role.builder()
-                .roleName(request.getRoleName())
-                .description(request.getDescription())
+                .roleName(request.roleName())
+                .description(request.description())
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
@@ -69,7 +71,7 @@ public class RoleServiceImpl implements RoleService {
             );
         }
         
-        log.info("Created role: {}", request.getRoleName());
+        log.info("Created role: {}", request.roleName());
         return roleMapper.toDto(savedRole);
     }
 
@@ -78,7 +80,7 @@ public class RoleServiceImpl implements RoleService {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
-        role.setDescription(request.getDescription());
+        role.setDescription(request.description());
         role.setDefault(request.isDefault());
 
         Role updatedRole = roleRepository.save(role);
@@ -120,15 +122,25 @@ public class RoleServiceImpl implements RoleService {
         Role role = roleRepository.findByIdWithPermissions(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
-        return roleMapper.toDto(role);
+        // Fetch user count for this specific role
+        int userCount = roleRepository.countUsersByRoleId(roleId);
+        return roleMapper.toDto(role, userCount);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<RoleDto> getAllRoles() {
         List<Role> roles = roleRepository.findAllWithPermissions();
+        
+        // Fetch all user counts in a single query to avoid N+1
+        Map<Long, Long> userCounts = roleRepository.findAllRoleUserCounts().stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],     // roleId
+                        row -> (Long) row[1]      // userCount
+                ));
+        
         return roles.stream()
-                .map(roleMapper::toDto)
+                .map(role -> roleMapper.toDto(role, userCounts.getOrDefault(role.getRoleId(), 0L).intValue()))
                 .toList();
     }
 
@@ -136,7 +148,15 @@ public class RoleServiceImpl implements RoleService {
     @Transactional(readOnly = true)
     public Page<RoleDto> getAllRoles(Pageable pageable, String search) {
         Page<Role> roles = roleRepository.findAllWithPermissionsAndSearch(search, pageable);
-        return roles.map(roleMapper::toDto);
+        
+        // Fetch all user counts in a single query to avoid N+1
+        Map<Long, Long> userCounts = roleRepository.findAllRoleUserCounts().stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],     // roleId
+                        row -> (Long) row[1]      // userCount
+                ));
+        
+        return roles.map(role -> roleMapper.toDto(role, userCounts.getOrDefault(role.getRoleId(), 0L).intValue()));
     }
 
     @Override

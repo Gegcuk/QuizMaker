@@ -53,21 +53,23 @@ class AdminControllerTest {
     @WithMockUser(authorities = "ROLE_READ")
     void getAllRolesPaginated_whenCalled_thenReturnsPaginatedRoles() throws Exception {
         // Given
-        RoleDto role1 = RoleDto.builder()
-                .roleId(1L)
-                .roleName("ROLE_USER")
-                .description("Basic user role")
-                .isDefault(true)
-                .permissions(Set.of())
-                .build();
+        RoleDto role1 = new RoleDto(
+                1L,
+                "ROLE_USER",
+                "Basic user role",
+                true,
+                Set.of(),
+                0
+        );
 
-        RoleDto role2 = RoleDto.builder()
-                .roleId(2L)
-                .roleName("ROLE_ADMIN")
-                .description("Admin role")
-                .isDefault(false)
-                .permissions(Set.of())
-                .build();
+        RoleDto role2 = new RoleDto(
+                2L,
+                "ROLE_ADMIN",
+                "Admin role",
+                false,
+                Set.of(),
+                0
+        );
 
         Page<RoleDto> rolesPage = new PageImpl<>(List.of(role1, role2), PageRequest.of(0, 20), 2);
         
@@ -96,13 +98,14 @@ class AdminControllerTest {
     @WithMockUser(authorities = "ROLE_READ")
     void getAllRolesPaginated_whenNoSearch_thenReturnsAllRoles() throws Exception {
         // Given
-        RoleDto role = RoleDto.builder()
-                .roleId(1L)
-                .roleName("ROLE_USER")
-                .description("Basic user role")
-                .isDefault(true)
-                .permissions(Set.of())
-                .build();
+        RoleDto role = new RoleDto(
+                1L,
+                "ROLE_USER",
+                "Basic user role",
+                true,
+                Set.of(),
+                0
+        );
 
         Page<RoleDto> rolesPage = new PageImpl<>(List.of(role), PageRequest.of(0, 20), 1);
         
