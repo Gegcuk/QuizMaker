@@ -107,11 +107,11 @@ public class AdminController {
     @RequirePermission(PermissionName.ROLE_CREATE)
     public ResponseEntity<RoleDto> createRole(@Valid @RequestBody CreateRoleRequest request) {
         // Normalize role name to uppercase
-        CreateRoleRequest normalizedRequest = CreateRoleRequest.builder()
-                .roleName(request.getRoleName().toUpperCase())
-                .description(request.getDescription())
-                .isDefault(request.isDefault())
-                .build();
+        CreateRoleRequest normalizedRequest = new CreateRoleRequest(
+                request.roleName().toUpperCase(),
+                request.description(),
+                request.isDefault()
+        );
         
         RoleDto createdRole = roleService.createRole(normalizedRequest);
         return ResponseEntity.ok(createdRole);

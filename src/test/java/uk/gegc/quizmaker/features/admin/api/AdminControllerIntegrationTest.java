@@ -133,19 +133,19 @@ class AdminControllerIntegrationTest extends BaseIntegrationTest {
         // Given
         when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(true);
         
-        CreateRoleRequest request = CreateRoleRequest.builder()
-                .roleName("TEST_ROLE")
-                .description("Test role")
-                .isDefault(true)
-                .build();
-        RoleDto expectedRole = RoleDto.builder()
-                .roleId(1L)
-                .roleName("TEST_ROLE")
-                .description("Test role")
-                .isDefault(true)
-                .permissions(Set.of("QUIZ_READ"))
-                .userCount(0)
-                .build();
+        CreateRoleRequest request = new CreateRoleRequest(
+                "TEST_ROLE",
+                "Test role",
+                true
+        );
+        RoleDto expectedRole = new RoleDto(
+                1L,
+                "TEST_ROLE",
+                "Test role",
+                true,
+                Set.of("QUIZ_READ"),
+                0
+        );
         
         when(roleService.createRole(any(CreateRoleRequest.class))).thenReturn(expectedRole);
 
@@ -165,11 +165,11 @@ class AdminControllerIntegrationTest extends BaseIntegrationTest {
         // Given
         when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_CREATE)).thenReturn(false);
         
-        CreateRoleRequest request = CreateRoleRequest.builder()
-                .roleName("TEST_ROLE")
-                .description("Test role")
-                .isDefault(true)
-                .build();
+        CreateRoleRequest request = new CreateRoleRequest(
+                "TEST_ROLE",
+                "Test role",
+                true
+        );
 
         // When & Then
         mockMvc.perform(post("/api/v1/admin/roles")
@@ -185,18 +185,18 @@ class AdminControllerIntegrationTest extends BaseIntegrationTest {
         // Given
         when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_UPDATE)).thenReturn(true);
         
-        UpdateRoleRequest request = UpdateRoleRequest.builder()
-                .description("Updated role")
-                .isDefault(false)
-                .build();
-        RoleDto expectedRole = RoleDto.builder()
-                .roleId(1L)
-                .roleName("UPDATED_ROLE")
-                .description("Updated role")
-                .isDefault(false)
-                .permissions(Set.of("QUIZ_READ", "QUIZ_WRITE"))
-                .userCount(0)
-                .build();
+        UpdateRoleRequest request = new UpdateRoleRequest(
+                "Updated role",
+                false
+        );
+        RoleDto expectedRole = new RoleDto(
+                1L,
+                "UPDATED_ROLE",
+                "Updated role",
+                false,
+                Set.of("QUIZ_READ", "QUIZ_WRITE"),
+                0
+        );
         
         when(roleService.updateRole(eq(1L), any(UpdateRoleRequest.class))).thenReturn(expectedRole);
 
@@ -216,10 +216,10 @@ class AdminControllerIntegrationTest extends BaseIntegrationTest {
         // Given
         when(appPermissionEvaluator.hasAnyPermission(PermissionName.ROLE_UPDATE)).thenReturn(false);
         
-        UpdateRoleRequest request = UpdateRoleRequest.builder()
-                .description("Updated role")
-                .isDefault(false)
-                .build();
+        UpdateRoleRequest request = new UpdateRoleRequest(
+                "Updated role",
+                false
+        );
 
         // When & Then
         mockMvc.perform(put("/api/v1/admin/roles/1")

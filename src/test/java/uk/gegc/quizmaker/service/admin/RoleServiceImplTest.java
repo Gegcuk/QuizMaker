@@ -64,29 +64,30 @@ class RoleServiceImplTest {
     @DisplayName("createRole: successfully creates new role")
     void createRole_success() {
         // Given
-        CreateRoleRequest request = CreateRoleRequest.builder()
-                .roleName("TEST_ROLE")
-                .description("Test role description")
-                .isDefault(false)
-                .build();
+        CreateRoleRequest request = new CreateRoleRequest(
+                "TEST_ROLE",
+                "Test role description",
+                false
+        );
 
-        when(roleRepository.existsByRoleName(request.getRoleName())).thenReturn(false);
+        when(roleRepository.existsByRoleName(request.roleName())).thenReturn(false);
 
         Role savedRole = Role.builder()
                 .roleId(1L)
-                .roleName(request.getRoleName())
-                .description(request.getDescription())
+                .roleName(request.roleName())
+                .description(request.description())
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
 
-        RoleDto expectedDto = RoleDto.builder()
-                .roleId(1L)
-                .roleName(request.getRoleName())
-                .description(request.getDescription())
-                .isDefault(request.isDefault())
-                .permissions(new HashSet<>())
-                .build();
+        RoleDto expectedDto = new RoleDto(
+                1L,
+                request.roleName(),
+                request.description(),
+                request.isDefault(),
+                new HashSet<>(),
+                0
+        );
 
         when(roleRepository.save(any(Role.class))).thenReturn(savedRole);
         when(roleMapper.toDto(savedRole)).thenReturn(expectedDto);
@@ -98,7 +99,7 @@ class RoleServiceImplTest {
         // Then
         assertNotNull(result);
         assertEquals(expectedDto, result);
-        verify(roleRepository).existsByRoleName(request.getRoleName());
+        verify(roleRepository).existsByRoleName(request.roleName());
         verify(roleRepository).save(any(Role.class));
         verify(roleMapper).toDto(savedRole);
     }
@@ -107,18 +108,20 @@ class RoleServiceImplTest {
     @DisplayName("createRole: throws exception when role already exists")
     void createRole_alreadyExists() {
         // Given
-        CreateRoleRequest request = CreateRoleRequest.builder()
-                .roleName("EXISTING_ROLE")
-                .build();
+        CreateRoleRequest request = new CreateRoleRequest(
+                "EXISTING_ROLE",
+                null,
+                false
+        );
 
-        when(roleRepository.existsByRoleName(request.getRoleName())).thenReturn(true);
+        when(roleRepository.existsByRoleName(request.roleName())).thenReturn(true);
 
         // When & Then
         assertThrows(IllegalArgumentException.class, () ->
                 roleService.createRole(request)
         );
 
-        verify(roleRepository).existsByRoleName(request.getRoleName());
+        verify(roleRepository).existsByRoleName(request.roleName());
         verify(roleRepository, never()).save(any());
     }
 
@@ -127,10 +130,10 @@ class RoleServiceImplTest {
     void updateRole_success() {
         // Given
         Long roleId = 1L;
-        UpdateRoleRequest request = UpdateRoleRequest.builder()
-                .description("Updated description")
-                .isDefault(true)
-                .build();
+        UpdateRoleRequest request = new UpdateRoleRequest(
+                "Updated description",
+                true
+        );
 
         Role existingRole = Role.builder()
                 .roleId(roleId)
@@ -139,12 +142,14 @@ class RoleServiceImplTest {
                 .isDefault(false)
                 .build();
 
-        RoleDto expectedDto = RoleDto.builder()
-                .roleId(roleId)
-                .roleName("TEST_ROLE")
-                .description(request.getDescription())
-                .isDefault(request.isDefault())
-                .build();
+        RoleDto expectedDto = new RoleDto(
+                roleId,
+                "TEST_ROLE",
+                request.description(),
+                request.isDefault(),
+                null,
+                0
+        );
 
         when(roleRepository.findById(roleId)).thenReturn(Optional.of(existingRole));
         when(roleRepository.save(any(Role.class))).thenReturn(existingRole);
@@ -155,7 +160,7 @@ class RoleServiceImplTest {
 
         // Then
         assertEquals(expectedDto, result);
-        assertEquals(request.getDescription(), existingRole.getDescription());
+        assertEquals(request.description(), existingRole.getDescription());
         assertEquals(request.isDefault(), existingRole.isDefault());
         verify(roleRepository).findById(roleId);
         verify(roleRepository).save(existingRole);
@@ -166,7 +171,7 @@ class RoleServiceImplTest {
     void updateRole_notFound() {
         // Given
         Long roleId = 999L;
-        UpdateRoleRequest request = UpdateRoleRequest.builder().build();
+        UpdateRoleRequest request = new UpdateRoleRequest(null, false);
 
         when(roleRepository.findById(roleId)).thenReturn(Optional.empty());
 
@@ -239,10 +244,14 @@ class RoleServiceImplTest {
                 .roleName("TEST_ROLE")
                 .build();
 
-        RoleDto expectedDto = RoleDto.builder()
-                .roleId(roleId)
-                .roleName("TEST_ROLE")
-                .build();
+        RoleDto expectedDto = new RoleDto(
+                roleId,
+                "TEST_ROLE",
+                null,
+                false,
+                null,
+                0
+        );
 
         when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.of(role));
         when(roleMapper.toDto(role)).thenReturn(expectedDto);
@@ -266,8 +275,8 @@ class RoleServiceImplTest {
         );
 
         List<RoleDto> expectedDtos = Arrays.asList(
-                RoleDto.builder().roleId(1L).roleName("ROLE1").build(),
-                RoleDto.builder().roleId(2L).roleName("ROLE2").build()
+                new RoleDto(1L, "ROLE1", null, false, null, 0),
+                new RoleDto(2L, "ROLE2", null, false, null, 0)
         );
 
         when(roleRepository.findAllWithPermissions()).thenReturn(roles);

@@ -43,13 +43,13 @@ public class RoleServiceImpl implements RoleService {
 
     @Override
     public RoleDto createRole(CreateRoleRequest request) {
-        if (roleExists(request.getRoleName())) {
-            throw new IllegalArgumentException("Role already exists: " + request.getRoleName());
+        if (roleExists(request.roleName())) {
+            throw new IllegalArgumentException("Role already exists: " + request.roleName());
         }
 
         Role role = Role.builder()
-                .roleName(request.getRoleName())
-                .description(request.getDescription())
+                .roleName(request.roleName())
+                .description(request.description())
                 .isDefault(request.isDefault())
                 .permissions(new HashSet<>())
                 .build();
@@ -69,7 +69,7 @@ public class RoleServiceImpl implements RoleService {
             );
         }
         
-        log.info("Created role: {}", request.getRoleName());
+        log.info("Created role: {}", request.roleName());
         return roleMapper.toDto(savedRole);
     }
 
@@ -78,7 +78,7 @@ public class RoleServiceImpl implements RoleService {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleId));
 
-        role.setDescription(request.getDescription());
+        role.setDescription(request.description());
         role.setDefault(request.isDefault());
 
         Role updatedRole = roleRepository.save(role);
