@@ -254,7 +254,8 @@ class RoleServiceImplTest {
         );
 
         when(roleRepository.findByIdWithPermissions(roleId)).thenReturn(Optional.of(role));
-        when(roleMapper.toDto(role)).thenReturn(expectedDto);
+        when(roleRepository.countUsersByRoleId(roleId)).thenReturn(0);
+        when(roleMapper.toDto(role, 0)).thenReturn(expectedDto);
 
         // When
         RoleDto result = roleService.getRoleById(roleId);
@@ -262,7 +263,8 @@ class RoleServiceImplTest {
         // Then
         assertEquals(expectedDto, result);
         verify(roleRepository).findByIdWithPermissions(roleId);
-        verify(roleMapper).toDto(role);
+        verify(roleRepository).countUsersByRoleId(roleId);
+        verify(roleMapper).toDto(role, 0);
     }
 
     @Test
@@ -279,9 +281,16 @@ class RoleServiceImplTest {
                 new RoleDto(2L, "ROLE2", null, false, null, 0)
         );
 
+        // Mock user counts query (returns roleId, userCount pairs)
+        List<Object[]> userCounts = Arrays.asList(
+                new Object[]{1L, 0L},
+                new Object[]{2L, 0L}
+        );
+
         when(roleRepository.findAllWithPermissions()).thenReturn(roles);
-        when(roleMapper.toDto(roles.get(0))).thenReturn(expectedDtos.get(0));
-        when(roleMapper.toDto(roles.get(1))).thenReturn(expectedDtos.get(1));
+        when(roleRepository.findAllRoleUserCounts()).thenReturn(userCounts);
+        when(roleMapper.toDto(roles.get(0), 0)).thenReturn(expectedDtos.get(0));
+        when(roleMapper.toDto(roles.get(1), 0)).thenReturn(expectedDtos.get(1));
 
         // When
         List<RoleDto> result = roleService.getAllRoles();
@@ -289,6 +298,7 @@ class RoleServiceImplTest {
         // Then
         assertEquals(2, result.size());
         verify(roleRepository).findAllWithPermissions();
+        verify(roleRepository).findAllRoleUserCounts();
     }
 
     @Test
