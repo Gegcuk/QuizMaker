@@ -23,7 +23,10 @@ public record AttemptResultDto(
         @Schema(description = "Timestamp when the attempt was completed", example = "2025-05-20T14:45:00Z")
         Instant completedAt,
 
-        @Schema(description = "Total score achieved", example = "5.0")
+        @Schema(
+                description = "Total score achieved (raw points, not percentage). Sum of all individual answer scores.",
+                example = "85.5"
+        )
         Double totalScore,
 
         @Schema(description = "Number of correct answers", example = "5")
