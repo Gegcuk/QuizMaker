@@ -101,23 +101,23 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     List<Attempt> findByStartedAtBetween(Instant start, Instant end);
 
     /**
-     * Find attempts with quiz and answers eagerly loaded for summary/enriched views.
-     * Uses JOIN FETCH to avoid N+1 queries.
-     * Question count should be computed separately to avoid loading all question entities.
+     * Find attempts with quiz eagerly loaded for summary/enriched views.
+     * Uses JOIN FETCH to avoid N+1 queries on quiz and category.
+     * Answers are NOT fetched here to avoid pagination issues with collection fetch.
+     * Answers will be lazy-loaded within transaction when needed for stats computation.
      */
     @Query(value = """
-            SELECT a
+            SELECT DISTINCT a
             FROM Attempt a
             JOIN FETCH a.quiz q
             JOIN FETCH q.category c
             JOIN FETCH a.user u
-            LEFT JOIN FETCH a.answers ans
             WHERE (:quizId IS NULL OR q.id = :quizId)
               AND (:userId IS NULL OR u.id = :userId)
               AND (:status IS NULL OR a.status = :status)
             """,
             countQuery = """
-                    SELECT COUNT(a)
+                    SELECT COUNT(DISTINCT a)
                     FROM Attempt a
                     WHERE (:quizId IS NULL OR a.quiz.id = :quizId)
                       AND (:userId IS NULL OR a.user.id = :userId)
