@@ -316,7 +316,18 @@ public class QuizController {
 
     @Operation(
             summary = "Get aggregated quiz results summary",
-            description = "Returns counts, scores, pass rate and per-question stats."
+            description = """
+                    Returns aggregate statistics for all completed attempts of a quiz.
+                    
+                    **Score Values**: `averageScore`, `bestScore`, and `worstScore` are **raw point values** (not percentages).
+                    Each correct answer = 1 point, so maximum possible score equals the number of questions in the quiz.
+                    
+                    **Pass Rate**: The `passRate` field IS a percentage (0-100) representing the ratio of attempts 
+                    with ≥50% correct answers.
+                    
+                    **Note**: If scores appear abnormally high (e.g., 546 points for a 41-question quiz), this indicates 
+                    the quiz was modified after attempts were completed, or there's data inconsistency.
+                    """
     )
     @GetMapping("/{quizId}/results")
     public ResponseEntity<QuizResultSummaryDto> getQuizResults(
@@ -329,12 +340,17 @@ public class QuizController {
 
     @Operation(
             summary = "Get quiz leaderboard",
-            description = "Retrieve top participants of a quiz raked by score"
+            description = """
+                    Retrieve top participants for a quiz ranked by their best score.
+                    
+                    **Score Values**: Scores are **raw point values** (not percentages), where 1 point = 1 correct answer.
+                    """
     )
     @GetMapping("/{quizId}/leaderboard")
     public ResponseEntity<List<LeaderboardEntryDto>> getQuizLeaderboard(
             @Parameter(description = "UUID of the quiz", required = true)
             @PathVariable UUID quizId,
+            @Parameter(description = "Maximum number of entries to return", example = "10")
             @RequestParam(name = "top", defaultValue = "10") int top,
             Authentication authentication
     ) {

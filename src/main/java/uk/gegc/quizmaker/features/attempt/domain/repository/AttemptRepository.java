@@ -79,11 +79,16 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
             """)
     List<Attempt> findCompletedWithAnswersByQuizId(@Param("quizId") UUID quizId);
 
+    /**
+     * Load attempt with answers and their questions for answer submission flow.
+     * NOTE: Do NOT include "quiz.questions" in attributePaths - causes cartesian product
+     * with "answers" collection, resulting in duplicate answers and inflated scores!
+     */
     @EntityGraph(attributePaths = {
             "answers",
             "answers.question",
-            "quiz",
-            "quiz.questions"
+            "quiz"
+            // quiz.questions intentionally OMITTED to avoid cartesian product
     })
     @Query("SELECT a FROM Attempt a WHERE a.id = :id")
     Optional<Attempt> findFullyLoadedById(@Param("id") UUID id);

@@ -32,7 +32,10 @@ public record AttemptSummaryDto(
         @Schema(description = "Mode of the attempt", example = "ALL_AT_ONCE")
         AttemptMode mode,
 
-        @Schema(description = "Total score achieved (null if not completed)", example = "8.5")
+        @Schema(
+                description = "Total score achieved (raw points, not percentage). Sum of all individual answer scores. Null if attempt not completed.",
+                example = "85.5"
+        )
         Double totalScore,
 
         @Schema(description = "Embedded quiz summary")
