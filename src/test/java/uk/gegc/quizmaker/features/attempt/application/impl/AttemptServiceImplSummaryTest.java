@@ -44,12 +44,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -381,6 +384,70 @@ class AttemptServiceImplSummaryTest {
         assertThat(summary.stats().correctAnswers()).isEqualTo(1);
         assertThat(summary.stats().accuracyPercentage()).isEqualTo(50.0);  // 1/2 = 50%
         assertThat(summary.stats().completionPercentage()).isEqualTo(20.0);  // 2/10 = 20%
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: batch fetches answers to avoid N+1 queries")
+    void getAttemptsSummary_batchFetchesAnswers_avoidsN1() {
+        // Given: Multiple completed attempts in the result
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+
+        Attempt attempt1 = new Attempt();
+        attempt1.setId(UUID.randomUUID());
+        attempt1.setUser(testUser);
+        attempt1.setQuiz(testQuiz);
+        attempt1.setStatus(AttemptStatus.COMPLETED);
+        attempt1.setStartedAt(Instant.now().minus(10, ChronoUnit.MINUTES));
+        attempt1.setCompletedAt(Instant.now());
+
+        Attempt attempt2 = new Attempt();
+        attempt2.setId(UUID.randomUUID());
+        attempt2.setUser(testUser);
+        attempt2.setQuiz(testQuiz);
+        attempt2.setStatus(AttemptStatus.COMPLETED);
+        attempt2.setStartedAt(Instant.now().minus(15, ChronoUnit.MINUTES));
+        attempt2.setCompletedAt(Instant.now().minus(5, ChronoUnit.MINUTES));
+
+        List<Attempt> attemptList = List.of(attempt1, attempt2);
+        Page<Attempt> attemptPage = new PageImpl<>(attemptList);
+
+        when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
+                .thenReturn(attemptPage);
+
+        // Mock the batch fetch call (this is the N+1 fix verification)
+        when(attemptRepository.batchFetchAnswersForAttempts(
+                argThat(ids -> ids.containsAll(List.of(attempt1.getId(), attempt2.getId())))
+        )).thenReturn(attemptList);
+
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
+
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                null,
+                null,
+                null
+        );
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(2);
+
+        // Verify batch fetch was called once with all attempt IDs
+        // This proves we're avoiding N+1 queries for answers
+        verify(attemptRepository).batchFetchAnswersForAttempts(
+                argThat(ids -> ids.size() == 2 && 
+                        ids.contains(attempt1.getId()) && 
+                        ids.contains(attempt2.getId()))
+        );
     }
 }
 

@@ -105,7 +105,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
      * Find attempts with quiz eagerly loaded for summary/enriched views.
      * Uses JOIN FETCH to avoid N+1 queries on quiz and category.
      * Answers are NOT fetched here to avoid pagination issues with collection fetch.
-     * Answers will be lazy-loaded within transaction when needed for stats computation.
+     * Use batchFetchAnswersForAttempts() after this to load answers efficiently.
      */
     @Query(value = """
             SELECT DISTINCT a
@@ -131,4 +131,17 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
             @Param("status") AttemptStatus status,
             Pageable pageable
     );
+
+    /**
+     * Batch-fetch answers for multiple attempts in a single query.
+     * This populates the persistence context so that attempt.getAnswers() doesn't trigger N+1 queries.
+     * Call this after fetching a paginated list of attempts.
+     */
+    @Query("""
+            SELECT DISTINCT a
+            FROM Attempt a
+            LEFT JOIN FETCH a.answers
+            WHERE a.id IN :attemptIds
+            """)
+    List<Attempt> batchFetchAnswersForAttempts(@Param("attemptIds") List<UUID> attemptIds);
 }

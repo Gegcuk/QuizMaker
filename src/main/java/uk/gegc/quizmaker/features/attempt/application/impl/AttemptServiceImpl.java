@@ -797,13 +797,24 @@ public class AttemptServiceImpl implements AttemptService {
         // If userId not specified, default to current user
         UUID effectiveUserId = userId != null ? userId : currentUser.getId();
 
-        // Fetch attempts with quiz and answers eagerly loaded (single query with JOIN FETCH)
+        // Fetch attempts with quiz eagerly loaded (single query with JOIN FETCH)
         Page<Attempt> attempts = attemptRepository.findAllWithQuizAndAnswersEager(
                 quizId,
                 effectiveUserId,
                 status,
                 pageable
         );
+
+        // Batch fetch answers for all attempts in this page (single query, avoids N+1)
+        List<UUID> attemptIds = attempts.getContent().stream()
+                .map(Attempt::getId)
+                .toList();
+        
+        if (!attemptIds.isEmpty()) {
+            // This populates the persistence context with answers,
+            // so attempt.getAnswers() won't trigger additional queries
+            attemptRepository.batchFetchAnswersForAttempts(attemptIds);
+        }
 
         // Batch fetch question counts for all unique quizzes in this page (avoid N+1)
         List<UUID> quizIds = attempts.getContent().stream()
