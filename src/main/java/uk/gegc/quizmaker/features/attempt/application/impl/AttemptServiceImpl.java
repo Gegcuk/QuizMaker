@@ -778,7 +778,7 @@ public class AttemptServiceImpl implements AttemptService {
             Pageable pageable,
             UUID quizId,
             UUID userId,
-            String status
+            AttemptStatus status
     ) {
         // Fetch current user
         User currentUser = userRepository.findByUsernameWithRolesAndPermissions(username)

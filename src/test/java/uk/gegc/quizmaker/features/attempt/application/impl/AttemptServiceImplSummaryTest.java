@@ -305,7 +305,7 @@ class AttemptServiceImplSummaryTest {
     void getAttemptsSummary_withFilters_passesFilters() {
         // Given
         UUID quizId = UUID.randomUUID();
-        String status = "COMPLETED";
+        AttemptStatus status = AttemptStatus.COMPLETED;
         
         when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
                 .thenReturn(Optional.of(testUser));

@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -127,7 +128,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     Page<Attempt> findAllWithQuizAndAnswersEager(
             @Param("quizId") UUID quizId,
             @Param("userId") UUID userId,
-            @Param("status") String status,
+            @Param("status") AttemptStatus status,
             Pageable pageable
     );
 }

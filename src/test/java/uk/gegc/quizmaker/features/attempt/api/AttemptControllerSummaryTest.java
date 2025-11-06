@@ -120,7 +120,7 @@ class AttemptControllerSummaryTest {
         // Given
         UUID quizId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        String status = "COMPLETED";
+        String statusParam = "COMPLETED";
 
         Page<AttemptSummaryDto> emptyPage = new PageImpl<>(List.of());
         when(attemptService.getAttemptsSummary(
@@ -128,14 +128,14 @@ class AttemptControllerSummaryTest {
                 any(),
                 eq(quizId),
                 eq(userId),
-                eq(status)
+                eq(AttemptStatus.COMPLETED)
         )).thenReturn(emptyPage);
 
         // When & Then
         mockMvc.perform(get("/api/v1/attempts/summary")
                         .param("quizId", quizId.toString())
                         .param("userId", userId.toString())
-                        .param("status", status)
+                        .param("status", statusParam)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())

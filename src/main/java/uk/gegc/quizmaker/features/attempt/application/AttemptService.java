@@ -6,6 +6,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
 import uk.gegc.quizmaker.shared.exception.AttemptNotCompletedException;
@@ -139,7 +140,7 @@ public interface AttemptService {
      * @param pageable pagination parameters
      * @param quizId optional filter by quiz ID
      * @param userId optional filter by user ID (must be current user unless admin)
-     * @param status optional filter by attempt status
+     * @param status optional filter by attempt status (enum)
      * @return Page of AttemptSummaryDto with embedded quiz and stats
      * @throws ResourceNotFoundException if the user is not found
      * @throws AccessDeniedException if user tries to access other users' attempts without permission
@@ -149,6 +150,6 @@ public interface AttemptService {
             Pageable pageable,
             UUID quizId,
             UUID userId,
-            String status
+            AttemptStatus status
     );
 }

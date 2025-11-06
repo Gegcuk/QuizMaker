@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
 import java.util.List;
 import java.util.UUID;
@@ -156,12 +157,23 @@ public class AttemptController {
             @Parameter(in = ParameterIn.QUERY, description = "Filter by user UUID (defaults to current user; admins can specify others)")
             @RequestParam(name = "userId", required = false) UUID userId,
 
-            @Parameter(in = ParameterIn.QUERY, description = "Filter by attempt status", example = "COMPLETED")
-            @RequestParam(name = "status", required = false) String status,
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by attempt status (COMPLETED, IN_PROGRESS, PAUSED, ABANDONED)", example = "COMPLETED")
+            @RequestParam(name = "status", required = false) String statusParam,
 
             Authentication authentication
     ) {
         String username = authentication.getName();
+        
+        // Parse and validate status parameter
+        AttemptStatus status = null;
+        if (statusParam != null && !statusParam.isBlank()) {
+            try {
+                status = AttemptStatus.valueOf(statusParam.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid status value: " + statusParam + ". Valid values are: COMPLETED, IN_PROGRESS, PAUSED, ABANDONED");
+            }
+        }
+        
         Page<AttemptSummaryDto> result = attemptService.getAttemptsSummary(
                 username,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt")),
