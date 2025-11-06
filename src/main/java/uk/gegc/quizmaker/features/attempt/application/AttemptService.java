@@ -129,4 +129,26 @@ public interface AttemptService {
      * @throws AttemptNotCompletedException if the attempt is not completed
      */
     AttemptReviewDto getAttemptAnswerKey(String username, UUID attemptId);
+
+    /**
+     * Get enriched attempts with embedded quiz summary and statistics.
+     * This endpoint reduces N+1 queries by returning all necessary data in one call.
+     * Uses JOIN FETCH to load quiz and answers in a single database query.
+     *
+     * @param username the username of the authenticated user
+     * @param pageable pagination parameters
+     * @param quizId optional filter by quiz ID
+     * @param userId optional filter by user ID (must be current user unless admin)
+     * @param status optional filter by attempt status
+     * @return Page of AttemptSummaryDto with embedded quiz and stats
+     * @throws ResourceNotFoundException if the user is not found
+     * @throws AccessDeniedException if user tries to access other users' attempts without permission
+     */
+    Page<AttemptSummaryDto> getAttemptsSummary(
+            String username,
+            Pageable pageable,
+            UUID quizId,
+            UUID userId,
+            String status
+    );
 }

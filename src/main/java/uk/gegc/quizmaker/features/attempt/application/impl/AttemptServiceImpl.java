@@ -771,6 +771,94 @@ public class AttemptServiceImpl implements AttemptService {
         return getAttemptReview(username, attemptId, false, true, true);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AttemptSummaryDto> getAttemptsSummary(
+            String username,
+            Pageable pageable,
+            UUID quizId,
+            UUID userId,
+            String status
+    ) {
+        // Fetch current user
+        User currentUser = userRepository.findByUsernameWithRolesAndPermissions(username)
+                .or(() -> userRepository.findByEmailWithRolesAndPermissions(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
+
+        // Authorization: if userId is specified and different from current user, check admin permission
+        if (userId != null && !userId.equals(currentUser.getId())) {
+            boolean canViewOthers = appPermissionEvaluator.hasPermission(currentUser, PermissionName.ATTEMPT_READ_ALL)
+                    || appPermissionEvaluator.hasPermission(currentUser, PermissionName.SYSTEM_ADMIN);
+            if (!canViewOthers) {
+                throw new AccessDeniedException("You do not have permission to view other users' attempts");
+            }
+        }
+
+        // If userId not specified, default to current user
+        UUID effectiveUserId = userId != null ? userId : currentUser.getId();
+
+        // Fetch attempts with quiz and answers eagerly loaded (single query with JOIN FETCH)
+        Page<Attempt> attempts = attemptRepository.findAllWithQuizAndAnswersEager(
+                quizId,
+                effectiveUserId,
+                status,
+                pageable
+        );
+
+        // Map to summary DTOs
+        return attempts.map(attempt -> {
+            // Build quiz summary
+            Quiz quiz = attempt.getQuiz();
+            int questionCount = (int) questionRepository.countByQuizId_Id(quiz.getId());
+            QuizSummaryDto quizSummary = attemptMapper.toQuizSummaryDto(quiz, questionCount);
+
+            // Build stats (only for completed attempts)
+            AttemptStatsDto stats = null;
+            if (attempt.getStatus() == AttemptStatus.COMPLETED && attempt.getCompletedAt() != null) {
+                stats = buildLightweightStats(attempt, questionCount);
+            }
+
+            return attemptMapper.toSummaryDto(attempt, quizSummary, stats);
+        });
+    }
+
+    /**
+     * Build lightweight stats for attempt summary (without detailed question timings)
+     */
+    private AttemptStatsDto buildLightweightStats(Attempt attempt, int totalQuestions) {
+        Duration totalTime = Duration.between(attempt.getStartedAt(), attempt.getCompletedAt());
+        
+        int questionsAnswered = attempt.getAnswers().size();
+        long correctAnswers = attempt.getAnswers().stream()
+                .filter(answer -> Boolean.TRUE.equals(answer.getIsCorrect()))
+                .count();
+
+        double accuracyPercentage = questionsAnswered > 0
+                ? (double) correctAnswers / questionsAnswered * 100.0
+                : 0.0;
+        double completionPercentage = totalQuestions > 0
+                ? (double) questionsAnswered / totalQuestions * 100.0
+                : 0.0;
+
+        Duration averageTimePerQuestion = questionsAnswered > 0
+                ? totalTime.dividedBy(questionsAnswered)
+                : Duration.ZERO;
+
+        // No detailed question timings for summary view (keeps response light)
+        return new AttemptStatsDto(
+                attempt.getId(),
+                totalTime,
+                averageTimePerQuestion,
+                questionsAnswered,
+                Math.toIntExact(correctAnswers),
+                accuracyPercentage,
+                completionPercentage,
+                null,  // questionTimings - omitted for lightweight summary
+                attempt.getStartedAt(),
+                attempt.getCompletedAt()
+        );
+    }
+
     /**
      * Build an AnswerReviewDto from an Answer entity with configurable inclusion flags.
      */

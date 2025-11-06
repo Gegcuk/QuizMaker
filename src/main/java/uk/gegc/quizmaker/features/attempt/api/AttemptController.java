@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -110,6 +111,63 @@ public class AttemptController {
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt")),
                 quizId,
                 userId
+        );
+        return ResponseEntity.ok(result);
+    }
+
+    @Operation(
+            summary = "List attempts with embedded quiz and stats",
+            description = """
+                    Retrieves a paginated list of attempts with embedded quiz summary and statistics.
+                    This endpoint reduces N+1 queries by returning all necessary display data in a single API call.
+                    
+                    Benefits:
+                    - Single API call instead of 1 + (N × 2) calls
+                    - Includes quiz title and question count without additional requests
+                    - Includes computed stats (accuracy, completion, timing) for completed attempts
+                    - Optimized with JOIN FETCH to avoid N+1 database queries
+                    
+                    Use this endpoint for:
+                    - User attempt history pages
+                    - Admin dashboards showing attempts
+                    - Any list view that needs to display quiz titles and scores
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of enriched attempts returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = AttemptSummaryDto.class)
+                    )
+            ),
+            @ApiResponse(responseCode = "403", description = "Forbidden - Cannot access other users' attempts")
+    })
+    @GetMapping("/summary")
+    public ResponseEntity<Page<AttemptSummaryDto>> listAttemptsSummary(
+            @Parameter(in = ParameterIn.QUERY, description = "Page number (0-based)", example = "0")
+            @Min(0) @RequestParam(name = "page", defaultValue = "0") int page,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Page size", example = "20")
+            @Min(1) @Max(1000) @RequestParam(name = "size", defaultValue = "20") int size,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by quiz UUID")
+            @RequestParam(name = "quizId", required = false) UUID quizId,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by user UUID (defaults to current user; admins can specify others)")
+            @RequestParam(name = "userId", required = false) UUID userId,
+
+            @Parameter(in = ParameterIn.QUERY, description = "Filter by attempt status", example = "COMPLETED")
+            @RequestParam(name = "status", required = false) String status,
+
+            Authentication authentication
+    ) {
+        String username = authentication.getName();
+        Page<AttemptSummaryDto> result = attemptService.getAttemptsSummary(
+                username,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "startedAt")),
+                quizId,
+                userId,
+                status
         );
         return ResponseEntity.ok(result);
     }

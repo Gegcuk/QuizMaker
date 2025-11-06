@@ -99,4 +99,35 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     List<Object[]> getLeaderboardData(@Param("quizId") UUID quizId);
 
     List<Attempt> findByStartedAtBetween(Instant start, Instant end);
+
+    /**
+     * Find attempts with quiz and answers eagerly loaded for summary/enriched views.
+     * Uses JOIN FETCH to avoid N+1 queries.
+     * Question count should be computed separately to avoid loading all question entities.
+     */
+    @Query(value = """
+            SELECT a
+            FROM Attempt a
+            JOIN FETCH a.quiz q
+            JOIN FETCH q.category c
+            JOIN FETCH a.user u
+            LEFT JOIN FETCH a.answers ans
+            WHERE (:quizId IS NULL OR q.id = :quizId)
+              AND (:userId IS NULL OR u.id = :userId)
+              AND (:status IS NULL OR a.status = :status)
+            """,
+            countQuery = """
+                    SELECT COUNT(a)
+                    FROM Attempt a
+                    WHERE (:quizId IS NULL OR a.quiz.id = :quizId)
+                      AND (:userId IS NULL OR a.user.id = :userId)
+                      AND (:status IS NULL OR a.status = :status)
+                    """
+    )
+    Page<Attempt> findAllWithQuizAndAnswersEager(
+            @Param("quizId") UUID quizId,
+            @Param("userId") UUID userId,
+            @Param("status") String status,
+            Pageable pageable
+    );
 }

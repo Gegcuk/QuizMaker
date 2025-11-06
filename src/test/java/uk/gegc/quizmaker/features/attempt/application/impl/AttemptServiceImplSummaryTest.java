@@ -1,0 +1,369 @@
+package uk.gegc.quizmaker.features.attempt.application.impl;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
+import uk.gegc.quizmaker.features.attempt.api.dto.AttemptSummaryDto;
+import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
+import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
+import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
+import uk.gegc.quizmaker.features.question.domain.model.Answer;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.category.domain.model.Category;
+import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
+import uk.gegc.quizmaker.features.result.application.QuizAnalyticsService;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import uk.gegc.quizmaker.features.attempt.application.ScoringService;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+@Execution(ExecutionMode.CONCURRENT)
+@DisplayName("AttemptServiceImpl Summary Endpoint Unit Tests")
+class AttemptServiceImplSummaryTest {
+
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private QuizRepository quizRepository;
+    @Mock
+    private AttemptRepository attemptRepository;
+    @Mock
+    private AttemptMapper attemptMapper;
+    @Mock
+    private QuestionRepository questionRepository;
+    @Mock
+    private QuestionHandlerFactory handlerFactory;
+    @Mock
+    private AnswerRepository answerRepository;
+    @Mock
+    private AnswerMapper answerMapper;
+    @Mock
+    private ScoringService scoringService;
+    @Mock
+    private SafeQuestionMapper safeQuestionMapper;
+    @Mock
+    private ShareLinkRepository shareLinkRepository;
+    @Mock
+    private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock
+    private CorrectAnswerExtractor correctAnswerExtractor;
+    @Mock
+    private SafeQuestionContentBuilder safeQuestionContentBuilder;
+    @Mock
+    private ObjectMapper objectMapper;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private QuizAnalyticsService quizAnalyticsService;
+
+    @InjectMocks
+    private AttemptServiceImpl service;
+
+    private User testUser;
+    private User adminUser;
+    private Quiz testQuiz;
+    private Category testCategory;
+    private Attempt testAttempt;
+    private Pageable pageable;
+
+    @BeforeEach
+    void setUp() {
+        pageable = PageRequest.of(0, 20);
+
+        // Create test category
+        testCategory = new Category();
+        testCategory.setId(UUID.randomUUID());
+        testCategory.setName("Test Category");
+
+        // Create test user
+        testUser = new User();
+        testUser.setId(UUID.randomUUID());
+        testUser.setUsername("testuser");
+
+        // Create admin user
+        adminUser = new User();
+        adminUser.setId(UUID.randomUUID());
+        adminUser.setUsername("adminuser");
+
+        // Create test quiz
+        testQuiz = new Quiz();
+        testQuiz.setId(UUID.randomUUID());
+        testQuiz.setTitle("Test Quiz");
+        testQuiz.setCategory(testCategory);
+        testQuiz.setVisibility(Visibility.PUBLIC);
+
+        // Create test attempt
+        testAttempt = new Attempt();
+        testAttempt.setId(UUID.randomUUID());
+        testAttempt.setUser(testUser);
+        testAttempt.setQuiz(testQuiz);
+        testAttempt.setStatus(AttemptStatus.COMPLETED);
+        testAttempt.setMode(AttemptMode.ALL_AT_ONCE);
+        testAttempt.setStartedAt(Instant.now().minusSeconds(300));
+        testAttempt.setCompletedAt(Instant.now());
+        testAttempt.setTotalScore(8.0);
+        testAttempt.setAnswers(new ArrayList<>());
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: when current user then returns attempts")
+    void getAttemptsSummary_currentUser_returnsAttempts() {
+        // Given
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+        
+        Page<Attempt> attemptPage = new PageImpl<>(List.of(testAttempt));
+        when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
+                .thenReturn(attemptPage);
+        
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                null,
+                null,
+                null
+        );
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        AttemptSummaryDto summary = result.getContent().get(0);
+        assertThat(summary.attemptId()).isEqualTo(testAttempt.getId());
+        assertThat(summary.quiz()).isNotNull();
+        assertThat(summary.quiz().id()).isEqualTo(testQuiz.getId());
+        assertThat(summary.quiz().title()).isEqualTo("Test Quiz");
+        assertThat(summary.quiz().questionCount()).isEqualTo(10);
+        assertThat(summary.stats()).isNotNull();  // Completed attempt has stats
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: when other user without permission then throws AccessDeniedException")
+    void getAttemptsSummary_otherUserNoPermission_throwsAccessDenied() {
+        // Given
+        UUID otherUserId = UUID.randomUUID();
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+        when(appPermissionEvaluator.hasPermission(testUser, PermissionName.ATTEMPT_READ_ALL))
+                .thenReturn(false);
+        when(appPermissionEvaluator.hasPermission(testUser, PermissionName.SYSTEM_ADMIN))
+                .thenReturn(false);
+
+        // When & Then
+        assertThatThrownBy(() -> service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                null,
+                otherUserId,
+                null
+        ))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("You do not have permission to view other users' attempts");
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: when admin views other user then returns attempts")
+    void getAttemptsSummary_adminViewsOtherUser_returnsAttempts() {
+        // Given
+        UUID otherUserId = UUID.randomUUID();
+        when(userRepository.findByUsernameWithRolesAndPermissions("adminuser"))
+                .thenReturn(Optional.of(adminUser));
+        when(appPermissionEvaluator.hasPermission(adminUser, PermissionName.ATTEMPT_READ_ALL))
+                .thenReturn(true);
+
+        Page<Attempt> attemptPage = new PageImpl<>(List.of(testAttempt));
+        when(attemptRepository.findAllWithQuizAndAnswersEager(null, otherUserId, null, pageable))
+                .thenReturn(attemptPage);
+        
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "adminuser",
+                pageable,
+                null,
+                otherUserId,
+                null
+        );
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: when in-progress attempt then stats is null")
+    void getAttemptsSummary_inProgressAttempt_statsNull() {
+        // Given
+        testAttempt.setStatus(AttemptStatus.IN_PROGRESS);
+        testAttempt.setCompletedAt(null);
+        
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+        
+        Page<Attempt> attemptPage = new PageImpl<>(List.of(testAttempt));
+        when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
+                .thenReturn(attemptPage);
+        
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                null,
+                null,
+                null
+        );
+
+        // Then
+        assertThat(result.getContent()).hasSize(1);
+        AttemptSummaryDto summary = result.getContent().get(0);
+        assertThat(summary.stats()).isNull();  // In-progress attempts have no stats
+        assertThat(summary.quiz()).isNotNull();  // But still have quiz summary
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: when user not found then throws ResourceNotFoundException")
+    void getAttemptsSummary_userNotFound_throwsResourceNotFound() {
+        // Given
+        when(userRepository.findByUsernameWithRolesAndPermissions("unknownuser"))
+                .thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("unknownuser"))
+                .thenReturn(Optional.empty());
+
+        // When & Then
+        assertThatThrownBy(() -> service.getAttemptsSummary(
+                "unknownuser",
+                pageable,
+                null,
+                null,
+                null
+        ))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User unknownuser not found");
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: with filters then passes filters to repository")
+    void getAttemptsSummary_withFilters_passesFilters() {
+        // Given
+        UUID quizId = UUID.randomUUID();
+        String status = "COMPLETED";
+        
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+        
+        Page<Attempt> attemptPage = new PageImpl<>(List.of(testAttempt));
+        when(attemptRepository.findAllWithQuizAndAnswersEager(quizId, testUser.getId(), status, pageable))
+                .thenReturn(attemptPage);
+        
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                quizId,
+                null,
+                status
+        );
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("getAttemptsSummary: stats include accuracy and completion percentages")
+    void getAttemptsSummary_completedAttempt_includesPercentages() {
+        // Given
+        Answer answer1 = new Answer();
+        answer1.setIsCorrect(true);
+        answer1.setAnsweredAt(Instant.now().minusSeconds(10));
+
+        Answer answer2 = new Answer();
+        answer2.setIsCorrect(false);
+        answer2.setAnsweredAt(Instant.now().minusSeconds(5));
+
+        testAttempt.setAnswers(List.of(answer1, answer2));
+        
+        when(userRepository.findByUsernameWithRolesAndPermissions("testuser"))
+                .thenReturn(Optional.of(testUser));
+        
+        Page<Attempt> attemptPage = new PageImpl<>(List.of(testAttempt));
+        when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
+                .thenReturn(attemptPage);
+        
+        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
+        when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
+
+        // When
+        Page<AttemptSummaryDto> result = service.getAttemptsSummary(
+                "testuser",
+                pageable,
+                null,
+                null,
+                null
+        );
+
+        // Then
+        AttemptSummaryDto summary = result.getContent().get(0);
+        assertThat(summary.stats()).isNotNull();
+        assertThat(summary.stats().questionsAnswered()).isEqualTo(2);
+        assertThat(summary.stats().correctAnswers()).isEqualTo(1);
+        assertThat(summary.stats().accuracyPercentage()).isEqualTo(50.0);  // 1/2 = 50%
+        assertThat(summary.stats().completionPercentage()).isEqualTo(20.0);  // 2/10 = 20%
+    }
+}
+
