@@ -805,11 +805,27 @@ public class AttemptServiceImpl implements AttemptService {
                 pageable
         );
 
+        // Batch fetch question counts for all unique quizzes in this page (avoid N+1)
+        List<UUID> quizIds = attempts.getContent().stream()
+                .map(attempt -> attempt.getQuiz().getId())
+                .distinct()
+                .toList();
+
+        Map<UUID, Integer> questionCountsByQuizId = new HashMap<>();
+        if (!quizIds.isEmpty()) {
+            List<Object[]> countResults = questionRepository.countQuestionsForQuizzes(quizIds);
+            for (Object[] row : countResults) {
+                UUID qId = (UUID) row[0];
+                Long count = (Long) row[1];
+                questionCountsByQuizId.put(qId, count.intValue());
+            }
+        }
+
         // Map to summary DTOs
         return attempts.map(attempt -> {
             // Build quiz summary
             Quiz quiz = attempt.getQuiz();
-            int questionCount = (int) questionRepository.countByQuizId_Id(quiz.getId());
+            int questionCount = questionCountsByQuizId.getOrDefault(quiz.getId(), 0);
             QuizSummaryDto quizSummary = attemptMapper.toQuizSummaryDto(quiz, questionCount);
 
             // Build stats (only for completed attempts)

@@ -44,10 +44,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -155,7 +152,11 @@ class AttemptServiceImplSummaryTest {
         when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
                 .thenReturn(attemptPage);
         
-        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        // Mock batch question count query
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
         when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
         when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
 
@@ -218,7 +219,11 @@ class AttemptServiceImplSummaryTest {
         when(attemptRepository.findAllWithQuizAndAnswersEager(null, otherUserId, null, pageable))
                 .thenReturn(attemptPage);
         
-        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        // Mock batch question count query
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
         when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
         when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
 
@@ -250,7 +255,11 @@ class AttemptServiceImplSummaryTest {
         when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
                 .thenReturn(attemptPage);
         
-        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        // Mock batch question count query
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
         when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
         when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
 
@@ -305,7 +314,11 @@ class AttemptServiceImplSummaryTest {
         when(attemptRepository.findAllWithQuizAndAnswersEager(quizId, testUser.getId(), status, pageable))
                 .thenReturn(attemptPage);
         
-        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        // Mock batch question count query
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
         when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
         when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
 
@@ -344,7 +357,11 @@ class AttemptServiceImplSummaryTest {
         when(attemptRepository.findAllWithQuizAndAnswersEager(null, testUser.getId(), null, pageable))
                 .thenReturn(attemptPage);
         
-        when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(10L);
+        // Mock batch question count query
+        List<Object[]> countResults = new ArrayList<>();
+        countResults.add(new Object[]{testQuiz.getId(), 10L});
+        when(questionRepository.countQuestionsForQuizzes(List.of(testQuiz.getId())))
+                .thenReturn(countResults);
         when(attemptMapper.toQuizSummaryDto(any(), anyInt())).thenCallRealMethod();
         when(attemptMapper.toSummaryDto(any(), any(), any())).thenCallRealMethod();
 
