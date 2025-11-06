@@ -104,6 +104,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     /**
      * Find attempts with quiz eagerly loaded for summary/enriched views.
      * Uses JOIN FETCH to avoid N+1 queries on quiz and category.
+     * LEFT JOIN FETCH on category for defensive programming (handles null categories).
      * Answers are NOT fetched here to avoid pagination issues with collection fetch.
      * Use batchFetchAnswersForAttempts() after this to load answers efficiently.
      */
@@ -111,7 +112,7 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
             SELECT DISTINCT a
             FROM Attempt a
             JOIN FETCH a.quiz q
-            JOIN FETCH q.category c
+            LEFT JOIN FETCH q.category c
             JOIN FETCH a.user u
             WHERE (:quizId IS NULL OR q.id = :quizId)
               AND (:userId IS NULL OR u.id = :userId)
