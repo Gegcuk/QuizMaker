@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -99,4 +100,49 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     List<Object[]> getLeaderboardData(@Param("quizId") UUID quizId);
 
     List<Attempt> findByStartedAtBetween(Instant start, Instant end);
+
+    /**
+     * Find attempts with quiz eagerly loaded for summary/enriched views.
+     * Uses JOIN FETCH to avoid N+1 queries on quiz and category.
+     * LEFT JOIN FETCH on category for defensive programming (handles null categories).
+     * Answers are NOT fetched here to avoid pagination issues with collection fetch.
+     * Use batchFetchAnswersForAttempts() after this to load answers efficiently.
+     */
+    @Query(value = """
+            SELECT DISTINCT a
+            FROM Attempt a
+            JOIN FETCH a.quiz q
+            LEFT JOIN FETCH q.category c
+            JOIN FETCH a.user u
+            WHERE (:quizId IS NULL OR q.id = :quizId)
+              AND (:userId IS NULL OR u.id = :userId)
+              AND (:status IS NULL OR a.status = :status)
+            """,
+            countQuery = """
+                    SELECT COUNT(DISTINCT a)
+                    FROM Attempt a
+                    WHERE (:quizId IS NULL OR a.quiz.id = :quizId)
+                      AND (:userId IS NULL OR a.user.id = :userId)
+                      AND (:status IS NULL OR a.status = :status)
+                    """
+    )
+    Page<Attempt> findAllWithQuizAndAnswersEager(
+            @Param("quizId") UUID quizId,
+            @Param("userId") UUID userId,
+            @Param("status") AttemptStatus status,
+            Pageable pageable
+    );
+
+    /**
+     * Batch-fetch answers for multiple attempts in a single query.
+     * This populates the persistence context so that attempt.getAnswers() doesn't trigger N+1 queries.
+     * Call this after fetching a paginated list of attempts.
+     */
+    @Query("""
+            SELECT DISTINCT a
+            FROM Attempt a
+            LEFT JOIN FETCH a.answers
+            WHERE a.id IN :attemptIds
+            """)
+    List<Attempt> batchFetchAnswersForAttempts(@Param("attemptIds") List<UUID> attemptIds);
 }
