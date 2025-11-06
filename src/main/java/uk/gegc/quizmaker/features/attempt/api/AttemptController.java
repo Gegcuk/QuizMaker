@@ -379,7 +379,7 @@ public class AttemptController {
 
             @Parameter(
                     in = ParameterIn.QUERY,
-                    description = "Include correct answers in the response",
+                    description = "Include correct answers and explanations in the response",
                     example = "true"
             )
             @RequestParam(name = "includeCorrectAnswers", defaultValue = "true") boolean includeCorrectAnswers,
@@ -407,8 +407,8 @@ public class AttemptController {
     @Operation(
             summary = "Get attempt answer key",
             description = """
-                    Retrieve an answer key for a completed attempt (correct answers only, no user responses).
-                    This is a convenience endpoint that returns correct answers with question context.
+                    Retrieve an answer key for a completed attempt (correct answers and explanations, no user responses).
+                    This is a convenience endpoint that returns correct answers with question context and explanations.
                     Only available to the attempt owner and only for completed attempts.
                     """
     )

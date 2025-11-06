@@ -23,11 +23,14 @@ public record AnswerReviewDto(
         @Schema(description = "Optional hint", example = "Think about major European cities")
         String hint,
 
-        @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
-        String attachmentUrl,
+    @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
+    String attachmentUrl,
 
-        @Schema(description = "Safe question content for rendering (without correct answers)", type = "object")
-        JsonNode questionSafeContent,
+    @Schema(description = "Optional explanation of the correct answer (only included when includeCorrectAnswers=true)", example = "Paris is the capital and largest city of France")
+    String explanation,
+
+    @Schema(description = "Safe question content for rendering (without correct answers)", type = "object")
+    JsonNode questionSafeContent,
 
         @Schema(description = "User's submitted response (JSON structure depends on question type)", type = "object")
         JsonNode userResponse,

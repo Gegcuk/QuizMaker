@@ -73,6 +73,7 @@ class AttemptControllerReviewTest {
                 "What is the capital of France?",
                 "It's a major European city",
                 "http://example.com/image.png",
+                null,  // explanation
                 safeContent,
                 userResponse,
                 correctAnswer,
@@ -138,6 +139,7 @@ class AttemptControllerReviewTest {
                 null,  // No question text (includeQuestionContext=false)
                 null,
                 null,
+                null,  // explanation
                 null,
                 null,  // No user response (includeUserAnswers=false)
                 null,  // No correct answer (includeCorrectAnswers=false)
@@ -267,6 +269,7 @@ class AttemptControllerReviewTest {
                 "What is the capital of France?",
                 "It's a major European city",
                 null,
+                null,  // explanation
                 safeContent,
                 null,  // No user response for answer key
                 correctAnswer,
@@ -323,6 +326,7 @@ class AttemptControllerReviewTest {
                 "MCQ Question",
                 null,
                 null,
+                null,  // explanation
                 null,
                 mcqUserResponse,
                 mcqCorrectAnswer,
@@ -344,6 +348,7 @@ class AttemptControllerReviewTest {
                 "True/False Question",
                 null,
                 null,
+                null,  // explanation
                 null,
                 tfUserResponse,
                 tfCorrectAnswer,
@@ -375,6 +380,7 @@ class AttemptControllerReviewTest {
                 "Fill Gap Question",
                 null,
                 null,
+                null,  // explanation
                 null,
                 fillGapUserResponse,
                 fillGapCorrectAnswer,
