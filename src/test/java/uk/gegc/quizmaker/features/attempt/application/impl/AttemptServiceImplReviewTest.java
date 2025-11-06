@@ -389,6 +389,7 @@ class AttemptServiceImplReviewTest {
         AnswerReviewDto answerReview = result.answers().get(0);
         assertThat(answerReview.userResponse()).isNotNull();
         assertThat(answerReview.correctAnswer()).isNull();
+        assertThat(answerReview.explanation()).isNull(); // Explanation excluded (tied to includeCorrectAnswers=false)
         verify(correctAnswerExtractor, never()).extractCorrectAnswer(any());
     }
 
@@ -418,7 +419,7 @@ class AttemptServiceImplReviewTest {
         AnswerReviewDto answerReview = result.answers().get(0);
         assertThat(answerReview.questionText()).isNull();
         assertThat(answerReview.hint()).isNull();
-        assertThat(answerReview.explanation()).isNull();
+        assertThat(answerReview.explanation()).isNotNull(); // Explanation still included (tied to includeCorrectAnswers=true)
         assertThat(answerReview.attachmentUrl()).isNull();
         assertThat(answerReview.questionSafeContent()).isNull();
         verify(safeQuestionContentBuilder, never()).buildSafeContent(any(), any(), anyBoolean());
@@ -447,6 +448,7 @@ class AttemptServiceImplReviewTest {
         AnswerReviewDto answerReview = result.answers().get(0);
         assertThat(answerReview.userResponse()).isNull();
         assertThat(answerReview.correctAnswer()).isNull();
+        assertThat(answerReview.explanation()).isNull();
         assertThat(answerReview.questionText()).isNull();
         assertThat(answerReview.questionSafeContent()).isNull();
         assertThat(answerReview.isCorrect()).isTrue();  // Core fields still present

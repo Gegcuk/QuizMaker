@@ -26,7 +26,7 @@ public record AnswerReviewDto(
     @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
     String attachmentUrl,
 
-    @Schema(description = "Optional explanation of the correct answer", example = "Paris is the capital and largest city of France")
+    @Schema(description = "Optional explanation of the correct answer (only included when includeCorrectAnswers=true)", example = "Paris is the capital and largest city of France")
     String explanation,
 
     @Schema(description = "Safe question content for rendering (without correct answers)", type = "object")
