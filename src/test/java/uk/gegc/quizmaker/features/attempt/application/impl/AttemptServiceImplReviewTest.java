@@ -121,6 +121,7 @@ class AttemptServiceImplReviewTest {
         testQuestion.setType(QuestionType.MCQ_SINGLE);
         testQuestion.setQuestionText("What is the capital of France?");
         testQuestion.setHint("It's a major European city");
+        testQuestion.setExplanation("Paris is the capital and largest city of France, located on the Seine River.");
         testQuestion.setAttachmentUrl("http://example.com/image.png");
         testQuestion.setContent("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\",\"correct\":true}]}");
 
@@ -189,6 +190,7 @@ class AttemptServiceImplReviewTest {
         assertThat(answerReview.type()).isEqualTo(QuestionType.MCQ_SINGLE);
         assertThat(answerReview.questionText()).isEqualTo("What is the capital of France?");
         assertThat(answerReview.hint()).isEqualTo("It's a major European city");
+        assertThat(answerReview.explanation()).isEqualTo("Paris is the capital and largest city of France, located on the Seine River.");
         assertThat(answerReview.userResponse()).isNotNull();
         assertThat(answerReview.correctAnswer()).isNotNull();
         assertThat(answerReview.questionSafeContent()).isNotNull();
@@ -416,6 +418,7 @@ class AttemptServiceImplReviewTest {
         AnswerReviewDto answerReview = result.answers().get(0);
         assertThat(answerReview.questionText()).isNull();
         assertThat(answerReview.hint()).isNull();
+        assertThat(answerReview.explanation()).isNull();
         assertThat(answerReview.attachmentUrl()).isNull();
         assertThat(answerReview.questionSafeContent()).isNull();
         verify(safeQuestionContentBuilder, never()).buildSafeContent(any(), any(), anyBoolean());
