@@ -367,7 +367,7 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
     void meAnonymous_returns401() throws Exception {
         mockMvc.perform(get("/api/v1/auth/me")
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test

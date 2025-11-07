@@ -124,22 +124,15 @@ public class SecurityConfig {
     }
 
     private void writeAuthResponse(HttpServletRequest request, HttpServletResponse response, boolean forbiddenFallback) throws IOException {
-        boolean unauthorizedPreferred = isUnauthorizedPreferred(request);
-        HttpStatus status = unauthorizedPreferred ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN;
-        String body = unauthorizedPreferred ? "{\"error\":\"unauthorized\"}" : "{\"error\":\"forbidden\"}";
+        // forbiddenFallback indicates the context:
+        // - false = authenticationEntryPoint (not authenticated) -> return 401 Unauthorized
+        // - true = accessDeniedHandler (authenticated but no permission) -> return 403 Forbidden
+        HttpStatus status = forbiddenFallback ? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED;
+        String body = forbiddenFallback ? "{\"error\":\"forbidden\"}" : "{\"error\":\"unauthorized\"}";
+        
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.getWriter().write(body);
-    }
-
-    private boolean isUnauthorizedPreferred(HttpServletRequest request) {
-        String contextPath = request.getContextPath() == null ? "" : request.getContextPath();
-        String uri = request.getRequestURI();
-        if (uri == null) {
-            return false;
-        }
-        String relativePath = uri.startsWith(contextPath) ? uri.substring(contextPath.length()) : uri;
-        return relativePath.startsWith("/api/v1/auth/oauth/");
     }
 
 }
