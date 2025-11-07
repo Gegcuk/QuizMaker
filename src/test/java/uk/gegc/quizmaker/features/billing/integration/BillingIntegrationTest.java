@@ -41,7 +41,7 @@ class BillingIntegrationTest extends BaseIntegrationTest {
         // When & Then
         mockMvc.perform(get("/api/v1/billing/webhooks/stripe")
                 .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden()); // Endpoint exists but requires authentication
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -58,7 +58,7 @@ class BillingIntegrationTest extends BaseIntegrationTest {
         // When & Then
         mockMvc.perform(get("/api/v1/billing/stripe/webhook")
                 .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden()); // 403 Forbidden (Spring Security intercepts)
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test

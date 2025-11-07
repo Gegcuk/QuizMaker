@@ -125,10 +125,10 @@ class BillingControllerSecurityTest {
     }
 
     @Test
-    @DisplayName("GET /balance should return 403 when user is not authenticated")
+    @DisplayName("GET /balance should return 401 when user is not authenticated")
     void getBalance_WhenNotAuthenticated_ShouldReturn403() throws Exception {
         mockMvc.perform(get("/api/v1/billing/balance"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -148,10 +148,10 @@ class BillingControllerSecurityTest {
 
 
     @Test
-    @DisplayName("GET /transactions should return 403 when user is not authenticated")
+    @DisplayName("GET /transactions should return 401 when user is not authenticated")
     void getTransactions_WhenNotAuthenticated_ShouldReturn403() throws Exception {
         mockMvc.perform(get("/api/v1/billing/transactions"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test

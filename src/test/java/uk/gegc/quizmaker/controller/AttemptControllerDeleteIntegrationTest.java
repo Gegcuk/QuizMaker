@@ -101,12 +101,12 @@ class AttemptControllerDeleteIntegrationTest {
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/attempts/{attemptId}: returns 403 when not authenticated")
+    @DisplayName("DELETE /api/v1/attempts/{attemptId}: returns 401 when not authenticated")
     void deleteAttempt_unauthenticated_returns403() throws Exception {
         // Act & Assert
         mockMvc.perform(delete("/api/v1/attempts/{attemptId}", attemptId)
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
 
         verify(attemptService, never()).deleteAttempt(any(), any());
     }

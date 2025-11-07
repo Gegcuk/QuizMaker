@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
@@ -16,6 +17,7 @@ import uk.gegc.quizmaker.features.user.api.dto.UpdateUserProfileRequest;
 import uk.gegc.quizmaker.features.user.api.dto.UserProfileResponse;
 import uk.gegc.quizmaker.features.user.application.AvatarService;
 import uk.gegc.quizmaker.features.user.application.UserProfileService;
+import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
 
 import java.util.Map;
 
@@ -26,6 +28,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(UserController.class)
+@Import(WebMvcSecurityTestConfig.class)
 @ActiveProfiles("test")
 @DisplayName("User Controller Integration Tests")
 class UserControllerIntegrationTest {
@@ -265,5 +268,4 @@ class UserControllerIntegrationTest {
                 .andExpect(jsonPath("$.displayName").value("Updated Display Name")); // Should remain unchanged
     }
 }
-
 

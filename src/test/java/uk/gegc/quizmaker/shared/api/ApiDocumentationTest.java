@@ -447,15 +447,15 @@ class ApiDocumentationTest {
     }
 
     @Test
-    @DisplayName("Swagger UI: old path redirects or forbidden")
+    @DisplayName("Swagger UI: old path redirects or requires auth")
     void swaggerUi_oldPath_redirects() {
         ResponseEntity<String> response = restTemplate.getForEntity("/swagger-ui.html", String.class);
-        // Should redirect, return OK, or be forbidden (depends on Spring Boot version)
+        // Should redirect, return OK, or require authentication (depends on Spring Boot version and security config)
         assertThat(response.getStatusCode()).isIn(
                 HttpStatus.OK, 
                 HttpStatus.MOVED_PERMANENTLY, 
                 HttpStatus.FOUND,
-                HttpStatus.FORBIDDEN // Some configurations return 403 for old paths
+                HttpStatus.UNAUTHORIZED // Fixed: Returns 401 for unauthenticated access
         );
     }
 }

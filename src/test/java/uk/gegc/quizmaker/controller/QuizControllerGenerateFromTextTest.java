@@ -355,13 +355,13 @@ class QuizControllerGenerateFromTextTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/quizzes/generate-from-text should return 403 for unauthenticated user")
+    @DisplayName("POST /api/v1/quizzes/generate-from-text should return 401 for unauthenticated user")
     void generateFromText_UnauthenticatedUser_Returns403Forbidden() throws Exception {
         // When & Then
         mockMvc.perform(post("/api/v1/quizzes/generate-from-text")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest))
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 }

@@ -20,7 +20,11 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import org.springframework.context.annotation.Import;
+import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
+
 @WebMvcTest(UserController.class)
+@Import(WebMvcSecurityTestConfig.class)
 class UserAvatarControllerTest {
 
     @Autowired
@@ -119,5 +123,4 @@ class UserAvatarControllerTest {
                 .andExpect(status().isBadRequest());
     }
 }
-
 

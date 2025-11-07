@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -19,6 +20,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.exception.AttemptNotCompletedException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AttemptController.class)
+@Import(WebMvcSecurityTestConfig.class)
 @DisplayName("AttemptController Review Endpoints Tests")
 class AttemptControllerReviewTest {
 
@@ -630,4 +633,3 @@ class AttemptControllerReviewTest {
                 .andExpect(jsonPath("$.userResponse").doesNotExist());
     }
 }
-

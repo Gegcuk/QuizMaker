@@ -603,7 +603,7 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json)
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test

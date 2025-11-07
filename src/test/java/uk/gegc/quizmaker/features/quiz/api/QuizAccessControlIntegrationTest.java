@@ -153,14 +153,14 @@ class QuizAccessControlIntegrationTest {
         @DisplayName("Anonymous user CANNOT access private quiz via GET /api/v1/quizzes/{id}")
         void anonymous_cannotAccessPrivateQuiz() throws Exception {
             mockMvc.perform(get("/api/v1/quizzes/{id}", privateQuiz.getId()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
         }
         
         @Test
         @DisplayName("Anonymous user CANNOT access specific quiz by ID (even public ones require authentication)")
         void anonymous_cannotAccessQuizById() throws Exception {
             mockMvc.perform(get("/api/v1/quizzes/{id}", publicQuiz.getId()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
         }
     }
 }
