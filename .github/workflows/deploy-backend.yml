@@ -8,6 +8,7 @@ on:
       - 'pom.xml'
       - 'server/backend/**'
       - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 jobs:
   deploy-backend:
