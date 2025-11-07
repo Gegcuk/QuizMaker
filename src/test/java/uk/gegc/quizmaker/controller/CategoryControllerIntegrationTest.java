@@ -214,13 +214,13 @@ public class CategoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/categories without authentication -> returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/categories without authentication -> returns 401 UNAUTHORIZED")
     void createCategory_anonymous_returns403() throws Exception {
         CreateCategoryRequest createCategoryRequest = new CreateCategoryRequest("ValidName", "Valid description");
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createCategoryRequest)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -320,7 +320,7 @@ public class CategoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("PATCH /api/v1/categories/{id} anonymous -> returns 403 FORBIDDEN")
+    @DisplayName("PATCH /api/v1/categories/{id} anonymous -> returns 401 UNAUTHORIZED")
     void updateCategory_anonymous_returns403() throws Exception {
         Category c = new Category();
         c.setName("Orig");
@@ -331,7 +331,7 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(patch("/api/v1/categories/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -351,7 +351,7 @@ public class CategoryControllerIntegrationTest {
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/categories/{id} anonymous -> returns 403 FORBIDDEN")
+    @DisplayName("DELETE /api/v1/categories/{id} anonymous -> returns 401 UNAUTHORIZED")
     void deleteCategory_anonymous_returns403() throws Exception {
         Category c = new Category();
         c.setName("ToDelete");
@@ -359,7 +359,7 @@ public class CategoryControllerIntegrationTest {
         UUID id = c.getId();
 
         mockMvc.perform(delete("/api/v1/categories/{id}", id))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test

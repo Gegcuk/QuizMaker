@@ -331,12 +331,12 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/questions without authentication returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/questions without authentication returns 401 UNAUTHORIZED")
     void createQuestion_anonymous_returns401() throws Exception {
         mockMvc.perform(post("/api/v1/questions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -985,7 +985,7 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(patch("/api/v1/questions/{id}", randomId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -1224,7 +1224,7 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/questions/{id} (anonymous) → 403")
+    @DisplayName("DELETE /api/v1/questions/{id} (anonymous) → 401")
     void deleteQuestion_anonymousReturns403() throws Exception {
         Question q = new Question();
         q.setType(QuestionType.TRUE_FALSE);
@@ -1235,11 +1235,11 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
         UUID qid = q.getId();
 
         mockMvc.perform(delete("/api/v1/questions/{id}", qid))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/questions/{id} (USER) → 403")
+    @DisplayName("DELETE /api/v1/questions/{id} (anonymous) → 401")
     void deleteQuestion_userRoleReturns403() throws Exception {
         Question q = new Question();
         q.setType(QuestionType.TRUE_FALSE);
@@ -1250,6 +1250,6 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
         UUID qid = q.getId();
 
         mockMvc.perform(delete("/api/v1/questions/{id}", qid))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated (no user), not 403
     }
 }

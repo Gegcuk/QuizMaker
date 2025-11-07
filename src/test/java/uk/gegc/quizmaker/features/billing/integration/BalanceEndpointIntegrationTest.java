@@ -140,10 +140,10 @@ class BalanceEndpointIntegrationTest {
     class AuthenticationTests {
 
         @Test
-        @DisplayName("Should return 403 when not authenticated")
+        @DisplayName("Should return 401 when not authenticated")
         void shouldReturn403WhenNotAuthenticated() throws Exception {
             mockMvc.perform(get("/api/v1/billing/balance"))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
         }
 
         @Test

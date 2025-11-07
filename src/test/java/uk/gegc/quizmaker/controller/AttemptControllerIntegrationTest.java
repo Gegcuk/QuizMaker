@@ -351,11 +351,11 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/attempts/quizzes/{quizId} without authentication → returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/attempts/quizzes/{quizId} without authentication → returns 401 UNAUTHORIZED")
     void startAttempt_anonymous_returns403() throws Exception {
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quizId}", quizId)
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -395,7 +395,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     void listAttempts_anonymousReturns401() throws Exception {
         mockMvc.perform(get("/api/v1/attempts")
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -403,7 +403,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     void listAttempts_anonymous_returns401() throws Exception {
         mockMvc.perform(get("/api/v1/attempts")
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -445,7 +445,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload)
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -492,7 +492,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/attempts/{id}/answers/batch without authentication → returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/attempts/{id}/answers/batch without authentication → returns 401 UNAUTHORIZED")
     void submitBatch_anonymous_returns403() throws Exception {
         UUID attemptId = startAttempt();
         String batchJson = "{\"answers\":[{\"questionId\":\"00000000-0000-0000-0000-000000000000\",\"response\":{}}]}";
@@ -500,7 +500,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                         .with(anonymous())
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -538,12 +538,12 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/attempts/{id}/complete without authentication → returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/attempts/{id}/complete without authentication → returns 401 UNAUTHORIZED")
     void completeAttempt_anonymous_returns403() throws Exception {
         UUID attemptId = startAttempt();
         mockMvc.perform(post("/api/v1/attempts/{id}/complete", attemptId)
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
 

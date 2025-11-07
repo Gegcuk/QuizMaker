@@ -247,7 +247,7 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/quizzes/{quizId}/share-link without authentication -> returns 403 FORBIDDEN")
+    @DisplayName("POST /api/v1/quizzes/{quizId}/share-link without authentication -> returns 401 UNAUTHORIZED")
     void createShareLink_anonymous_returns403() throws Exception {
         CreateShareLinkRequest request = new CreateShareLinkRequest(
                 ShareLinkScope.QUIZ_VIEW,
@@ -259,7 +259,7 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
                         .with(anonymous())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -319,13 +319,13 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/quizzes/shared/{tokenId} without authentication -> returns 403 FORBIDDEN")
+    @DisplayName("DELETE /api/v1/quizzes/shared/{tokenId} without authentication -> returns 401 UNAUTHORIZED")
     void revokeShareLink_anonymous_returns403() throws Exception {
         UUID tokenId = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/quizzes/shared/{tokenId}", tokenId)
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
@@ -557,11 +557,11 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/quizzes/share-links without authentication -> returns 403 FORBIDDEN")
+    @DisplayName("GET /api/v1/quizzes/share-links without authentication -> returns 401 UNAUTHORIZED")
     void getUserShareLinks_anonymous_returns403() throws Exception {
         mockMvc.perform(get("/api/v1/quizzes/share-links")
                         .with(anonymous()))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
     }
 
     @Test
