@@ -16,8 +16,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
+import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 
@@ -30,12 +33,22 @@ public class SecurityConfig {
     private final JwtTokenService jwtTokenService;
     private final CorsConfigurationSource corsConfigurationSource;
     private final TrustedProxyUtil trustedProxyUtil;
+    private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
+    private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(sessionManagement -> sessionManagement.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .oauth2Login(oauth2 -> oauth2
+                        .userInfoEndpoint(userInfo -> userInfo
+                                .userService(customOAuth2UserService)
+                        )
+                        .successHandler(oAuth2AuthenticationSuccessHandler)
+                        .failureHandler(oAuth2AuthenticationFailureHandler)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
@@ -45,7 +58,9 @@ public class SecurityConfig {
                                 "/api/v1/auth/forgot-password",
                                 "/api/v1/auth/reset-password",
                                 "/api/v1/auth/2fa/setup",
-                                "/api/v1/auth/2fa/verify"
+                                "/api/v1/auth/2fa/verify",
+                                "/oauth2/**",
+                                "/login/oauth2/**"
                         ).permitAll()
                         // Stripe webhook must be callable by Stripe without authentication
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
@@ -91,11 +106,6 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource));
 
         return httpSecurity.build();
-    }
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
     }
 
     @Bean
