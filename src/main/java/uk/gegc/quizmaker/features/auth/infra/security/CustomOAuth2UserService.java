@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -144,7 +145,12 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .orElseThrow(() -> new IllegalStateException("ROLE_USER not found"));
         Role quizCreatorRole = roleRepository.findByRoleName(RoleName.ROLE_QUIZ_CREATOR.name())
                 .orElseThrow(() -> new IllegalStateException("ROLE_QUIZ_CREATOR not found"));
-        user.setRoles(Set.of(userRole, quizCreatorRole));
+        
+        // Use mutable HashSet for Hibernate to manage the collection
+        Set<Role> roles = new HashSet<>();
+        roles.add(userRole);
+        roles.add(quizCreatorRole);
+        user.setRoles(roles);
 
         return userRepository.save(user);
     }
