@@ -278,13 +278,14 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     @Override
+    @Transactional
     public void deleteDocument(String username, UUID documentId) {
         Document document = getDocumentForDeletion(username, documentId);
 
-        // Delete file from disk (non-transactional)
+        // Delete file from disk (non-transactional, but safe within transaction)
         deleteFileFromDisk(document.getFilePath());
 
-        // Delete from database (transactional)
+        // Delete from database (requires active transaction)
         deleteDocumentFromDatabase(document);
     }
 
