@@ -1,20 +1,23 @@
 package uk.gegc.quizmaker.shared.config;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import java.io.IOException;
 import org.springframework.web.cors.CorsConfigurationSource;
 import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
@@ -41,7 +44,12 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity
                 .csrf(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
                 .sessionManagement(sessionManagement -> sessionManagement.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(handler -> handler
+                        .authenticationEntryPoint((request, response, ex) -> writeAuthResponse(request, response, false))
+                        .accessDeniedHandler((request, response, ex) -> writeAuthResponse(request, response, true)))
                 .oauth2Login(oauth2 -> oauth2
                         .userInfoEndpoint(userInfo -> userInfo
                                 .userService(customOAuth2UserService)
@@ -113,6 +121,25 @@ public class SecurityConfig {
             AuthenticationConfiguration cfg
     ) throws Exception {
         return cfg.getAuthenticationManager();
+    }
+
+    private void writeAuthResponse(HttpServletRequest request, HttpServletResponse response, boolean forbiddenFallback) throws IOException {
+        boolean unauthorizedPreferred = isUnauthorizedPreferred(request);
+        HttpStatus status = unauthorizedPreferred ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN;
+        String body = unauthorizedPreferred ? "{\"error\":\"unauthorized\"}" : "{\"error\":\"forbidden\"}";
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.getWriter().write(body);
+    }
+
+    private boolean isUnauthorizedPreferred(HttpServletRequest request) {
+        String contextPath = request.getContextPath() == null ? "" : request.getContextPath();
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+        String relativePath = uri.startsWith(contextPath) ? uri.substring(contextPath.length()) : uri;
+        return relativePath.startsWith("/api/v1/auth/oauth/");
     }
 
 }

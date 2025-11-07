@@ -96,5 +96,18 @@ public class OAuthAccount {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-}
 
+    @PrePersist
+    void onCreate() {
+        LocalDateTime now = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+}

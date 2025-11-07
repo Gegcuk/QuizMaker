@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.http.MediaType;
@@ -17,6 +18,7 @@ import uk.gegc.quizmaker.features.attempt.api.dto.QuizSummaryDto;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -30,6 +32,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(AttemptController.class)
+@Import(WebMvcSecurityTestConfig.class)
 @DisplayName("AttemptController Summary Endpoint Tests")
 class AttemptControllerSummaryTest {
 
@@ -221,4 +224,3 @@ class AttemptControllerSummaryTest {
                 .andExpect(jsonPath("$.content[0].stats").doesNotExist());  // Null stats excluded
     }
 }
-
