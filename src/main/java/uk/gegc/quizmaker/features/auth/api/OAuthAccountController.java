@@ -15,9 +15,26 @@ import uk.gegc.quizmaker.features.auth.api.dto.UnlinkAccountRequest;
 import uk.gegc.quizmaker.features.auth.application.OAuthAccountService;
 
 /**
- * Controller for managing OAuth account linking and unlinking
+ * Controller for managing OAuth account linking and unlinking.
+ * 
+ * <p><b>⚠️ IMPORTANT: OAuth Login Flow</b></p>
+ * <p>To login with OAuth (Google, GitHub, Facebook, Microsoft), redirect users to:</p>
+ * <ul>
+ *   <li><code>GET /oauth2/authorization/google</code> - Login with Google</li>
+ *   <li><code>GET /oauth2/authorization/github</code> - Login with GitHub</li>
+ *   <li><code>GET /oauth2/authorization/facebook</code> - Login with Facebook</li>
+ *   <li><code>GET /oauth2/authorization/microsoft</code> - Login with Microsoft</li>
+ * </ul>
+ * 
+ * <p>After successful OAuth authentication, users are redirected to your frontend with JWT tokens:</p>
+ * <code>https://yourfrontend.com/oauth2/redirect?accessToken=xxx&refreshToken=yyy</code>
+ * 
+ * <p>The endpoints below are for <b>managing</b> OAuth accounts after authentication, not for logging in.</p>
  */
-@Tag(name = "OAuth", description = "Endpoints for managing OAuth social login accounts")
+@Tag(name = "OAuth Account Management", 
+     description = "Manage linked OAuth social login accounts. " +
+                   "To login with OAuth, redirect to /oauth2/authorization/{provider} (google, github, facebook, microsoft). " +
+                   "These endpoints are for viewing and unlinking OAuth accounts after authentication.")
 @RestController
 @RequestMapping("/api/v1/auth/oauth")
 @RequiredArgsConstructor
@@ -27,7 +44,8 @@ public class OAuthAccountController {
 
     @Operation(
         summary = "Get linked OAuth accounts",
-        description = "Returns a list of all OAuth accounts linked to the authenticated user"
+        description = "Returns a list of all OAuth accounts (Google, GitHub, Facebook, Microsoft) linked to the authenticated user. " +
+                     "Use this to display which social login methods the user has connected."
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Successfully retrieved linked accounts"),
@@ -41,9 +59,10 @@ public class OAuthAccountController {
 
     @Operation(
         summary = "Unlink an OAuth account",
-        description = "Removes the link between the authenticated user and the specified OAuth provider. " +
-                     "Users must have at least one other authentication method (password or another OAuth account) " +
-                     "before unlinking."
+        description = "Removes the link between the authenticated user and the specified OAuth provider (e.g., unlink Google account). " +
+                     "<p><b>Security:</b> Users must have at least one other authentication method (password or another OAuth account) " +
+                     "before unlinking. This prevents users from locking themselves out.</p>" +
+                     "<p><b>Example use case:</b> User wants to stop using 'Login with Google' but still has a password or GitHub login.</p>"
     )
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Successfully unlinked account"),
