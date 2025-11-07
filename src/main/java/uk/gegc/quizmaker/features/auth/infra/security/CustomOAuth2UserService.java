@@ -49,7 +49,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     @Override
     @Transactional
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
-        OAuth2User oauth2User = super.loadUser(userRequest);
+        OAuth2User oauth2User = callSuperLoadUser(userRequest);
 
         String registrationId = userRequest.getClientRegistration().getRegistrationId();
         OAuthProvider provider = mapRegistrationIdToProvider(registrationId);
@@ -76,6 +76,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         List<GrantedAuthority> authorities = buildAuthorities(user);
 
         return new CustomOAuth2User(oauth2User, user.getId(), user.getUsername(), authorities);
+    }
+
+    /**
+     * Protected wrapper method for super.loadUser() to allow mocking in tests
+     */
+    protected OAuth2User callSuperLoadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
+        return super.loadUser(userRequest);
     }
 
     private User processOAuthAuthentication(
