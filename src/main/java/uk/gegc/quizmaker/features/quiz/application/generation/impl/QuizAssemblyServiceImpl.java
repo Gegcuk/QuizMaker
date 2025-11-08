@@ -84,7 +84,7 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
         quiz.setQuestions(new HashSet<>(questions));
         quiz.setIsTimerEnabled(false);
         quiz.setIsRepetitionEnabled(false);
-        quiz.setDifficulty(Difficulty.MEDIUM);
+        quiz.setDifficulty(request.difficulty());
 
         return quizRepository.save(quiz);
     }
@@ -118,7 +118,7 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
         quiz.setQuestions(new HashSet<>(allQuestions));
         quiz.setIsTimerEnabled(false);
         quiz.setIsRepetitionEnabled(false);
-        quiz.setDifficulty(Difficulty.MEDIUM);
+        quiz.setDifficulty(request.difficulty());
 
         return quizRepository.save(quiz);
     }

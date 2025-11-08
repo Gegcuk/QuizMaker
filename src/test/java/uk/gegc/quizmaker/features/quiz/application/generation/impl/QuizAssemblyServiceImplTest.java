@@ -292,11 +292,49 @@ class QuizAssemblyServiceImplTest {
             assertThat(result.getTags()).isEqualTo(tags);
             assertThat(result.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
             assertThat(result.getVisibility()).isEqualTo(Visibility.PRIVATE);
-            assertThat(result.getDifficulty()).isEqualTo(Difficulty.MEDIUM);
+            assertThat(result.getDifficulty()).isEqualTo(request.difficulty());
             assertThat(result.getIsTimerEnabled()).isFalse();
             assertThat(result.getIsRepetitionEnabled()).isFalse();
             
             verify(quizRepository).save(result);
+        }
+        
+        @Test
+        @DisplayName("Chunk quiz respects requested HARD difficulty")
+        void chunkQuiz_hardDifficulty_setsCorrectly() {
+            // Given
+            GenerateQuizFromDocumentRequest hardRequest = new GenerateQuizFromDocumentRequest(
+                documentId, QuizScope.ENTIRE_DOCUMENT, null, null, null,
+                "Hard Quiz", "Description", Map.of(QuestionType.MCQ_SINGLE, 3),
+                Difficulty.HARD, 10, null, List.of()
+            );
+            when(quizRepository.existsByCreatorIdAndTitle(any(), any())).thenReturn(false);
+            when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            
+            // When
+            Quiz result = assemblyService.createChunkQuiz(testUser, questions, 1, hardRequest, aiCategory, tags, documentId);
+            
+            // Then
+            assertThat(result.getDifficulty()).isEqualTo(Difficulty.HARD);
+        }
+        
+        @Test
+        @DisplayName("Chunk quiz respects requested EASY difficulty")
+        void chunkQuiz_easyDifficulty_setsCorrectly() {
+            // Given
+            GenerateQuizFromDocumentRequest easyRequest = new GenerateQuizFromDocumentRequest(
+                documentId, QuizScope.ENTIRE_DOCUMENT, null, null, null,
+                "Easy Quiz", "Description", Map.of(QuestionType.MCQ_SINGLE, 3),
+                Difficulty.EASY, 10, null, List.of()
+            );
+            when(quizRepository.existsByCreatorIdAndTitle(any(), any())).thenReturn(false);
+            when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            
+            // When
+            Quiz result = assemblyService.createChunkQuiz(testUser, questions, 1, easyRequest, aiCategory, tags, documentId);
+            
+            // Then
+            assertThat(result.getDifficulty()).isEqualTo(Difficulty.EASY);
         }
         
         @Test
@@ -454,6 +492,45 @@ class QuizAssemblyServiceImplTest {
             // Then
             assertThat(result.getStatus()).isEqualTo(QuizStatus.PUBLISHED);
             assertThat(result.getVisibility()).isEqualTo(Visibility.PRIVATE);
+            assertThat(result.getDifficulty()).isEqualTo(request.difficulty());
+        }
+        
+        @Test
+        @DisplayName("Consolidated quiz respects requested HARD difficulty")
+        void consolidatedQuiz_hardDifficulty_setsCorrectly() {
+            // Given
+            GenerateQuizFromDocumentRequest hardRequest = new GenerateQuizFromDocumentRequest(
+                documentId, QuizScope.ENTIRE_DOCUMENT, null, null, null,
+                "Hard Quiz", "Description", Map.of(QuestionType.MCQ_SINGLE, 3),
+                Difficulty.HARD, 10, null, List.of()
+            );
+            when(quizRepository.existsByCreatorIdAndTitle(any(), any())).thenReturn(false);
+            when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            
+            // When
+            Quiz result = assemblyService.createConsolidatedQuiz(testUser, questions, hardRequest, aiCategory, tags, documentId, 3);
+            
+            // Then
+            assertThat(result.getDifficulty()).isEqualTo(Difficulty.HARD);
+        }
+        
+        @Test
+        @DisplayName("Consolidated quiz respects requested EASY difficulty")
+        void consolidatedQuiz_easyDifficulty_setsCorrectly() {
+            // Given
+            GenerateQuizFromDocumentRequest easyRequest = new GenerateQuizFromDocumentRequest(
+                documentId, QuizScope.ENTIRE_DOCUMENT, null, null, null,
+                "Easy Quiz", "Description", Map.of(QuestionType.MCQ_SINGLE, 3),
+                Difficulty.EASY, 10, null, List.of()
+            );
+            when(quizRepository.existsByCreatorIdAndTitle(any(), any())).thenReturn(false);
+            when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            
+            // When
+            Quiz result = assemblyService.createConsolidatedQuiz(testUser, questions, easyRequest, aiCategory, tags, documentId, 3);
+            
+            // Then
+            assertThat(result.getDifficulty()).isEqualTo(Difficulty.EASY);
         }
         
         @Test
