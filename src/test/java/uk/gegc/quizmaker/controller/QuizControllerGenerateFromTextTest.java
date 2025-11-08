@@ -314,12 +314,12 @@ class QuizControllerGenerateFromTextTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/quizzes/generate-from-text should return 400 for missing difficulty")
+    @DisplayName("POST /api/v1/quizzes/generate-from-text should default to MEDIUM difficulty when not provided")
     @WithMockUser(username = "testuser", roles = "ADMIN")
-    void generateFromText_MissingDifficulty_Returns400BadRequest() throws Exception {
-        // Given
-        GenerateQuizFromTextRequest invalidRequest = new GenerateQuizFromTextRequest(
-                "Sample text",
+    void generateFromText_MissingDifficulty_DefaultsToMedium() throws Exception {
+        // Given - Request without difficulty (will default to MEDIUM)
+        GenerateQuizFromTextRequest requestWithoutDifficulty = new GenerateQuizFromTextRequest(
+                "Sample text for quiz generation with at least 100 characters to ensure proper processing and chunking",
                 "en",
                 null,
                 null,
@@ -330,17 +330,18 @@ class QuizControllerGenerateFromTextTest {
                 "Test Quiz",
                 "Test Description",
                 Map.of(QuestionType.MCQ_SINGLE, 3),
-                null, // missing difficulty
+                null, // missing difficulty - should default to MEDIUM
                 2,
                 null,
                 null
         );
 
-        // When & Then
+        // When & Then - Should accept request (defaults to MEDIUM)
         mockMvc.perform(post("/api/v1/quizzes/generate-from-text")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(invalidRequest)))
-                .andExpect(status().isBadRequest());
+                        .content(objectMapper.writeValueAsString(requestWithoutDifficulty)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.jobId").exists());
     }
 
     @Test

@@ -57,8 +57,7 @@ public record GenerateQuizFromTextRequest(
         @Size(min = 1, message = "At least one question type must be specified")
         Map<QuestionType, Integer> questionsPerType,
 
-        @Schema(description = "Difficulty level for the generated questions", example = "MEDIUM")
-        @NotNull(message = "Difficulty must not be null")
+        @Schema(description = "Difficulty level for the generated questions (defaults to MEDIUM if not provided)", example = "MEDIUM", defaultValue = "MEDIUM")
         Difficulty difficulty,
 
         @Schema(description = "Estimated time per question in minutes", example = "2")
@@ -79,6 +78,9 @@ public record GenerateQuizFromTextRequest(
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
         language = (language == null || language.isBlank()) ? "en" : language.trim();
+        
+        // Defensive fallback for difficulty (validation should catch null, but this prevents NPE)
+        difficulty = (difficulty == null) ? Difficulty.MEDIUM : difficulty;
 
         // Set default scope if not provided - MUST be done before validation
         quizScope = (quizScope == null) ? QuizScope.ENTIRE_DOCUMENT : quizScope;
