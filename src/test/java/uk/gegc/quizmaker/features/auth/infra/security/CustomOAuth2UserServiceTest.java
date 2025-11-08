@@ -556,6 +556,101 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
+    @DisplayName("loadUser: when existing user with unverified email links OAuth then auto-verifies email")
+    void loadUser_ExistingUserWithUnverifiedEmail_AutoVerifiesEmail() throws Exception {
+        // Given
+        User existingUser = createUser("johndoe", "user@gmail.com");
+        existingUser.setEmailVerified(false); // User registered but never verified email
+        existingUser.setEmailVerifiedAt(null);
+        
+        attributes = Map.of(
+                "sub", "google123",
+                "email", "user@gmail.com",
+                "name", "John Doe"
+        );
+        OAuth2User oauth2User = new DefaultOAuth2User(Collections.emptyList(), attributes, "sub");
+        OAuth2UserRequest userRequest = createOAuth2UserRequest("google", oauth2User);
+
+        doReturn(oauth2User).when(service).callSuperLoadUser(userRequest);
+
+        when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
+                OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenReturn(existingUser);
+        when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // When
+        CustomOAuth2User result = (CustomOAuth2User) service.loadUser(userRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getUserId()).isEqualTo(existingUser.getId());
+
+        // Verify email was auto-verified (save is called twice: once for verification, once for last login)
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(2)).save(userCaptor.capture());
+        
+        // First save should be the email verification update
+        User verifiedUser = userCaptor.getAllValues().get(0);
+        assertThat(verifiedUser.isEmailVerified()).isTrue();
+        assertThat(verifiedUser.getEmailVerifiedAt()).isNotNull();
+        assertThat(verifiedUser.getEmailVerifiedAt()).isBeforeOrEqualTo(LocalDateTime.now());
+
+        // Verify OAuth account is created and linked
+        ArgumentCaptor<OAuthAccount> oauthCaptor = ArgumentCaptor.forClass(OAuthAccount.class);
+        verify(oauthAccountRepository).save(oauthCaptor.capture());
+        OAuthAccount linkedOAuthAccount = oauthCaptor.getValue();
+        
+        assertThat(linkedOAuthAccount.getUser()).isEqualTo(existingUser);
+        assertThat(linkedOAuthAccount.getProvider()).isEqualTo(OAuthProvider.GOOGLE);
+    }
+
+    @Test
+    @DisplayName("loadUser: when existing user with already verified email links OAuth then keeps verified status")
+    void loadUser_ExistingUserWithVerifiedEmail_KeepsVerifiedStatus() throws Exception {
+        // Given
+        User existingUser = createUser("johndoe", "user@gmail.com");
+        existingUser.setEmailVerified(true); // Already verified
+        LocalDateTime originalVerifiedAt = LocalDateTime.now().minusDays(5);
+        existingUser.setEmailVerifiedAt(originalVerifiedAt);
+        
+        attributes = Map.of(
+                "sub", "google123",
+                "email", "user@gmail.com",
+                "name", "John Doe"
+        );
+        OAuth2User oauth2User = new DefaultOAuth2User(Collections.emptyList(), attributes, "sub");
+        OAuth2UserRequest userRequest = createOAuth2UserRequest("google", oauth2User);
+
+        doReturn(oauth2User).when(service).callSuperLoadUser(userRequest);
+
+        when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
+                OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.save(any(User.class))).thenReturn(existingUser);
+        when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // When
+        CustomOAuth2User result = (CustomOAuth2User) service.loadUser(userRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getUserId()).isEqualTo(existingUser.getId());
+
+        // Verify email verification status wasn't changed (only one save for last login update)
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(1)).save(userCaptor.capture());
+        
+        // Should be the last login update, not email verification
+        User savedUser = userCaptor.getValue();
+        assertThat(savedUser.isEmailVerified()).isTrue();
+        assertThat(savedUser.getEmailVerifiedAt()).isEqualTo(originalVerifiedAt);
+
+        // Verify OAuth account is created and linked
+        verify(oauthAccountRepository).save(any(OAuthAccount.class));
+    }
+
+    @Test
     @DisplayName("loadUser: when email verified then sets emailVerifiedAt")
     void loadUser_EmailVerified_SetsEmailVerifiedAt() throws Exception {
         // Given

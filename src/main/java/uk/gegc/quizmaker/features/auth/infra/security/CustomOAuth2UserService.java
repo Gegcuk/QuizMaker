@@ -111,6 +111,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             Optional<User> existingUser = userRepository.findByEmailWithRoles(email);
             if (existingUser.isPresent()) {
                 User user = existingUser.get();
+                // Auto-verify email if not already verified (OAuth provider has verified it)
+                if (!user.isEmailVerified()) {
+                    user.setEmailVerified(true);
+                    user.setEmailVerifiedAt(LocalDateTime.now());
+                    userRepository.save(user);
+                    log.info("Auto-verified email for user via OAuth: userId={}, provider={}", 
+                            user.getId(), provider);
+                }
                 // Link OAuth account to existing user
                 createOAuthAccount(user, provider, providerUserId, email, name, profileImageUrl, userRequest);
                 log.info("Linked OAuth account to existing user: userId={}, provider={}", 
