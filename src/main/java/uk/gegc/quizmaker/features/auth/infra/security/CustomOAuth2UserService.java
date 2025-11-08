@@ -103,7 +103,18 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             OAuthAccount oauthAccount = existingOAuthAccount.get();
             updateOAuthAccountTokens(oauthAccount, userRequest);
             oauthAccountRepository.save(oauthAccount);
-            return oauthAccount.getUser();
+            
+            // Auto-verify email if not already verified (OAuth provider has verified it)
+            User user = oauthAccount.getUser();
+            if (!user.isEmailVerified() && email != null) {
+                user.setEmailVerified(true);
+                user.setEmailVerifiedAt(LocalDateTime.now());
+                userRepository.save(user);
+                log.info("Auto-verified email for existing OAuth user: userId={}, provider={}", 
+                        user.getId(), provider);
+            }
+            
+            return user;
         }
 
         // OAuth account doesn't exist, try to link with existing user by email

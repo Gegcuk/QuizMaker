@@ -201,10 +201,11 @@ class CustomOAuth2UserServiceTest {
     }
 
     @Test
-    @DisplayName("loadUser: when existing OAuth account then updates tokens")
+    @DisplayName("loadUser: when existing OAuth account with verified email then updates tokens")
     void loadUser_ExistingOAuthAccount_UpdatesTokens() throws Exception {
         // Given
         User existingUser = createUser("johndoe", "user@gmail.com");
+        existingUser.setEmailVerified(true); // Already verified
         OAuthAccount existingOAuthAccount = new OAuthAccount();
         existingOAuthAccount.setUser(existingUser);
         existingOAuthAccount.setProvider(OAuthProvider.GOOGLE);
@@ -235,6 +236,58 @@ class CustomOAuth2UserServiceTest {
         // Verify OAuth account is updated with encrypted token
         verify(oauthAccountRepository).save(existingOAuthAccount);
         verify(tokenCryptoService).encrypt("test-token");
+        // Should save user once for last login update (but not for email verification since already verified)
+        verify(userRepository, times(1)).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("loadUser: when existing OAuth account with unverified email then auto-verifies")
+    void loadUser_ExistingOAuthAccountWithUnverifiedEmail_AutoVerifiesEmail() throws Exception {
+        // Given
+        User existingUser = createUser("johndoe", "user@gmail.com");
+        existingUser.setEmailVerified(false); // Not verified
+        existingUser.setEmailVerifiedAt(null);
+        
+        OAuthAccount existingOAuthAccount = new OAuthAccount();
+        existingOAuthAccount.setUser(existingUser);
+        existingOAuthAccount.setProvider(OAuthProvider.GOOGLE);
+        existingOAuthAccount.setProviderUserId("google123");
+
+        attributes = Map.of(
+                "sub", "google123",
+                "email", "user@gmail.com",
+                "name", "John Doe"
+        );
+        OAuth2User oauth2User = new DefaultOAuth2User(Collections.emptyList(), attributes, "sub");
+        OAuth2UserRequest userRequest = createOAuth2UserRequest("google", oauth2User);
+
+        doReturn(oauth2User).when(service).callSuperLoadUser(userRequest);
+
+        when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
+                OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.of(existingOAuthAccount));
+        when(userRepository.save(any(User.class))).thenReturn(existingUser);
+        when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // When
+        CustomOAuth2User result = (CustomOAuth2User) service.loadUser(userRequest);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getUserId()).isEqualTo(existingUser.getId());
+
+        // Verify OAuth account tokens are updated
+        verify(oauthAccountRepository).save(existingOAuthAccount);
+        verify(tokenCryptoService).encrypt("test-token");
+        
+        // Verify email was auto-verified
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(2)).save(userCaptor.capture());
+        
+        // First save for email verification, second for last login
+        User verifiedUser = userCaptor.getAllValues().get(0);
+        assertThat(verifiedUser.isEmailVerified()).isTrue();
+        assertThat(verifiedUser.getEmailVerifiedAt()).isNotNull();
+        assertThat(verifiedUser.getEmailVerifiedAt()).isBeforeOrEqualTo(LocalDateTime.now());
     }
 
     @Test
