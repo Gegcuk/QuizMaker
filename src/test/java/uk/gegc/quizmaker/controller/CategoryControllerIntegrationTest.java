@@ -453,7 +453,10 @@ public class CategoryControllerIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/data-conflict"))
                 .andExpect(jsonPath("$.title").value("Data Conflict"))
-                .andExpect(jsonPath("$.detail", containsString("Duplicate entry 'DUP'")))
+                .andExpect(jsonPath("$.detail", anyOf(
+                        containsString("already exists"),
+                        containsString("duplicate")
+                )))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 

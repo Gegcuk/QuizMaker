@@ -433,15 +433,108 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException ex, HttpServletRequest request) {
-        String detail = "Database error: " + ex.getMostSpecificCause().getMessage();
+        // Log the full technical error for debugging
+        logger.error("Data integrity violation: {}", ex.getMostSpecificCause().getMessage(), ex);
+        
+        // Sanitize the error message for users
+        String userFriendlyMessage = sanitizeDatabaseError(ex);
+        
         ProblemDetail problem = ProblemDetailBuilder.create(
                 HttpStatus.CONFLICT,
                 ErrorTypes.DATA_CONFLICT,
                 "Data Conflict",
-                detail,
+                userFriendlyMessage,
                 request
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+    
+    /**
+     * Sanitizes database error messages to avoid exposing internal database details.
+     * Provides user-friendly messages without revealing schema, constraints, or binary data.
+     */
+    private String sanitizeDatabaseError(DataIntegrityViolationException ex) {
+        String technicalMessage = ex.getMostSpecificCause().getMessage();
+        
+        if (technicalMessage == null) {
+            return "A data conflict occurred. Please check your input and try again.";
+        }
+        
+        String lowerMessage = technicalMessage.toLowerCase();
+        
+        // Handle duplicate key violations
+        if (lowerMessage.contains("duplicate entry") || lowerMessage.contains("duplicate key")) {
+            // Try to extract a user-friendly field name from the constraint
+            String fieldHint = extractFieldFromConstraint(technicalMessage);
+            if (fieldHint != null) {
+                return "A " + fieldHint + " with this value already exists. Please use a different value.";
+            }
+            return "This record already exists. Please check for duplicates.";
+        }
+        
+        // Handle foreign key violations
+        if (lowerMessage.contains("foreign key constraint") || lowerMessage.contains("cannot delete or update a parent row")) {
+            return "This record cannot be modified because it is referenced by other data.";
+        }
+        
+        // Handle null constraint violations
+        if (lowerMessage.contains("cannot be null") || lowerMessage.contains("not-null")) {
+            return "A required field is missing. Please provide all required information.";
+        }
+        
+        // Handle check constraint violations
+        if (lowerMessage.contains("check constraint")) {
+            return "The data does not meet validation requirements. Please check your input.";
+        }
+        
+        // Generic fallback
+        return "A data conflict occurred. Please check your input and try again.";
+    }
+    
+    /**
+     * Attempts to extract a user-friendly field name from a database constraint name.
+     * Returns null if no recognizable pattern is found.
+     */
+    private String extractFieldFromConstraint(String technicalMessage) {
+        try {
+            // Pattern: for key 'table.UK_fieldname' or for key 'UK_fieldname'
+            if (technicalMessage.contains("for key '")) {
+                int startIdx = technicalMessage.indexOf("for key '") + 9;
+                int endIdx = technicalMessage.indexOf("'", startIdx);
+                if (endIdx > startIdx) {
+                    String constraintName = technicalMessage.substring(startIdx, endIdx);
+                    
+                    // Remove table prefix if present (e.g., "quizzes.UKxxx" -> "UKxxx")
+                    if (constraintName.contains(".")) {
+                        constraintName = constraintName.substring(constraintName.lastIndexOf(".") + 1);
+                    }
+                    
+                    // Map common constraint patterns to user-friendly names
+                    if (constraintName.toLowerCase().contains("email")) {
+                        return "email address";
+                    }
+                    if (constraintName.toLowerCase().contains("username")) {
+                        return "username";
+                    }
+                    if (constraintName.toLowerCase().contains("title")) {
+                        return "title";
+                    }
+                    if (constraintName.toLowerCase().contains("name")) {
+                        return "name";
+                    }
+                    if (constraintName.toLowerCase().contains("slug")) {
+                        return "slug";
+                    }
+                    
+                    // Generic: "record"
+                    return "record";
+                }
+            }
+        } catch (Exception e) {
+            // If parsing fails, return null to use generic message
+            logger.debug("Failed to extract field from constraint: {}", e.getMessage());
+        }
+        return null;
     }
 
     @ExceptionHandler(UnauthorizedException.class)
