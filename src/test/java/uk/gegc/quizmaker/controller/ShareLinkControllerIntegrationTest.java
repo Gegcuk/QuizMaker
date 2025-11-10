@@ -26,8 +26,7 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -225,7 +224,10 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value(containsString("Expiry must be in the future")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail", containsString("Expiry must be in the future")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -379,7 +381,10 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
 
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}", invalidToken))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value(containsString("Invalid token format")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail", containsString("Invalid token format")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -414,7 +419,10 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
 
         mockMvc.perform(get("/api/v1/quizzes/shared/{token}", token))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value(containsString("Token expired")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail", containsString("Token expired")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -722,7 +730,15 @@ class ShareLinkControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest()) // Should be rejected by validation
-                .andExpect(jsonPath("$.details[0]").value(containsString("must not be null")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "scope"),
+                                hasEntry(equalTo("message"), containsString("must not be null"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
