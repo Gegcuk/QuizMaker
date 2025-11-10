@@ -383,7 +383,7 @@ public class AttemptServiceImpl implements AttemptService {
     public List<AnswerSubmissionDto> submitBatch(String username,
                                                  UUID attemptId,
                                                  BatchAnswerSubmissionRequest request) {
-        Attempt attempt = attemptRepository.findByIdWithAllRelations(attemptId)
+        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
         enforceOwnership(attempt, username);
 
@@ -402,7 +402,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptResultDto completeAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findByIdWithAllRelations(attemptId)
+        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
         enforceOwnership(attempt, username);
 
@@ -738,6 +738,12 @@ public class AttemptServiceImpl implements AttemptService {
         long correctCount = attempt.getAnswers().stream()
                 .filter(ans -> Boolean.TRUE.equals(ans.getIsCorrect()))
                 .count();
+        
+        // Calculate totalScore from actual answer scores (not from stored value)
+        double totalScore = attempt.getAnswers().stream()
+                .mapToDouble(ans -> ans.getScore() != null ? ans.getScore() : 0.0)
+                .sum();
+        
         int totalQuestions = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         // Build answer review DTOs (sorted by answeredAt for stable ordering)
@@ -757,7 +763,7 @@ public class AttemptServiceImpl implements AttemptService {
                 attempt.getUser().getId(),
                 attempt.getStartedAt(),
                 attempt.getCompletedAt(),
-                attempt.getTotalScore(),
+                totalScore,
                 (int) correctCount,
                 totalQuestions,
                 answerReviews

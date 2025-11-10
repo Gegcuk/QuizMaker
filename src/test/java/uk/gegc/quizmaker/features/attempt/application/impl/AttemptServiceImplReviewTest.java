@@ -563,7 +563,7 @@ class AttemptServiceImplReviewTest {
         assertThat(result.answers()).isEmpty();
         assertThat(result.correctCount()).isEqualTo(0);
         assertThat(result.totalQuestions()).isEqualTo(5);
-        assertThat(result.totalScore()).isEqualTo(1.0);  // Still has the score from attempt
+        assertThat(result.totalScore()).isEqualTo(0.0);  // No answers = 0 score (calculated from answers, not stored value)
 
         verify(correctAnswerExtractor, never()).extractCorrectAnswer(any());
     }
