@@ -242,7 +242,10 @@ class QuizControllerSearchIntegrationTest {
         mockMvc.perform(get("/api/v1/quizzes")
                         .param("difficulty", "IMPOSSIBLE"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", anyOf(is("Bad Request"), is("Validation Failed"))));
+                .andExpect(jsonPath("$.type").exists())
+                .andExpect(jsonPath("$.title").exists())
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 }
 

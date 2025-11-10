@@ -389,7 +389,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Title must not be blank"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "title"),
+                                hasEntry(equalTo("message"), containsString("Title must not be blank"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -411,7 +419,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "title"),
+                                hasEntry(equalTo("message"), containsString("Title length must be between 3 and 100 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -434,7 +450,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "title"),
+                                hasEntry(equalTo("message"), containsString("Title length must be between 3 and 100 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -458,9 +482,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Description must be at most 1000 characters long"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "description"),
+                                hasEntry(equalTo("message"), containsString("Description must be at most 1000 characters long"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -482,9 +512,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Estimated time can't be less than 1 minute"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "estimatedTime"),
+                                hasEntry(equalTo("message"), containsString("Estimated time can't be less than 1 minute"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -506,9 +542,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Estimated time can't be more than 180 minutes"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "estimatedTime"),
+                                hasEntry(equalTo("message"), containsString("Estimated time can't be more than 180 minutes"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -530,9 +572,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Timer duration must be at least 1 minute"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "timerDuration"),
+                                hasEntry(equalTo("message"), containsString("Timer duration must be at least 1 minute"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -554,9 +602,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Timer duration must be at most 180 minutes"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "timerDuration"),
+                                hasEntry(equalTo("message"), containsString("Timer duration must be at most 180 minutes"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -580,9 +634,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Tag " + badTag + " not found"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Tag " + badTag + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -779,7 +834,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "title"),
+                                hasEntry(equalTo("message"), containsString("Title length must be between 3 and 100 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -795,7 +858,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Title length must be between 3 and 100 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "title"),
+                                hasEntry(equalTo("message"), containsString("Title length must be between 3 and 100 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -811,7 +882,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Description must be at most 1000 characters long"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "description"),
+                                hasEntry(equalTo("message"), containsString("Description must be at most 1000 characters long"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -826,7 +905,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Estimated time must be at least 1 minute"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "estimatedTime"),
+                                hasEntry(equalTo("message"), containsString("Estimated time must be at least 1 minute"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -841,7 +928,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Estimated time must be at most 180 minutes"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "estimatedTime"),
+                                hasEntry(equalTo("message"), containsString("Estimated time must be at most 180 minutes"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -856,7 +951,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Timer duration must be at least 1 minute"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "timerDuration"),
+                                hasEntry(equalTo("message"), containsString("Timer duration must be at least 1 minute"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -871,7 +974,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Timer duration must be at most 180 minutes"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "timerDuration"),
+                                hasEntry(equalTo("message"), containsString("Timer duration must be at most 180 minutes"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -886,7 +997,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Quiz " + missing + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + missing + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -902,7 +1016,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Tag " + badTag + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Tag " + badTag + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -918,7 +1035,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(json)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Category " + badCat + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Category " + badCat + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -936,7 +1056,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", badQuiz, questionId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuiz + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuiz + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -963,7 +1086,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/v1/quizzes/{quizId}/questions/{questionId}", validQuiz, badQuestion)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Question " + badQuestion + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Question " + badQuestion + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -973,7 +1099,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(delete("/api/v1/quizzes/{quizId}/tags/{tagId}", badQuizId, tagId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuizId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1009,7 +1138,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", badQuizId, categoryId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuizId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1029,7 +1161,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(patch("/api/v1/quizzes/{quizId}/category/{categoryId}", quizId, badCategoryId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Category " + badCategoryId + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Category " + badCategoryId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1115,7 +1250,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/results", badQuizId)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + badQuizId + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuizId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1183,7 +1321,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content(body)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + missing + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1206,8 +1347,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{}")
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details",
-                        hasItem(containsString("isPublic: must not be null"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "isPublic"),
+                                hasEntry(equalTo("message"), containsString("must not be null"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1237,7 +1385,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{ \"status\": \"PUBLISHED\" }")
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz: Cannot publish quiz without questions")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail", containsString("Cannot publish quiz: Cannot publish quiz without questions")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1276,7 +1427,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{ \"status\": \"PUBLISHED\" }")
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail", containsString("minimum estimated time of 1 minute(s)")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1310,8 +1464,11 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{ \"status\": \"PUBLISHED\" }")
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]", containsString("Cannot publish quiz without questions")))
-                .andExpect(jsonPath("$.details[0]", containsString("minimum estimated time of 1 minute(s)")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail", containsString("Cannot publish quiz without questions")))
+                .andExpect(jsonPath("$.detail", containsString("minimum estimated time of 1 minute(s)")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1350,7 +1507,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                         .content("{ \"status\": \"PUBLISHED\" }")
                         .with(user(adminUserDetails)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]", containsString("Question 'What?' is invalid: MCQ_SINGLE must have exactly one correct answer")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail", containsString("Question 'What?' is invalid: MCQ_SINGLE must have exactly one correct answer")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1676,7 +1836,10 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(get("/api/v1/quizzes/{quizId}/leaderboard", missing)
                         .with(user(adminUserDetails)))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]", containsString("Quiz " + missing + " not found")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + missing + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     private UUID createSampleQuiz() throws Exception {
