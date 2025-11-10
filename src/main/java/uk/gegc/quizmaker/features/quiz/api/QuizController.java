@@ -21,6 +21,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -406,22 +407,22 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "400",
                             description = "Validation failure or malformed JSON",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Forbidden – owner trying to set PUBLIC or non-owner/non-moderator trying to change visibility",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Quiz not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -453,13 +454,13 @@ public class QuizController {
                     @ApiResponse(responseCode = "200", description = "Quiz successfully updated",
                             content = @Content(mediaType = "application/json", schema = @Schema(implementation = QuizDto.class))),
                     @ApiResponse(responseCode = "400", description = "Validation failure or illegal status transition",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "401", description = "Unauthenticated",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "403", description = "Forbidden – owner trying to publish PUBLIC quiz or non-owner/non-moderator trying to change status",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))),
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
                     @ApiResponse(responseCode = "404", description = "Quiz not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class)))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     @PatchMapping("/{quizId}/status")
@@ -535,27 +536,27 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "400",
                             description = "Validation failure or invalid request",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not an ADMIN",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Document not found or not processed",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "409",
                             description = "User already has an active generation job",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -595,22 +596,22 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "400",
                             description = "Validation failure or invalid request",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not an ADMIN",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "422",
                             description = "Document processing failed",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -691,27 +692,27 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "400",
                             description = "Validation failure or invalid request",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not an ADMIN",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "409",
                             description = "User already has an active generation job",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "422",
                             description = "Text processing failed",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -744,17 +745,17 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not authorized to access this job",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Generation job not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -784,22 +785,22 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not authorized to access this quiz",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Generation job or generated quiz not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "409",
                             description = "Generation job is not yet completed",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -829,22 +830,22 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "400",
                             description = "Job cannot be cancelled (already completed or failed)",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "403",
                             description = "Authenticated but not authorized to cancel this job",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Generation job not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -878,7 +879,7 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -910,7 +911,7 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -938,7 +939,7 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
@@ -966,12 +967,12 @@ public class QuizController {
                     @ApiResponse(
                             responseCode = "401",
                             description = "Unauthenticated – JWT missing/expired",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "404",
                             description = "Job not found",
-                            content = @Content(schema = @Schema(implementation = GlobalExceptionHandler.ErrorResponse.class))
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
     )
