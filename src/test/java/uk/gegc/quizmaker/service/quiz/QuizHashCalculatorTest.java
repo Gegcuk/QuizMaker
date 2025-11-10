@@ -35,6 +35,7 @@ class QuizHashCalculatorTest {
                 false,
                 null,
                 tags,
+                5,  // questionCount
                 Instant.now(),
                 Instant.now()
         );

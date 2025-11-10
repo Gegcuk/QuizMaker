@@ -212,7 +212,7 @@ class QuizServiceImplAdditionalTest {
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
             QuizDto quizDto = new QuizDto(UUID.randomUUID(), null, null, "Test", "Desc",
-                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), 0, null, null);
             Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
             
             when(quizQueryService.getQuizzes(pageable, criteria, "public", null)).thenReturn(resultPage);
@@ -265,7 +265,7 @@ class QuizServiceImplAdditionalTest {
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
             QuizDto quizDto = new QuizDto(UUID.randomUUID(), testUser.getId(), null, "Test", "Desc",
-                    Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), 0, null, null);
             Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
             
             when(quizQueryService.getQuizzes(pageable, criteria, "me", authentication)).thenReturn(resultPage);
@@ -286,7 +286,7 @@ class QuizServiceImplAdditionalTest {
             QuizSearchCriteria criteria = new QuizSearchCriteria(null, null, null, null, null);
             
             QuizDto quizDto = new QuizDto(UUID.randomUUID(), null, null, "Test", "Desc",
-                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), 0, null, null);
             Page<QuizDto> resultPage = new PageImpl<>(List.of(quizDto));
             
             when(quizQueryService.getQuizzes(pageable, criteria, "all", authentication)).thenReturn(resultPage);
@@ -344,7 +344,7 @@ class QuizServiceImplAdditionalTest {
             UUID quizId = UUID.randomUUID();
 
             QuizDto expectedDto = new QuizDto(quizId, null, null, "Test", "Desc",
-                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PUBLIC, null, QuizStatus.PUBLISHED, 10, false, false, 5, List.of(), 0, null, null);
 
             when(quizQueryService.getQuizById(quizId, null)).thenReturn(expectedDto);
 
@@ -384,7 +384,7 @@ class QuizServiceImplAdditionalTest {
             UUID quizId = UUID.randomUUID();
             UpdateQuizRequest request = new UpdateQuizRequest("Updated", "Desc", null, null, null, null, null, null, null, null);
             QuizDto expectedDto = new QuizDto(quizId, testUser.getId(), null, "Updated", "Desc",
-                    Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PRIVATE, null, QuizStatus.DRAFT, 10, false, false, 5, List.of(), 0, null, null);
 
             when(quizCommandService.updateQuiz("testuser", quizId, request)).thenReturn(expectedDto);
 
@@ -406,7 +406,7 @@ class QuizServiceImplAdditionalTest {
                     null, null, null, null, null, null, null, null);
 
             QuizDto afterDto = new QuizDto(quizId, testUser.getId(), null, "Updated Title", "Updated Desc",
-                    Visibility.PRIVATE, null, QuizStatus.PENDING_REVIEW, 10, false, false, 5, List.of(), null, null);
+                    Visibility.PRIVATE, null, QuizStatus.PENDING_REVIEW, 10, false, false, 5, List.of(), 0, null, null);
 
             when(quizCommandService.updateQuiz("testuser", quizId, request)).thenReturn(afterDto);
 

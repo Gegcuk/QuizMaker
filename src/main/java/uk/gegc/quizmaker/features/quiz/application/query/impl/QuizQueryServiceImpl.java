@@ -18,13 +18,17 @@ import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of read-only query service for quizzes.
@@ -38,6 +42,7 @@ import java.util.UUID;
 public class QuizQueryServiceImpl implements QuizQueryService {
 
     private final QuizRepository quizRepository;
+    private final QuestionRepository questionRepository;
     private final QuizMapper quizMapper;
     private final UserRepository userRepository;
     private final AppPermissionEvaluator appPermissionEvaluator;
@@ -49,6 +54,9 @@ public class QuizQueryServiceImpl implements QuizQueryService {
         Quiz quiz = quizRepository.findByIdWithTags(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Quiz " + id + " not found"));
+
+        // Get question count
+        int questionCount = (int) questionRepository.countByQuizId_Id(id);
 
         // If user is authenticated, check if they're the owner
         if (authentication != null && authentication.isAuthenticated()) {
@@ -63,7 +71,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
 
                 // Allow access if user is owner or has moderation permissions
                 if (isOwner || hasModerationPermissions) {
-                    return quizMapper.toDto(quiz);
+                    return quizMapper.toDto(quiz, questionCount);
                 }
             }
         }
@@ -73,15 +81,22 @@ public class QuizQueryServiceImpl implements QuizQueryService {
             throw new ForbiddenException("Access denied: quiz is not public");
         }
 
-        return quizMapper.toDto(quiz);
+        return quizMapper.toDto(quiz, questionCount);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<QuizDto> getPublicQuizzes(Pageable pageable) {
         // Enforce visibility invariants: public catalog shows PUBLISHED && PUBLIC
-        return quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable)
-                .map(quizMapper::toDto);
+        Page<Quiz> quizPage = quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable);
+        
+        // Batch fetch question counts to avoid N+1 queries
+        Map<UUID, Long> questionCounts = batchFetchQuestionCounts(quizPage.getContent());
+        
+        return quizPage.map(quiz -> {
+            int count = questionCounts.getOrDefault(quiz.getId(), 0L).intValue();
+            return quizMapper.toDto(quiz, count);
+        });
     }
 
     @Override
@@ -132,7 +147,15 @@ public class QuizQueryServiceImpl implements QuizQueryService {
                 break;
         }
 
-        return quizRepository.findAll(spec, pageable).map(quizMapper::toDto);
+        Page<Quiz> quizPage = quizRepository.findAll(spec, pageable);
+        
+        // Batch fetch question counts to avoid N+1 queries
+        Map<UUID, Long> questionCounts = batchFetchQuestionCounts(quizPage.getContent());
+        
+        return quizPage.map(quiz -> {
+            int count = questionCounts.getOrDefault(quiz.getId(), 0L).intValue();
+            return quizMapper.toDto(quiz, count);
+        });
     }
 
     @Transactional
@@ -162,7 +185,8 @@ public class QuizQueryServiceImpl implements QuizQueryService {
             throw new ForbiddenException("Access denied");
         }
 
-        return quizMapper.toDto(quiz);
+        int questionCount = (int) questionRepository.countByQuizId_Id(quiz.getId());
+        return quizMapper.toDto(quiz, questionCount);
     }
 
     @Transactional
@@ -176,6 +200,29 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     @Override
     public QuizGenerationJobService.JobStatistics getGenerationJobStatistics(String username) {
         return jobService.getJobStatistics(username);
+    }
+
+    /**
+     * Helper method to batch fetch question counts for multiple quizzes.
+     * Prevents N+1 queries when mapping Page<Quiz> to Page<QuizDto>.
+     *
+     * @param quizzes List of quizzes to get question counts for
+     * @return Map of quiz ID to question count
+     */
+    private Map<UUID, Long> batchFetchQuestionCounts(List<Quiz> quizzes) {
+        if (quizzes.isEmpty()) {
+            return Map.of();
+        }
+        
+        List<UUID> quizIds = quizzes.stream()
+                .map(Quiz::getId)
+                .collect(Collectors.toList());
+        
+        return questionRepository.countQuestionsForQuizzes(quizIds).stream()
+                .collect(Collectors.toMap(
+                        row -> (UUID) row[0],  // quizId
+                        row -> (Long) row[1]   // count
+                ));
     }
 
 }

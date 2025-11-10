@@ -323,6 +323,7 @@ class QuizOwnerPrivatePublishTest {
                 false, // timerEnabled
                 null, // timerDuration
                 java.util.List.of(), // tagIds
+                0, // questionCount
                 java.time.Instant.now(), // createdAt
                 java.time.Instant.now() // updatedAt
         );

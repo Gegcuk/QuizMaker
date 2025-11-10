@@ -21,10 +21,11 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     boolean existsByIdAndQuizId_Id(UUID questionId, UUID quizId);
     
     long countByQuizId_Id(UUID quizId);
-    
+
     /**
      * Batch fetch question counts for multiple quizzes to avoid N+1 queries.
-     * Returns a map of quizId -> questionCount.
+     * Returns a list of Object arrays where [0] = quizId (UUID), [1] = count (Long).
+     * Queries from Quiz entity's perspective for efficiency.
      */
     @Query("""
             SELECT q.id, COUNT(qq.id)

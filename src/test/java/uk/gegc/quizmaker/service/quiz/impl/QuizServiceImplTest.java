@@ -535,6 +535,7 @@ class QuizServiceImplTest {
                 false, // timerEnabled
                 5, // timerDuration
                 List.of(), // tagIds
+                0, // questionCount
                 Instant.now(), // createdAt
                 null // updatedAt
         );
@@ -748,6 +749,7 @@ class QuizServiceImplTest {
                 false,                  // timerEnabled
                 5,                      // timerDuration
                 List.of(),              // tagIds
+                0,                      // questionCount
                 null,                   // createdAt
                 null                    // updatedAt
         );
@@ -791,7 +793,7 @@ class QuizServiceImplTest {
         QuizDto expectedDto = new QuizDto(
                 quizId, UUID.randomUUID(), UUID.randomUUID(), "Test", "Desc",
                 Visibility.PRIVATE, Difficulty.MEDIUM, QuizStatus.PUBLISHED,
-                10, false, false, 5, List.of(), null, null
+                10, false, false, 5, List.of(), 0, null, null
         );
 
         when(quizPublishingService.setStatus(username, quizId, QuizStatus.PUBLISHED))
