@@ -13,6 +13,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -44,8 +45,10 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "User successfully registered"),
-            @ApiResponse(responseCode = "400", description = "Validation errors"),
-            @ApiResponse(responseCode = "409", description = "Username or email already in use")
+            @ApiResponse(responseCode = "400", description = "Validation errors",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Username or email already in use",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/register")
     public ResponseEntity<AuthenticatedUserDto> register(
@@ -69,7 +72,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login successful"),
-            @ApiResponse(responseCode = "401", description = "Invalid credentials")
+            @ApiResponse(responseCode = "401", description = "Invalid credentials",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/login")
     public ResponseEntity<JwtResponse> login(
@@ -90,7 +94,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tokens refreshed"),
-            @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token")
+            @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/refresh")
     public ResponseEntity<JwtResponse> refresh(
@@ -110,7 +115,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Logout successful"),
-            @ApiResponse(responseCode = "401", description = "Invalid or missing token")
+            @ApiResponse(responseCode = "401", description = "Invalid or missing token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/logout")
     public void logout(
@@ -133,7 +139,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Current user retrieved"),
-            @ApiResponse(responseCode = "401", description = "Not authenticated")
+            @ApiResponse(responseCode = "401", description = "Not authenticated",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/me")
     public ResponseEntity<AuthenticatedUserDto> me(
@@ -148,8 +155,10 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "Request accepted"),
-            @ApiResponse(responseCode = "400", description = "Invalid email format"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "400", description = "Invalid email format",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/forgot-password")
     public ResponseEntity<ForgotPasswordResponse> forgotPassword(
@@ -180,8 +189,10 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Password reset successful"),
-            @ApiResponse(responseCode = "400", description = "Invalid or expired token"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "400", description = "Invalid or expired token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/reset-password")
     public ResponseEntity<ResetPasswordResponse> resetPassword(
@@ -218,7 +229,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Email verified successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid or expired token")
+            @ApiResponse(responseCode = "400", description = "Invalid or expired token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/verify-email")
     public ResponseEntity<VerifyEmailResponse> verifyEmail(
@@ -242,7 +254,8 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "If the email exists and is not verified, a verification link was sent"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/resend-verification")
     @ResponseStatus(HttpStatus.ACCEPTED)

@@ -18,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
@@ -52,7 +53,8 @@ public class AttemptController {
                                       "firstQuestion":null
                                     }
                                     """))),
-            @ApiResponse(responseCode = "404", description = "Quiz not found")
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/quizzes/{quizId}")
     public ResponseEntity<StartAttemptResponse> startAttempt(
@@ -141,7 +143,8 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptSummaryDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Forbidden - Cannot access other users' attempts")
+            @ApiResponse(responseCode = "403", description = "Forbidden - Cannot access other users' attempts",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/summary")
     public ResponseEntity<Page<AttemptSummaryDto>> listAttemptsSummary(
@@ -192,7 +195,8 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptDetailsDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "404", description = "Attempt not found")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{attemptId}")
     public ResponseEntity<AttemptDetailsDto> getAttempt(
@@ -229,8 +233,10 @@ public class AttemptController {
                                     }
                                     """))
             ),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{attemptId}/current-question")
     public ResponseEntity<CurrentQuestionDto> getCurrentQuestion(
@@ -252,8 +258,10 @@ public class AttemptController {
                             schema = @Schema(implementation = AnswerSubmissionDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "404", description = "Attempt or question not found")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Attempt or question not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{attemptId}/answers")
     public ResponseEntity<AnswerSubmissionDto> submitAnswer(
@@ -282,9 +290,12 @@ public class AttemptController {
                             array = @ArraySchema(schema = @Schema(implementation = AnswerSubmissionDto.class))
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Invalid attempt mode or duplicate answers")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Invalid attempt mode or duplicate answers",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{attemptId}/answers/batch")
     public ResponseEntity<List<AnswerSubmissionDto>> submitBatch(
@@ -314,8 +325,10 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptResultDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Attempt in invalid state")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Attempt in invalid state",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{attemptId}/complete")
     public ResponseEntity<AttemptResultDto> completeAttempt(
@@ -337,7 +350,8 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptStatsDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "404", description = "Attempt not found")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{attemptId}/stats")
     public ResponseEntity<AttemptStatsDto> getAttemptStats(
@@ -353,8 +367,10 @@ public class AttemptController {
     @Operation(summary = "Pause an attempt", description = "Pause an in-progress attempt.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Attempt paused successfully"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Attempt cannot be paused")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be paused",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{attemptId}/pause")
     public ResponseEntity<AttemptDto> pauseAttempt(
@@ -370,8 +386,10 @@ public class AttemptController {
     @Operation(summary = "Resume an attempt", description = "Resume a paused attempt.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Attempt resumed successfully"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Attempt cannot be resumed")
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Attempt cannot be resumed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{attemptId}/resume")
     public ResponseEntity<AttemptDto> resumeAttempt(
@@ -387,9 +405,12 @@ public class AttemptController {
     @Operation(summary = "Delete an attempt", description = "Delete an attempt and all its associated answers. Users can only delete their own attempts.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Attempt deleted successfully"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found")
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @DeleteMapping("/{attemptId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -431,9 +452,12 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptReviewDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet")
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{attemptId}/review")
     public ResponseEntity<AttemptReviewDto> getAttemptReview(
@@ -489,9 +513,12 @@ public class AttemptController {
                             schema = @Schema(implementation = AttemptReviewDto.class)
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt"),
-            @ApiResponse(responseCode = "404", description = "Attempt not found"),
-            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet")
+            @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Attempt not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{attemptId}/answer-key")
     public ResponseEntity<AttemptReviewDto> getAttemptAnswerKey(

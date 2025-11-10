@@ -16,6 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
@@ -51,9 +52,12 @@ public class QuestionController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Question created"),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -115,7 +119,8 @@ public class QuestionController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Question returned"),
-            @ApiResponse(responseCode = "404", description = "Question not found")
+            @ApiResponse(responseCode = "404", description = "Question not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}")
     public ResponseEntity<QuestionDto> getQuestion(
@@ -133,10 +138,14 @@ public class QuestionController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Question updated"),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "Question not found")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Question not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -164,9 +173,12 @@ public class QuestionController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Question deleted"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "Question not found")
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Question not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{id}")
@@ -225,7 +237,8 @@ public class QuestionController {
                     description = "Schema retrieved successfully",
                     content = @Content(schema = @Schema(implementation = QuestionSchemaResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid question type")
+            @ApiResponse(responseCode = "400", description = "Invalid question type",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/schemas/{questionType}")
     public ResponseEntity<QuestionSchemaResponse> getSchema(
