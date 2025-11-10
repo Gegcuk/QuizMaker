@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -65,9 +66,12 @@ public class CategoryController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Category created"),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -92,7 +96,8 @@ public class CategoryController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Category returned"),
-            @ApiResponse(responseCode = "404", description = "Category not found")
+            @ApiResponse(responseCode = "404", description = "Category not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{categoryId}")
     public ResponseEntity<CategoryDto> getCategoryById(
@@ -109,10 +114,14 @@ public class CategoryController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Category updated"),
-            @ApiResponse(responseCode = "400", description = "Validation error"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "Category not found")
+            @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Category not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -140,9 +149,12 @@ public class CategoryController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Category deleted"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden"),
-            @ApiResponse(responseCode = "404", description = "Category not found")
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Category not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{categoryId}")

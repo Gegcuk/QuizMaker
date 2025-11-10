@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -66,10 +67,14 @@ public class ShareLinkController {
     @ApiResponses(value = {
         @ApiResponse(responseCode = "201", description = "Share link created successfully",
             content = @Content(schema = @Schema(implementation = CreateShareLinkResponse.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid request parameters"),
-        @ApiResponse(responseCode = "401", description = "Unauthorized"),
-        @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions"),
-        @ApiResponse(responseCode = "404", description = "Quiz not found")
+        @ApiResponse(responseCode = "400", description = "Invalid request parameters",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Quiz not found",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<CreateShareLinkResponse> createShareLink(
@@ -101,9 +106,12 @@ public class ShareLinkController {
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "204", description = "Share link revoked successfully"),
-        @ApiResponse(responseCode = "401", description = "Unauthorized"),
-        @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions"),
-        @ApiResponse(responseCode = "404", description = "Share link not found")
+        @ApiResponse(responseCode = "401", description = "Unauthorized",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Share link not found",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> revokeShareLink(
@@ -132,9 +140,12 @@ public class ShareLinkController {
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Token validated successfully, cookie set"),
-        @ApiResponse(responseCode = "400", description = "Invalid token format"),
-        @ApiResponse(responseCode = "404", description = "Token not found or expired"),
-        @ApiResponse(responseCode = "410", description = "Token already used (one-time links)")
+        @ApiResponse(responseCode = "400", description = "Invalid token format",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Token not found or expired",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "410", description = "Token already used (one-time links)",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<ShareLinkDto> accessSharedQuiz(
             @Parameter(description = "Share token") @PathVariable String token,
@@ -178,9 +189,12 @@ public class ShareLinkController {
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Token consumed successfully",
             content = @Content(schema = @Schema(implementation = ShareLinkDto.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid token format"),
-        @ApiResponse(responseCode = "404", description = "Token not found or expired"),
-        @ApiResponse(responseCode = "410", description = "Token already used")
+        @ApiResponse(responseCode = "400", description = "Invalid token format",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Token not found or expired",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "410", description = "Token already used",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<ShareLinkDto> consumeOneTimeToken(
             @Parameter(description = "Share token") @PathVariable String token,
@@ -216,7 +230,8 @@ public class ShareLinkController {
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Share links retrieved successfully",
             content = @Content(schema = @Schema(implementation = ShareLinkDto.class))),
-        @ApiResponse(responseCode = "401", description = "Unauthorized")
+        @ApiResponse(responseCode = "401", description = "Unauthorized",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<List<ShareLinkDto>> getUserShareLinks(Authentication authentication) {
@@ -240,9 +255,12 @@ public class ShareLinkController {
     @ApiResponses(value = {
         @ApiResponse(responseCode = "201", description = "Attempt started",
             content = @Content(schema = @Schema(implementation = StartAttemptResponse.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid token format"),
-        @ApiResponse(responseCode = "404", description = "Token not found or expired"),
-        @ApiResponse(responseCode = "410", description = "Token already used (one-time links)")
+        @ApiResponse(responseCode = "400", description = "Invalid token format",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Token not found or expired",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "410", description = "Token already used (one-time links)",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<StartAttemptResponse> startAnonymousAttempt(
             @Parameter(description = "Share token") @PathVariable String token,
@@ -281,9 +299,12 @@ public class ShareLinkController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Answer submitted",
             content = @Content(schema = @Schema(implementation = AnswerSubmissionDto.class))),
-        @ApiResponse(responseCode = "400", description = "Validation error or invalid token"),
-        @ApiResponse(responseCode = "404", description = "Attempt or question not found"),
-        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation")
+        @ApiResponse(responseCode = "400", description = "Validation error or invalid token",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Attempt or question not found",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<AnswerSubmissionDto> submitAnonymousAnswer(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
@@ -322,9 +343,12 @@ public class ShareLinkController {
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Answers submitted"),
-        @ApiResponse(responseCode = "400", description = "Validation error or invalid token"),
-        @ApiResponse(responseCode = "404", description = "Attempt or question not found"),
-        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation")
+        @ApiResponse(responseCode = "400", description = "Validation error or invalid token",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Attempt or question not found",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<List<AnswerSubmissionDto>> submitAnonymousAnswersBatch(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
@@ -360,8 +384,10 @@ public class ShareLinkController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Attempt statistics",
             content = @Content(schema = @Schema(implementation = AttemptStatsDto.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid token or request"),
-        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz")
+        @ApiResponse(responseCode = "400", description = "Invalid token or request",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<AttemptStatsDto> getAnonymousAttemptStats(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
@@ -395,9 +421,12 @@ public class ShareLinkController {
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Current question returned"),
-        @ApiResponse(responseCode = "400", description = "Invalid token or request"),
-        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz"),
-        @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered")
+        @ApiResponse(responseCode = "400", description = "Invalid token or request",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "Attempt is not in progress or all questions answered",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<CurrentQuestionDto> getCurrentQuestionForSharedAttempt(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
@@ -433,9 +462,12 @@ public class ShareLinkController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Attempt completed",
             content = @Content(schema = @Schema(implementation = AttemptResultDto.class))),
-        @ApiResponse(responseCode = "400", description = "Invalid token or request"),
-        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz"),
-        @ApiResponse(responseCode = "409", description = "Attempt not in progress or already completed")
+        @ApiResponse(responseCode = "400", description = "Invalid token or request",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "409", description = "Attempt not in progress or already completed",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     public ResponseEntity<AttemptResultDto> completeAnonymousAttempt(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,

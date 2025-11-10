@@ -18,6 +18,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -61,9 +62,12 @@ public class TagController {
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(responseCode = "201", description = "Tag created, returns its ID"),
-                    @ApiResponse(responseCode = "400", description = "Validation error"),
-                    @ApiResponse(responseCode = "401", description = "Unauthorized"),
-                    @ApiResponse(responseCode = "403", description = "Forbidden")
+                    @ApiResponse(responseCode = "400", description = "Validation error",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "401", description = "Unauthorized",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "403", description = "Forbidden",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     @PostMapping
@@ -85,7 +89,8 @@ public class TagController {
             summary = "Get a tag by ID",
             responses = {
                     @ApiResponse(responseCode = "200", description = "TagDto"),
-                    @ApiResponse(responseCode = "404", description = "Tag not found")
+                    @ApiResponse(responseCode = "404", description = "Tag not found",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     @GetMapping("/{tagId}")
@@ -101,10 +106,14 @@ public class TagController {
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(responseCode = "200", description = "Updated TagDto"),
-                    @ApiResponse(responseCode = "400", description = "Validation error"),
-                    @ApiResponse(responseCode = "401", description = "Unauthorized"),
-                    @ApiResponse(responseCode = "403", description = "Forbidden"),
-                    @ApiResponse(responseCode = "404", description = "Tag not found")
+                    @ApiResponse(responseCode = "400", description = "Validation error",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "401", description = "Unauthorized",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "403", description = "Forbidden",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "404", description = "Tag not found",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     @PatchMapping("/{tagId}")
@@ -130,9 +139,12 @@ public class TagController {
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(responseCode = "204", description = "Tag deleted"),
-                    @ApiResponse(responseCode = "401", description = "Unauthorized"),
-                    @ApiResponse(responseCode = "403", description = "Forbidden"),
-                    @ApiResponse(responseCode = "404", description = "Tag not found")
+                    @ApiResponse(responseCode = "401", description = "Unauthorized",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "403", description = "Forbidden",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "404", description = "Tag not found",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
             }
     )
     @DeleteMapping("/{tagId}")

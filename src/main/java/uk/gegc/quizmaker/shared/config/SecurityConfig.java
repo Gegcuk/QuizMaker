@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.shared.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -8,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -24,6 +25,8 @@ import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
+import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 
@@ -39,6 +42,7 @@ public class SecurityConfig {
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
+    private final ObjectMapper objectMapper;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
@@ -127,12 +131,30 @@ public class SecurityConfig {
         // forbiddenFallback indicates the context:
         // - false = authenticationEntryPoint (not authenticated) -> return 401 Unauthorized
         // - true = accessDeniedHandler (authenticated but no permission) -> return 403 Forbidden
-        HttpStatus status = forbiddenFallback ? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED;
-        String body = forbiddenFallback ? "{\"error\":\"forbidden\"}" : "{\"error\":\"unauthorized\"}";
         
+        HttpStatus status = forbiddenFallback ? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED;
+        
+        // Create RFC 7807 Problem Detail
+        ProblemDetail problemDetail = forbiddenFallback 
+            ? ProblemDetailBuilder.create(
+                HttpStatus.FORBIDDEN,
+                ErrorTypes.ACCESS_DENIED,
+                "Access Denied",
+                "You do not have permission to access this resource",
+                request
+            )
+            : ProblemDetailBuilder.create(
+                HttpStatus.UNAUTHORIZED,
+                ErrorTypes.UNAUTHORIZED,
+                "Unauthorized",
+                "Authentication is required to access this resource",
+                request
+            );
+        
+        // Write Problem Detail as JSON
         response.setStatus(status.value());
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(body);
+        response.setContentType("application/problem+json");
+        response.getWriter().write(objectMapper.writeValueAsString(problemDetail));
     }
 
 }

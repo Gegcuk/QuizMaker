@@ -239,7 +239,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createCategoryRequest)))
-                .andExpect(status().isUnauthorized()); // Spring Security returns {"error":"unauthorized"} not Problem Details
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -374,7 +378,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(patch("/api/v1/categories/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isUnauthorized()); // Spring Security returns {"error":"unauthorized"} not Problem Details
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -406,7 +414,11 @@ public class CategoryControllerIntegrationTest {
         UUID id = c.getId();
 
         mockMvc.perform(delete("/api/v1/categories/{id}", id))
-                .andExpect(status().isUnauthorized()); // Spring Security returns {"error":"unauthorized"} not Problem Details
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
