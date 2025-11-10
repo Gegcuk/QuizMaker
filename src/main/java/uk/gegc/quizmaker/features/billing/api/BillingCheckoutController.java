@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -72,8 +73,10 @@ public class BillingCheckoutController {
                     description = "Checkout session status retrieved",
                     content = @Content(schema = @Schema(implementation = CheckoutSessionStatus.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
-            @ApiResponse(responseCode = "404", description = "Session not found or billing feature disabled")
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Session not found or billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/checkout-sessions/{sessionId}")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -99,7 +102,8 @@ public class BillingCheckoutController {
                     description = "Configuration retrieved",
                     content = @Content(schema = @Schema(implementation = ConfigResponse.class))
             ),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled")
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/config")
     public ResponseEntity<ConfigResponse> getConfig() {
@@ -121,9 +125,12 @@ public class BillingCheckoutController {
                     description = "Balance retrieved",
                     content = @Content(schema = @Schema(implementation = BalanceDto.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/balance")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -154,9 +161,12 @@ public class BillingCheckoutController {
                     description = "Transactions retrieved",
                     content = @Content(schema = @Schema(implementation = Page.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/transactions")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -194,10 +204,14 @@ public class BillingCheckoutController {
                     description = "Estimation completed",
                     content = @Content(schema = @Schema(implementation = EstimationDto.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled or document not found"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (10/min)")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled or document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (10/min)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/estimate/quiz-generation")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -236,10 +250,14 @@ public class BillingCheckoutController {
                     description = "Checkout session created",
                     content = @Content(schema = @Schema(implementation = CheckoutSessionResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled or pack not found"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (5/min)")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled or pack not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (5/min)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/checkout-sessions")
     @RequirePermission(PermissionName.BILLING_WRITE)
@@ -282,9 +300,12 @@ public class BillingCheckoutController {
                     description = "Customer created",
                     content = @Content(schema = @Schema(implementation = CustomerResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (3/min)")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded (3/min)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/create-customer")
     @RequirePermission(PermissionName.BILLING_WRITE)
@@ -315,8 +336,10 @@ public class BillingCheckoutController {
                     description = "Customer retrieved",
                     content = @Content(schema = @Schema(implementation = CustomerResponse.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Access denied - not customer owner or missing permission"),
-            @ApiResponse(responseCode = "404", description = "Customer not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not customer owner or missing permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Customer not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/customers/{customerId}")
     @RequirePermission(PermissionName.BILLING_READ)
@@ -361,9 +384,12 @@ public class BillingCheckoutController {
                     description = "Subscription created",
                     content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
-            @ApiResponse(responseCode = "404", description = "Price not found")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Price not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/create-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
@@ -394,9 +420,12 @@ public class BillingCheckoutController {
                     responseCode = "200",
                     description = "Subscription updated (returns Stripe subscription JSON)"
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
-            @ApiResponse(responseCode = "404", description = "Subscription or price not found")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Subscription or price not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/update-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)
@@ -428,9 +457,12 @@ public class BillingCheckoutController {
                     responseCode = "200",
                     description = "Subscription cancelled (returns Stripe subscription JSON)"
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request"),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission"),
-            @ApiResponse(responseCode = "404", description = "Subscription not found")
+            @ApiResponse(responseCode = "400", description = "Invalid request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Subscription not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/cancel-subscription")
     @RequirePermission(PermissionName.BILLING_WRITE)

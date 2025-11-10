@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,8 +43,10 @@ public class AiAnalysisController {
                     description = "Analysis completed successfully",
                     content = @Content(schema = @Schema(implementation = Map.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Missing ADMIN role"),
-            @ApiResponse(responseCode = "500", description = "Error during analysis")
+            @ApiResponse(responseCode = "403", description = "Missing ADMIN role",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Error during analysis",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/analyze")
     @PreAuthorize("hasRole('ADMIN')")

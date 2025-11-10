@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -42,8 +43,10 @@ public class AiChatController {
                     description = "AI response generated",
                     content = @Content(schema = @Schema(implementation = ChatResponseDto.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid message"),
-            @ApiResponse(responseCode = "503", description = "AI service unavailable")
+            @ApiResponse(responseCode = "400", description = "Invalid message",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "AI service unavailable",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/chat")
     public ResponseEntity<ChatResponseDto> chat(

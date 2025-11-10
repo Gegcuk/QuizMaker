@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.admin.api.dto.CreateRoleRequest;
@@ -65,7 +66,8 @@ public class AdminController {
                             array = @ArraySchema(schema = @Schema(implementation = RoleDto.class))
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission")
+            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @RequirePermission(PermissionName.ROLE_READ)
     public ResponseEntity<List<RoleDto>> getAllRoles() {
@@ -84,7 +86,8 @@ public class AdminController {
                     description = "Roles retrieved",
                     content = @Content(schema = @Schema(implementation = Page.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission")
+            @ApiResponse(responseCode = "403", description = "Missing ROLE_READ permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @RequirePermission(PermissionName.ROLE_READ)
     public ResponseEntity<Page<RoleDto>> getAllRolesPaginated(
