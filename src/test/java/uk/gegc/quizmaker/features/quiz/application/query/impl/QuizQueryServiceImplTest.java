@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository; 
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -55,6 +56,9 @@ class QuizQueryServiceImplTest {
 
     @Mock
     private QuizRepository quizRepository;
+    
+    @Mock
+    private QuestionRepository questionRepository;
     
     @Mock
     private QuizMapper quizMapper;
@@ -94,6 +98,10 @@ class QuizQueryServiceImplTest {
         
         quizDto = mock(QuizDto.class);
         pageable = PageRequest.of(0, 10);
+        
+        // Setup default mocks for question count queries (lenient for tests that don't use them)
+        lenient().when(questionRepository.countByQuizId_Id(any(UUID.class))).thenReturn(5L);
+        lenient().when(questionRepository.countQuestionsByQuizIds(any(List.class))).thenReturn(List.of());
     }
     
     // =============== getQuizById Tests ===============
@@ -107,14 +115,32 @@ class QuizQueryServiceImplTest {
         void anonymousUser_publicQuiz_succeeds() {
             // Given
             when(quizRepository.findByIdWithTags(publicQuiz.getId())).thenReturn(Optional.of(publicQuiz));
-            when(quizMapper.toDto(publicQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(publicQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(publicQuiz.getId(), null);
             
             // Then
             assertThat(result).isNotNull();
-            verify(quizMapper).toDto(publicQuiz);
+            verify(quizMapper).toDto(eq(publicQuiz), anyInt());
+        }
+        
+        @Test
+        @DisplayName("getQuizById fetches question count correctly")
+        void getQuizById_fetchesQuestionCount() {
+            // Given
+            UUID quizId = UUID.randomUUID();
+            when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(publicQuiz));
+            when(questionRepository.countByQuizId_Id(quizId)).thenReturn(42L);
+            when(quizMapper.toDto(eq(publicQuiz), eq(42))).thenReturn(quizDto);
+            
+            // When
+            QuizDto result = queryService.getQuizById(quizId, null);
+            
+            // Then
+            assertThat(result).isNotNull();
+            verify(questionRepository).countByQuizId_Id(quizId);
+            verify(quizMapper).toDto(eq(publicQuiz), eq(42));
         }
         
         @Test
@@ -139,14 +165,14 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
             when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
-            when(quizMapper.toDto(privateQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(privateQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(privateQuiz.getId(), authentication);
             
             // Then
             assertThat(result).isNotNull();
-            verify(quizMapper).toDto(privateQuiz);
+            verify(quizMapper).toDto(eq(privateQuiz), anyInt());
         }
         
         @Test
@@ -177,14 +203,14 @@ class QuizQueryServiceImplTest {
             when(quizRepository.findByIdWithTags(privateQuiz.getId())).thenReturn(Optional.of(privateQuiz));
             when(userRepository.findByUsername("moderator")).thenReturn(Optional.of(moderatorUser));
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_MODERATE)).thenReturn(true);
-            when(quizMapper.toDto(privateQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(privateQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(privateQuiz.getId(), authentication);
             
             // Then
             assertThat(result).isNotNull();
-            verify(quizMapper).toDto(privateQuiz);
+            verify(quizMapper).toDto(eq(privateQuiz), anyInt());
         }
         
         @Test
@@ -197,14 +223,14 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByUsername("moderator")).thenReturn(Optional.of(moderatorUser));
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_ADMIN)).thenReturn(true);
-            when(quizMapper.toDto(privateQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(privateQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(privateQuiz.getId(), authentication);
             
             // Then
             assertThat(result).isNotNull();
-            verify(quizMapper).toDto(privateQuiz);
+            verify(quizMapper).toDto(eq(privateQuiz), anyInt());
         }
         
         @Test
@@ -231,7 +257,7 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
             when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
             when(appPermissionEvaluator.hasPermission(testUser, PermissionName.QUIZ_ADMIN)).thenReturn(false);
-            when(quizMapper.toDto(privateQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(privateQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(privateQuiz.getId(), authentication);
@@ -250,7 +276,7 @@ class QuizQueryServiceImplTest {
             when(quizRepository.findByIdWithTags(publicQuiz.getId())).thenReturn(Optional.of(publicQuiz));
             when(userRepository.findByUsername("unknown")).thenReturn(Optional.empty());
             when(userRepository.findByEmail("unknown")).thenReturn(Optional.empty());
-            when(quizMapper.toDto(publicQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(publicQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getQuizById(publicQuiz.getId(), authentication);
@@ -287,7 +313,7 @@ class QuizQueryServiceImplTest {
             Page<Quiz> quizPage = new PageImpl<>(List.of(publicQuiz));
             when(quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable))
                 .thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getPublicQuizzes(pageable);
@@ -323,14 +349,87 @@ class QuizQueryServiceImplTest {
             
             when(quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable))
                 .thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getPublicQuizzes(pageable);
             
             // Then
             assertThat(result.getContent()).hasSize(2);
-            verify(quizMapper, times(2)).toDto(any(Quiz.class));
+            verify(quizMapper, times(2)).toDto(any(Quiz.class), anyInt());
+        }
+        
+        @Test
+        @DisplayName("Batch fetches question counts with single query (no N+1)")
+        void batchFetchesQuestionCounts_singleQuery() {
+            // Given
+            UUID quiz1Id = UUID.randomUUID();
+            UUID quiz2Id = UUID.randomUUID();
+            UUID quiz3Id = UUID.randomUUID();
+            
+            Quiz quiz1 = createQuiz(quiz1Id, "Quiz 1", testUser, Visibility.PUBLIC, QuizStatus.PUBLISHED);
+            Quiz quiz2 = createQuiz(quiz2Id, "Quiz 2", testUser, Visibility.PUBLIC, QuizStatus.PUBLISHED);
+            Quiz quiz3 = createQuiz(quiz3Id, "Quiz 3", testUser, Visibility.PUBLIC, QuizStatus.PUBLISHED);
+            
+            Page<Quiz> quizPage = new PageImpl<>(List.of(quiz1, quiz2, quiz3), pageable, 3);
+            
+            when(quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable))
+                .thenReturn(quizPage);
+            // Mock batch count query - returns counts for all quizzes
+            when(questionRepository.countQuestionsByQuizIds(List.of(quiz1Id, quiz2Id, quiz3Id)))
+                .thenReturn(List.of(
+                    new Object[]{quiz1Id, 5L},
+                    new Object[]{quiz2Id, 10L},
+                    new Object[]{quiz3Id, 15L}
+                ));
+            when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
+            
+            // When
+            Page<QuizDto> result = queryService.getPublicQuizzes(pageable);
+            
+            // Then
+            assertThat(result.getContent()).hasSize(3);
+            
+            // CRITICAL: Verify batch query called ONCE (not 3 times = N+1)
+            verify(questionRepository, times(1)).countQuestionsByQuizIds(any());
+            
+            // Verify each quiz mapped with its specific count
+            verify(quizMapper).toDto(eq(quiz1), eq(5));
+            verify(quizMapper).toDto(eq(quiz2), eq(10));
+            verify(quizMapper).toDto(eq(quiz3), eq(15));
+        }
+        
+        @Test
+        @DisplayName("Handles missing question counts (quiz with 0 questions)")
+        void handlesMissingQuestionCounts() {
+            // Given
+            UUID quiz1Id = UUID.randomUUID();
+            UUID quiz2Id = UUID.randomUUID();
+            
+            Quiz quiz1 = createQuiz(quiz1Id, "Quiz with questions", testUser, Visibility.PUBLIC, QuizStatus.PUBLISHED);
+            Quiz quiz2 = createQuiz(quiz2Id, "Empty quiz", testUser, Visibility.PUBLIC, QuizStatus.PUBLISHED);
+            
+            Page<Quiz> quizPage = new PageImpl<>(List.of(quiz1, quiz2), pageable, 2);
+            
+            when(quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable))
+                .thenReturn(quizPage);
+            // Batch query only returns count for quiz1 (quiz2 has 0 questions)
+            List<Object[]> batchResults = new java.util.ArrayList<>();
+            batchResults.add(new Object[]{quiz1Id, 7L});
+            // quiz2Id not in results = 0 questions
+            when(questionRepository.countQuestionsByQuizIds(List.of(quiz1Id, quiz2Id)))
+                .thenReturn(batchResults);
+            when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
+            
+            // When
+            Page<QuizDto> result = queryService.getPublicQuizzes(pageable);
+            
+            // Then
+            assertThat(result.getContent()).hasSize(2);
+            
+            // Verify quiz1 gets its count, quiz2 defaults to 0
+            verify(quizMapper).toDto(eq(quiz1), eq(7));
+            verify(quizMapper).toDto(eq(quiz2), eq(0)); // Default to 0 when not in map
         }
     }
     
@@ -348,7 +447,7 @@ class QuizQueryServiceImplTest {
             Page<Quiz> quizPage = new PageImpl<>(List.of(publicQuiz));
             
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "public", null);
@@ -369,7 +468,7 @@ class QuizQueryServiceImplTest {
             when(authentication.getName()).thenReturn("testuser");
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "public", authentication);
@@ -386,7 +485,7 @@ class QuizQueryServiceImplTest {
             Page<Quiz> quizPage = new PageImpl<>(List.of(publicQuiz));
             
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "invalid", null);
@@ -411,7 +510,7 @@ class QuizQueryServiceImplTest {
             when(authentication.getName()).thenReturn("testuser");
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "me", authentication);
@@ -445,7 +544,7 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByUsername("test@example.com")).thenReturn(Optional.empty());
             when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "me", authentication);
@@ -466,7 +565,7 @@ class QuizQueryServiceImplTest {
             when(authentication.getName()).thenReturn("testuser");
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "ME", authentication);
@@ -492,7 +591,7 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByUsername("moderator")).thenReturn(Optional.of(moderatorUser));
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_MODERATE)).thenReturn(true);
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "all", authentication);
@@ -515,7 +614,7 @@ class QuizQueryServiceImplTest {
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_MODERATE)).thenReturn(false);
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_ADMIN)).thenReturn(true);
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "all", authentication);
@@ -566,7 +665,7 @@ class QuizQueryServiceImplTest {
             when(userRepository.findByUsername("moderator")).thenReturn(Optional.of(moderatorUser));
             when(appPermissionEvaluator.hasPermission(moderatorUser, PermissionName.QUIZ_MODERATE)).thenReturn(true);
             when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-            when(quizMapper.toDto(any(Quiz.class))).thenReturn(quizDto);
+                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "ALL", authentication);
@@ -664,14 +763,14 @@ class QuizQueryServiceImplTest {
             
             when(jobService.getJobByIdAndUsername(jobId, "testuser")).thenReturn(job);
             when(quizRepository.findByIdWithTags(quizId)).thenReturn(Optional.of(generatedQuiz));
-            when(quizMapper.toDto(generatedQuiz)).thenReturn(quizDto);
+            when(quizMapper.toDto(eq(generatedQuiz), anyInt())).thenReturn(quizDto);
             
             // When
             QuizDto result = queryService.getGeneratedQuiz(jobId, "testuser");
             
             // Then
             assertThat(result).isNotNull();
-            verify(quizMapper).toDto(generatedQuiz);
+            verify(quizMapper).toDto(eq(generatedQuiz), anyInt());
         }
         
         @Test

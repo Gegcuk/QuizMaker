@@ -54,6 +54,9 @@ public record QuizDto(
         )
         List<UUID> tagIds,
 
+        @Schema(description = "Number of questions in the quiz", example = "10")
+        Integer questionCount,
+
         @Schema(description = "Timestamp when the quiz was created", example = "2025-05-01T15:30:00Z")
         Instant createdAt,
 

@@ -67,6 +67,12 @@ public class QuizMapper {
     }
 
     public QuizDto toDto(Quiz quiz) {
+        // Count questions from loaded collection if available, otherwise 0
+        int questionCount = quiz.getQuestions() != null ? quiz.getQuestions().size() : 0;
+        return toDto(quiz, questionCount);
+    }
+
+    public QuizDto toDto(Quiz quiz, int questionCount) {
         return new QuizDto(
                 quiz.getId(),
                 quiz.getCreator().getId(),
@@ -81,6 +87,7 @@ public class QuizMapper {
                 quiz.getIsTimerEnabled(),
                 quiz.getTimerDuration(),
                 quiz.getTags().stream().map(Tag::getId).collect(Collectors.toList()),
+                questionCount,
                 quiz.getCreatedAt(),
                 quiz.getUpdatedAt()
         );
