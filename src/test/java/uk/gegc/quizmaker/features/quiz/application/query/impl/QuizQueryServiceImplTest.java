@@ -101,7 +101,7 @@ class QuizQueryServiceImplTest {
         
         // Setup default mocks for question count queries (lenient for tests that don't use them)
         lenient().when(questionRepository.countByQuizId_Id(any(UUID.class))).thenReturn(5L);
-        lenient().when(questionRepository.countQuestionsByQuizIds(any(List.class))).thenReturn(List.of());
+        lenient().when(questionRepository.countQuestionsForQuizzes(any(List.class))).thenReturn(List.of());
     }
     
     // =============== getQuizById Tests ===============
@@ -376,7 +376,7 @@ class QuizQueryServiceImplTest {
             when(quizRepository.findAllByVisibilityAndStatus(Visibility.PUBLIC, QuizStatus.PUBLISHED, pageable))
                 .thenReturn(quizPage);
             // Mock batch count query - returns counts for all quizzes
-            when(questionRepository.countQuestionsByQuizIds(List.of(quiz1Id, quiz2Id, quiz3Id)))
+            when(questionRepository.countQuestionsForQuizzes(List.of(quiz1Id, quiz2Id, quiz3Id)))
                 .thenReturn(List.of(
                     new Object[]{quiz1Id, 5L},
                     new Object[]{quiz2Id, 10L},
@@ -391,7 +391,7 @@ class QuizQueryServiceImplTest {
             assertThat(result.getContent()).hasSize(3);
             
             // CRITICAL: Verify batch query called ONCE (not 3 times = N+1)
-            verify(questionRepository, times(1)).countQuestionsByQuizIds(any());
+            verify(questionRepository, times(1)).countQuestionsForQuizzes(any());
             
             // Verify each quiz mapped with its specific count
             verify(quizMapper).toDto(eq(quiz1), eq(5));
@@ -417,7 +417,7 @@ class QuizQueryServiceImplTest {
             List<Object[]> batchResults = new java.util.ArrayList<>();
             batchResults.add(new Object[]{quiz1Id, 7L});
             // quiz2Id not in results = 0 questions
-            when(questionRepository.countQuestionsByQuizIds(List.of(quiz1Id, quiz2Id)))
+            when(questionRepository.countQuestionsForQuizzes(List.of(quiz1Id, quiz2Id)))
                 .thenReturn(batchResults);
             when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
             

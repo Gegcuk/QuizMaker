@@ -218,7 +218,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
                 .map(Quiz::getId)
                 .collect(Collectors.toList());
         
-        return questionRepository.countQuestionsByQuizIds(quizIds).stream()
+        return questionRepository.countQuestionsForQuizzes(quizIds).stream()
                 .collect(Collectors.toMap(
                         row -> (UUID) row[0],  // quizId
                         row -> (Long) row[1]   // count

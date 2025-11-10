@@ -24,19 +24,8 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
 
     /**
      * Batch fetch question counts for multiple quizzes to avoid N+1 queries.
-     * Returns a map of quizId -> questionCount.
-     */
-    @Query("""
-            SELECT q.quiz.id as quizId, COUNT(q) as count
-            FROM Question q
-            WHERE q.quiz.id IN :quizIds
-            GROUP BY q.quiz.id
-            """)
-    List<Object[]> countQuestionsByQuizIds(@Param("quizIds") List<UUID> quizIds);
-    
-    /**
-     * Batch fetch question counts for multiple quizzes to avoid N+1 queries.
-     * Returns a map of quizId -> questionCount.
+     * Returns a list of Object arrays where [0] = quizId (UUID), [1] = count (Long).
+     * Queries from Quiz entity's perspective for efficiency.
      */
     @Query("""
             SELECT q.id, COUNT(qq.id)
