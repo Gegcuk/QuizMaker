@@ -365,7 +365,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(missingType))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Type must not be null"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "type"),
+                                hasEntry(equalTo("message"), containsString("Type must not be null"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -384,7 +392,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(missingDifficulty))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Difficulty must not be null"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "difficulty"),
+                                hasEntry(equalTo("message"), containsString("Difficulty must not be null"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -403,7 +419,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(missingText))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Question text must not be blank"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "questionText"),
+                                hasEntry(equalTo("message"), containsString("Question text must not be blank"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -423,7 +447,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(tooShort))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Question text length must be between 3 and 1000 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "questionText"),
+                                hasEntry(equalTo("message"), containsString("Question text length must be between 3 and 1000 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -444,7 +476,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(tooLong))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Question text length must be between 3 and 1000 characters"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "questionText"),
+                                hasEntry(equalTo("message"), containsString("Question text length must be between 3 and 1000 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -464,7 +504,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(nullContent))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Invalid JSON for TRUE_FALSE question"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail", containsString("Invalid JSON for TRUE_FALSE question")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -484,7 +527,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badJson))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", containsString("Malformed JSON")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/malformed-json"))
+                .andExpect(jsonPath("$.title").value("Malformed JSON"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -506,9 +552,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Hint length must be less than 500 characters"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "hint"),
+                                hasEntry(equalTo("message"), containsString("Hint length must be less than 500 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -530,9 +582,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Explanation must be less than 2000 characters"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "explanation"),
+                                hasEntry(equalTo("message"), containsString("Explanation must be less than 2000 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -554,9 +612,15 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "URL length is limited by 2048 characters"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(
+                        allOf(
+                                hasEntry("field", "attachmentUrl"),
+                                hasEntry(equalTo("message"), containsString("URL length is limited by 2048 characters"))
+                        )
+                )))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -578,9 +642,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Quiz " + badQuizId + " not found"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuizId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -602,9 +667,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString(
-                        "Tag " + badTagId + " not found"
-                ))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Tag " + badTagId + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1041,7 +1107,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Question " + missing + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Question " + missing + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @ParameterizedTest(name = "{0}")
@@ -1106,7 +1175,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(update))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Quiz " + badQuiz + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Quiz " + badQuiz + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -1144,7 +1216,10 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(update))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Tag " + badTag + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Tag " + badTag + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
