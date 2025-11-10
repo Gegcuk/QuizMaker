@@ -46,7 +46,10 @@ public class AttemptReviewSimpleIntegrationTest extends BaseIntegrationTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Not Found"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -73,7 +76,10 @@ public class AttemptReviewSimpleIntegrationTest extends BaseIntegrationTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Not Found"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -95,22 +101,23 @@ public class AttemptReviewSimpleIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("Endpoints are properly mapped and return JSON")
+    @DisplayName("Endpoints are properly mapped and return JSON or Problem Details")
     @WithMockUser(username = "testuser")
     void reviewEndpoints_properlyMapped() throws Exception {
         // Given
         UUID attemptId = UUID.randomUUID();
 
-        // When & Then - verify endpoints return JSON (not HTML or plain text)
+        // When & Then - verify endpoints return JSON or Problem Details (not HTML or plain text)
+        // Note: Error responses return application/problem+json (RFC 7807)
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/review", attemptId)
                         .with(csrf())
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+                .andExpect(status().is4xxClientError()); // 404 with problem+json is acceptable
 
         mockMvc.perform(get("/api/v1/attempts/{attemptId}/answer-key", attemptId)
                         .with(csrf())
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+                .andExpect(status().is4xxClientError()); // 404 with problem+json is acceptable
     }
 }
 

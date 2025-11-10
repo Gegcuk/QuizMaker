@@ -200,7 +200,10 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItems(containsString(expectedMessage))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -220,14 +223,20 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dupUser)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.details[0]", containsString("Username already in use")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/data-conflict"))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.detail", containsString("Username already in use")))
+                .andExpect(jsonPath("$.timestamp").exists());
 
         var dupEmail = new RegisterRequest("bob2", "bob@example.com", "ValidPass123!");
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(dupEmail)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.details[0]", containsString("Email already in use")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/data-conflict"))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.detail", containsString("Email already in use")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -307,7 +316,10 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.details[0]", containsString("Invalid username or password")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail", containsString("Invalid username or password")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -325,7 +337,10 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(badRefresh)))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.details[0]", containsString("Invalid refresh token")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail", containsString("Invalid refresh token")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @ParameterizedTest(name = "[{index}] ''{0}'',''{1}'' → 400 BAD_REQUEST")

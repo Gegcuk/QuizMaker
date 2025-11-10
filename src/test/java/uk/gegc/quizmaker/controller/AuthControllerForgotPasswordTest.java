@@ -91,7 +91,11 @@ public class AuthControllerForgotPasswordTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.status").value(429))
-                .andExpect(jsonPath("$.error").value("Too Many Requests"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/rate-limit-exceeded"))
+                .andExpect(jsonPath("$.title").value("Rate Limit Exceeded"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.retryAfterSeconds").value(45))
                 .andExpect(header().string("Retry-After", "45"));
     }
 

@@ -287,11 +287,24 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException ex, HttpServletRequest request) {
         HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String reason = ex.getReason() != null ? ex.getReason() : ex.getMessage();
+        
+        // Map specific status codes to specific error types
+        java.net.URI errorType = switch (status) {
+            case UNAUTHORIZED -> ErrorTypes.UNAUTHORIZED;
+            case FORBIDDEN -> ErrorTypes.ACCESS_DENIED;
+            case NOT_FOUND -> ErrorTypes.RESOURCE_NOT_FOUND;
+            case CONFLICT -> ErrorTypes.DATA_CONFLICT;
+            case UNPROCESSABLE_ENTITY -> ErrorTypes.ILLEGAL_STATE;
+            case BAD_REQUEST -> ErrorTypes.VALIDATION_FAILED;
+            default -> ErrorTypes.GENERIC_ERROR;
+        };
+        
         ProblemDetail problem = ProblemDetailBuilder.create(
                 status,
-                ErrorTypes.GENERIC_ERROR,
+                errorType,
                 status.getReasonPhrase(),
-                ex.getReason() != null ? ex.getReason() : ex.getMessage(),
+                reason,
                 request
         );
         return ResponseEntity.status(status).body(problem);

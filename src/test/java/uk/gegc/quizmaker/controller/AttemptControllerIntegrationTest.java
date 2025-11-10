@@ -488,7 +488,10 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
 
         postAnswer(attemptId, questionId, "{\"answer\":true}")
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error", is("Processing Failed")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/illegal-state"))
+                .andExpect(jsonPath("$.title").value("Illegal State"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -603,8 +606,10 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                         .contentType(APPLICATION_JSON)
                         .content(batchJson))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error", is("Processing Failed")))
-                .andExpect(jsonPath("$.details[0]", containsString("Batch submissions only allowed")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/illegal-state"))
+                .andExpect(jsonPath("$.title").value("Illegal State"))
+                .andExpect(jsonPath("$.detail", containsString("Batch submissions only allowed")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
