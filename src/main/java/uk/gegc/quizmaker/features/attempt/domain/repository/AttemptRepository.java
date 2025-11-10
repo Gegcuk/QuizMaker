@@ -49,17 +49,6 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     Optional<Attempt> findByIdWithAnswersAndQuestion(@Param("id") UUID id);
 
     @Query("""
-            SELECT DISTINCT a
-            FROM Attempt a
-            LEFT JOIN FETCH a.answers ans
-            LEFT JOIN FETCH ans.question q
-            LEFT JOIN FETCH a.quiz quiz
-            LEFT JOIN FETCH quiz.questions qlist
-            WHERE a.id = :id
-            """)
-    Optional<Attempt> findByIdWithAllRelations(@Param("id") UUID id);
-
-    @Query("""
             SELECT COUNT(a), AVG(a.totalScore), MAX(a.totalScore), MIN(a.totalScore)
             FROM Attempt a
             WHERE a.quiz.id = :quizId
