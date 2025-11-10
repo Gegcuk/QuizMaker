@@ -187,7 +187,7 @@ class QuizGenerationReservationIntegrationTest {
                         .with(csrf()))
                 .andExpect(status().isConflict()) // 409 Conflict for insufficient tokens
                 .andExpect(content().contentType("application/problem+json"))
-                .andExpect(jsonPath("$.type").value("https://example.com/problems/insufficient-tokens"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/insufficient-tokens"))
                 .andExpect(jsonPath("$.title").value("Insufficient Tokens"))
                 .andExpect(jsonPath("$.errorCode").value("INSUFFICIENT_TOKENS"))
                 .andExpect(jsonPath("$.estimatedTokens").exists())
@@ -214,8 +214,9 @@ class QuizGenerationReservationIntegrationTest {
                         .content(objectMapper.writeValueAsString(testRequest))
                         .with(csrf()))
                 .andExpect(status().isBadRequest()) // 400 Bad Request
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("already has an active generation job")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("already has an active generation job")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 }

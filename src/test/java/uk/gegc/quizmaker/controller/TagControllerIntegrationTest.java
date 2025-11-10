@@ -127,7 +127,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -139,7 +142,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -152,7 +158,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -165,7 +174,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("description")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -180,7 +192,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -195,7 +210,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -211,7 +229,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("name")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -227,7 +248,10 @@ public class TagControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors", hasItem(hasEntry(equalTo("field"), is("description")))))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test

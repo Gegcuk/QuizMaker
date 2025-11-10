@@ -125,8 +125,10 @@ class DocumentProcessControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.status").value(415))
-                .andExpect(jsonPath("$.error").value("Unsupported Format"))
-                .andExpect(jsonPath("$.details[0]").value("Unsupported file format: .unknown"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
+                .andExpect(jsonPath("$.title").value("Unsupported Format"))
+                .andExpect(jsonPath("$.detail").value("Unsupported file format: .unknown"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -147,8 +149,10 @@ class DocumentProcessControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"))
-                .andExpect(jsonPath("$.details[0]").value("PDF conversion failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/conversion-failed"))
+                .andExpect(jsonPath("$.title").value("Conversion Failed"))
+                .andExpect(jsonPath("$.detail").value("PDF conversion failed"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -166,8 +170,10 @@ class DocumentProcessControllerTest {
                         .content(objectMapper.writeValueAsString(testIngestRequest)))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"))
-                .andExpect(jsonPath("$.details[0]").value("Text normalization failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/normalization-failed"))
+                .andExpect(jsonPath("$.title").value("Normalization Failed"))
+                .andExpect(jsonPath("$.detail").value("Text normalization failed"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -184,8 +190,11 @@ class DocumentProcessControllerTest {
                         .content(objectMapper.writeValueAsString(invalidRequest)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Validation Failed"))
-                .andExpect(jsonPath("$.details[0]").value("text: Text content cannot be blank"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("text"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value("Text content cannot be blank"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -202,8 +211,10 @@ class DocumentProcessControllerTest {
                         .param("end", "5"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.details[0]").value("End offset must be greater than or equal to start"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail").value("End offset must be greater than or equal to start"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -219,8 +230,10 @@ class DocumentProcessControllerTest {
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}", unknownId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + unknownId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + unknownId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -237,8 +250,10 @@ class DocumentProcessControllerTest {
                         .param("end", "5"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"))
-                .andExpect(jsonPath("$.details[0]").value("Document has no normalized text: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/illegal-state"))
+                .andExpect(jsonPath("$.title").value("Illegal State"))
+                .andExpect(jsonPath("$.detail").value("Document has no normalized text: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     // ===== DocumentProcessController Tests =====
@@ -277,7 +292,9 @@ class DocumentProcessControllerTest {
                         .content(invalidJson))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Malformed JSON"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/malformed-json"))
+                .andExpect(jsonPath("$.title").value("Malformed JSON"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -318,8 +335,10 @@ class DocumentProcessControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad request"))
-                .andExpect(jsonPath("$.details[0]").value("File is required"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("File is required"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -360,7 +379,9 @@ class DocumentProcessControllerTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.error").value("Unsupported Format"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
+                .andExpect(jsonPath("$.title").value("Unsupported Format"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -432,7 +453,9 @@ class DocumentProcessControllerTest {
                         .param("end", "5"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Validation Failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/constraint-violation"))
+                .andExpect(jsonPath("$.title").value("Constraint Violation"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -445,7 +468,9 @@ class DocumentProcessControllerTest {
                         .param("end", "-1"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Validation Failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/constraint-violation"))
+                .andExpect(jsonPath("$.title").value("Constraint Violation"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -462,8 +487,10 @@ class DocumentProcessControllerTest {
                         .param("end", "5"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.details[0]").value("End offset must be greater than or equal to start: end=5, start=10"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.detail").value("End offset must be greater than or equal to start: end=5, start=10"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -524,8 +551,10 @@ class DocumentProcessControllerTest {
                         .param("nodeId", nodeId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -544,8 +573,10 @@ class DocumentProcessControllerTest {
                         .param("nodeId", nodeId.toString()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.error").value("Not Found"))
-                .andExpect(jsonPath("$.details[0]").value("Node not found: " + nodeId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").value("Node not found: " + nodeId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -564,7 +595,9 @@ class DocumentProcessControllerTest {
                         .param("nodeId", nodeId.toString()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.error").value("Bad request"))
-                .andExpect(jsonPath("$.details[0]").value("Node " + nodeId + " does not belong to document " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("Node " + nodeId + " does not belong to document " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 }
