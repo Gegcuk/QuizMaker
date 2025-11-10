@@ -71,8 +71,15 @@ public final class ErrorTypes {
     public static final URI COMMIT_EXCEEDS_RESERVED = URI.create(BASE_URL + "/commit-exceeds-reserved");
     public static final URI PACK_NOT_FOUND = URI.create(BASE_URL + "/pack-not-found");
     public static final URI STRIPE_WEBHOOK_INVALID_SIGNATURE = URI.create(BASE_URL + "/stripe-webhook-invalid-signature");
+    public static final URI INVALID_CHECKOUT_SESSION = URI.create(BASE_URL + "/invalid-checkout-session");
+    public static final URI WEBHOOK_PROCESSING_ERROR = URI.create(BASE_URL + "/webhook-processing-error");
     public static final URI IDEMPOTENCY_CONFLICT = URI.create(BASE_URL + "/idempotency-conflict");
     public static final URI INVALID_JOB_STATE_FOR_COMMIT = URI.create(BASE_URL + "/invalid-job-state-for-commit");
+    public static final URI BILLING_CONFIGURATION_ERROR = URI.create(BASE_URL + "/billing-configuration-error");
+    public static final URI BILLING_SECURITY_ERROR = URI.create(BASE_URL + "/billing-security-error");
+    public static final URI STRIPE_ERROR = URI.create(BASE_URL + "/stripe-error");
+    public static final URI BILLING_INTERNAL_ERROR = URI.create(BASE_URL + "/billing-internal-error");
+    public static final URI BILLING_INVALID_REQUEST_BODY = URI.create(BASE_URL + "/billing-invalid-request-body");
 
     // ==================== Generic Errors ====================
     public static final URI INTERNAL_SERVER_ERROR = URI.create(BASE_URL + "/internal-server-error");

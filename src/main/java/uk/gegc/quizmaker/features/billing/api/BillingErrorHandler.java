@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.billing.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -7,282 +8,306 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
-import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientAvailableTokensException;
-import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.LargePayloadSecurityException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
+import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import com.stripe.exception.StripeException;
 
-import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Global error handler for billing API endpoints.
- * Maps domain exceptions to RFC-9457 ProblemDetail responses.
+ * Maps domain exceptions to RFC 7807 Problem Detail responses.
  */
 @Slf4j
 @RestControllerAdvice(basePackages = "uk.gegc.quizmaker.features.billing.api")
 public class BillingErrorHandler {
 
     @ExceptionHandler(InvalidCheckoutSessionException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(InvalidCheckoutSessionException ex, WebRequest request) {
+    public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(InvalidCheckoutSessionException ex, HttpServletRequest request) {
         log.warn("Invalid checkout session: {}", ex.getMessage());
-        
-        // Check if this is a webhook request - webhook failures should return 500 so Stripe retries
+
         if (isWebhookRequest(request)) {
             log.error("Webhook processing failed due to invalid checkout session: {}", ex.getMessage());
-            
-            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                    HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-            problemDetail.setType(URI.create("https://api.quizmaker.com/problems/webhook-processing-error"));
-            problemDetail.setTitle("Webhook Processing Error");
-            
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+            ProblemDetail problem = ProblemDetailBuilder.create(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    ErrorTypes.WEBHOOK_PROCESSING_ERROR,
+                    "Webhook Processing Error",
+                    ex.getMessage(),
+                    request
+            );
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
         }
-        
-        // For non-webhook requests, return 404 as before
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.NOT_FOUND, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-checkout-session"));
-        problemDetail.setTitle("Invalid Checkout Session");
-        
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problemDetail);
+
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.NOT_FOUND,
+                ErrorTypes.INVALID_CHECKOUT_SESSION,
+                "Invalid Checkout Session",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
     }
-    
-    private boolean isWebhookRequest(WebRequest request) {
-        String requestUri = request.getDescription(false);
-        return requestUri != null && requestUri.contains("/stripe/webhook");
+
+    private boolean isWebhookRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && uri.contains("/stripe/webhook");
     }
-    
 
     @ExceptionHandler(IdempotencyConflictException.class)
-    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(IdempotencyConflictException ex) {
+    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(IdempotencyConflictException ex, HttpServletRequest request) {
         log.warn("Idempotency conflict: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.CONFLICT, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/idempotency-conflict"));
-        problemDetail.setTitle("Idempotency Conflict");
-        
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.IDEMPOTENCY_CONFLICT,
+                "Idempotency Conflict",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(InsufficientTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientTokens(InsufficientTokensException ex) {
+    public ResponseEntity<ProblemDetail> handleInsufficientTokens(InsufficientTokensException ex, HttpServletRequest request) {
         log.warn("Insufficient tokens: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-tokens"));
-        problemDetail.setTitle("Insufficient Tokens");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.INSUFFICIENT_TOKENS,
+                "Insufficient Tokens",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("estimatedTokens", ex.getEstimatedTokens());
+        problem.setProperty("availableTokens", ex.getAvailableTokens());
+        problem.setProperty("shortfall", ex.getShortfall());
+        problem.setProperty("reservationTtl", ex.getReservationTtl());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(InsufficientAvailableTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex) {
+    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex, HttpServletRequest request) {
         log.warn("Insufficient available tokens: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/insufficient-available-tokens"));
-        problemDetail.setTitle("Insufficient Available Tokens");
-        problemDetail.setProperty("requestedTokens", ex.getRequestedTokens());
-        problemDetail.setProperty("availableTokens", ex.getAvailableTokens());
-        problemDetail.setProperty("shortfall", ex.getShortfall());
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.INSUFFICIENT_AVAILABLE_TOKENS,
+                "Insufficient Available Tokens",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("requestedTokens", ex.getRequestedTokens());
+        problem.setProperty("availableTokens", ex.getAvailableTokens());
+        problem.setProperty("shortfall", ex.getShortfall());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(ReservationNotActiveException.class)
-    public ResponseEntity<ProblemDetail> handleReservationNotActive(ReservationNotActiveException ex) {
+    public ResponseEntity<ProblemDetail> handleReservationNotActive(ReservationNotActiveException ex, HttpServletRequest request) {
         log.warn("Reservation not active: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/reservation-not-active"));
-        problemDetail.setTitle("Reservation Not Active");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+            HttpStatus.CONFLICT,
+            ErrorTypes.RESERVATION_NOT_ACTIVE,
+            "Reservation Not Active",
+            ex.getMessage(),
+            request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(StripeWebhookInvalidSignatureException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidWebhookSignature(StripeWebhookInvalidSignatureException ex) {
+    public ResponseEntity<ProblemDetail> handleInvalidWebhookSignature(StripeWebhookInvalidSignatureException ex, HttpServletRequest request) {
         log.warn("Invalid webhook signature: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.UNAUTHORIZED, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-webhook-signature"));
-        problemDetail.setTitle("Invalid Webhook Signature");
-        
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNAUTHORIZED,
+                ErrorTypes.STRIPE_WEBHOOK_INVALID_SIGNATURE,
+                "Stripe Webhook Invalid Signature",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ProblemDetail> handleValidationErrors(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ProblemDetail> handleValidationErrors(MethodArgumentNotValidException ex, HttpServletRequest request) {
         log.warn("Validation errors: {}", ex.getMessage());
-        
         Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach((error) -> {
-            String fieldName = ((FieldError) error).getField();
+        ex.getBindingResult().getAllErrors().forEach(error -> {
+            String fieldName = error instanceof FieldError fieldError ? fieldError.getField() : error.getObjectName();
             String errorMessage = error.getDefaultMessage();
             errors.put(fieldName, errorMessage);
         });
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Validation failed");
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/validation-error"));
-        problemDetail.setTitle("Validation Error");
-        problemDetail.setProperty("errors", errors);
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.VALIDATION_FAILED,
+                "Validation Failed",
+                "Validation failed for one or more fields",
+                request
+        );
+        problem.setProperty("errors", errors);
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
         log.warn("Type mismatch error: {}", ex.getMessage());
-        
         String param = ex.getName();
         Class<?> type = ex.getRequiredType();
-        String requiredType = (type != null ? type.getSimpleName() : "unknown");
+        String requiredType = type != null ? type.getSimpleName() : "unknown";
         String detail = "Invalid value for parameter '" + param + "'. Expected type: " + requiredType + ".";
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, detail);
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/type-mismatch"));
-        problemDetail.setTitle("Type Mismatch Error");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.TYPE_MISMATCH,
+                "Type Mismatch Error",
+                detail,
+                request
+        );
+        problem.setProperty("parameter", param);
+        problem.setProperty("expectedType", requiredType);
+        problem.setProperty("providedValue", ex.getValue());
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException ex) {
+    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
         log.warn("Illegal argument: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-argument"));
-        problemDetail.setTitle("Invalid Argument");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.INVALID_ARGUMENT,
+                "Invalid Argument",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(ForbiddenException.class)
-    public ResponseEntity<ProblemDetail> handleForbidden(ForbiddenException ex) {
+    public ResponseEntity<ProblemDetail> handleForbidden(ForbiddenException ex, HttpServletRequest request) {
         log.warn("Forbidden access: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.FORBIDDEN, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/forbidden"));
-        problemDetail.setTitle("Forbidden");
-        
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.FORBIDDEN,
+                ErrorTypes.ACCESS_DENIED,
+                "Forbidden",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
     }
 
     @ExceptionHandler(LargePayloadSecurityException.class)
-    public ResponseEntity<ProblemDetail> handleLargePayloadSecurity(LargePayloadSecurityException ex) {
+    public ResponseEntity<ProblemDetail> handleLargePayloadSecurity(LargePayloadSecurityException ex, HttpServletRequest request) {
         log.error("Large payload security violation: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/security-error"));
-        problemDetail.setTitle("Security Error");
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.BILLING_SECURITY_ERROR,
+                "Security Error",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
     @ExceptionHandler(StripeException.class)
-    public ResponseEntity<ProblemDetail> handleStripeException(StripeException ex) {
+    public ResponseEntity<ProblemDetail> handleStripeException(StripeException ex, HttpServletRequest request) {
         log.error("Stripe API error: {}", ex.getMessage(), ex);
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Payment processing error");
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/stripe-error"));
-        problemDetail.setTitle("Payment Processing Error");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.STRIPE_ERROR,
+                "Payment Processing Error",
+                "Payment processing error",
+                request
+        );
+        if (ex.getCode() != null) {
+            problem.setProperty("stripeCode", ex.getCode());
+        }
+        if (ex.getRequestId() != null) {
+            problem.setProperty("stripeRequestId", ex.getRequestId());
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex) {
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest request) {
         log.warn("Rate limit exceeded: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/rate-limit-exceeded"));
-        problemDetail.setTitle("Rate Limit Exceeded");
-        
-        // Add retry-after header if available
-        if (ex.getRetryAfterSeconds() > 0) {
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                    .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
-                    .body(problemDetail);
-        }
-        
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.TOO_MANY_REQUESTS,
+                ErrorTypes.RATE_LIMIT_EXCEEDED,
+                "Rate Limit Exceeded",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("retryAfterSeconds", ex.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(problem);
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException ex) {
-        // Check if this is a configuration-related error
-        if (ex.getMessage() != null && (
-            ex.getMessage().contains("configuration") || 
-            ex.getMessage().contains("config") ||
-            ex.getMessage().contains("misconfigured") ||
-            ex.getMessage().contains("missing configuration"))) {
-            
+    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException ex, HttpServletRequest request) {
+        boolean configurationIssue = ex.getMessage() != null && (
+                ex.getMessage().contains("configuration") ||
+                ex.getMessage().contains("config") ||
+                ex.getMessage().contains("misconfigured") ||
+                ex.getMessage().contains("missing configuration"));
+
+        if (configurationIssue) {
             log.error("Configuration error in billing API: {}", ex.getMessage(), ex);
-            
-            ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                    HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
-            problemDetail.setType(URI.create("https://api.quizmaker.com/problems/configuration-error"));
-            problemDetail.setTitle("Service Configuration Error");
-            
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problemDetail);
+            ProblemDetail problem = ProblemDetailBuilder.create(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    ErrorTypes.BILLING_CONFIGURATION_ERROR,
+                    "Service Configuration Error",
+                    ex.getMessage(),
+                    request
+            );
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
         }
-        
-        // For other IllegalStateException cases, treat as internal error
+
         log.error("Illegal state: {}", ex.getMessage(), ex);
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, "An internal error occurred");
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/internal-error"));
-        problemDetail.setTitle("Internal Error");
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.BILLING_INTERNAL_ERROR,
+                "Internal Error",
+                "An internal error occurred",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ProblemDetail> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+    public ResponseEntity<ProblemDetail> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpServletRequest request) {
         log.warn("Invalid request body: {}", ex.getMessage());
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "Invalid request body");
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/invalid-request-body"));
-        problemDetail.setTitle("Invalid Request Body");
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problemDetail);
+        String detail = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.BILLING_INVALID_REQUEST_BODY,
+                "Invalid Request Body",
+                "Invalid request body",
+                request
+        );
+        problem.setProperty("parseError", detail);
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ProblemDetail> handleGenericException(Exception ex) {
+    public ResponseEntity<ProblemDetail> handleGenericException(Exception ex, HttpServletRequest request) {
         log.error("Unexpected error in billing API: {}", ex.getMessage(), ex);
-        
-        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
-        problemDetail.setType(URI.create("https://api.quizmaker.com/problems/internal-error"));
-        problemDetail.setTitle("Internal Error");
-        
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problemDetail);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.BILLING_INTERNAL_ERROR,
+                "Internal Error",
+                "An unexpected error occurred",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 }

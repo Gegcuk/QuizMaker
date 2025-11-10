@@ -22,13 +22,13 @@ class BillingErrorHandlerTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("InsufficientAvailableTokensException returns 400 with ProblemDetail")
+    @DisplayName("InsufficientAvailableTokensException returns 409 with ProblemDetail")
     void insufficientAvailableTokens_returnsProblemDetail() throws Exception {
         mockMvc.perform(get("/api/v1/billing/test/insufficient-available-tokens")
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.title").value("Insufficient Available Tokens"))
-                .andExpect(jsonPath("$.type").value("https://api.quizmaker.com/problems/insufficient-available-tokens"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/insufficient-available-tokens"))
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("Insufficient available tokens")))
                 .andExpect(jsonPath("$.requestedTokens").value(50))
                 .andExpect(jsonPath("$.availableTokens").value(10))
