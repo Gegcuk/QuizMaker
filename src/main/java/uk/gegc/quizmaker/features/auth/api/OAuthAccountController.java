@@ -1,12 +1,15 @@
 package uk.gegc.quizmaker.features.auth.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -49,7 +52,8 @@ public class OAuthAccountController {
     )
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Successfully retrieved linked accounts"),
-        @ApiResponse(responseCode = "401", description = "User not authenticated")
+        @ApiResponse(responseCode = "401", description = "User not authenticated",
+                content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/accounts")
     public ResponseEntity<LinkedAccountsResponse> getLinkedAccounts(Authentication authentication) {
@@ -66,9 +70,12 @@ public class OAuthAccountController {
     )
     @ApiResponses({
         @ApiResponse(responseCode = "204", description = "Successfully unlinked account"),
-        @ApiResponse(responseCode = "400", description = "Cannot unlink the only authentication method"),
-        @ApiResponse(responseCode = "401", description = "User not authenticated"),
-        @ApiResponse(responseCode = "404", description = "OAuth account not found")
+        @ApiResponse(responseCode = "400", description = "Cannot unlink the only authentication method",
+                content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "401", description = "User not authenticated",
+                content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "404", description = "OAuth account not found",
+                content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @DeleteMapping("/accounts")
     public ResponseEntity<Void> unlinkAccount(

@@ -114,7 +114,11 @@ public class CategoryControllerIntegrationTest {
 
         // Not Found after delete
         mockMvc.perform(get("/api/v1/categories/{id}", id))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -160,7 +164,10 @@ public class CategoryControllerIntegrationTest {
 
         mockMvc.perform(get("/api/v1/categories/{id}", missing))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details", hasItem(containsString("Category " + missing + " not found"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail", containsString("Category " + missing + " not found")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -172,7 +179,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -184,7 +194,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -197,7 +210,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -210,7 +226,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -220,7 +239,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createCategoryRequest)))
-                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -231,7 +254,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/access-denied"))
+                .andExpect(jsonPath("$.title").value("Access Denied"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -247,7 +274,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -263,7 +293,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -280,7 +313,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("name:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -297,7 +333,10 @@ public class CategoryControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details", hasItem(containsString("description:"))));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.title").value("Validation Failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -308,7 +347,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(patch("/api/v1/categories/{id}", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -316,7 +359,11 @@ public class CategoryControllerIntegrationTest {
     @DisplayName("DELETE /api/v1/categories/{id} when ID does not exist → returns 404 NOT_FOUND")
     void delete_NotFound_ShouldReturn404() throws Exception {
         mockMvc.perform(delete("/api/v1/categories/{id}", UUID.randomUUID()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Resource Not Found"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -331,7 +378,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(patch("/api/v1/categories/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -347,7 +398,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(patch("/api/v1/categories/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/access-denied"))
+                .andExpect(jsonPath("$.title").value("Access Denied"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -359,7 +414,11 @@ public class CategoryControllerIntegrationTest {
         UUID id = c.getId();
 
         mockMvc.perform(delete("/api/v1/categories/{id}", id))
-                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unauthorized"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").value("Authentication is required to access this resource"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -372,7 +431,11 @@ public class CategoryControllerIntegrationTest {
         UUID id = c.getId();
 
         mockMvc.perform(delete("/api/v1/categories/{id}", id))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/access-denied"))
+                .andExpect(jsonPath("$.title").value("Access Denied"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -387,7 +450,11 @@ public class CategoryControllerIntegrationTest {
         mockMvc.perform(post("/api/v1/categories")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/data-conflict"))
+                .andExpect(jsonPath("$.title").value("Data Conflict"))
+                .andExpect(jsonPath("$.detail", containsString("Duplicate entry 'DUP'")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test

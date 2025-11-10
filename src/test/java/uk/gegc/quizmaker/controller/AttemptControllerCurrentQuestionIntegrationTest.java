@@ -253,7 +253,10 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/illegal-state"))
+                .andExpect(jsonPath("$.title").value("Illegal State"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -289,6 +292,9 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.status").value(422))
-                .andExpect(jsonPath("$.error").value("Processing Failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/illegal-state"))
+                .andExpect(jsonPath("$.title").value("Illegal State"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 }

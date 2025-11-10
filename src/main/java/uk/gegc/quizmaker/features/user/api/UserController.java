@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -54,8 +55,10 @@ public class UserController {
     )
     @ApiResponse(responseCode = "200", description = "Profile updated successfully",
             content = @Content(schema = @Schema(implementation = UserProfileResponse.class)))
-    @ApiResponse(responseCode = "400", description = "Invalid request data")
-    @ApiResponse(responseCode = "401", description = "Not authenticated")
+    @ApiResponse(responseCode = "400", description = "Invalid request data",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "401", description = "Not authenticated",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @PatchMapping(path = "/me", consumes = {"application/json", "application/merge-patch+json"})
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UserProfileResponse> updateMe(
@@ -87,8 +90,10 @@ public class UserController {
             description = "Uploads a new avatar image for the authenticated user. Accepts PNG, JPEG, WEBP. Image is resized to max 512x512.")
     @ApiResponse(responseCode = "200", description = "Avatar updated successfully",
             content = @Content(schema = @Schema(implementation = AvatarUploadResponse.class)))
-    @ApiResponse(responseCode = "400", description = "Invalid file or unsupported MIME type")
-    @ApiResponse(responseCode = "401", description = "Not authenticated")
+    @ApiResponse(responseCode = "400", description = "Invalid file or unsupported MIME type",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "401", description = "Not authenticated",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @PostMapping(path = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<AvatarUploadResponse> uploadAvatar(

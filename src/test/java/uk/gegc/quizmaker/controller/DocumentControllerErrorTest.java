@@ -94,7 +94,10 @@ class DocumentControllerErrorTest {
                         .file(emptyFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File is empty"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("File is empty"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -117,7 +120,10 @@ class DocumentControllerErrorTest {
                         .file(largeFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File size exceeds maximum limit"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("File size exceeds maximum limit"))
+                .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that validation service was called
         verify(documentValidationService).validateFileUpload(any(), any(), any());
@@ -142,7 +148,10 @@ class DocumentControllerErrorTest {
                         .file(unsupportedFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Unsupported file type: .exe"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-file-type"))
+                .andExpect(jsonPath("$.title").value("Unsupported File Type"))
+                .andExpect(jsonPath("$.detail").value("Unsupported file type: .exe"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -172,7 +181,10 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to process document"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-failed"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.detail").value("Failed to process document"))
+                .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
@@ -205,7 +217,10 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to store document file"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-storage-failed"))
+                .andExpect(jsonPath("$.title").value("Document Storage Error"))
+                .andExpect(jsonPath("$.detail").value("Failed to store document file"))
+                .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
@@ -231,7 +246,10 @@ class DocumentControllerErrorTest {
                         .param("maxChunkSize", "0")
                         .with(SecurityMockMvcRequestPostProcessors.csrf())) // Invalid chunk size
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid chunk size: must be between 100 and 10000"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("Invalid chunk size: must be between 100 and 10000"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -254,7 +272,10 @@ class DocumentControllerErrorTest {
                         .param("chunkingStrategy", "INVALID_STRATEGY")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid chunking strategy: INVALID_STRATEGY"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("Invalid chunking strategy: INVALID_STRATEGY"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -268,7 +289,10 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}", documentId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-not-found"))
+                .andExpect(jsonPath("$.title").value("Document Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -282,7 +306,10 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}", documentId))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.details[0]").value("Access denied"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/access-denied"))
+                .andExpect(jsonPath("$.title").value("Access Denied"))
+                .andExpect(jsonPath("$.detail").value("Access denied"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -296,7 +323,10 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}/chunks", documentId))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-not-found"))
+                .andExpect(jsonPath("$.title").value("Document Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -311,7 +341,10 @@ class DocumentControllerErrorTest {
         // Act & Assert
         mockMvc.perform(get("/api/documents/{id}/chunks/{chunkIndex}", documentId, chunkIndex))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Chunk not found"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
+                .andExpect(jsonPath("$.title").value("Not Found"))
+                .andExpect(jsonPath("$.detail").value("Chunk not found"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -326,7 +359,10 @@ class DocumentControllerErrorTest {
         mockMvc.perform(delete("/api/documents/{id}", documentId)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-not-found"))
+                .andExpect(jsonPath("$.title").value("Document Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -341,7 +377,10 @@ class DocumentControllerErrorTest {
         mockMvc.perform(delete("/api/documents/{id}", documentId)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.details[0]").value("Access denied"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/access-denied"))
+                .andExpect(jsonPath("$.title").value("Access Denied"))
+                .andExpect(jsonPath("$.detail").value("Access denied"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -358,7 +397,10 @@ class DocumentControllerErrorTest {
                         .content("{\"maxChunkSize\": 3000, \"chunkingStrategy\": \"CHAPTER_BASED\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.details[0]").value("Document not found: " + documentId));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-not-found"))
+                .andExpect(jsonPath("$.title").value("Document Not Found"))
+                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -375,7 +417,10 @@ class DocumentControllerErrorTest {
                         .content("{\"maxChunkSize\": 3000, \"chunkingStrategy\": \"CHAPTER_BASED\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to reprocess document"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-failed"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.detail").value("Failed to reprocess document"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -393,7 +438,10 @@ class DocumentControllerErrorTest {
                         .content("{\"maxChunkSize\": -1, \"chunkingStrategy\": \"INVALID\"}")
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").exists());
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/malformed-json"))
+                .andExpect(jsonPath("$.title").value("Malformed JSON"))
+                .andExpect(jsonPath("$.detail").exists())
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -415,7 +463,10 @@ class DocumentControllerErrorTest {
                         .file(nullFile)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("No file provided"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("No file provided"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -437,7 +488,10 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("Invalid content type: invalid/content-type"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("Invalid content type: invalid/content-type"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -459,7 +513,10 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.details[0]").value("File content is null"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/invalid-argument"))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.detail").value("File content is null"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -557,7 +614,10 @@ class DocumentControllerErrorTest {
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.details[0]").value("Failed to upload document: Unexpected error"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-failed"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.detail").value("Failed to upload document: Unexpected error"))
+                .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
         verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));

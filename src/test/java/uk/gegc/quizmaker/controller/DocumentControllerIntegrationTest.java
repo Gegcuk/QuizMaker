@@ -307,8 +307,10 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("Bad Request"))
-                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Unsupported file type")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-file-type"))
+                .andExpect(jsonPath("$.title").value("Unsupported File Type"))
+                .andExpect(jsonPath("$.detail", org.hamcrest.Matchers.containsString("Unsupported file type")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -361,8 +363,10 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("Document Processing Error"))
-                .andExpect(jsonPath("$.details[0]").value(org.hamcrest.Matchers.containsString("Failed to upload document")));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-failed"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.detail", org.hamcrest.Matchers.containsString("Failed to upload document")))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -384,8 +388,10 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("Document Processing Error"))
-                .andExpect(jsonPath("$.details[0]").value("Custom processing error"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-failed"))
+                .andExpect(jsonPath("$.title").value("Document Processing Error"))
+                .andExpect(jsonPath("$.detail").value("Custom processing error"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
@@ -407,8 +413,10 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error").value("Document Storage Error"))
-                .andExpect(jsonPath("$.details[0]").value("File storage failed"));
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-storage-failed"))
+                .andExpect(jsonPath("$.title").value("Document Storage Error"))
+                .andExpect(jsonPath("$.detail").value("File storage failed"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 
 

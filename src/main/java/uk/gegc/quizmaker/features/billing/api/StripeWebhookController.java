@@ -4,11 +4,14 @@ import com.stripe.exception.StripeException;
 import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,8 +38,10 @@ public class StripeWebhookController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Webhook processed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid signature"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled")
+            @ApiResponse(responseCode = "400", description = "Invalid signature",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @Hidden // Hide from public Swagger UI
     @PostMapping("/stripe/webhook")
@@ -53,8 +58,10 @@ public class StripeWebhookController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Webhook processed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid signature"),
-            @ApiResponse(responseCode = "404", description = "Billing feature disabled")
+            @ApiResponse(responseCode = "400", description = "Invalid signature",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @Hidden // Hide from public Swagger UI
     @PostMapping("/webhooks")

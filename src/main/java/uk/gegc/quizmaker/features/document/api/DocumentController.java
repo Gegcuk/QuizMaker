@@ -15,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -56,9 +57,12 @@ public class DocumentController {
                     description = "Document uploaded and processed successfully",
                     content = @Content(schema = @Schema(implementation = DocumentDto.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file or parameters"),
-            @ApiResponse(responseCode = "403", description = "Access denied"),
-            @ApiResponse(responseCode = "422", description = "Processing failed")
+            @ApiResponse(responseCode = "400", description = "Invalid file or parameters",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Processing failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentDto> uploadDocument(
@@ -109,8 +113,10 @@ public class DocumentController {
                     description = "Document retrieved",
                     content = @Content(schema = @Schema(implementation = DocumentDto.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{documentId}")
     public ResponseEntity<DocumentDto> getDocument(
@@ -149,7 +155,8 @@ public class DocumentController {
                     description = "Documents retrieved",
                     content = @Content(schema = @Schema(implementation = Page.class))
             ),
-            @ApiResponse(responseCode = "500", description = "Failed to retrieve documents")
+            @ApiResponse(responseCode = "500", description = "Failed to retrieve documents",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping
     public ResponseEntity<Page<DocumentDto>> getUserDocuments(
@@ -180,8 +187,10 @@ public class DocumentController {
                             array = @ArraySchema(schema = @Schema(implementation = DocumentChunkDto.class))
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{documentId}/chunks")
     public ResponseEntity<List<DocumentChunkDto>> getDocumentChunks(
@@ -220,8 +229,10 @@ public class DocumentController {
                     description = "Chunk retrieved",
                     content = @Content(schema = @Schema(implementation = DocumentChunkDto.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document or chunk not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document or chunk not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{documentId}/chunks/{chunkIndex}")
     public ResponseEntity<DocumentChunkDto> getDocumentChunk(
@@ -257,8 +268,10 @@ public class DocumentController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Document deleted successfully"),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @DeleteMapping("/{documentId}")
     public ResponseEntity<Void> deleteDocument(
@@ -297,10 +310,14 @@ public class DocumentController {
                     description = "Document reprocessed successfully",
                     content = @Content(schema = @Schema(implementation = DocumentDto.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid processing request"),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document not found"),
-            @ApiResponse(responseCode = "422", description = "Reprocessing failed")
+            @ApiResponse(responseCode = "400", description = "Invalid processing request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Reprocessing failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{documentId}/reprocess")
     public ResponseEntity<DocumentDto> reprocessDocument(
@@ -347,8 +364,10 @@ public class DocumentController {
                     description = "Document status retrieved",
                     content = @Content(schema = @Schema(implementation = DocumentDto.class))
             ),
-            @ApiResponse(responseCode = "403", description = "Access denied - not document owner"),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "403", description = "Access denied - not document owner",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{documentId}/status")
     public ResponseEntity<DocumentDto> getDocumentStatus(

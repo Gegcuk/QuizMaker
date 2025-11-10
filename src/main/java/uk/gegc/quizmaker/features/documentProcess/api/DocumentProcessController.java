@@ -13,6 +13,7 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -62,8 +63,10 @@ public class DocumentProcessController {
                     description = "Document ingested successfully",
                     content = @Content(schema = @Schema(implementation = IngestResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid request - text is blank or validation failed"),
-            @ApiResponse(responseCode = "422", description = "Normalization failed")
+            @ApiResponse(responseCode = "400", description = "Invalid request - text is blank or validation failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Normalization failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<IngestResponse> ingestJson(
@@ -93,9 +96,12 @@ public class DocumentProcessController {
                     description = "Document ingested successfully",
                     content = @Content(schema = @Schema(implementation = IngestResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "File is empty or missing"),
-            @ApiResponse(responseCode = "415", description = "Unsupported file format"),
-            @ApiResponse(responseCode = "422", description = "Conversion or normalization failed")
+            @ApiResponse(responseCode = "400", description = "File is empty or missing",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "415", description = "Unsupported file format",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Conversion or normalization failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<IngestResponse> ingestFile(
@@ -126,7 +132,8 @@ public class DocumentProcessController {
                     description = "Document metadata retrieved",
                     content = @Content(schema = @Schema(implementation = DocumentView.class))
             ),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}")
     public DocumentView getDocument(
@@ -146,7 +153,8 @@ public class DocumentProcessController {
                     description = "Document metadata retrieved",
                     content = @Content(schema = @Schema(implementation = DocumentView.class))
             ),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/head")
     public DocumentView getDocumentHead(
@@ -166,9 +174,12 @@ public class DocumentProcessController {
                     description = "Text slice retrieved",
                     content = @Content(schema = @Schema(implementation = TextSliceResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid offsets (negative or end < start)"),
-            @ApiResponse(responseCode = "404", description = "Document not found"),
-            @ApiResponse(responseCode = "422", description = "Document has no normalized text")
+            @ApiResponse(responseCode = "400", description = "Invalid offsets (negative or end < start)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Document has no normalized text",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/text")
     public TextSliceResponse getTextSlice(
@@ -194,8 +205,10 @@ public class DocumentProcessController {
                     responseCode = "200",
                     description = "Structure retrieved (format depends on 'format' parameter)"
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid format parameter (use 'tree' or 'flat')"),
-            @ApiResponse(responseCode = "404", description = "Document not found")
+            @ApiResponse(responseCode = "400", description = "Invalid format parameter (use 'tree' or 'flat')",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/structure")
     public ResponseEntity<?> getStructure(
@@ -229,9 +242,12 @@ public class DocumentProcessController {
                     description = "Structure built successfully",
                     content = @Content(schema = @Schema(implementation = StructureBuildResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Structure building failed (see message)"),
-            @ApiResponse(responseCode = "404", description = "Document not found"),
-            @ApiResponse(responseCode = "500", description = "Unexpected error during structure building")
+            @ApiResponse(responseCode = "400", description = "Structure building failed (see message)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Unexpected error during structure building",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{id}/structure")
     public ResponseEntity<StructureBuildResponse> buildStructure(
@@ -268,8 +284,10 @@ public class DocumentProcessController {
                     description = "Node content extracted",
                     content = @Content(schema = @Schema(implementation = ExtractResponse.class))
             ),
-            @ApiResponse(responseCode = "400", description = "Node does not belong to document"),
-            @ApiResponse(responseCode = "404", description = "Document or node not found")
+            @ApiResponse(responseCode = "400", description = "Node does not belong to document",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Document or node not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/extract")
     public ExtractResponse extractByNode(

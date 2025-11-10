@@ -7,427 +7,552 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.*;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.lang.NonNull;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import uk.gegc.quizmaker.features.billing.domain.exception.*;
-import uk.gegc.quizmaker.shared.exception.*;
-import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
+import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
+import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
+import uk.gegc.quizmaker.shared.exception.*;
 
-import java.time.LocalDateTime;
-import java.net.URI;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler({ResourceNotFoundException.class, DocumentNotFoundException.class})
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ErrorResponse handleNotFound(RuntimeException exception) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.NOT_FOUND.value(),
-                "Not Found",
-                List.of(exception.getMessage())
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleResourceNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.NOT_FOUND,
+                ErrorTypes.RESOURCE_NOT_FOUND,
+                "Resource Not Found",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
     }
 
-    @ExceptionHandler({
-            ValidationException.class,
-            UnsupportedQuestionTypeException.class,
-            UnsupportedFileTypeException.class,
-            ApiError.class,
-            QuizGenerationException.class,
-            ValidationErrorException.class
-    })
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleBadRequest(RuntimeException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                List.of(ex.getMessage())
+    @ExceptionHandler(DocumentNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentNotFound(DocumentNotFoundException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.NOT_FOUND,
+                ErrorTypes.DOCUMENT_NOT_FOUND,
+                "Document Not Found",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
+    }
+
+    @ExceptionHandler({ValidationException.class, ValidationErrorException.class})
+    public ResponseEntity<ProblemDetail> handleValidation(RuntimeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.VALIDATION_FAILED,
+                "Validation Failed",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(UnsupportedQuestionTypeException.class)
+    public ResponseEntity<ProblemDetail> handleUnsupportedQuestionType(UnsupportedQuestionTypeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.UNSUPPORTED_QUESTION_TYPE,
+                "Unsupported Question Type",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(UnsupportedFileTypeException.class)
+    public ResponseEntity<ProblemDetail> handleUnsupportedFileType(UnsupportedFileTypeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.UNSUPPORTED_FILE_TYPE,
+                "Unsupported File Type",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler({ApiError.class, QuizGenerationException.class})
+    public ResponseEntity<ProblemDetail> handleQuizGeneration(RuntimeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.QUIZ_GENERATION_FAILED,
+                "Quiz Generation Error",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(UnsupportedFormatException.class)
-    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-    public ErrorResponse handleUnsupportedFormat(UnsupportedFormatException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNSUPPORTED_MEDIA_TYPE.value(),
+    public ResponseEntity<ProblemDetail> handleUnsupportedFormat(UnsupportedFormatException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                ErrorTypes.UNSUPPORTED_FORMAT,
                 "Unsupported Format",
-                List.of(ex.getMessage())
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(problem);
     }
 
-    @ExceptionHandler({ConversionFailedException.class, NormalizationFailedException.class})
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
-    public ErrorResponse handleProcessingFailed(RuntimeException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNPROCESSABLE_ENTITY.value(),
-                "Processing Failed",
-                List.of(ex.getMessage())
+    @ExceptionHandler(ConversionFailedException.class)
+    public ResponseEntity<ProblemDetail> handleConversionFailed(ConversionFailedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                ErrorTypes.CONVERSION_FAILED,
+                "Conversion Failed",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problem);
+    }
+
+    @ExceptionHandler(NormalizationFailedException.class)
+    public ResponseEntity<ProblemDetail> handleNormalizationFailed(NormalizationFailedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                ErrorTypes.NORMALIZATION_FAILED,
+                "Normalization Failed",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problem);
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleUnsupportedOperation(UnsupportedOperationException ex) {
-        String msg = ex.getMessage() != null ? ex.getMessage() : "Operation not supported";
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                List.of(msg)
+    public ResponseEntity<ProblemDetail> handleUnsupportedOperation(UnsupportedOperationException ex, HttpServletRequest request) {
+        String message = ex.getMessage() != null ? ex.getMessage() : "Operation not supported";
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.UNSUPPORTED_OPERATION,
+                "Unsupported Operation",
+                message,
+                request
         );
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleIllegalArgument(IllegalArgumentException exception) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad request",
-                List.of(exception.getMessage())
+    public ResponseEntity<ProblemDetail> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.INVALID_ARGUMENT,
+                "Invalid Argument",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
-    public ErrorResponse handleIllegalState(IllegalStateException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNPROCESSABLE_ENTITY.value(),
-                "Processing Failed",
-                List.of(ex.getMessage())
+    public ResponseEntity<ProblemDetail> handleIllegalState(IllegalStateException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                ErrorTypes.ILLEGAL_STATE,
+                "Illegal State",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problem);
     }
 
     @ExceptionHandler(AttemptNotCompletedException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ErrorResponse handleAttemptNotCompleted(AttemptNotCompletedException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.CONFLICT.value(),
+    public ResponseEntity<ProblemDetail> handleAttemptNotCompleted(AttemptNotCompletedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.ATTEMPT_NOT_COMPLETED,
                 "Attempt Not Completed",
-                List.of(ex.getMessage())
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest req) {
-        var body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.TOO_MANY_REQUESTS.value(),
-                "Too Many Requests",
-                List.of(ex.getMessage())
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.TOO_MANY_REQUESTS,
+                ErrorTypes.RATE_LIMIT_EXCEEDED,
+                "Rate Limit Exceeded",
+                ex.getMessage(),
+                request
         );
+        problem.setProperty("retryAfterSeconds", ex.getRetryAfterSeconds());
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
-                .body(body);
+                .body(problem);
     }
 
-
-
     @ExceptionHandler(AiServiceException.class)
-    public ResponseEntity<ErrorResponse> handleAiServiceException(AiServiceException ex) {
-        HttpStatus status = ex.getCause() instanceof org.springframework.web.client.RestClientException
-                ? HttpStatus.SERVICE_UNAVAILABLE
-                : HttpStatus.INTERNAL_SERVER_ERROR;
-
-        return ResponseEntity.status(status).body(
-                new ErrorResponse(
-                        LocalDateTime.now(),
-                        status.value(),
-                        status == HttpStatus.SERVICE_UNAVAILABLE ? "AI Service Unavailable" : "AI Service Error",
-                        List.of(status == HttpStatus.SERVICE_UNAVAILABLE
-                                ? "The AI service is currently unavailable. Please try again later."
-                                : "An unexpected error occurred with the AI service.")
-                )
+    public ResponseEntity<ProblemDetail> handleAiServiceException(AiServiceException ex, HttpServletRequest request) {
+        boolean unavailable = ex.getCause() instanceof RestClientException;
+        HttpStatus status = unavailable ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.INTERNAL_SERVER_ERROR;
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                status,
+                unavailable ? ErrorTypes.AI_SERVICE_UNAVAILABLE : ErrorTypes.AI_SERVICE_ERROR,
+                unavailable ? "AI Service Unavailable" : "AI Service Error",
+                unavailable ? "The AI service is currently unavailable. Please try again later." : "An unexpected error occurred with the AI service.",
+                request
         );
+        return ResponseEntity.status(status).body(problem);
     }
 
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex) {
-        // Log the actual exception for debugging
+    public ResponseEntity<ProblemDetail> handleRuntimeException(RuntimeException ex, HttpServletRequest request) {
         logger.error("RuntimeException occurred: {}", ex.getMessage(), ex);
-        
-        // Handle specific authorization cases
-        if ("Access denied".equals(ex.getMessage())) {
-            ErrorResponse errorResponse = new ErrorResponse(
-                    LocalDateTime.now(),
-                    HttpStatus.FORBIDDEN.value(),
+        if ("Access denied".equalsIgnoreCase(ex.getMessage())) {
+            ProblemDetail problem = ProblemDetailBuilder.create(
+                    HttpStatus.FORBIDDEN,
+                    ErrorTypes.ACCESS_DENIED,
                     "Access Denied",
-                    List.of(ex.getMessage())
+                    ex.getMessage(),
+                    request
             );
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
         }
-        // Handle specific not found cases
-        if ("Chunk not found".equals(ex.getMessage())) {
-            ErrorResponse errorResponse = new ErrorResponse(
-                    LocalDateTime.now(),
-                    HttpStatus.NOT_FOUND.value(),
+        if ("Chunk not found".equalsIgnoreCase(ex.getMessage())) {
+            ProblemDetail problem = ProblemDetailBuilder.create(
+                    HttpStatus.NOT_FOUND,
+                    ErrorTypes.RESOURCE_NOT_FOUND,
                     "Not Found",
-                    List.of(ex.getMessage())
+                    ex.getMessage(),
+                    request
             );
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
         }
-        // For other runtime exceptions, return internal server error
-        ErrorResponse errorResponse = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
-                List.of("An unexpected error occurred")
+                "An unexpected error occurred",
+                request
         );
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
     @ExceptionHandler(DocumentProcessingException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleDocumentProcessing(DocumentProcessingException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+    public ResponseEntity<ProblemDetail> handleDocumentProcessing(DocumentProcessingException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.DOCUMENT_PROCESSING_FAILED,
                 "Document Processing Error",
-                List.of(ex.getMessage())
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
     @ExceptionHandler(DocumentStorageException.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleDocumentStorage(DocumentStorageException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+    public ResponseEntity<ProblemDetail> handleDocumentStorage(DocumentStorageException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.DOCUMENT_STORAGE_FAILED,
                 "Document Storage Error",
-                List.of(ex.getMessage())
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException ex, HttpServletRequest request) {
         HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
-        return ResponseEntity.status(status).body(
-                new ErrorResponse(
-                        LocalDateTime.now(),
-                        status.value(),
-                        status.getReasonPhrase(),
-                        List.of(ex.getReason() != null ? ex.getReason() : ex.getMessage())
-                )
+        String reason = ex.getReason() != null ? ex.getReason() : ex.getMessage();
+        
+        // Map specific status codes to specific error types
+        java.net.URI errorType = switch (status) {
+            case UNAUTHORIZED -> ErrorTypes.UNAUTHORIZED;
+            case FORBIDDEN -> ErrorTypes.ACCESS_DENIED;
+            case NOT_FOUND -> ErrorTypes.RESOURCE_NOT_FOUND;
+            case CONFLICT -> ErrorTypes.DATA_CONFLICT;
+            case UNPROCESSABLE_ENTITY -> ErrorTypes.ILLEGAL_STATE;
+            case BAD_REQUEST -> ErrorTypes.VALIDATION_FAILED;
+            default -> ErrorTypes.GENERIC_ERROR;
+        };
+        
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                status,
+                errorType,
+                status.getReasonPhrase(),
+                reason,
+                request
         );
+        return ResponseEntity.status(status).body(problem);
     }
 
     @ExceptionHandler(OptimisticLockingFailureException.class)
-    public ResponseEntity<ProblemDetail> handleOptimisticLock(OptimisticLockingFailureException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "Quiz has been modified by another user. Please refresh and try again.");
-        problem.setTitle("Conflict");
+    public ResponseEntity<ProblemDetail> handleOptimisticLock(OptimisticLockingFailureException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.OPTIMISTIC_LOCK_CONFLICT,
+                "Conflict",
+                "Quiz has been modified by another user. Please refresh and try again.",
+                request
+        );
         problem.setProperty("errorCode", "QUIZ_VERSION_CONFLICT");
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
-    // ===================== Billing-specific errors (ProblemDetail) =====================
     @ExceptionHandler(InsufficientTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientTokens(InsufficientTokensException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Insufficient Tokens");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/insufficient-tokens"));
-        pd.setProperty("errorCode", "INSUFFICIENT_TOKENS");
-        pd.setProperty("estimatedTokens", ex.getEstimatedTokens());
-        pd.setProperty("availableTokens", ex.getAvailableTokens());
-        pd.setProperty("shortfall", ex.getShortfall());
-        pd.setProperty("reservationTtl", ex.getReservationTtl());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleInsufficientTokens(InsufficientTokensException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.INSUFFICIENT_TOKENS,
+                "Insufficient Tokens",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("errorCode", "INSUFFICIENT_TOKENS");
+        problem.setProperty("estimatedTokens", ex.getEstimatedTokens());
+        problem.setProperty("availableTokens", ex.getAvailableTokens());
+        problem.setProperty("shortfall", ex.getShortfall());
+        problem.setProperty("reservationTtl", ex.getReservationTtl());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(InsufficientAvailableTokensException.class)
-    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Insufficient Available Tokens");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/insufficient-available-tokens"));
-        pd.setProperty("errorCode", "INSUFFICIENT_AVAILABLE_TOKENS");
-        pd.setProperty("requestedTokens", ex.getRequestedTokens());
-        pd.setProperty("availableTokens", ex.getAvailableTokens());
-        pd.setProperty("shortfall", ex.getShortfall());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleInsufficientAvailableTokens(InsufficientAvailableTokensException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.INSUFFICIENT_AVAILABLE_TOKENS,
+                "Insufficient Available Tokens",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("errorCode", "INSUFFICIENT_AVAILABLE_TOKENS");
+        problem.setProperty("requestedTokens", ex.getRequestedTokens());
+        problem.setProperty("availableTokens", ex.getAvailableTokens());
+        problem.setProperty("shortfall", ex.getShortfall());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(ReservationNotActiveException.class)
-    public ResponseEntity<ProblemDetail> handleReservationNotActive(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Reservation not active");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/reservation-not-active"));
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleReservationNotActive(ReservationNotActiveException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.RESERVATION_NOT_ACTIVE,
+                "Reservation Not Active",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(CommitExceedsReservedException.class)
-    public ResponseEntity<ProblemDetail> handleCommitExceedsReserved(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Commit exceeds reserved");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/commit-exceeds-reserved"));
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleCommitExceedsReserved(CommitExceedsReservedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.COMMIT_EXCEEDS_RESERVED,
+                "Commit Exceeds Reserved",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(PackNotFoundException.class)
-    public ResponseEntity<ProblemDetail> handlePackNotFound(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
-        pd.setTitle("Pack not found");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/pack-not-found"));
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(pd);
+    public ResponseEntity<ProblemDetail> handlePackNotFound(PackNotFoundException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.NOT_FOUND,
+                ErrorTypes.PACK_NOT_FOUND,
+                "Pack Not Found",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
     }
 
-
     @ExceptionHandler(StripeWebhookInvalidSignatureException.class)
-    public ResponseEntity<ProblemDetail> handleStripeInvalidSignature(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
-        pd.setTitle("Stripe webhook invalid signature");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/stripe-webhook-invalid-signature"));
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(pd);
+    public ResponseEntity<ProblemDetail> handleStripeInvalidSignature(StripeWebhookInvalidSignatureException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNAUTHORIZED,
+                ErrorTypes.STRIPE_WEBHOOK_INVALID_SIGNATURE,
+                "Stripe Webhook Invalid Signature",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
     }
 
     @ExceptionHandler(IdempotencyConflictException.class)
-    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(RuntimeException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatus(HttpStatus.CONFLICT);
-        pd.setTitle("Idempotency conflict");
-        pd.setDetail(ex.getMessage());
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setType(URI.create("https://example.com/problems/idempotency-conflict"));
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleIdempotencyConflict(IdempotencyConflictException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.IDEMPOTENCY_CONFLICT,
+                "Idempotency Conflict",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(InvalidJobStateForCommitException.class)
-    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(InvalidJobStateForCommitException ex, HttpServletRequest r) {
-        var pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
-        pd.setTitle("Invalid Job State for Commit");
-        pd.setType(URI.create("https://api.quizmaker.com/problems/invalid-job-state-for-commit"));
-        pd.setInstance(URI.create(r.getRequestURI()));
-        pd.setProperty("timestamp", java.time.Instant.now());
-        pd.setProperty("jobId", ex.getJobId());
-        pd.setProperty("currentState", ex.getCurrentState().name());
-        pd.setProperty("expectedState", "RESERVED");
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(pd);
+    public ResponseEntity<ProblemDetail> handleInvalidJobStateForCommit(InvalidJobStateForCommitException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.INVALID_JOB_STATE_FOR_COMMIT,
+                "Invalid Job State for Commit",
+                ex.getMessage(),
+                request
+        );
+        problem.setProperty("jobId", ex.getJobId());
+        problem.setProperty("currentState", ex.getCurrentState().name());
+        problem.setProperty("expectedState", "RESERVED");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
-
     @ExceptionHandler(DataIntegrityViolationException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ErrorResponse handleDataIntegrity(DataIntegrityViolationException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.CONFLICT.value(),
-                "Conflict",
-                List.of("Database error: " + ex.getMostSpecificCause().getMessage())
+    public ResponseEntity<ProblemDetail> handleDataIntegrity(DataIntegrityViolationException ex, HttpServletRequest request) {
+        String detail = "Database error: " + ex.getMostSpecificCause().getMessage();
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.DATA_CONFLICT,
+                "Data Conflict",
+                detail,
+                request
         );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(UnauthorizedException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public ErrorResponse handleUnauthorized(UnauthorizedException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.UNAUTHORIZED.value(),
+    public ResponseEntity<ProblemDetail> handleUnauthorized(UnauthorizedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNAUTHORIZED,
+                ErrorTypes.UNAUTHORIZED,
                 "Unauthorized",
-                List.of(ex.getMessage())
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
     }
 
-    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, DocumentAccessDeniedException.class, UserNotAuthorizedException.class})
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public ErrorResponse handleAccessDenied(Exception ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.FORBIDDEN.value(),
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, UserNotAuthorizedException.class})
+    public ResponseEntity<ProblemDetail> handleAccessDenied(Exception ex, HttpServletRequest request) {
+        String detail = ex.getMessage() != null ? ex.getMessage() : "You do not have permission to access this resource";
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.FORBIDDEN,
+                ErrorTypes.ACCESS_DENIED,
                 "Access Denied",
-                List.of(ex.getMessage() != null ? ex.getMessage() : "You do not have permission to access this resource")
+                detail,
+                request
         );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
+    }
+
+    @ExceptionHandler(DocumentAccessDeniedException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentAccessDenied(DocumentAccessDeniedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.FORBIDDEN,
+                ErrorTypes.DOCUMENT_ACCESS_DENIED,
+                "Document Access Denied",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem);
     }
 
     @ExceptionHandler(ShareLinkAlreadyUsedException.class)
-    @ResponseStatus(HttpStatus.GONE)
-    public ErrorResponse handleShareLinkAlreadyUsed(ShareLinkAlreadyUsedException ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.GONE.value(),
-                "Gone",
-                List.of(ex.getMessage())
+    public ResponseEntity<ProblemDetail> handleShareLinkAlreadyUsed(ShareLinkAlreadyUsedException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.GONE,
+                ErrorTypes.SHARE_LINK_ALREADY_USED,
+                "Share Link Already Used",
+                ex.getMessage(),
+                request
         );
+        return ResponseEntity.status(HttpStatus.GONE).body(problem);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleConstraintViolation(ConstraintViolationException ex) {
-        List<String> details = ex.getConstraintViolations().stream()
-                .map(ConstraintViolation::getMessage) // or include propertyPath if you prefer
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.CONSTRAINT_VIOLATION,
+                "Constraint Violation",
+                "One or more validation constraints were violated",
+                request
+        );
+        List<ViolationDetail> violations = ex.getConstraintViolations().stream()
+                .map(this::toViolationDetail)
                 .collect(Collectors.toList());
+        problem.setProperty("violations", violations);
+        return ResponseEntity.badRequest().body(problem);
+    }
 
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Validation Failed",
-                details
+    private ViolationDetail toViolationDetail(ConstraintViolation<?> violation) {
+        return new ViolationDetail(
+                violation.getPropertyPath().toString(),
+                violation.getMessage(),
+                violation.getInvalidValue()
         );
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
         String param = ex.getName();
         Class<?> type = ex.getRequiredType();
-        String requiredType = (type != null ? type.getSimpleName() : "unknown");
+        String requiredType = type != null ? type.getSimpleName() : "unknown";
         String msg = "Invalid value for parameter '" + param + "'. Expected type: " + requiredType + ".";
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                "Bad Request",
-                List.of(msg)
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.TYPE_MISMATCH,
+                "Type Mismatch",
+                msg,
+                request
         );
+        problem.setProperty("parameter", param);
+        problem.setProperty("expectedType", requiredType);
+        problem.setProperty("providedValue", ex.getValue());
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @Override
-    protected org.springframework.http.ResponseEntity<Object> handleHttpMessageNotReadable(
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
             @NonNull HttpMessageNotReadableException ex,
             @NonNull HttpHeaders headers,
             @NonNull HttpStatusCode status,
             @NonNull WebRequest request
     ) {
-        String msg = ex.getMostSpecificCause().getMessage();
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
+        String msg = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.MALFORMED_JSON,
                 "Malformed JSON",
-                List.of(msg)
+                "Request body is malformed or cannot be read",
+                request
         );
-        return new org.springframework.http.ResponseEntity<>(body, headers, HttpStatus.BAD_REQUEST);
+        problem.setProperty("parseError", msg);
+        return new ResponseEntity<>(problem, headers, HttpStatus.BAD_REQUEST);
     }
 
     @Override
@@ -437,37 +562,38 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             @NonNull HttpStatusCode status,
             @NonNull WebRequest request
     ) {
-        List<String> fieldErrors = ex.getBindingResult()
+        List<FieldValidationError> fieldErrors = ex.getBindingResult()
                 .getFieldErrors()
                 .stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
+                .map(error -> new FieldValidationError(error.getField(), error.getDefaultMessage(), error.getRejectedValue()))
                 .toList();
-
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.BAD_REQUEST.value(),
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.VALIDATION_FAILED,
                 "Validation Failed",
-                fieldErrors
+                "Validation failed for one or more fields",
+                request
         );
-        return new ResponseEntity<>(body, headers, status);
+        problem.setProperty("fieldErrors", fieldErrors);
+        return new ResponseEntity<>(problem, headers, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleAllOthers(Exception ex) {
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+    public ResponseEntity<ProblemDetail> handleAllOthers(Exception ex, HttpServletRequest request) {
+        logger.error("Unhandled exception: {}", ex.getMessage(), ex);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ErrorTypes.INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
-                List.of("An unexpected error occurred")
+                "An unexpected error occurred",
+                request
         );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(problem);
     }
 
-    public record ErrorResponse(
-            LocalDateTime timestamp,
-            int status,
-            String error,
-            List<String> details
-    ) {
+    private record ViolationDetail(String field, String message, Object invalidValue) {
+    }
+
+    private record FieldValidationError(String field, String message, Object rejectedValue) {
     }
 }

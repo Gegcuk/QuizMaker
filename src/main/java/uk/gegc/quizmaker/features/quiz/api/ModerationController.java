@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -39,8 +40,10 @@ public class ModerationController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Quiz approved successfully"),
-            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission"),
-            @ApiResponse(responseCode = "404", description = "Quiz not found")
+            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{quizId}/approve")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
@@ -58,9 +61,12 @@ public class ModerationController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Quiz rejected successfully"),
-            @ApiResponse(responseCode = "400", description = "Reason is required"),
-            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission"),
-            @ApiResponse(responseCode = "404", description = "Quiz not found")
+            @ApiResponse(responseCode = "400", description = "Reason is required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{quizId}/reject")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
@@ -78,8 +84,10 @@ public class ModerationController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Quiz unpublished successfully"),
-            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission"),
-            @ApiResponse(responseCode = "404", description = "Quiz not found")
+            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{quizId}/unpublish")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
@@ -104,7 +112,8 @@ public class ModerationController {
                             array = @ArraySchema(schema = @Schema(implementation = PendingReviewQuizDto.class))
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission")
+            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/pending-review")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
@@ -126,8 +135,10 @@ public class ModerationController {
                             array = @ArraySchema(schema = @Schema(implementation = QuizModerationAuditDto.class))
                     )
             ),
-            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission"),
-            @ApiResponse(responseCode = "404", description = "Quiz not found")
+            @ApiResponse(responseCode = "403", description = "Missing QUIZ_MODERATE permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{quizId}/audits")
     @RequirePermission(PermissionName.QUIZ_MODERATE)
