@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
 
@@ -95,6 +96,14 @@ public class QuizCommandServiceImpl implements QuizCommandService {
                 quiz.getCreator() != null ? quiz.getCreator().getId() : null,
                 PermissionName.QUIZ_MODERATE,
                 PermissionName.QUIZ_ADMIN);
+
+        boolean hasModerationPermissions = accessPolicy.hasAny(user,
+                PermissionName.QUIZ_MODERATE,
+                PermissionName.QUIZ_ADMIN);
+
+        if (req.visibility() == Visibility.PUBLIC && !hasModerationPermissions) {
+            throw new ForbiddenException("Only moderators can set quiz visibility to PUBLIC");
+        }
 
         // Moderation: block edits while pending review and auto-revert to DRAFT if editing pending
         if (quiz.getStatus() == QuizStatus.PENDING_REVIEW) {

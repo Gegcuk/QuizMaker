@@ -462,6 +462,59 @@ class QuizCommandServiceImplTest {
             
             verify(quizMapper, never()).updateEntity(any(), any(), any(), any());
         }
+
+        @Test
+        @DisplayName("Non-moderator cannot set visibility to PUBLIC via update")
+        void nonModerator_updateVisibilityToPublic_throwsForbidden() {
+            // Given
+            UpdateQuizRequest request = new UpdateQuizRequest(
+                null, null, Visibility.PUBLIC, null, null, null, null, null, null, null
+            );
+
+            when(quizRepository.findByIdWithTags(quiz.getId())).thenReturn(Optional.of(quiz));
+            when(userRepository.findByUsername("regularuser")).thenReturn(Optional.of(regularUser));
+            doNothing().when(accessPolicy).requireOwnerOrAny(any(), any(), any(), any());
+            when(accessPolicy.hasAny(eq(regularUser),
+                    eq(PermissionName.QUIZ_MODERATE),
+                    eq(PermissionName.QUIZ_ADMIN)))
+                .thenReturn(false);
+
+            // When / Then
+            assertThatThrownBy(() -> quizCommandService.updateQuiz("regularuser", quiz.getId(), request))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("Only moderators can set quiz visibility to PUBLIC");
+
+            verify(quizMapper, never()).updateEntity(any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Moderator can set visibility to PUBLIC via update")
+        void moderator_updateVisibilityToPublic_succeeds() {
+            // Given
+            quiz.setCreator(moderatorUser);
+            UpdateQuizRequest request = new UpdateQuizRequest(
+                null, null, Visibility.PUBLIC, null, null, null, null, null, null, null
+            );
+
+            when(quizRepository.findByIdWithTags(quiz.getId())).thenReturn(Optional.of(quiz));
+            when(userRepository.findByUsername("moderator")).thenReturn(Optional.of(moderatorUser));
+            doNothing().when(accessPolicy).requireOwnerOrAny(any(), any(), any(), any());
+            when(accessPolicy.hasAny(eq(moderatorUser),
+                    eq(PermissionName.QUIZ_MODERATE),
+                    eq(PermissionName.QUIZ_ADMIN)))
+                .thenReturn(true);
+            when(quizHashCalculator.calculateContentHash(any())).thenReturn("hash123");
+            when(quizHashCalculator.calculatePresentationHash(any())).thenReturn("pHash123");
+            when(quizMapper.toDto(any())).thenReturn(mock(QuizDto.class));
+            when(quizRepository.save(any())).thenReturn(quiz);
+
+            // When
+            QuizDto result = quizCommandService.updateQuiz("moderator", quiz.getId(), request);
+
+            // Then
+            assertThat(result).isNotNull();
+            verify(quizMapper).updateEntity(eq(quiz), eq(request), any(), any());
+        }
         
         @Test
         @DisplayName("Update PENDING_REVIEW quiz - auto-reverts to DRAFT")
@@ -1270,4 +1323,3 @@ class QuizCommandServiceImplTest {
         return q;
     }
 }
-
