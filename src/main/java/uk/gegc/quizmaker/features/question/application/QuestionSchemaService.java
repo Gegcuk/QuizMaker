@@ -149,7 +149,7 @@ public class QuestionSchemaService {
                     .put("answer", "Sample answer text here");
             
             case FILL_GAP -> objectMapper.createObjectNode()
-                    .put("text", "The capital of France is ___.")
+                    .put("text", "The capital of France is {1}.")
                     .set("gaps", objectMapper.createArrayNode()
                             .add(objectMapper.createObjectNode()
                                     .put("id", 1)

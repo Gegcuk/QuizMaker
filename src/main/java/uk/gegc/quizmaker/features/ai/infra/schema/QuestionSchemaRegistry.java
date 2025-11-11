@@ -351,7 +351,8 @@ public class QuestionSchemaRegistry {
     
     /**
      * Schema for FILL_GAP content
-     * Parser expects: content.text (string with ___ markers) and content.gaps [{id: int, answer: string}]
+     * Parser expects: content.text (string with {N} markers) and content.gaps [{id: int, answer: string}]
+     * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}]}
      */
     private ObjectNode createFillGapContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
@@ -367,13 +368,14 @@ public class QuestionSchemaRegistry {
         
         ObjectNode text = objectMapper.createObjectNode();
         text.put("type", "string");
-        text.put("description", "Text with gaps marked as ___ (three underscores)");
+        text.put("description", "Text with gaps marked as {N} where N is the gap ID (e.g., {1}, {2}, {3}). Example: 'The capital of France is {1}'");
         properties.set("text", text);
         
         ObjectNode gaps = objectMapper.createObjectNode();
         gaps.put("type", "array");
-        gaps.put("description", "Array of gaps with sequential IDs and correct answers");
+        gaps.put("description", "Array of gaps with sequential IDs (1, 2, 3...) and correct answers. Each {N} in text must have a matching gap with id=N");
         gaps.put("minItems", 1);
+        gaps.put("maxItems", 3);
         
         ObjectNode gapItem = objectMapper.createObjectNode();
         gapItem.put("type", "object");
@@ -388,12 +390,14 @@ public class QuestionSchemaRegistry {
         
         ObjectNode gapId = objectMapper.createObjectNode();
         gapId.put("type", "integer");
-        gapId.put("description", "Sequential gap ID starting from 1");
+        gapId.put("description", "Sequential gap ID starting from 1, matching {N} placeholder in text");
+        gapId.put("minimum", 1);
         gapProps.set("id", gapId);
         
         ObjectNode gapAnswer = objectMapper.createObjectNode();
         gapAnswer.put("type", "string");
         gapAnswer.put("description", "Correct answer for this gap");
+        gapAnswer.put("minLength", 1);
         gapProps.set("answer", gapAnswer);
         
         gapItem.set("properties", gapProps);
