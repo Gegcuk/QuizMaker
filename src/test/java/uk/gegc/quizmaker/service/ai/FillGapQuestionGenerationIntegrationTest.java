@@ -55,7 +55,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "difficulty": "MEDIUM",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ programming language that follows the ___ principle",
+                    "text": "Java is a {1} programming language that follows the {2} principle",
                     "gaps": [
                       {"id": 1, "answer": "object-oriented"},
                       {"id": 2, "answer": "WORA"}
@@ -69,7 +69,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "difficulty": "HARD",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Spring Framework provides ___ and ___ for Java applications",
+                    "text": "Spring Framework provides {1} and {2} for Java applications",
                     "gaps": [
                       {"id": 1, "answer": "dependency injection"},
                       {"id": 2, "answer": "inversion of control"}
@@ -100,7 +100,7 @@ class FillGapQuestionGenerationIntegrationTest {
 
         // Verify first question content structure
         JsonNode content1 = objectMapper.readTree(question1.getContent());
-        assertEquals("Java is a ___ programming language that follows the ___ principle", content1.get("text").asText());
+        assertEquals("Java is a {1} programming language that follows the {2} principle", content1.get("text").asText());
         assertEquals(2, content1.get("gaps").size());
         assertEquals(1, content1.get("gaps").get(0).get("id").asInt());
         assertEquals("object-oriented", content1.get("gaps").get(0).get("answer").asText());
@@ -114,7 +114,7 @@ class FillGapQuestionGenerationIntegrationTest {
 
         // Verify second question content structure
         JsonNode content2 = objectMapper.readTree(question2.getContent());
-        assertEquals("Spring Framework provides ___ and ___ for Java applications", content2.get("text").asText());
+        assertEquals("Spring Framework provides {1} and {2} for Java applications", content2.get("text").asText());
         assertEquals(2, content2.get("gaps").size());
         assertEquals("dependency injection", content2.get("gaps").get(0).get("answer").asText());
         assertEquals("inversion of control", content2.get("gaps").get(1).get("answer").asText());
@@ -131,7 +131,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "difficulty": "EASY",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "REST stands for ___ State Transfer",
+                    "text": "REST stands for {1} State Transfer",
                     "gaps": [
                       {"id": 1, "answer": "Representational"}
                     ]
@@ -155,7 +155,7 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals(Difficulty.EASY, question.getDifficulty());
 
         JsonNode content = objectMapper.readTree(question.getContent());
-        assertEquals("REST stands for ___ State Transfer", content.get("text").asText());
+        assertEquals("REST stands for {1} State Transfer", content.get("text").asText());
         assertEquals(1, content.get("gaps").size());
         assertEquals("Representational", content.get("gaps").get(0).get("answer").asText());
     }
@@ -171,7 +171,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "difficulty": "HARD",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ programming language that is designed to have ___ implementation dependencies as possible",
+                    "text": "Java is a {1} programming language that is designed to have {2} implementation dependencies as possible",
                     "gaps": [
                       {"id": 1, "answer": "high-level"},
                       {"id": 2, "answer": "few"}
@@ -195,7 +195,7 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals(QuestionType.FILL_GAP, question.getType());
 
         JsonNode content = objectMapper.readTree(question.getContent());
-        assertEquals("Java is a ___ programming language that is designed to have ___ implementation dependencies as possible", content.get("text").asText());
+        assertEquals("Java is a {1} programming language that is designed to have {2} implementation dependencies as possible", content.get("text").asText());
         assertEquals(2, content.get("gaps").size());
         
         // Verify gap order and content
@@ -216,7 +216,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "difficulty": "MEDIUM",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Spring Framework is an ___ framework for Java",
+                    "text": "Spring Framework is an {1} framework for Java",
                     "gaps": [
                       {"id": 1, "answer": "application"}
                     ]
@@ -249,7 +249,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java follows the ___ principle",
+                    "text": "Java follows the {1} principle",
                     "gaps": [
                       {"id": 1, "answer": "WORA"}
                     ]
@@ -280,7 +280,7 @@ class FillGapQuestionGenerationIntegrationTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"answer": "programming"}
                     ]

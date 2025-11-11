@@ -227,7 +227,7 @@ class SpringAiStructuredClientValidationTest {
         // Given - missing gaps
         String invalidContent = """
             {
-              "text": "Some text with ___"
+              "text": "Some text with {1}"
             }
             """;
         JsonNode contentNode = objectMapper.readTree(invalidContent);
@@ -235,8 +235,7 @@ class SpringAiStructuredClientValidationTest {
         // When/Then
         assertThatThrownBy(() -> invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP))
                 .isInstanceOf(AIResponseParseException.class)
-                .hasMessageContaining("FILL_GAP")
-                .hasMessageContaining("'text' and 'gaps'");
+                .hasMessageContaining("FILL_GAP must have at least one gap defined");
     }
     
     @Test
@@ -254,7 +253,7 @@ class SpringAiStructuredClientValidationTest {
         // When/Then
         assertThatThrownBy(() -> invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP))
                 .isInstanceOf(AIResponseParseException.class)
-                .hasMessageContaining("'gaps' must be an array");
+                .hasMessageContaining("FILL_GAP must have at least one gap defined");
     }
     
     @Test
@@ -263,7 +262,7 @@ class SpringAiStructuredClientValidationTest {
         // Given
         String validContent = """
             {
-              "text": "The capital is ___",
+              "text": "The capital is {1}",
               "gaps": [
                 {"id": 1, "answer": "Paris"}
               ]
@@ -273,6 +272,61 @@ class SpringAiStructuredClientValidationTest {
         
         // When/Then - should not throw
         invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP);
+    }
+    
+    @Test
+    @DisplayName("FILL_GAP validation should require {N} placeholders in text")
+    void fillGapValidationShouldRequirePlaceholders() throws Exception {
+        String content = """
+            {
+              "text": "No placeholders here",
+              "gaps": [
+                {"id": 1, "answer": "value"}
+              ]
+            }
+            """;
+        JsonNode node = objectMapper.readTree(content);
+        
+        assertThatThrownBy(() -> invokeValidateContentStructure(node, QuestionType.FILL_GAP))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("No gaps found in text");
+    }
+    
+    @Test
+    @DisplayName("FILL_GAP validation should require gaps to match placeholders")
+    void fillGapValidationShouldRequireMatchingGaps() throws Exception {
+        String content = """
+            {
+              "text": "The capital of {1} is {2}",
+              "gaps": [
+                {"id": 1, "answer": "France"}
+              ]
+            }
+            """;
+        JsonNode node = objectMapper.readTree(content);
+        
+        assertThatThrownBy(() -> invokeValidateContentStructure(node, QuestionType.FILL_GAP))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("id=2");
+    }
+    
+    @Test
+    @DisplayName("FILL_GAP validation should enforce sequential gap IDs")
+    void fillGapValidationShouldEnforceSequentialIds() throws Exception {
+        String content = """
+            {
+              "text": "The capital of {1} is {3}",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 3, "answer": "Europe"}
+              ]
+            }
+            """;
+        JsonNode node = objectMapper.readTree(content);
+        
+        assertThatThrownBy(() -> invokeValidateContentStructure(node, QuestionType.FILL_GAP))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("sequential integers");
     }
     
     @Test
@@ -387,4 +441,3 @@ class SpringAiStructuredClientValidationTest {
         }
     }
 }
-

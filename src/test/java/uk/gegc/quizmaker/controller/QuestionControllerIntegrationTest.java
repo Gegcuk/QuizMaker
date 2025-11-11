@@ -210,8 +210,8 @@ public class QuestionControllerIntegrationTest extends BaseIntegrationTest {
                         {
                           "type":"FILL_GAP","difficulty":"MEDIUM","questionText":"Fill:",
                           "content":{
-                            "text":"___ is Java","gaps":[
-                              {"id":1,"answer":"Java"}
+                            "text":"Java is a {1} language","gaps":[
+                              {"id":1,"answer":"programming"}
                             ]
                           }
                         }

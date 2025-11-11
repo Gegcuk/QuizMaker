@@ -4,13 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
+import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -24,35 +24,11 @@ public class FillGapHandler extends QuestionHandler {
 
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
-        JsonNode root = request.getContent();
-        if (root == null || !root.isObject()) {
-            throw new ValidationException("Invalid JSON for FILL_GAP question");
-        }
-
-        JsonNode text = root.get("text");
-        JsonNode gaps = root.get("gaps");
-
-        if (text == null || text.asText().isBlank()) {
-            throw new ValidationException("FILL_GAP requires non-empty 'text' field");
-        }
-
-        if (gaps == null || !gaps.isArray() || gaps.isEmpty()) {
-            throw new ValidationException("FILL_GAP must have at least one gap defined");
-        }
-
-        Set<Integer> ids = new java.util.HashSet<>();
-        for (JsonNode gap : gaps) {
-            if (!gap.has("id") || !gap.has("answer") || gap.get("answer").asText().isBlank()) {
-                throw new ValidationException("Each gap must have an 'id' and non-empty 'answer'");
-            }
-            if (!gap.get("id").canConvertToInt()) {
-                throw new ValidationException("Gap 'id' must be an Integer");
-            }
-            int id = gap.get("id").asInt();
-            if (ids.contains(id)) {
-                throw new ValidationException("Gap IDs must be unique, found duplicate ID: " + id);
-            }
-            ids.add(id);
+        FillGapContentValidator.ValidationResult result = 
+            FillGapContentValidator.validate(request.getContent());
+        
+        if (!result.valid()) {
+            throw new ValidationException(result.errorMessage());
         }
     }
 

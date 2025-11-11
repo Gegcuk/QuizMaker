@@ -208,20 +208,20 @@ class PdfPrintExportRendererEstimateHeightTest {
         void estimateQuestionHeight_fillGapWithGaps_calculatesHeight() {
             // Given
             ObjectNode content = objectMapper.createObjectNode();
-            content.put("text", "A _____ stores data and a _____ performs actions");
+            content.put("text", "A {1} stores data and a {2} performs actions");
             ArrayNode gaps = content.putArray("gaps");
             ObjectNode gap1 = gaps.addObject();
-            gap1.put("id", "gap1");
+            gap1.put("id", 1);
             gap1.put("answer", "variable");
             ObjectNode gap2 = gaps.addObject();
-            gap2.put("id", "gap2");
+            gap2.put("id", 2);
             gap2.put("answer", "method");
             
             QuestionExportDto question = new QuestionExportDto(
                     UUID.randomUUID(),
                     QuestionType.FILL_GAP,
                     Difficulty.MEDIUM,
-                    "A _____ stores data and a _____ performs actions",
+                    "A {1} stores data and a {2} performs actions",
                     content,
                     null, null, null
             );
@@ -800,4 +800,3 @@ class PdfPrintExportRendererEstimateHeightTest {
         );
     }
 }
-

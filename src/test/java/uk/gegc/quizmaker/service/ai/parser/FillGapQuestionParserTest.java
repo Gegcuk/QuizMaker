@@ -39,7 +39,7 @@ class FillGapQuestionParserTest {
                   "difficulty": "MEDIUM",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ programming language",
+                    "text": "Java is a {1} programming language",
                     "gaps": [
                       {"id": 1, "answer": "object-oriented"}
                     ]
@@ -67,7 +67,7 @@ class FillGapQuestionParserTest {
         
         // Verify content structure
         JsonNode content = objectMapper.readTree(question.getContent());
-        assertEquals("Java is a ___ programming language", content.get("text").asText());
+        assertEquals("Java is a {1} programming language", content.get("text").asText());
         assertTrue(content.has("gaps"));
         assertEquals(1, content.get("gaps").size());
         assertEquals(1, content.get("gaps").get(0).get("id").asInt());
@@ -85,7 +85,7 @@ class FillGapQuestionParserTest {
                   "difficulty": "HARD",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Spring Framework provides ___ and ___ for Java applications",
+                    "text": "Spring Framework provides {1} and {2} for Java applications",
                     "gaps": [
                       {"id": 1, "answer": "dependency injection"},
                       {"id": 2, "answer": "inversion of control"}
@@ -97,7 +97,7 @@ class FillGapQuestionParserTest {
                   "difficulty": "EASY",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "REST stands for ___ State Transfer",
+                    "text": "REST stands for {1} State Transfer",
                     "gaps": [
                       {"id": 1, "answer": "Representational"}
                     ]
@@ -142,7 +142,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1, "answer": "programming"}
                     ]
@@ -173,7 +173,7 @@ class FillGapQuestionParserTest {
                   "difficulty": "INVALID_DIFFICULTY",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1, "answer": "programming"}
                     ]
@@ -277,7 +277,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language"
+                    "text": "Java is a {1} language"
                   }
                 }
               ]
@@ -301,7 +301,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": []
                   }
                 }
@@ -326,7 +326,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"answer": "programming"}
                     ]
@@ -353,7 +353,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"id": "one", "answer": "programming"}
                     ]
@@ -380,7 +380,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1}
                     ]
@@ -407,7 +407,7 @@ class FillGapQuestionParserTest {
                   "questionText": "Complete the sentence",
                   "type": "FILL_GAP",
                   "content": {
-                    "text": "Java is a ___ language",
+                    "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1, "answer": ""}
                     ]
@@ -418,6 +418,108 @@ class FillGapQuestionParserTest {
             """;
 
         // When & Then
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenTextHasNoPlaceholders() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "Java is a programming language",
+                    "gaps": [
+                      {"id": 1, "answer": "Java"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenPlaceholderMissingGap() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is {2}",
+                    "gaps": [
+                      {"id": 1, "answer": "France"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenGapNotReferencedInText() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is Paris",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 2, "answer": "Eiffel Tower"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionForNonSequentialGapIds() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is located near the {3}",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 3, "answer": "Seine"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
         assertThrows(AIResponseParseException.class, () -> {
             JsonNode contentNode = objectMapper.readTree(jsonContent);
             parser.parseFillGapQuestions(contentNode);

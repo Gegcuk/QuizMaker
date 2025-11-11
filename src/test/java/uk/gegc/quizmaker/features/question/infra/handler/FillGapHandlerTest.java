@@ -43,7 +43,7 @@ class FillGapHandlerTest {
     @Test
     void validContent_doesNotThrow() throws Exception {
         JsonNode payload = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(payload)));
     }
@@ -69,7 +69,7 @@ class FillGapHandlerTest {
     @Test
     void missingGaps_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                {"text":"The ___ is blue"}
+                {"text":"The {1} is blue"}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -78,7 +78,7 @@ class FillGapHandlerTest {
     @Test
     void emptyGaps_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[]}
+                {"text":"The {1} is blue","gaps":[]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -87,7 +87,7 @@ class FillGapHandlerTest {
     @Test
     void missingGapAnswer_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1}]}
+                {"text":"The {1} is blue","gaps":[{"id":1}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -96,7 +96,7 @@ class FillGapHandlerTest {
     @Test
     void emptyGapAnswer_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":""}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":""}]}
                 """);
         assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
@@ -105,11 +105,51 @@ class FillGapHandlerTest {
     @Test
     void duplicateIds_throws() throws Exception {
         JsonNode p = mapper.readTree("""
-                {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":1,"answer":"blue"}]}
+                {"text":"The {1} is {2}","gaps":[{"id":1,"answer":"sky"},{"id":1,"answer":"blue"}]}
                 """);
         ValidationException ex = assertThrows(ValidationException.class,
                 () -> handler.validateContent(new FakeReq(p)));
         assertTrue(ex.getMessage().contains("duplicate ID: 1"));
+    }
+    
+    @Test
+    void missingPlaceholdersInText_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"text":"The sky is blue","gaps":[{"id":1,"answer":"sky"}]}
+                """);
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+        assertTrue(ex.getMessage().contains("Use {N} format"));
+    }
+    
+    @Test
+    void placeholderWithoutMatchingGap_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"text":"The {1} is {2}","gaps":[{"id":1,"answer":"sky"}]}
+                """);
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+        assertTrue(ex.getMessage().contains("no corresponding gap with id=2"));
+    }
+    
+    @Test
+    void gapNotUsedInText_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
+                """);
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+        assertTrue(ex.getMessage().contains("not found in text"));
+    }
+    
+    @Test
+    void nonSequentialIds_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"text":"The {1} is {3}","gaps":[{"id":1,"answer":"sky"},{"id":3,"answer":"blue"}]}
+                """);
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+        assertTrue(ex.getMessage().contains("sequential integers"));
     }
 
     // Answer Validation Tests (doHandle method)
@@ -117,7 +157,7 @@ class FillGapHandlerTest {
     void doHandle_correctAnswer_returnsCorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"}]}");
         
@@ -133,7 +173,7 @@ class FillGapHandlerTest {
     void doHandle_incorrectAnswer_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"ocean\"}]}");
         
@@ -149,7 +189,7 @@ class FillGapHandlerTest {
     void doHandle_caseInsensitiveMatch_returnsCorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"Sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"Sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"}]}");
         
@@ -165,7 +205,7 @@ class FillGapHandlerTest {
     void doHandle_whitespaceInsensitiveMatch_returnsCorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer\":\"sky\"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"  sky  \"}]}");
         
@@ -181,7 +221,7 @@ class FillGapHandlerTest {
     void doHandle_multipleGaps_allCorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
+                {"text":"The {1} is {2}","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"blue\"}]}");
         
@@ -197,7 +237,7 @@ class FillGapHandlerTest {
     void doHandle_multipleGaps_partialCorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
+                {"text":"The {1} is {2}","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"red\"}]}");
         
@@ -213,7 +253,7 @@ class FillGapHandlerTest {
     void doHandle_missingAnswer_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[]}");
         
@@ -229,7 +269,7 @@ class FillGapHandlerTest {
     void doHandle_missingAnswersField_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.createObjectNode();
         
@@ -245,7 +285,7 @@ class FillGapHandlerTest {
     void doHandle_nonexistentGapId_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":999,\"answer\":\"sky\"}]}");
         
@@ -261,7 +301,7 @@ class FillGapHandlerTest {
     void doHandle_emptyAnswer_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"\"}]}");
         
@@ -277,7 +317,7 @@ class FillGapHandlerTest {
     void doHandle_blankAnswer_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"   \"}]}");
         
@@ -293,7 +333,7 @@ class FillGapHandlerTest {
     void doHandle_missingGapId_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"answer\":\"sky\"}]}");
         
@@ -309,7 +349,7 @@ class FillGapHandlerTest {
     void doHandle_missingAnswerField_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is blue","gaps":[{"id":1,"answer":"sky"}]}
+                {"text":"The {1} is blue","gaps":[{"id":1,"answer":"sky"}]}
                 """);
         JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1}]}");
         
@@ -325,7 +365,7 @@ class FillGapHandlerTest {
     void doHandle_orderDoesNotMatter() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
-                {"text":"The ___ is ___","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
+                {"text":"The {1} is {2}","gaps":[{"id":1,"answer":"sky"},{"id":2,"answer":"blue"}]}
                 """);
         JsonNode response1 = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"},{\"gapId\":2,\"answer\":\"blue\"}]}");
         JsonNode response2 = mapper.readTree("{\"answers\":[{\"gapId\":2,\"answer\":\"blue\"},{\"gapId\":1,\"answer\":\"sky\"}]}");

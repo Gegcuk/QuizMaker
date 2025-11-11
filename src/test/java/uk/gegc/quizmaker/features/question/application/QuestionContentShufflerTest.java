@@ -292,7 +292,7 @@ class QuestionContentShufflerTest {
         // Given
         String contentJson = """
             {
-                "text": "Complete the sentence with the missing word: The capital of France is ___.",
+                "text": "Complete the sentence with the missing word: The capital of France is {1}.",
                 "gaps": [
                     {"id": 1, "answer": "Paris"}
                 ]

@@ -5,7 +5,7 @@
       "difficulty": "MEDIUM",
       "type": "FILL_GAP",
       "content": {
-        "text": "Cellular respiration occurs in the ___ and converts glucose into ___ which is used for energy.",
+        "text": "Cellular respiration occurs in the {1} and converts glucose into {2} which is used for energy.",
         "gaps": [
           {
             "id": 1,

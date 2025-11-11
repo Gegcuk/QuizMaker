@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
+import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
@@ -443,12 +444,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 }
             }
             case FILL_GAP -> {
-                if (!contentNode.has("text") || !contentNode.has("gaps")) {
-                    throw new AIResponseParseException("FILL_GAP question must have 'text' and 'gaps' in content");
-                }
-                if (!contentNode.get("gaps").isArray()) {
-                    throw new AIResponseParseException("FILL_GAP 'gaps' must be an array");
-                }
+                validateFillGapContent(contentNode);
             }
             case ORDERING -> {
                 if (!contentNode.has("items") || !contentNode.get("items").isArray()) {
@@ -474,6 +470,13 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     throw new AIResponseParseException("COMPLIANCE question must have 'statements' array in content");
                 }
             }
+        }
+    }
+    
+    private void validateFillGapContent(JsonNode contentNode) {
+        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(contentNode);
+        if (!result.valid()) {
+            throw new AIResponseParseException(result.errorMessage());
         }
     }
     

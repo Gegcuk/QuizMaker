@@ -206,7 +206,7 @@ class SpringAiStructuredClientParsingTest {
               "type": "FILL_GAP",
               "difficulty": "MEDIUM",
               "content": {
-                "text": "The capital of ___ is Paris",
+                "text": "The capital of {1} is Paris",
                 "gaps": [
                   {"id": 1, "answer": "France"}
                 ]
@@ -567,4 +567,3 @@ class SpringAiStructuredClientParsingTest {
         }
     }
 }
-
