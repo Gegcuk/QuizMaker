@@ -123,7 +123,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 of(
                         QuestionType.FILL_GAP,
                         """
-                                {"text":"Fill _ here","gaps":[{"id":1,"answer":"foo"}]}
+                                {"text":"Fill {1} here","gaps":[{"id":1,"answer":"foo"}]}
                                 """,
                         "{\"answers\":[{\"gapId\":1,\"answer\":\"foo\"}]}",
                         true

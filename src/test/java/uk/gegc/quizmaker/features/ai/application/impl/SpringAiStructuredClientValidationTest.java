@@ -235,7 +235,7 @@ class SpringAiStructuredClientValidationTest {
         // When/Then
         assertThatThrownBy(() -> invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP))
                 .isInstanceOf(AIResponseParseException.class)
-                .hasMessageContaining("FILL_GAP question must have 'gaps' array");
+                .hasMessageContaining("FILL_GAP must have at least one gap defined");
     }
     
     @Test
@@ -253,7 +253,7 @@ class SpringAiStructuredClientValidationTest {
         // When/Then
         assertThatThrownBy(() -> invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP))
                 .isInstanceOf(AIResponseParseException.class)
-                .hasMessageContaining("must have 'gaps' array");
+                .hasMessageContaining("FILL_GAP must have at least one gap defined");
     }
     
     @Test
@@ -289,7 +289,7 @@ class SpringAiStructuredClientValidationTest {
         
         assertThatThrownBy(() -> invokeValidateContentStructure(node, QuestionType.FILL_GAP))
                 .isInstanceOf(AIResponseParseException.class)
-                .hasMessageContaining("placeholders");
+                .hasMessageContaining("No gaps found in text");
     }
     
     @Test
