@@ -687,7 +687,7 @@ class PdfPrintExportRendererTest {
     void render_fillGapQuestion_usesContentText() throws Exception {
         // Given - FILL_GAP question with actual prompt in content.text
         ObjectNode content = objectMapper.createObjectNode();
-        content.put("text", "One of the main functions of NAT is to allow devices on the ___ network to access the Internet.");
+        content.put("text", "One of the main functions of NAT is to allow devices on the {1} network to access the Internet.");
         com.fasterxml.jackson.databind.node.ArrayNode gaps = objectMapper.createArrayNode();
         gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "private"));
         content.set("gaps", gaps);
@@ -710,7 +710,7 @@ class PdfPrintExportRendererTest {
             String text = stripper.getText(doc);
             // Should display the actual prompt with underscores
             assertThat(text).contains("One of the main functions of NAT");
-            assertThat(text).contains("___ network");
+            assertThat(text).contains("{1} network");
             // Should NOT display the generic question text
             assertThat(text).doesNotContain("Complete the sentence with the missing word(s)");
         }
@@ -814,7 +814,7 @@ class PdfPrintExportRendererTest {
     void render_fillGapQuestion_multipleGaps() throws Exception {
         // Given - FILL_GAP question with multiple gaps
         ObjectNode content = objectMapper.createObjectNode();
-        content.put("text", "The ___ protocol operates at the ___ layer of the OSI model.");
+        content.put("text", "The {1} protocol operates at the {2} layer of the OSI model.");
         com.fasterxml.jackson.databind.node.ArrayNode gaps = objectMapper.createArrayNode();
         gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "TCP"));
         gaps.add(objectMapper.createObjectNode().put("id", 2).put("answer", "transport"));
@@ -837,8 +837,8 @@ class PdfPrintExportRendererTest {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(doc);
             // Should display the actual prompt with both underscores
-            assertThat(text).contains("The ___ protocol");
-            assertThat(text).contains("___ layer");
+            assertThat(text).contains("The {1} protocol");
+            assertThat(text).contains("{2} layer");
             assertThat(text).contains("OSI model");
         }
     }

@@ -192,7 +192,7 @@ class CorrectAnswerExtractorTest {
         // Given
         String content = """
                 {
-                    "text": "The capital of France is ___1___ and the famous tower is ___2___.",
+                    "text": "The capital of France is {1} and the famous tower is {2}.",
                     "gaps": [
                         {"id": 1, "answer": "Paris"},
                         {"id": 2, "answer": "Eiffel Tower"}
@@ -424,4 +424,3 @@ class CorrectAnswerExtractorTest {
         return question;
     }
 }
-

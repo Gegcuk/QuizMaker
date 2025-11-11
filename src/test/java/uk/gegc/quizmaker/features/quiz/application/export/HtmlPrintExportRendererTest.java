@@ -623,7 +623,7 @@ class HtmlPrintExportRendererTest {
     void render_fillGapQuestion_usesContentText() throws Exception {
         // Given - FILL_GAP question with actual prompt in content.text
         ObjectNode content = objectMapper.createObjectNode();
-        content.put("text", "One of the main functions of NAT is to allow devices on the ___ network to access the Internet.");
+        content.put("text", "One of the main functions of NAT is to allow devices on the {1} network to access the Internet.");
         ArrayNode gaps = objectMapper.createArrayNode();
         gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "private"));
         content.set("gaps", gaps);
@@ -644,7 +644,7 @@ class HtmlPrintExportRendererTest {
             String html = new String(is.readAllBytes());
             // Should display the actual prompt with underscores
             assertThat(html).contains("One of the main functions of NAT");
-            assertThat(html).contains("___ network");
+            assertThat(html).contains("{1} network");
             // Should NOT display the generic question text in the header
             int headerIdx = html.indexOf("class=\"question-header\"");
             int nextHeaderIdx = html.indexOf("class=\"question-header\"", headerIdx + 1);
@@ -1350,4 +1350,3 @@ class HtmlPrintExportRendererTest {
         );
     }
 }
-

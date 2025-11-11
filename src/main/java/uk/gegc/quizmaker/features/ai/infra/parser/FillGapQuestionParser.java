@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -55,40 +56,10 @@ public class FillGapQuestionParser {
 
         JsonNode contentNode = questionNode.get("content");
         
-        // Validate text field
-        if (!contentNode.has("text") || contentNode.get("text").asText().trim().isEmpty()) {
-            throw new AIResponseParseException("FILL_GAP question must have non-empty 'text' field");
-        }
-
-        // Validate gaps array
-        if (!contentNode.has("gaps") || !contentNode.get("gaps").isArray()) {
-            throw new AIResponseParseException("FILL_GAP question must have 'gaps' array");
-        }
-
-        JsonNode gapsNode = contentNode.get("gaps");
-        if (gapsNode.size() < 1) {
-            throw new AIResponseParseException("FILL_GAP question must have at least 1 gap");
-        }
-
-        // Validate each gap
-        for (JsonNode gap : gapsNode) {
-            if (!gap.has("id")) {
-                throw new AIResponseParseException("Each gap must have 'id' field");
-            }
-            
-            if (!gap.get("id").canConvertToInt()) {
-                throw new AIResponseParseException("Gap 'id' must be an integer");
-            }
-            
-            if (!gap.has("answer") || gap.get("answer").asText().trim().isEmpty()) {
-                throw new AIResponseParseException("Each gap must have non-empty 'answer' field");
-            }
-        }
-
-        // Validate that text contains gap markers (___)
-        String text = contentNode.get("text").asText();
-        if (!text.contains("___")) {
-            log.warn("FILL_GAP text does not contain gap markers (___), but gaps are defined");
+        // Use centralized validator
+        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(contentNode);
+        if (!result.valid()) {
+            throw new AIResponseParseException(result.errorMessage());
         }
     }
 

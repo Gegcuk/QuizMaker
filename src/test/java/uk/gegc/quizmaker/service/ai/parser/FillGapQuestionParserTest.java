@@ -423,6 +423,108 @@ class FillGapQuestionParserTest {
             parser.parseFillGapQuestions(contentNode);
         });
     }
+    
+    @Test
+    void shouldThrowExceptionWhenTextHasNoPlaceholders() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "Java is a programming language",
+                    "gaps": [
+                      {"id": 1, "answer": "Java"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenPlaceholderMissingGap() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is {2}",
+                    "gaps": [
+                      {"id": 1, "answer": "France"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionWhenGapNotReferencedInText() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is Paris",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 2, "answer": "Eiffel Tower"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
+    
+    @Test
+    void shouldThrowExceptionForNonSequentialGapIds() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is located near the {3}",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 3, "answer": "Seine"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+    }
 
     @Test
     void shouldHandleEmptyQuestionsArray() throws Exception {
