@@ -26,7 +26,7 @@ import java.util.UUID;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Table(name = "quizzes", uniqueConstraints = @UniqueConstraint(columnNames = {"creator_id", "title"}))
+@Table(name = "quizzes")
 @SQLDelete(sql = "UPDATE quizzes SET is_deleted = true, deleted_at = CURRENT_TIMESTAMP, version = version + 1 WHERE quiz_id = ? AND version = ?")
 @SQLRestriction("is_deleted = false")
 public class Quiz {
