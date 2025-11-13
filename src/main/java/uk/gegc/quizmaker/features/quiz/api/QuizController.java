@@ -635,41 +635,36 @@ public class QuizController {
             @RequestParam(value = "language", required = false) String language,
             Authentication authentication
     ) {
-        try {
-            // Validate file upload
-            documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
+        // Validate file upload
+        documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
 
-            // Parse questions per type from JSON string
-            Map<QuestionType, Integer> questionsPerType = parseQuestionsPerType(questionsPerTypeJson);
+        // Parse questions per type from JSON string
+        Map<QuestionType, Integer> questionsPerType = parseQuestionsPerType(questionsPerTypeJson);
 
-            // Create the combined request DTO
-            GenerateQuizFromUploadRequest request = new GenerateQuizFromUploadRequest(
-                    chunkingStrategy != null ? ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()) : null,
-                    maxChunkSize,
-                    quizScope != null ? QuizScope.valueOf(quizScope.toUpperCase()) : null,
-                    chunkIndices,
-                    chapterTitle,
-                    chapterNumber,
-                    quizTitle,
-                    quizDescription,
-                    questionsPerType,
-                    Difficulty.valueOf(difficulty.toUpperCase()),
-                    estimatedTimePerQuestion,
-                    categoryId,
-                    tagIds,
-                    language
-            );
+        // Create the combined request DTO
+        GenerateQuizFromUploadRequest request = new GenerateQuizFromUploadRequest(
+                chunkingStrategy != null ? ProcessDocumentRequest.ChunkingStrategy.valueOf(chunkingStrategy.toUpperCase()) : null,
+                maxChunkSize,
+                quizScope != null ? QuizScope.valueOf(quizScope.toUpperCase()) : null,
+                chunkIndices,
+                chapterTitle,
+                chapterNumber,
+                quizTitle,
+                quizDescription,
+                questionsPerType,
+                Difficulty.valueOf(difficulty.toUpperCase()),
+                estimatedTimePerQuestion,
+                categoryId,
+                tagIds,
+                language
+        );
 
-            // Process document and start quiz generation
-            // Rate limit quiz generation starts: 3 per minute per user
-            rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
-            
-            QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
-        }
+        // Process document and start quiz generation
+        // Rate limit quiz generation starts: 3 per minute per user
+        rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
+        
+        QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @Operation(
