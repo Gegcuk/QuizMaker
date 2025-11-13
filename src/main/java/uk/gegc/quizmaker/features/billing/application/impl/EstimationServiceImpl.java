@@ -34,6 +34,7 @@ public class EstimationServiceImpl implements EstimationService {
 
     // Conservative average completion tokens per question output by type (rough heuristic)
     private static final Map<QuestionType, Integer> COMPLETION_TOKENS_PER_QUESTION;
+    private static final int DEFAULT_CHUNK_CHARACTER_SIZE = 50000;
     static {
         Map<QuestionType, Integer> m = new EnumMap<>(QuestionType.class);
         m.put(QuestionType.MCQ_SINGLE, 120);
@@ -85,52 +86,32 @@ public class EstimationServiceImpl implements EstimationService {
             return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
         }
 
-        log.info("Processing {} chunks for estimation", chunks.size());
-        log.info("Question types and counts: {}", request.questionsPerType());
-        log.info("Difficulty: {}", request.difficulty());
-        
-        // Pre-compute prompt overhead tokens (system + context)
-        long systemTokens = estimateTokens(promptTemplateService.buildSystemPrompt());
-        long contextTokens = estimateTokens(safeLoadTemplate("base/context-template.txt"));
-        
-        log.info("System tokens: {}, Context tokens: {}", systemTokens, contextTokens);
-
-        // Pre-compute question-type template tokens used in this request
-        Map<QuestionType, Long> templateTokensByType = new EnumMap<>(QuestionType.class);
-        for (QuestionType type : request.questionsPerType().keySet()) {
-            String templateName = "question-types/" + getQuestionTypeTemplateName(type);
-            long templateTokens = estimateTokens(safeLoadTemplate(templateName));
-            templateTokensByType.put(type, templateTokens);
-            log.info("Template {} tokens: {}", templateName, templateTokens);
+        long chunkCount = chunks.size();
+        long requestedQuestionTypes = countRequestedQuestionTypes(request.questionsPerType());
+        if (requestedQuestionTypes == 0) {
+            log.warn("No question types with positive counts found in request {}. Returning zero estimate.", request);
+            long llmZero = 0L;
+            long billingZero = llmTokensToBillingTokens(llmZero);
+            UUID estimationId = UUID.randomUUID();
+            String humanizedEstimate = EstimationDto.createHumanizedEstimate(llmZero, billingZero, billingProperties.getCurrency());
+            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
         }
 
-        long totalLlmTokens = 0L;
+        int representativeChunkSize = resolveRepresentativeChunkSize(chunks);
+        long tokensPerCall = Math.max(1L, estimateTokens(representativeChunkSize));
+        long totalCalls = chunkCount * requestedQuestionTypes;
+        double difficultyMultiplier = getDifficultyMultiplier(request.difficulty());
+        long totalLlmTokens = (long) Math.max(1L, Math.ceil(totalCalls * tokensPerCall * difficultyMultiplier));
 
-        for (DocumentChunk chunk : chunks) {
-            int charCount = chunk.getCharacterCount() != null ? chunk.getCharacterCount() :
-                    (chunk.getContent() != null ? chunk.getContent().length() : 0);
-            long contentTokens = estimateTokens(charCount);
+        log.info("Heuristic estimation inputs -> chunks: {}, questionTypes: {}, chunkSize(chars): {}, tokensPerCall: {}, totalCalls: {}, difficultyMultiplier: {}",
+                chunkCount, requestedQuestionTypes, representativeChunkSize, tokensPerCall, totalCalls, difficultyMultiplier);
 
-            for (Map.Entry<QuestionType, Integer> e : request.questionsPerType().entrySet()) {
-                QuestionType type = e.getKey();
-                int count = Optional.ofNullable(e.getValue()).orElse(0);
-                if (count <= 0) continue; // defensive
-
-                long inputTokens = systemTokens + contextTokens + templateTokensByType.getOrDefault(type, 0L) + contentTokens;
-                double difficultyMultiplier = getDifficultyMultiplier(request.difficulty());
-                long completionTokens = (long) Math.ceil(count * COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120) * difficultyMultiplier);
-
-                totalLlmTokens += inputTokens + completionTokens;
-            }
-        }
-
-        // Apply safety factor to LLM tokens
         double safetyFactor = billingProperties.getSafetyFactor();
         long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
 
         long billingTokens = llmTokensToBillingTokens(adjustedLlm);
         
-        log.info("Normal calculation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
+        log.info("Heuristic estimation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
                 adjustedLlm, billingTokens, safetyFactor);
 
         UUID estimationId = UUID.randomUUID();
@@ -318,6 +299,28 @@ public class EstimationServiceImpl implements EstimationService {
         log.info("Safety factor: {}", safetyFactor);
         log.info("Calculated estimate from document content: {} LLM tokens", adjustedLlm);
         return adjustedLlm;
+    }
+
+    private long countRequestedQuestionTypes(Map<QuestionType, Integer> questionsPerType) {
+        if (questionsPerType == null || questionsPerType.isEmpty()) {
+            return 0L;
+        }
+        return questionsPerType.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && entry.getValue() > 0)
+                .count();
+    }
+
+    private int resolveRepresentativeChunkSize(List<DocumentChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return DEFAULT_CHUNK_CHARACTER_SIZE;
+        }
+
+        return chunks.stream()
+                .map(DocumentChunk::getCharacterCount)
+                .filter(Objects::nonNull)
+                .filter(size -> size > 0)
+                .max(Integer::compareTo)
+                .orElse(DEFAULT_CHUNK_CHARACTER_SIZE);
     }
 
     @Override
