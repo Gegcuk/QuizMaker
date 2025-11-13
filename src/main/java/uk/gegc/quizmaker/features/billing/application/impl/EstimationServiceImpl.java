@@ -11,6 +11,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -19,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,10 +32,13 @@ public class EstimationServiceImpl implements EstimationService {
 
     private final BillingProperties billingProperties;
     private final DocumentRepository documentRepository;
+    private final DocumentChunkRepository documentChunkRepository;
     private final PromptTemplateService promptTemplateService;
 
     // Conservative average completion tokens per question output by type (rough heuristic)
     private static final Map<QuestionType, Integer> COMPLETION_TOKENS_PER_QUESTION;
+    private static final int DEFAULT_VIRTUAL_CHUNK_SIZE = 50_000;
+    private static final int MIN_VIRTUAL_CHUNK_SIZE = 1_000;
     static {
         Map<QuestionType, Integer> m = new EnumMap<>(QuestionType.class);
         m.put(QuestionType.MCQ_SINGLE, 120);
@@ -85,52 +90,14 @@ public class EstimationServiceImpl implements EstimationService {
             return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
         }
 
-        log.info("Processing {} chunks for estimation", chunks.size());
-        log.info("Question types and counts: {}", request.questionsPerType());
-        log.info("Difficulty: {}", request.difficulty());
-        
-        // Pre-compute prompt overhead tokens (system + context)
-        long systemTokens = estimateTokens(promptTemplateService.buildSystemPrompt());
-        long contextTokens = estimateTokens(safeLoadTemplate("base/context-template.txt"));
-        
-        log.info("System tokens: {}, Context tokens: {}", systemTokens, contextTokens);
+        long totalLlmTokens = calculateChunkBasedEstimate(chunks, request);
 
-        // Pre-compute question-type template tokens used in this request
-        Map<QuestionType, Long> templateTokensByType = new EnumMap<>(QuestionType.class);
-        for (QuestionType type : request.questionsPerType().keySet()) {
-            String templateName = "question-types/" + getQuestionTypeTemplateName(type);
-            long templateTokens = estimateTokens(safeLoadTemplate(templateName));
-            templateTokensByType.put(type, templateTokens);
-            log.info("Template {} tokens: {}", templateName, templateTokens);
-        }
-
-        long totalLlmTokens = 0L;
-
-        for (DocumentChunk chunk : chunks) {
-            int charCount = chunk.getCharacterCount() != null ? chunk.getCharacterCount() :
-                    (chunk.getContent() != null ? chunk.getContent().length() : 0);
-            long contentTokens = estimateTokens(charCount);
-
-            for (Map.Entry<QuestionType, Integer> e : request.questionsPerType().entrySet()) {
-                QuestionType type = e.getKey();
-                int count = Optional.ofNullable(e.getValue()).orElse(0);
-                if (count <= 0) continue; // defensive
-
-                long inputTokens = systemTokens + contextTokens + templateTokensByType.getOrDefault(type, 0L) + contentTokens;
-                double difficultyMultiplier = getDifficultyMultiplier(request.difficulty());
-                long completionTokens = (long) Math.ceil(count * COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120) * difficultyMultiplier);
-
-                totalLlmTokens += inputTokens + completionTokens;
-            }
-        }
-
-        // Apply safety factor to LLM tokens
         double safetyFactor = billingProperties.getSafetyFactor();
         long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
 
         long billingTokens = llmTokensToBillingTokens(adjustedLlm);
         
-        log.info("Normal calculation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
+        log.info("Heuristic estimation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
                 adjustedLlm, billingTokens, safetyFactor);
 
         UUID estimationId = UUID.randomUUID();
@@ -154,8 +121,24 @@ public class EstimationServiceImpl implements EstimationService {
     }
 
     private List<DocumentChunk> selectChunks(Document document, GenerateQuizFromDocumentRequest request) {
-        List<DocumentChunk> allChunks = document.getChunks() != null ? document.getChunks() : List.of();
         QuizScope scope = request.quizScope() == null ? QuizScope.ENTIRE_DOCUMENT : request.quizScope();
+        List<DocumentChunk> allChunks = loadDocumentChunks(document);
+        boolean virtualChunks = false;
+
+        if (allChunks.isEmpty()) {
+            allChunks = createVirtualChunks(document);
+            virtualChunks = !allChunks.isEmpty();
+        }
+
+        if (allChunks.isEmpty()) {
+            return List.of();
+        }
+
+        if (virtualChunks && (scope == QuizScope.SPECIFIC_CHAPTER || scope == QuizScope.SPECIFIC_SECTION)) {
+            log.warn("Document {} has no persisted chunk metadata for scope {}. Falling back to ENTIRE_DOCUMENT for estimation.",
+                    document.getId(), scope);
+            scope = QuizScope.ENTIRE_DOCUMENT;
+        }
 
         return switch (scope) {
             case SPECIFIC_CHUNKS -> {
@@ -318,6 +301,142 @@ public class EstimationServiceImpl implements EstimationService {
         log.info("Safety factor: {}", safetyFactor);
         log.info("Calculated estimate from document content: {} LLM tokens", adjustedLlm);
         return adjustedLlm;
+    }
+
+    private long calculateChunkBasedEstimate(List<DocumentChunk> chunks, GenerateQuizFromDocumentRequest request) {
+        if (chunks == null || chunks.isEmpty()) {
+            return 0L;
+        }
+
+        Map<QuestionType, Integer> questionsPerType = request.questionsPerType();
+        if (questionsPerType == null || questionsPerType.isEmpty()) {
+            return 0L;
+        }
+
+        long systemTokens = estimateTokens(promptTemplateService.buildSystemPrompt());
+        long contextTokens = estimateTokens(safeLoadTemplate("base/context-template.txt"));
+
+        Map<QuestionType, Long> templateTokensByType = new EnumMap<>(QuestionType.class);
+        for (QuestionType type : questionsPerType.keySet()) {
+            String templateName = "question-types/" + getQuestionTypeTemplateName(type);
+            long tokens = estimateTokens(safeLoadTemplate(templateName));
+            templateTokensByType.put(type, tokens);
+        }
+
+        double difficultyMultiplier = getDifficultyMultiplier(request.difficulty());
+        long totalLlmTokens = 0L;
+
+        for (DocumentChunk chunk : chunks) {
+            long contentTokens = estimateTokens(resolveChunkCharacterCount(chunk));
+
+            for (Map.Entry<QuestionType, Integer> entry : questionsPerType.entrySet()) {
+                QuestionType type = entry.getKey();
+                int count = Optional.ofNullable(entry.getValue()).orElse(0);
+                if (count <= 0) continue;
+
+                long templateTokens = templateTokensByType.getOrDefault(type, 0L);
+                long inputTokens = systemTokens + contextTokens + templateTokens + contentTokens;
+                long completionTokens = (long) Math.ceil(
+                        count * COMPLETION_TOKENS_PER_QUESTION.getOrDefault(type, 120) * difficultyMultiplier
+                );
+
+                totalLlmTokens += inputTokens + completionTokens;
+            }
+        }
+
+        return totalLlmTokens;
+    }
+
+    private int resolveChunkCharacterCount(DocumentChunk chunk) {
+        if (chunk == null) return 0;
+
+        if (chunk.getCharacterCount() != null && chunk.getCharacterCount() > 0) {
+            return chunk.getCharacterCount();
+        }
+
+        if (chunk.getContent() != null) {
+            return chunk.getContent().length();
+        }
+
+        return 0;
+    }
+
+    private List<DocumentChunk> loadDocumentChunks(Document document) {
+        if (document.getChunks() != null && !document.getChunks().isEmpty()) {
+            return document.getChunks();
+        }
+
+        if (document.getId() == null) {
+            return List.of();
+        }
+
+        try {
+            List<DocumentChunk> persisted = documentChunkRepository.findByDocumentOrderByChunkIndex(document);
+            if (persisted != null && !persisted.isEmpty()) {
+                log.debug("Loaded {} persisted chunks for document {}", persisted.size(), document.getId());
+                return persisted;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load persisted chunks for document {}: {}", document.getId(), e.getMessage());
+        }
+
+        return List.of();
+    }
+
+    private List<DocumentChunk> createVirtualChunks(Document document) {
+        int chunkCount = resolveVirtualChunkCount(document);
+        if (chunkCount <= 0) {
+            return List.of();
+        }
+
+        long estimatedCharacters = estimateDocumentCharacterBudget(document, chunkCount);
+        long baseChunkSize = Math.max(MIN_VIRTUAL_CHUNK_SIZE, estimatedCharacters / chunkCount);
+        long remainder = Math.max(0L, estimatedCharacters - (baseChunkSize * chunkCount));
+
+        List<DocumentChunk> virtualChunks = new ArrayList<>(chunkCount);
+        for (int i = 0; i < chunkCount; i++) {
+            int characters = (int) Math.min(Integer.MAX_VALUE, baseChunkSize + (i == chunkCount - 1 ? remainder : 0));
+            virtualChunks.add(createVirtualChunk(document, i, characters));
+        }
+        log.info("Created {} virtual chunks for document {} using fallback estimation (estimatedCharacters={}, baseSize={})",
+                chunkCount, document.getId(), estimatedCharacters, baseChunkSize);
+        return virtualChunks;
+    }
+
+    private int resolveVirtualChunkCount(Document document) {
+        if (document.getTotalChunks() != null && document.getTotalChunks() > 0) {
+            return document.getTotalChunks();
+        }
+
+        long fileSize = Optional.ofNullable(document.getFileSize()).orElse(0L);
+        if (fileSize <= 0L) {
+            return 0;
+        }
+
+        return (int) Math.max(1L, (long) Math.ceil(fileSize / (double) DEFAULT_VIRTUAL_CHUNK_SIZE));
+    }
+
+    private long estimateDocumentCharacterBudget(Document document, int chunkCount) {
+        long fileSize = Optional.ofNullable(document.getFileSize()).orElse(0L);
+        if (fileSize > 0) {
+            return Math.max(fileSize, chunkCount * (long) MIN_VIRTUAL_CHUNK_SIZE);
+        }
+        return (long) chunkCount * DEFAULT_VIRTUAL_CHUNK_SIZE;
+    }
+
+    private DocumentChunk createVirtualChunk(Document document, int chunkIndex, int characterCount) {
+        DocumentChunk chunk = new DocumentChunk();
+        chunk.setDocument(document);
+        chunk.setChunkIndex(chunkIndex);
+        chunk.setTitle(document.getTitle() != null ? document.getTitle() : "Document");
+        chunk.setContent("");
+        chunk.setStartPage(1);
+        chunk.setEndPage(1);
+        chunk.setWordCount(Math.max(1, characterCount / 5));
+        chunk.setCharacterCount(characterCount);
+        chunk.setCreatedAt(LocalDateTime.now());
+        chunk.setChunkType(DocumentChunk.ChunkType.SIZE_BASED);
+        return chunk;
     }
 
     @Override

@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -44,6 +45,9 @@ class SafetyFactorTest {
     
     @Mock
     private DocumentRepository documentRepository;
+
+    @Mock
+    private DocumentChunkRepository documentChunkRepository;
     
     @Mock
     private PromptTemplateService promptTemplateService;
@@ -55,6 +59,7 @@ class SafetyFactorTest {
         estimationService = new EstimationServiceImpl(
             billingProperties,
             documentRepository,
+            documentChunkRepository,
             promptTemplateService
         );
         

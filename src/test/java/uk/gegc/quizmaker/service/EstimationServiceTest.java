@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.impl.EstimationServiceImpl;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -22,6 +23,7 @@ import static org.mockito.Mockito.*;
 class EstimationServiceTest {
 
     private DocumentRepository documentRepository;
+    private DocumentChunkRepository documentChunkRepository;
     private PromptTemplateService promptTemplateService;
     private BillingProperties billingProperties;
     private EstimationServiceImpl estimationService;
@@ -29,10 +31,11 @@ class EstimationServiceTest {
     @BeforeEach
     void setUp() {
         documentRepository = mock(DocumentRepository.class);
+        documentChunkRepository = mock(DocumentChunkRepository.class);
         promptTemplateService = mock(PromptTemplateService.class);
         billingProperties = new BillingProperties();
         // Defaults: ratio=1000, safety=1.2, currency=usd
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, promptTemplateService);
+        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
 
         // Stub template loads to fixed lengths → predictable token counts (length/4)
         when(promptTemplateService.buildSystemPrompt()).thenReturn("x".repeat(100)); // 25 tokens
@@ -52,6 +55,8 @@ class EstimationServiceTest {
             chunks.add(c);
         }
         doc.setChunks(chunks);
+        doc.setTotalChunks(numChunks);
+        doc.setFileSize((long) numChunks * charCountPerChunk);
         return doc;
     }
 
