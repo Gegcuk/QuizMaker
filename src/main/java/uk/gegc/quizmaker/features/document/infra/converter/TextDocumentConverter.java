@@ -99,19 +99,21 @@ public class TextDocumentConverter implements DocumentConverter {
     }
 
     private void extractChaptersAndSections(ConvertedDocument document, String text) {
-        // Pattern to match chapter headers - simplified to be more permissive
+        // Pattern to match chapter headers - capture only the chapter identifier and immediate title
+        // Limited to reasonable length (up to first 200 chars or first newline/period)
         Pattern chapterPattern = Pattern.compile(
-                "(?i)^\\s*(chapter\\s+\\d+.*?|CHAPTER\\s+\\d+.*?|" +
-                        "part\\s+\\d+.*?|PART\\s+\\d+.*?|book\\s+\\d+.*?|BOOK\\s+\\d+.*?)\\s*$",
+                "(?i)^\\s*((?:chapter|CHAPTER)\\s+\\d+[^.\\n]{0,200}(?:\\.|\\n|$)|" +
+                        "(?:part|PART)\\s+\\d+[^.\\n]{0,200}(?:\\.|\\n|$)|" +
+                        "(?:book|BOOK)\\s+\\d+[^.\\n]{0,200}(?:\\.|\\n|$))",
                 Pattern.MULTILINE
         );
 
         // Pattern to match section headers
         Pattern sectionPattern = Pattern.compile(
-                "(?i)^\\s*(\\d+\\.\\d+\\s+[^\\n]+|section\\s+\\d+|" +
+                "(?i)^\\s*(\\d+\\.\\d+\\s+[^\\n]{0,200}|section\\s+\\d+[^\\n]{0,200}|" +
                         "Day\\s+\\d+\\s+(Homework|Assignment)|Exercises?|Assignments?|" +
                         "Practice\\s+Problems?|Review\\s+Questions?|" +
-                        "(?:\\d+\\.)+\\d+\\s+[^\\n]+)\\s*$",
+                        "(?:\\d+\\.)+\\d+\\s+[^\\n]{0,200})\\s*$",
                 Pattern.MULTILINE
         );
 
@@ -132,7 +134,13 @@ public class TextDocumentConverter implements DocumentConverter {
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
             if (chapterMatcher.find()) {
-                log.info("Found chapter header at line {}: '{}'", i, line);
+                // Extract only the matched chapter header (not the entire line)
+                String chapterHeader = chapterMatcher.group(1).trim();
+                // Further truncate if still too long
+                if (chapterHeader.length() > 200) {
+                    chapterHeader = chapterHeader.substring(0, 197) + "...";
+                }
+                log.info("Found chapter header at line {}: '{}'", i, chapterHeader);
 
                 // Save previous chapter if exists
                 if (currentChapterObj != null) {
@@ -150,7 +158,7 @@ public class TextDocumentConverter implements DocumentConverter {
                 // Start new chapter
                 currentChapter++;
                 currentChapterObj = new ConvertedDocument.Chapter();
-                currentChapterObj.setTitle(line);
+                currentChapterObj.setTitle(chapterHeader);
                 currentChapterObj.setStartPage(1); // Text files don't have pages, use line numbers
                 chapterContent = new StringBuilder();
 
@@ -163,7 +171,13 @@ public class TextDocumentConverter implements DocumentConverter {
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
-                log.info("Found section header at line {}: '{}'", i, line);
+                // Extract only the matched section header (not the entire line)
+                String sectionHeader = sectionMatcher.group(1).trim();
+                // Further truncate if still too long
+                if (sectionHeader.length() > 200) {
+                    sectionHeader = sectionHeader.substring(0, 197) + "...";
+                }
+                log.info("Found section header at line {}: '{}'", i, sectionHeader);
 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -176,7 +190,7 @@ public class TextDocumentConverter implements DocumentConverter {
                 // Start new section
                 currentSection++;
                 currentSectionObj = new ConvertedDocument.Section();
-                currentSectionObj.setTitle(line);
+                currentSectionObj.setTitle(sectionHeader);
                 currentSectionObj.setStartPage(1);
                 currentSectionObj.setChapterNumber(currentChapter);
                 currentSectionObj.setSectionNumber(currentSection);

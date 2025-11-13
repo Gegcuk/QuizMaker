@@ -114,7 +114,9 @@ public class EpubDocumentConverter implements DocumentConverter {
             // Check for chapter headers
             Matcher chapterMatcher = chapterPattern.matcher(line);
             if (chapterMatcher.find()) {
-                log.info("Found chapter header at line {}: '{}'", i, line);
+                // Truncate long lines to avoid database errors (VARCHAR(255) limit)
+                String chapterTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
+                log.info("Found chapter header at line {}: '{}'", i, chapterTitle);
 
                 // Save previous chapter if exists
                 if (currentChapterObj != null) {
@@ -132,7 +134,7 @@ public class EpubDocumentConverter implements DocumentConverter {
                 // Start new chapter
                 currentChapter++;
                 currentChapterObj = new ConvertedDocument.Chapter();
-                currentChapterObj.setTitle(line);
+                currentChapterObj.setTitle(chapterTitle);
                 currentChapterObj.setStartPage(1);
                 chapterContent = new StringBuilder();
 
@@ -145,7 +147,9 @@ public class EpubDocumentConverter implements DocumentConverter {
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
-                log.info("Found section header at line {}: '{}'", i, line);
+                // Truncate long lines to avoid database errors (VARCHAR(255) limit)
+                String sectionTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
+                log.info("Found section header at line {}: '{}'", i, sectionTitle);
 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -158,7 +162,7 @@ public class EpubDocumentConverter implements DocumentConverter {
                 // Start new section
                 currentSection++;
                 currentSectionObj = new ConvertedDocument.Section();
-                currentSectionObj.setTitle(line);
+                currentSectionObj.setTitle(sectionTitle);
                 currentSectionObj.setStartPage(1);
                 currentSectionObj.setChapterNumber(currentChapter);
                 currentSectionObj.setSectionNumber(currentSection);

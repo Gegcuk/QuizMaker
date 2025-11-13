@@ -599,8 +599,10 @@ public class ChapterChunker implements UniversalChunker {
         chunk.setEndPage(endPage);
         chunk.setWordCount(countWords(content));
         chunk.setCharacterCount(content.length());
-        chunk.setChapterTitle(chapterTitle);
-        chunk.setSectionTitle(sectionTitle);
+        // Truncate chapterTitle to fit database constraint (VARCHAR(255))
+        chunk.setChapterTitle(chapterTitle != null && chapterTitle.length() > 255 ? chapterTitle.substring(0, 252) + "..." : chapterTitle);
+        // Truncate sectionTitle to fit database constraint (VARCHAR(255))
+        chunk.setSectionTitle(sectionTitle != null && sectionTitle.length() > 255 ? sectionTitle.substring(0, 252) + "..." : sectionTitle);
         
         // Handle null document case (when called from optimizeChapterChunks)
         if (document != null) {
