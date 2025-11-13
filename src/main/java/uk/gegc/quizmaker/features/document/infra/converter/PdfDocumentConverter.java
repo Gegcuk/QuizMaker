@@ -101,7 +101,9 @@ public class PdfDocumentConverter implements DocumentConverter {
                 if (!line.matches(".*\\.{3,}\\s*\\d+\\s*$") &&
                         !line.matches(".*https?://.*") &&
                         !line.matches(".*www\\..*")) {
-                    log.info("Found chapter header at line {}: '{}'", i, line);
+                    // Truncate long lines to avoid database errors (VARCHAR(255) limit)
+                    String chapterTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
+                    log.info("Found chapter header at line {}: '{}'", i, chapterTitle);
 
                     // Save previous chapter if exists
                     if (currentChapterObj != null) {
@@ -119,7 +121,7 @@ public class PdfDocumentConverter implements DocumentConverter {
                     // Start new chapter
                     currentChapter++;
                     currentChapterObj = new ConvertedDocument.Chapter();
-                    currentChapterObj.setTitle(line);
+                    currentChapterObj.setTitle(chapterTitle);
                     currentChapterObj.setStartPage(estimatePageNumber(i, lines.length, document.getTotalPages()));
                     chapterContent = new StringBuilder();
 
@@ -133,7 +135,9 @@ public class PdfDocumentConverter implements DocumentConverter {
             // Check for section headers
             Matcher sectionMatcher = sectionPattern.matcher(line);
             if (sectionMatcher.find()) {
-                log.info("Found section header at line {}: '{}'", i, line);
+                // Truncate long lines to avoid database errors (VARCHAR(255) limit)
+                String sectionTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
+                log.info("Found section header at line {}: '{}'", i, sectionTitle);
 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -146,7 +150,7 @@ public class PdfDocumentConverter implements DocumentConverter {
                 // Start new section
                 currentSection++;
                 currentSectionObj = new ConvertedDocument.Section();
-                currentSectionObj.setTitle(line);
+                currentSectionObj.setTitle(sectionTitle);
                 currentSectionObj.setStartPage(estimatePageNumber(i, lines.length, document.getTotalPages()));
                 currentSectionObj.setChapterNumber(currentChapter);
                 currentSectionObj.setSectionNumber(currentSection);
