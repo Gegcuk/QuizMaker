@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -24,6 +25,7 @@ import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,11 +40,13 @@ import static org.mockito.Mockito.lenient;
 @Execution(ExecutionMode.CONCURRENT)
 class EstimationServiceImplTest {
 
-    @Mock
     private BillingProperties billingProperties;
 
     @Mock
     private DocumentRepository documentRepository;
+
+    @Mock
+    private DocumentChunkRepository documentChunkRepository;
 
     @Mock
     private PromptTemplateService promptTemplateService;
@@ -51,12 +55,12 @@ class EstimationServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, promptTemplateService);
-        
-        // Default billing properties - using lenient stubbing to avoid unnecessary stubbing warnings
-        lenient().when(billingProperties.getTokenToLlmRatio()).thenReturn(1000L);
-        lenient().when(billingProperties.getSafetyFactor()).thenReturn(1.2);
-        lenient().when(billingProperties.getCurrency()).thenReturn("usd");
+        billingProperties = new BillingProperties();
+        billingProperties.setTokenToLlmRatio(1000L);
+        billingProperties.setSafetyFactor(1.2);
+        billingProperties.setCurrency("usd");
+
+        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
         
         // Default prompt templates - using lenient stubbing to avoid unnecessary stubbing warnings
         lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt content");
@@ -72,8 +76,6 @@ class EstimationServiceImplTest {
         void shouldConvertLlmTokensToBillingTokensWithDefaultRatio() {
             // Given
             long llmTokens = 5000L;
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1000L);
-
             // When
             long billingTokens = estimationService.llmTokensToBillingTokens(llmTokens);
 
@@ -86,7 +88,7 @@ class EstimationServiceImplTest {
         void shouldHandleCustomRatio() {
             // Given
             long llmTokens = 2500L;
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(500L);
+            billingProperties.setTokenToLlmRatio(500L);
 
             // When
             long billingTokens = estimationService.llmTokensToBillingTokens(llmTokens);
@@ -100,8 +102,6 @@ class EstimationServiceImplTest {
         void shouldRoundUpFractionalResults() {
             // Given
             long llmTokens = 1500L;
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1000L);
-
             // When
             long billingTokens = estimationService.llmTokensToBillingTokens(llmTokens);
 
@@ -127,7 +127,7 @@ class EstimationServiceImplTest {
         void shouldHandleMinimumRatioOfOne() {
             // Given
             long llmTokens = 500L;
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(0L); // Will be clamped to 1
+            billingProperties.setTokenToLlmRatio(0L); // Will be clamped to 1
 
             // When
             long billingTokens = estimationService.llmTokensToBillingTokens(llmTokens);
@@ -395,7 +395,7 @@ class EstimationServiceImplTest {
             GenerateQuizFromDocumentRequest request = createBasicRequest();
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
-            when(billingProperties.getSafetyFactor()).thenReturn(1.5); // 50% safety factor
+            billingProperties.setSafetyFactor(1.5); // 50% safety factor
 
             // When
             EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
@@ -415,7 +415,7 @@ class EstimationServiceImplTest {
             GenerateQuizFromDocumentRequest request = createBasicRequest();
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
-            when(billingProperties.getSafetyFactor()).thenReturn(1.0);
+            billingProperties.setSafetyFactor(1.0);
 
             // When
             EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
@@ -585,6 +585,13 @@ class EstimationServiceImplTest {
         Document document = new Document();
         document.setId(UUID.randomUUID());
         document.setChunks(chunks);
+        document.setTotalChunks(chunks != null ? chunks.size() : 0);
+        document.setFileSize(chunks == null ? 0L : chunks.stream()
+                .filter(Objects::nonNull)
+                .map(DocumentChunk::getCharacterCount)
+                .filter(Objects::nonNull)
+                .mapToLong(Integer::longValue)
+                .sum());
         return document;
     }
 
@@ -618,7 +625,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should compute actual billing tokens for mixed question types")
         void shouldComputeActualBillingTokensForMixedQuestionTypes() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE),
@@ -648,7 +655,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should apply difficulty multiplier correctly")
         void shouldApplyDifficultyMultiplierCorrectly() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE)
@@ -672,7 +679,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle empty questions list")
         void shouldHandleEmptyQuestionsList() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of();
             long inputPromptTokens = 500L;
@@ -690,7 +697,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle null questions list")
         void shouldHandleNullQuestionsList() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             long inputPromptTokens = 300L;
             Difficulty difficulty = Difficulty.EASY;
@@ -707,7 +714,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should apply billing ratio correctly")
         void shouldApplyBillingRatioCorrectly() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L); // 1:1 ratio (1 LLM token = 1 billing token)
+            billingProperties.setTokenToLlmRatio(1L); // 1:1 ratio (1 LLM token = 1 billing token)
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE)
@@ -731,7 +738,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle all question types correctly")
         void shouldHandleAllQuestionTypesCorrectly() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE),
@@ -784,7 +791,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle rounding edge cases around epsilon boundaries")
         void shouldHandleRoundingEdgeCasesAroundEpsilonBoundaries() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE)
@@ -806,7 +813,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle epsilon boundary calculations correctly")
         void shouldHandleEpsilonBoundaryCalculationsCorrectly() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE),
@@ -829,7 +836,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle difficulty multiplier edge cases")
         void shouldHandleDifficultyMultiplierEdgeCases() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE)
@@ -852,7 +859,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle token ratio edge cases")
         void shouldHandleTokenRatioEdgeCases() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(2L); // 2:1 ratio
+            billingProperties.setTokenToLlmRatio(2L); // 2:1 ratio
             
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = List.of(
                     createMockQuestion(QuestionType.MCQ_SINGLE)
@@ -874,7 +881,7 @@ class EstimationServiceImplTest {
         @DisplayName("Should handle large token counts without overflow")
         void shouldHandleLargeTokenCountsWithoutOverflow() {
             // Given
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1L);
+            billingProperties.setTokenToLlmRatio(1L);
             
             // Create a large number of questions to test overflow handling
             List<uk.gegc.quizmaker.features.question.domain.model.Question> questions = new ArrayList<>();

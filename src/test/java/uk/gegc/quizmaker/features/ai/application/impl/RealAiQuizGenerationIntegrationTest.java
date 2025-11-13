@@ -37,6 +37,7 @@ import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.impl.EstimationServiceImpl;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
+import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
@@ -97,6 +98,7 @@ class RealAiQuizGenerationIntegrationTest {
     private AiQuizGenerationServiceImpl service;
     private EstimationService estimationService;
     private DocumentRepository documentRepository;
+    private DocumentChunkRepository documentChunkRepository;
     private InternalBillingService internalBillingService;
 
     @BeforeAll
@@ -139,6 +141,7 @@ class RealAiQuizGenerationIntegrationTest {
         QuestionResponseParser questionResponseParser = new QuestionResponseParserImpl(handlerFactory, parserFactory);
 
         documentRepository = mock(DocumentRepository.class);
+        documentChunkRepository = mock(DocumentChunkRepository.class);
         QuizGenerationJobRepository jobRepository = mock(QuizGenerationJobRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
         ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
@@ -188,7 +191,7 @@ class RealAiQuizGenerationIntegrationTest {
         );
 
         BillingProperties billingProperties = new BillingProperties();
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, promptTemplateService);
+        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
     }
 
     @Test
