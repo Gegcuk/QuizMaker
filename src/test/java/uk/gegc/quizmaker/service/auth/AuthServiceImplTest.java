@@ -36,7 +36,10 @@ import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -68,12 +71,16 @@ class AuthServiceImplTest {
 
     @Mock
     private EmailService emailService;
+    @Mock
+    private Clock utcClock;
 
     @InjectMocks
     private AuthServiceImpl authService;
 
     private User testUser;
     private UUID userId;
+    private LocalDateTime fixedNow;
+    private Instant fixedInstant;
 
     @BeforeEach
     void setUp() {
@@ -82,6 +89,10 @@ class AuthServiceImplTest {
         testUser.setId(userId);
         testUser.setEmail("test@example.com");
         testUser.setUsername("testuser");
+        fixedInstant = Instant.parse("2024-01-01T00:00:00Z");
+        fixedNow = LocalDateTime.ofInstant(fixedInstant, ZoneOffset.UTC);
+        when(utcClock.instant()).thenReturn(fixedInstant);
+        when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
     }
 
     @Test
@@ -483,5 +494,37 @@ class AuthServiceImplTest {
                    !token.isUsed() &&
                    token.getTokenHash() != null;
         }));
+    }
+
+    @Test
+    @DisplayName("changePassword: updates password when current password matches")
+    void changePassword_happyPath_updatesPassword() {
+        testUser.setHashedPassword("old-hash");
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("current", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encode("new-secret")).thenReturn("new-hash");
+
+        authService.changePassword("testuser", "current", "new-secret");
+
+        verify(passwordEncoder).matches("current", "old-hash");
+        verify(passwordEncoder).encode("new-secret");
+        verify(userRepository).save(testUser);
+        assertEquals("new-hash", testUser.getHashedPassword());
+        assertEquals(fixedNow, testUser.getPasswordChangedAt());
+    }
+
+    @Test
+    @DisplayName("changePassword: throws BAD_REQUEST when current password is incorrect")
+    void changePassword_incorrectCurrentPassword_throws() {
+        testUser.setHashedPassword("old-hash");
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("wrong", "old-hash")).thenReturn(false);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.changePassword("testuser", "wrong", "new-secret"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(userRepository, never()).save(any());
+        verify(passwordEncoder, never()).encode(any());
     }
 }

@@ -17,6 +17,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
@@ -151,6 +152,37 @@ public class AuthController {
             Authentication authentication
     ) {
         return ResponseEntity.ok(authService.getCurrentUser(authentication));
+    }
+
+    @Operation(
+            summary = "Change password",
+            description = "Allows an authenticated user to change their password by providing the current password."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password changed successfully"),
+            @ApiResponse(responseCode = "400", description = "Validation errors or incorrect current password",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Not authenticated",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @PostMapping("/change-password")
+    public ResponseEntity<ChangePasswordResponse> changePassword(
+            Authentication authentication,
+            HttpServletRequest httpRequest,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
+        }
+
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
+        String rateLimitKey = authentication.getName() + "|" + clientIp;
+        rateLimitService.checkRateLimit("change-password", rateLimitKey, 3);
+
+        authService.changePassword(authentication.getName(), request.currentPassword(), request.newPassword());
+        return ResponseEntity.ok(new ChangePasswordResponse("Password updated successfully"));
     }
 
     @Operation(

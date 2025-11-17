@@ -17,6 +17,7 @@ public interface AuthService {
     AuthenticatedUserDto getCurrentUser(Authentication authentication);
     void generatePasswordResetToken(String email);
     void resetPassword(String token, String newPassword);
+    void changePassword(String usernameOrEmail, String currentPassword, String newPassword);
     LocalDateTime verifyEmail(String token);
     void generateEmailVerificationToken(String email);
 }

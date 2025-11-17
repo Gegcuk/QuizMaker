@@ -242,6 +242,26 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
+    public void changePassword(String usernameOrEmail, String currentPassword, String newPassword) {
+        if (usernameOrEmail == null || usernameOrEmail.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
+        }
+
+        User user = userRepository.findByUsername(usernameOrEmail)
+                .or(() -> userRepository.findByEmail(usernameOrEmail))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        if (!passwordEncoder.matches(currentPassword, user.getHashedPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
+        }
+
+        user.setHashedPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(LocalDateTime.now(utcClock));
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
     public LocalDateTime verifyEmail(String token) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashVerificationToken(token);
