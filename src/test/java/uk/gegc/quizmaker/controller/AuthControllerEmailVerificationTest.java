@@ -21,11 +21,7 @@ import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -58,21 +54,6 @@ class AuthControllerEmailVerificationTest {
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
 
-    /**
-     * Helper method to calculate token fingerprint (matches AuthController.fingerprintToken implementation)
-     */
-    private String fingerprintToken(String token) {
-        if (token == null || token.isBlank()) {
-            return "missing";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(token.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hashed);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm unavailable", e);
-        }
-    }
 
     @Test
     @DisplayName("POST /api/v1/auth/verify-email - valid token should return 200")
@@ -95,9 +76,8 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(jsonPath("$.verifiedAt").exists());
 
         verify(authService).verifyEmail("valid-token-here");
-        // Verify rate limit is checked with IP + token fingerprint key
-        String expectedKey = "127.0.0.1|" + fingerprintToken("valid-token-here");
-        verify(rateLimitService).checkRateLimit("verify-email", expectedKey);
+        // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
+        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
     }
 
     @Test
@@ -153,9 +133,8 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService).verifyEmail("invalid-token");
-        // Verify rate limit is checked even for invalid tokens (with IP + token fingerprint)
-        String expectedKey = "127.0.0.1|" + fingerprintToken("invalid-token");
-        verify(rateLimitService).checkRateLimit("verify-email", expectedKey);
+        // Verify rate limit is checked even for invalid tokens (IP-only to prevent token rotation bypass)
+        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
     }
 
     @Test
@@ -168,9 +147,8 @@ class AuthControllerEmailVerificationTest {
         String clientIp = "192.168.1.50";
         when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
 
-        String expectedKey = clientIp + "|" + fingerprintToken(token);
         doThrow(new RateLimitExceededException("Rate limit exceeded", 45))
-                .when(rateLimitService).checkRateLimit(eq("verify-email"), eq(expectedKey));
+                .when(rateLimitService).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -179,15 +157,15 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests());
 
-        // Verify rate limit is checked with IP + token fingerprint key
-        verify(rateLimitService).checkRateLimit("verify-email", expectedKey);
+        // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
+        verify(rateLimitService).checkRateLimit("verify-email", clientIp, 10);
         verify(authService, never()).verifyEmail(anyString());
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/verify-email - rate limit key combines IP and token fingerprint to prevent shared IP throttling")
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit key uses IP-only to prevent token rotation bypass")
     @WithMockUser
-    void verifyEmail_RateLimitKeyCombinesIpAndTokenFingerprint_ShouldPreventSharedIpThrottling() throws Exception {
+    void verifyEmail_RateLimitKeyUsesIpOnly_ShouldPreventTokenRotationBypass() throws Exception {
         // Given
         String clientIp = "10.0.0.5";
         String token1 = "token-abc123";
@@ -210,20 +188,15 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token2))))
                 .andExpect(status().isOk());
 
-        // Then - Each request should use a different rate limit key (IP + token fingerprint)
-        // This ensures users behind shared IPs with different tokens don't throttle each other
-        String expectedKey1 = clientIp + "|" + fingerprintToken(token1);
-        String expectedKey2 = clientIp + "|" + fingerprintToken(token2);
-        verify(rateLimitService).checkRateLimit("verify-email", expectedKey1);
-        verify(rateLimitService).checkRateLimit("verify-email", expectedKey2);
-        // Verify exactly 2 rate limit calls were made
-        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), anyString());
+        // Then - Both requests should use the same rate limit key (IP-only)
+        // This prevents attackers from bypassing rate limits by rotating tokens
+        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/verify-email - same token from same IP should use same rate limit key to prevent brute force")
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit uses IP-only with higher limit to accommodate shared IPs")
     @WithMockUser
-    void verifyEmail_SameTokenFromSameIp_ShouldUseSameRateLimitKey() throws Exception {
+    void verifyEmail_RateLimitUsesIpOnlyWithHigherLimit() throws Exception {
         // Given
         String clientIp = "192.168.1.100";
         String token = "same-token-123";
@@ -245,10 +218,9 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token))))
                 .andExpect(status().isOk());
 
-        // Then - Both requests should use the same rate limit key (IP + same token fingerprint)
-        // This ensures brute-force attempts on the same token are rate-limited
-        String expectedKey = clientIp + "|" + fingerprintToken(token);
-        verify(rateLimitService, times(2)).checkRateLimit("verify-email", expectedKey);
+        // Then - Both requests should use the same rate limit key (IP-only) with limit of 10/min
+        // Higher limit (10 vs default 5) accommodates legitimate users behind shared IPs
+        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
     }
 
     @Test

@@ -24,11 +24,7 @@ import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HexFormat;
 
 @Tag(name = "Authentication", 
      description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user. " +
@@ -276,9 +272,10 @@ public class AuthController {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
-        // Rate limiting combines caller IP with token fingerprint so users behind shared IPs don't throttle each other
-        String tokenFingerprint = fingerprintToken(request.token());
-        rateLimitService.checkRateLimit("verify-email", clientIp + "|" + tokenFingerprint);
+        // Rate limiting scoped to caller IP only to prevent bucket rotation via token parameter
+        // Using IP-only prevents attackers from bypassing rate limits by rotating tokens
+        // Higher limit (10/min) accommodates legitimate users behind shared IPs (e.g., corporate networks)
+        rateLimitService.checkRateLimit("verify-email", clientIp, 10);
         
         LocalDateTime verifiedAt = authService.verifyEmail(request.token());
         
@@ -312,16 +309,4 @@ public class AuthController {
                 .body(new ResendVerificationResponse("If the email exists and is not verified, a verification link was sent."));
     }
 
-    private String fingerprintToken(String token) {
-        if (token == null || token.isBlank()) {
-            return "missing";
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(token.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hashed);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm unavailable", e);
-        }
-    }
 }
