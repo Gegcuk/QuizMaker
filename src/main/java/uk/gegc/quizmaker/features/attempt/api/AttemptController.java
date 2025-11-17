@@ -250,7 +250,16 @@ public class AttemptController {
         return ResponseEntity.ok(currentQuestion);
     }
 
-    @Operation(summary = "Submit a single answer", description = "Submit an answer to a specific question within an attempt.")
+    @Operation(
+            summary = "Submit a single answer", 
+            description = """
+                    Submit an answer to a specific question within an attempt. 
+                    The request body includes optional flags:
+                    - includeCorrectness: include whether the answer is correct (isCorrect field)
+                    - includeCorrectAnswer: include the correct answer information (correctAnswer field)
+                    By default, both are false and excluded from the response for security reasons.
+                    """
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Answer submission result",
                     content = @Content(
@@ -269,7 +278,7 @@ public class AttemptController {
             @PathVariable UUID attemptId,
 
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Answer submission payload",
+                    description = "Answer submission payload with optional flags for response content",
                     required = true,
                     content = @Content(schema = @Schema(implementation = AnswerSubmissionRequest.class))
             )
@@ -282,7 +291,14 @@ public class AttemptController {
         return ResponseEntity.ok(answer);
     }
 
-    @Operation(summary = "Submit batch of answers", description = "Submit multiple answers at once (only for ALL_AT_ONCE mode).")
+    @Operation(
+            summary = "Submit batch of answers", 
+            description = """
+                    Submit multiple answers at once (only for ALL_AT_ONCE mode).
+                    Each answer in the batch can have its own includeCorrectness and includeCorrectAnswer flags.
+                    By default, both are false and excluded from the response for security reasons.
+                    """
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Batch answers submitted",
                     content = @Content(
@@ -303,7 +319,7 @@ public class AttemptController {
             @PathVariable UUID attemptId,
 
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Batch answer submission payload",
+                    description = "Batch answer submission payload. Each answer can have its own includeCorrectness and includeCorrectAnswer flags.",
                     required = true,
                     content = @Content(schema = @Schema(implementation = BatchAnswerSubmissionRequest.class))
             )

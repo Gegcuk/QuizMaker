@@ -25,6 +25,27 @@ public record AnswerSubmissionRequest(
                 example = "{\"answer\":true}"
         )
         @NotNull(message = "Response payload must not be null")
-        JsonNode response
+        JsonNode response,
+
+        @Schema(
+                description = "Include whether the submitted answer is correct (isCorrect field) in the response. Defaults to false.",
+                example = "false"
+        )
+        Boolean includeCorrectness,
+
+        @Schema(
+                description = "Include the correct answer information (correctAnswer field) in the response. Defaults to false.",
+                example = "false"
+        )
+        Boolean includeCorrectAnswer
 ) {
+    public AnswerSubmissionRequest {
+        // Default values for optional fields
+        if (includeCorrectness == null) {
+            includeCorrectness = false;
+        }
+        if (includeCorrectAnswer == null) {
+            includeCorrectAnswer = false;
+        }
+    }
 }
