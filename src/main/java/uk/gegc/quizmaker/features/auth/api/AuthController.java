@@ -214,8 +214,8 @@ public class AuthController {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
-        // Rate limiting check by IP + token
-        rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
+        // Rate limiting check scoped to caller IP to prevent bucket rotation via token parameter
+        rateLimitService.checkRateLimit("reset-password", clientIp);
         
         // Reset the password
         authService.resetPassword(token, request.newPassword());

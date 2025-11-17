@@ -16,7 +16,12 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Date;
+import java.util.Optional;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 
 @Component
@@ -26,6 +31,7 @@ import java.util.Date;
 public class JwtTokenService {
 
     private final UserDetailsService userDetailsService;
+    private final UserRepository userRepository;
 
     @Value("${jwt.secret}")
     private String base64secret;
@@ -38,6 +44,8 @@ public class JwtTokenService {
 
     private SecretKey key;
 
+    private static final String PASSWORD_CHANGED_AT_CLAIM = "pwdChangedAt";
+
     @PostConstruct
     public void init() {
         byte[] keyBytes = Decoders.BASE64.decode(base64secret);
@@ -47,12 +55,14 @@ public class JwtTokenService {
     public String generateAccessToken(Authentication authentication) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + accessTokenValidityInMs);
+        long passwordChangedAtEpoch = resolvePasswordChangedAtEpoch(authentication.getName());
 
         return Jwts.builder()
                 .subject(authentication.getName())
                 .issuedAt(now)
                 .expiration(expiry)
                 .claim("type", "access")
+                .claim(PASSWORD_CHANGED_AT_CLAIM, passwordChangedAtEpoch)
                 .signWith(key)
                 .compact();
     }
@@ -60,12 +70,14 @@ public class JwtTokenService {
     public String generateRefreshToken(Authentication authentication) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + refreshTokenValidityInMs);
+        long passwordChangedAtEpoch = resolvePasswordChangedAtEpoch(authentication.getName());
 
         return Jwts.builder()
                 .subject(authentication.getName())
                 .issuedAt(now)
                 .expiration(expiry)
                 .claim("type", "refresh")
+                .claim(PASSWORD_CHANGED_AT_CLAIM, passwordChangedAtEpoch)
                 .signWith(key)
                 .compact();
     }
@@ -85,11 +97,38 @@ public class JwtTokenService {
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parser()
+            Claims claims = Jwts.parser()
                     .verifyWith(key)
                     .build()
                     .parseSignedClaims(token)
                     .getPayload();
+
+            String username = claims.getSubject();
+            if (username == null || username.isBlank()) {
+                log.warn("JWT token missing subject");
+                return false;
+            }
+
+            Long tokenPasswordChangedAt = claims.get(PASSWORD_CHANGED_AT_CLAIM, Long.class);
+            if (tokenPasswordChangedAt == null) {
+                log.warn("JWT token missing password version claim");
+                return false;
+            }
+
+            Optional<Long> currentPasswordChangedAt = findUserByIdentifier(username)
+                    .map(User::getPasswordChangedAt)
+                    .map(this::toEpochMillis);
+
+            if (currentPasswordChangedAt.isEmpty()) {
+                log.warn("User '{}' not found or missing passwordChangedAt when validating token", username);
+                return false;
+            }
+
+            if (currentPasswordChangedAt.get() > tokenPasswordChangedAt) {
+                log.debug("Rejecting JWT for user '{}' because password changed after token issuance", username);
+                return false;
+            }
+
             return true;
         } catch (ExpiredJwtException ex) {
             log.debug("JWT token is expired: {}", ex.getMessage());
@@ -125,5 +164,20 @@ public class JwtTokenService {
                 .parseSignedClaims(token)
                 .getPayload();
     }
-}
 
+    private long resolvePasswordChangedAtEpoch(String username) {
+        return findUserByIdentifier(username)
+                .map(User::getPasswordChangedAt)
+                .map(this::toEpochMillis)
+                .orElseThrow(() -> new IllegalStateException("Cannot generate token for unknown user: " + username));
+    }
+
+    private Optional<User> findUserByIdentifier(String identifier) {
+        return userRepository.findByUsername(identifier)
+                .or(() -> userRepository.findByEmail(identifier));
+    }
+
+    private long toEpochMillis(LocalDateTime timestamp) {
+        return timestamp.atOffset(ZoneOffset.UTC).toInstant().toEpochMilli();
+    }
+}

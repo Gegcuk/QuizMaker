@@ -66,6 +66,8 @@ class AuthControllerResetPasswordTest {
                 .andExpect(jsonPath("$.message").value("Password updated successfully"));
 
         verify(authService).resetPassword(token, "NewSecureP@ssw0rd123!");
+        // Verify rate limit is checked with IP-only key
+        verify(rateLimitService).checkRateLimit("reset-password", "127.0.0.1");
     }
 
     @Test
@@ -130,7 +132,7 @@ class AuthControllerResetPasswordTest {
         when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         doThrow(new RateLimitExceededException("Rate limit exceeded", 60))
-                .when(rateLimitService).checkRateLimit(eq("reset-password"), any());
+                .when(rateLimitService).checkRateLimit(eq("reset-password"), eq("127.0.0.1"));
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -140,5 +142,42 @@ class AuthControllerResetPasswordTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", "60"));
+
+        // Verify rate limit is checked with IP-only key (not token-based)
+        verify(rateLimitService).checkRateLimit("reset-password", "127.0.0.1");
+    }
+
+    @Test
+    @DisplayName("reset password: rate limit key should be IP-only to prevent token rotation bypass")
+    @WithMockUser
+    void resetPassword_RateLimitKeyIsIpOnly_ShouldPreventTokenRotationBypass() throws Exception {
+        // Given
+        String clientIp = "192.168.1.100";
+        String token1 = "token-abc123";
+        String token2 = "token-xyz789";
+        ResetPasswordRequest request = new ResetPasswordRequest("NewSecureP@ssw0rd123!");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
+
+        // When - First request with token1
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .param("token", token1)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isOk());
+
+        // When - Second request with different token2 from same IP
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .param("token", token2)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isOk());
+
+        // Then - Both requests should use the same rate limit key (IP-only)
+        // This ensures token rotation cannot bypass rate limits
+        verify(rateLimitService, times(2)).checkRateLimit("reset-password", clientIp);
+        // Verify no other rate limit calls were made with different keys
+        verify(rateLimitService, times(2)).checkRateLimit(anyString(), anyString());
     }
 }

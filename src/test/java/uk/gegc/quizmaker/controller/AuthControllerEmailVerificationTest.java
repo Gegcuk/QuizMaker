@@ -74,6 +74,8 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(jsonPath("$.verifiedAt").exists());
 
         verify(authService).verifyEmail("valid-token-here");
+        // Verify rate limit is checked with IP-only key
+        verify(rateLimitService).checkRateLimit("verify-email", "127.0.0.1");
     }
 
     @Test
@@ -119,6 +121,7 @@ class AuthControllerEmailVerificationTest {
         VerifyEmailRequest request = new VerifyEmailRequest("invalid-token");
         doThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token"))
                 .when(authService).verifyEmail(anyString());
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -128,6 +131,64 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService).verifyEmail("invalid-token");
+        // Verify rate limit is checked even for invalid tokens
+        verify(rateLimitService).checkRateLimit("verify-email", "127.0.0.1");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit exceeded should return 429")
+    @WithMockUser
+    void verifyEmail_RateLimitExceeded_ShouldReturn429() throws Exception {
+        // Given
+        VerifyEmailRequest request = new VerifyEmailRequest("valid-token-here");
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("192.168.1.50");
+
+        doThrow(new RateLimitExceededException("Rate limit exceeded", 45))
+                .when(rateLimitService).checkRateLimit(eq("verify-email"), eq("192.168.1.50"));
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests());
+
+        // Verify rate limit is checked with IP-only key (not token-based)
+        verify(rateLimitService).checkRateLimit("verify-email", "192.168.1.50");
+        verify(authService, never()).verifyEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit key should be IP-only")
+    @WithMockUser
+    void verifyEmail_RateLimitKeyIsIpOnly_ShouldPreventBypass() throws Exception {
+        // Given
+        String clientIp = "10.0.0.5";
+        String token1 = "token-abc123";
+        String token2 = "token-xyz789";
+        LocalDateTime now = LocalDateTime.now();
+        when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
+        when(authService.verifyEmail(anyString())).thenReturn(now);
+
+        // When - First request with token1
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token1))))
+                .andExpect(status().isOk());
+
+        // When - Second request with different token2 from same IP
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token2))))
+                .andExpect(status().isOk());
+
+        // Then - Both requests should use the same rate limit key (IP-only)
+        // This ensures token rotation cannot bypass rate limits
+        verify(rateLimitService, times(2)).checkRateLimit("verify-email", clientIp);
+        // Verify no other rate limit calls were made with different keys
+        verify(rateLimitService, times(2)).checkRateLimit(anyString(), anyString());
     }
 
     @Test

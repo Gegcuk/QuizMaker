@@ -21,14 +21,21 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.util.ReflectionTestUtils;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import javax.crypto.SecretKey;
+import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.SAME_THREAD)
 public class JwtTokenServiceTest {
@@ -36,17 +43,34 @@ public class JwtTokenServiceTest {
     private final long accessTokenValidityInMs = 15 * 60 * 1000;
     private final long refreshTokenValidityInMs = 7 * 24 * 60 * 60 * 1000;
     private JwtTokenService jwtTokenService;
+    private UserRepository userRepository;
     private SecretKey secretKey;
     private String base64Secret;
     private ListAppender<ILoggingEvent> logWatcher;
     private Logger jwtProviderLogger;
+    private final Map<String, LocalDateTime> passwordVersionStore = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
         secretKey = Jwts.SIG.HS256.key().build();
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
 
-        jwtTokenService = new JwtTokenService( null);
+        passwordVersionStore.clear();
+        userRepository = mock(UserRepository.class);
+        when(userRepository.findByUsername(anyString()))
+                .thenAnswer(invocation -> {
+                    String username = invocation.getArgument(0);
+                    LocalDateTime passwordChangedAt = passwordVersionStore.computeIfAbsent(
+                            username,
+                            key -> LocalDateTime.now().minusMinutes(5)
+                    );
+                    uk.gegc.quizmaker.features.user.domain.model.User user = new uk.gegc.quizmaker.features.user.domain.model.User();
+                    user.setUsername(username);
+                    user.setPasswordChangedAt(passwordChangedAt);
+                    return java.util.Optional.of(user);
+                });
+
+        jwtTokenService = new JwtTokenService(null, userRepository);
         ReflectionTestUtils.setField(jwtTokenService, "base64secret", base64Secret);
         ReflectionTestUtils.setField(jwtTokenService, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(jwtTokenService, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -149,6 +173,17 @@ public class JwtTokenServiceTest {
     }
 
     @Test
+    @DisplayName("validateToken: rejects token if passwordChangedAt is newer than claim")
+    void validateToken_passwordChangedAfterIssuance_returnsFalse() {
+        Authentication authentication = new UsernamePasswordAuthenticationToken("Versioned", null, List.of());
+        String token = jwtTokenService.generateAccessToken(authentication);
+
+        passwordVersionStore.put("Versioned", LocalDateTime.now().plusMinutes(1));
+
+        assertThat(jwtTokenService.validateToken(token)).isFalse();
+    }
+
+    @Test
     @DisplayName("validateToken: malformed token returns false")
     void validateToken_sad_malformedTokenReturnsFalse() {
         String badToken = "not.a.token";
@@ -208,7 +243,7 @@ public class JwtTokenServiceTest {
     void getAuthentication_happyPath_returnsAuthToken() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
 
-        JwtTokenService provider = new JwtTokenService(userDetailsService);
+        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -230,7 +265,7 @@ public class JwtTokenServiceTest {
     @DisplayName("getAuthentication: invalid token throws JwtException")
     void getAuthentication_sad_invalidTokenThrows() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of());
-        JwtTokenService provider = new JwtTokenService(userDetailsService);
+        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
