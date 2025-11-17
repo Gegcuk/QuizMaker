@@ -2,11 +2,13 @@ package uk.gegc.quizmaker.applicaion.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
 @Slf4j
@@ -15,12 +17,14 @@ import java.time.LocalDateTime;
 public class EmailVerificationTokenCleanupScheduler {
     
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+    @Qualifier("utcClock")
+    private final Clock utcClock;
 
     @Scheduled(cron = "0 */10 * * * *") // Run every 10 minutes
     @Transactional
     public void purgeExpiredTokens() {
         try {
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = LocalDateTime.now(utcClock);
             emailVerificationTokenRepository.deleteExpiredTokens(now);
         } catch (Exception e) {
             log.error("Failed to cleanup expired email verification tokens", e);

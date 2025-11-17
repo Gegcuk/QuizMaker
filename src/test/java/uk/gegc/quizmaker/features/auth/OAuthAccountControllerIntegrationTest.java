@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -53,6 +54,9 @@ class OAuthAccountControllerIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private JwtTokenService jwtTokenService;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private User testUser;
     private String accessToken;
@@ -137,9 +141,12 @@ class OAuthAccountControllerIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("DELETE /api/v1/auth/oauth/accounts: when only auth method then returns 400")
     void unlinkAccount_OnlyAuthMethod_Returns400() throws Exception {
-        // Given - remove password
-        testUser.setHashedPassword("");
-        userRepository.save(testUser);
+        // Given - remove password using native SQL to bypass JPA validation
+        entityManager.createNativeQuery("UPDATE users SET password = '' WHERE user_id = :userId")
+                .setParameter("userId", testUser.getId())
+                .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
         
         createOAuthAccount(OAuthProvider.GOOGLE, "google123");
         UnlinkAccountRequest request = new UnlinkAccountRequest(OAuthProvider.GOOGLE);

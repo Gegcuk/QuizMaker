@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -53,6 +54,7 @@ class AuthControllerEmailVerificationTest {
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
 
+
     @Test
     @DisplayName("POST /api/v1/auth/verify-email - valid token should return 200")
     @WithMockUser
@@ -74,6 +76,8 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(jsonPath("$.verifiedAt").exists());
 
         verify(authService).verifyEmail("valid-token-here");
+        // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
+        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
     }
 
     @Test
@@ -119,6 +123,7 @@ class AuthControllerEmailVerificationTest {
         VerifyEmailRequest request = new VerifyEmailRequest("invalid-token");
         doThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired verification token"))
                 .when(authService).verifyEmail(anyString());
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -128,6 +133,94 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService).verifyEmail("invalid-token");
+        // Verify rate limit is checked even for invalid tokens (IP-only to prevent token rotation bypass)
+        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit exceeded should return 429")
+    @WithMockUser
+    void verifyEmail_RateLimitExceeded_ShouldReturn429() throws Exception {
+        // Given
+        String token = "valid-token-here";
+        VerifyEmailRequest request = new VerifyEmailRequest(token);
+        String clientIp = "192.168.1.50";
+        when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
+
+        doThrow(new RateLimitExceededException("Rate limit exceeded", 45))
+                .when(rateLimitService).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests());
+
+        // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
+        verify(rateLimitService).checkRateLimit("verify-email", clientIp, 10);
+        verify(authService, never()).verifyEmail(anyString());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit key uses IP-only to prevent token rotation bypass")
+    @WithMockUser
+    void verifyEmail_RateLimitKeyUsesIpOnly_ShouldPreventTokenRotationBypass() throws Exception {
+        // Given
+        String clientIp = "10.0.0.5";
+        String token1 = "token-abc123";
+        String token2 = "token-xyz789";
+        LocalDateTime now = LocalDateTime.now();
+        when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
+        when(authService.verifyEmail(anyString())).thenReturn(now);
+
+        // When - First request with token1
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token1))))
+                .andExpect(status().isOk());
+
+        // When - Second request with different token2 from same IP
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token2))))
+                .andExpect(status().isOk());
+
+        // Then - Both requests should use the same rate limit key (IP-only)
+        // This prevents attackers from bypassing rate limits by rotating tokens
+        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/verify-email - rate limit uses IP-only with higher limit to accommodate shared IPs")
+    @WithMockUser
+    void verifyEmail_RateLimitUsesIpOnlyWithHigherLimit() throws Exception {
+        // Given
+        String clientIp = "192.168.1.100";
+        String token = "same-token-123";
+        LocalDateTime now = LocalDateTime.now();
+        when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
+        when(authService.verifyEmail(anyString())).thenReturn(now);
+
+        // When - First request
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token))))
+                .andExpect(status().isOk());
+
+        // When - Second request with same token from same IP
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                .with(SecurityMockMvcRequestPostProcessors.csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new VerifyEmailRequest(token))))
+                .andExpect(status().isOk());
+
+        // Then - Both requests should use the same rate limit key (IP-only) with limit of 10/min
+        // Higher limit (10 vs default 5) accommodates legitimate users behind shared IPs
+        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
     }
 
     @Test

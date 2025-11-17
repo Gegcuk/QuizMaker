@@ -16,14 +16,14 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
+import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +40,9 @@ class PolicyReconciliationServiceTest {
 
     @Mock
     private ObjectMapper objectMapper;
+
+    @Mock
+    private XssSanitizer xssSanitizer;
 
     @InjectMocks
     private PolicyReconciliationServiceImpl policyReconciliationService;
@@ -64,6 +67,17 @@ class PolicyReconciliationServiceTest {
                 .isDefault(true)
                 .permissions(Set.of(testPermission))
                 .build();
+
+        // Setup XssSanitizer to return sanitized input (strip HTML tags)
+        // Use lenient() since not all tests use this stubbing
+        lenient().when(xssSanitizer.sanitize(anyString())).thenAnswer(invocation -> {
+            String input = invocation.getArgument(0);
+            if (input == null) return null;
+            // Simple sanitization: remove <script> tags and common XSS patterns
+            return input.replaceAll("<script[^>]*>.*?</script>", "")
+                    .replaceAll("<[^>]+>", "")
+                    .trim();
+        });
     }
 
     @Test
@@ -205,6 +219,70 @@ class PolicyReconciliationServiceTest {
         assertThat(result.success()).isFalse();
         assertThat(result.message()).isEqualTo("Role reconciliation failed");
         assertThat(result.errors()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("reconcileRole: when roleName contains XSS payload then sanitizes in error message")
+    void reconcileRole_whenRoleNameContainsXss_thenSanitizesInErrorMessage() throws IOException {
+        // Given
+        String maliciousRoleName = "<script>alert('xss')</script>ROLE_USER";
+        JsonNode manifest = createMockManifest();
+        when(objectMapper.readTree(any(InputStream.class))).thenReturn(manifest);
+        lenient().when(xssSanitizer.sanitize(maliciousRoleName)).thenReturn("ROLE_USER");
+        lenient().when(xssSanitizer.sanitize(anyString())).thenAnswer(invocation -> {
+            String input = invocation.getArgument(0);
+            if (input == null) return "Unknown error";
+            return input.replaceAll("<script[^>]*>.*?</script>", "")
+                    .replaceAll("<[^>]+>", "")
+                    .trim();
+        });
+
+        // When
+        PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileRole(maliciousRoleName);
+
+        // Then
+        assertThat(result.success()).isFalse();
+        assertThat(result.errors()).isNotEmpty();
+        // Verify that XSS sanitizer was called for the roleName
+        verify(xssSanitizer, atLeastOnce()).sanitize(maliciousRoleName);
+        // Verify that error messages don't contain script tags
+        result.errors().forEach(error -> {
+            assertThat(error).doesNotContain("<script>");
+            assertThat(error).doesNotContain("alert('xss')");
+        });
+    }
+
+    @Test
+    @DisplayName("reconcileRole: when exception message contains XSS then sanitizes in error message")
+    void reconcileRole_whenExceptionContainsXss_thenSanitizesInErrorMessage() throws IOException {
+        // Given
+        String roleName = "ROLE_USER";
+        JsonNode manifest = createMockManifest();
+        when(objectMapper.readTree(any(InputStream.class))).thenReturn(manifest);
+        when(roleRepository.findByRoleNameWithPermissions(roleName)).thenThrow(
+                new RuntimeException("<script>alert('xss')</script>Database error")
+        );
+        lenient().when(xssSanitizer.sanitize(roleName)).thenReturn(roleName);
+        lenient().when(xssSanitizer.sanitize(anyString())).thenAnswer(invocation -> {
+            String input = invocation.getArgument(0);
+            if (input == null) return "Unknown error";
+            return input.replaceAll("<script[^>]*>.*?</script>", "")
+                    .replaceAll("<[^>]+>", "")
+                    .trim();
+        });
+
+        // When
+        PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileRole(roleName);
+
+        // Then
+        assertThat(result.success()).isFalse();
+        assertThat(result.errors()).isNotEmpty();
+        // Verify error messages are sanitized
+        result.errors().forEach(error -> {
+            assertThat(error).doesNotContain("<script>");
+            assertThat(error).doesNotContain("alert('xss')");
+        });
+        verify(xssSanitizer, atLeastOnce()).sanitize(argThat(msg -> msg != null && msg.contains("Database error")));
     }
 
     @Test

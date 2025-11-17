@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.auth.application.impl;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -37,8 +38,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
@@ -56,6 +57,8 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
+    @Qualifier("utcClock")
+    private final Clock utcClock;
     
     @Value("${app.auth.reset-token-pepper}")
     private String resetTokenPepper;
@@ -94,6 +97,7 @@ public class AuthServiceImpl implements AuthService {
         user.setUsername(request.username());
         user.setEmail(request.email());
         user.setHashedPassword(passwordEncoder.encode(request.password()));
+        user.setPasswordChangedAt(LocalDateTime.now(utcClock));
         user.setActive(true);
         user.setEmailVerified(false); // New users start with unverified email
 
@@ -189,10 +193,10 @@ public class AuthServiceImpl implements AuthService {
             resetToken.setUserId(user.getId());
             resetToken.setEmail(email);
             
-                    // Set expiresAt using configurable TTL (UTC)
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        resetToken.setCreatedAt(now);
-        resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
+            // Set expiresAt using configurable TTL (UTC)
+            LocalDateTime now = LocalDateTime.now(utcClock);
+            resetToken.setCreatedAt(now);
+            resetToken.setExpiresAt(now.plusMinutes(resetTokenTtlMinutes));
             
             passwordResetTokenRepository.save(resetToken);
             
@@ -210,7 +214,7 @@ public class AuthServiceImpl implements AuthService {
         
         // Find valid, unused, non-expired token
         Optional<PasswordResetToken> tokenOpt = passwordResetTokenRepository
-                .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, LocalDateTime.now());
+                .findByTokenHashAndUsedFalseAndExpiresAtAfter(tokenHash, LocalDateTime.now(utcClock));
         
         if (tokenOpt.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired reset token");
@@ -228,6 +232,7 @@ public class AuthServiceImpl implements AuthService {
         
         // Update the user's password
         user.setHashedPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(LocalDateTime.now(utcClock));
         userRepository.save(user);
         
         // Mark the token as used
@@ -237,10 +242,30 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
+    public void changePassword(String usernameOrEmail, String currentPassword, String newPassword) {
+        if (usernameOrEmail == null || usernameOrEmail.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
+        }
+
+        User user = userRepository.findByUsername(usernameOrEmail)
+                .or(() -> userRepository.findByEmail(usernameOrEmail))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        if (!passwordEncoder.matches(currentPassword, user.getHashedPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is incorrect");
+        }
+
+        user.setHashedPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(LocalDateTime.now(utcClock));
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
     public LocalDateTime verifyEmail(String token) {
         // Hash the provided token to match against stored hash
         String tokenHash = hashVerificationToken(token);
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(utcClock);
         
         // Find valid, unused, non-expired token
         Optional<EmailVerificationToken> tokenOpt = emailVerificationTokenRepository
@@ -319,7 +344,7 @@ public class AuthServiceImpl implements AuthService {
                 verificationToken.setEmail(email);
                 
                 // Set expiresAt using configurable TTL (UTC)
-                LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+                LocalDateTime now = LocalDateTime.now(utcClock);
                 verificationToken.setCreatedAt(now);
                 verificationToken.setExpiresAt(now.plusMinutes(verificationTokenTtlMinutes));
                 

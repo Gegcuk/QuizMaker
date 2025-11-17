@@ -31,6 +31,7 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.security.PermissionUtil;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
+import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +49,7 @@ public class AdminController {
     private final PermissionUtil permissionUtil;
     private final PolicyReconciliationService policyReconciliationService;
     private final EmailService emailService;
+    private final XssSanitizer xssSanitizer;
 
     @Value("${app.admin.system-initialization.enabled:true}")
     private boolean systemInitializationEnabled;
@@ -201,6 +203,7 @@ public class AdminController {
         
         PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileAll();
         
+        // Service layer already sanitizes error messages that include user input
         if (result.success()) {
             log.info("Policy reconciliation completed successfully: {}", result.message());
             return ResponseEntity.ok(result);
@@ -233,6 +236,7 @@ public class AdminController {
         log.info("Role reconciliation triggered for role: {} by user: {}", 
                 roleName, permissionUtil.getCurrentUser().getUsername());
         
+        // Service layer sanitizes user input (roleName) when including it in error messages
         PolicyReconciliationService.ReconciliationResult result = policyReconciliationService.reconcileRole(roleName);
         
         if (result.success()) {
@@ -322,10 +326,12 @@ public class AdminController {
         try {
             log.info("Admin email test: sending verification email to: {}", email);
             emailService.sendEmailVerificationEmail(email, "test-token-123");
-            return ResponseEntity.ok("Email verification test sent successfully to: " + email);
+            String sanitizedEmail = xssSanitizer.sanitize(email);
+            return ResponseEntity.ok("Email verification test sent successfully to: " + sanitizedEmail);
         } catch (Exception e) {
             log.error("Failed to send email verification test to: {}", email, e);
-            return ResponseEntity.badRequest().body("Failed to send test email: " + e.getMessage());
+            String sanitizedMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+            return ResponseEntity.badRequest().body("Failed to send test email: " + sanitizedMessage);
         }
     }
 
@@ -336,10 +342,12 @@ public class AdminController {
         try {
             log.info("Admin email test: sending password reset email to: {}", email);
             emailService.sendPasswordResetEmail(email, "test-reset-token-456");
-            return ResponseEntity.ok("Password reset test sent successfully to: " + email);
+            String sanitizedEmail = xssSanitizer.sanitize(email);
+            return ResponseEntity.ok("Password reset test sent successfully to: " + sanitizedEmail);
         } catch (Exception e) {
             log.error("Failed to send password reset test to: {}", email, e);
-            return ResponseEntity.badRequest().body("Failed to send test email: " + e.getMessage());
+            String sanitizedMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+            return ResponseEntity.badRequest().body("Failed to send test email: " + sanitizedMessage);
         }
     }
 

@@ -17,6 +17,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
@@ -150,6 +151,37 @@ public class AuthController {
     }
 
     @Operation(
+            summary = "Change password",
+            description = "Allows an authenticated user to change their password by providing the current password."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password changed successfully"),
+            @ApiResponse(responseCode = "400", description = "Validation errors or incorrect current password",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Not authenticated",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @PostMapping("/change-password")
+    public ResponseEntity<ChangePasswordResponse> changePassword(
+            Authentication authentication,
+            HttpServletRequest httpRequest,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Not authenticated");
+        }
+
+        String clientIp = trustedProxyUtil.getClientIp(httpRequest);
+        String rateLimitKey = authentication.getName() + "|" + clientIp;
+        rateLimitService.checkRateLimit("change-password", rateLimitKey, 3);
+
+        authService.changePassword(authentication.getName(), request.currentPassword(), request.newPassword());
+        return ResponseEntity.ok(new ChangePasswordResponse("Password updated successfully"));
+    }
+
+    @Operation(
             summary = "Forgot password",
             description = "Initiates a password reset process. If the email exists, a reset link will be sent."
     )
@@ -214,8 +246,8 @@ public class AuthController {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
-        // Rate limiting check by IP + token
-        rateLimitService.checkRateLimit("reset-password", clientIp + "|" + token);
+        // Rate limiting check scoped to caller IP to prevent bucket rotation via token parameter
+        rateLimitService.checkRateLimit("reset-password", clientIp);
         
         // Reset the password
         authService.resetPassword(token, request.newPassword());
@@ -240,8 +272,10 @@ public class AuthController {
         // Get client IP from trusted proxy
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
-        // Rate limiting check by IP to prevent brute force attempts
-        rateLimitService.checkRateLimit("verify-email", clientIp);
+        // Rate limiting scoped to caller IP only to prevent bucket rotation via token parameter
+        // Using IP-only prevents attackers from bypassing rate limits by rotating tokens
+        // Higher limit (10/min) accommodates legitimate users behind shared IPs (e.g., corporate networks)
+        rateLimitService.checkRateLimit("verify-email", clientIp, 10);
         
         LocalDateTime verifiedAt = authService.verifyEmail(request.token());
         
@@ -274,4 +308,5 @@ public class AuthController {
         return ResponseEntity.accepted()
                 .body(new ResendVerificationResponse("If the email exists and is not verified, a verification link was sent."));
     }
+
 }

@@ -37,6 +37,9 @@ public class User implements Persistable<UUID> {
     @Column(name = "password", nullable = false)
     private String hashedPassword;
 
+    @Column(name = "password_changed_at", nullable = false)
+    private LocalDateTime passwordChangedAt;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -107,7 +110,11 @@ public class User implements Persistable<UUID> {
 
     @PrePersist
     void prePersist() {
-        this.createdAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        this.createdAt = now;
+        if (this.passwordChangedAt == null) {
+            this.passwordChangedAt = now;
+        }
         this.isNew = true;
     }
 
