@@ -48,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 @Execution(ExecutionMode.CONCURRENT)
@@ -91,8 +92,9 @@ class AuthServiceImplTest {
         testUser.setUsername("testuser");
         fixedInstant = Instant.parse("2024-01-01T00:00:00Z");
         fixedNow = LocalDateTime.ofInstant(fixedInstant, ZoneOffset.UTC);
-        when(utcClock.instant()).thenReturn(fixedInstant);
-        when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
+        // Use lenient stubbing for clock to avoid unnecessary stubbing warnings in tests that don't use it
+        lenient().when(utcClock.instant()).thenReturn(fixedInstant);
+        lenient().when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
     }
 
     @Test
@@ -526,5 +528,73 @@ class AuthServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         verify(userRepository, never()).save(any());
         verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
+    @DisplayName("changePassword: throws NOT_FOUND when user does not exist")
+    void changePassword_userNotFound_throws() {
+        when(userRepository.findByUsername("nonexistent")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("nonexistent")).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.changePassword("nonexistent", "current", "new-secret"));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatusCode());
+        assertEquals("User not found", exception.getReason());
+        verify(userRepository).findByUsername("nonexistent");
+        verify(userRepository).findByEmail("nonexistent");
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("changePassword: throws UNAUTHORIZED when username is null")
+    void changePassword_nullUsername_throws() {
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.changePassword(null, "current", "new-secret"));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Not authenticated", exception.getReason());
+        verify(userRepository, never()).findByUsername(anyString());
+        verify(userRepository, never()).findByEmail(anyString());
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("changePassword: throws UNAUTHORIZED when username is blank")
+    void changePassword_blankUsername_throws() {
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> authService.changePassword("   ", "current", "new-secret"));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatusCode());
+        assertEquals("Not authenticated", exception.getReason());
+        verify(userRepository, never()).findByUsername(anyString());
+        verify(userRepository, never()).findByEmail(anyString());
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("changePassword: finds user by email when username lookup fails")
+    void changePassword_findsUserByEmail_whenUsernameNotFound() {
+        testUser.setHashedPassword("old-hash");
+        when(userRepository.findByUsername("test@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches("current", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encode("new-secret")).thenReturn("new-hash");
+
+        authService.changePassword("test@example.com", "current", "new-secret");
+
+        verify(userRepository).findByUsername("test@example.com");
+        verify(userRepository).findByEmail("test@example.com");
+        verify(passwordEncoder).matches("current", "old-hash");
+        verify(passwordEncoder).encode("new-secret");
+        verify(userRepository).save(testUser);
+        assertEquals("new-hash", testUser.getHashedPassword());
+        assertEquals(fixedNow, testUser.getPasswordChangedAt());
     }
 }
