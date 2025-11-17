@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
+import uk.gegc.quizmaker.shared.util.XssSanitizer;
 
 import java.io.IOException;
 import java.util.*;
@@ -28,6 +29,7 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
     private final PermissionRepository permissionRepository;
     private final PermissionService permissionService;
     private final ObjectMapper objectMapper;
+    private final XssSanitizer xssSanitizer;
 
     private static final String MANIFEST_PATH = "policy/role-permission-manifest.json";
 
@@ -59,7 +61,10 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
                     errors.addAll(roleResult.errors());
                 } catch (Exception e) {
                     log.error("Failed to reconcile role {}: {}", roleName, e.getMessage());
-                    errors.add("Failed to reconcile role " + roleName + ": " + e.getMessage());
+                    // Sanitize user input when including it in error messages
+                    String sanitizedRoleName = xssSanitizer.sanitize(roleName);
+                    String sanitizedErrorMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+                    errors.add("Failed to reconcile role " + sanitizedRoleName + ": " + sanitizedErrorMessage);
                 }
             }
 
@@ -123,7 +128,10 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
 
         } catch (Exception e) {
             log.error("Failed to reconcile role {}: {}", roleName, e.getMessage(), e);
-            errors.add("Failed to reconcile role " + roleName + ": " + e.getMessage());
+            // Sanitize user input (roleName) when including it in error messages to prevent XSS
+            String sanitizedRoleName = xssSanitizer.sanitize(roleName);
+            String sanitizedErrorMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+            errors.add("Failed to reconcile role " + sanitizedRoleName + ": " + sanitizedErrorMessage);
             return new ReconciliationResult(false, "Role reconciliation failed", 0, 0, 0, 0, 0, errors);
         }
     }
@@ -285,7 +293,10 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
                     log.info("Added missing permission: {}", permissionName);
                 } catch (Exception e) {
                     log.error("Failed to create permission {}: {}", permissionName, e.getMessage());
-                    errors.add("Failed to create permission " + permissionName + ": " + e.getMessage());
+                    // Sanitize permission name when including it in error messages
+                    String sanitizedPermissionName = xssSanitizer.sanitize(permissionName);
+                    String sanitizedErrorMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+                    errors.add("Failed to create permission " + sanitizedPermissionName + ": " + sanitizedErrorMessage);
                 }
             }
         }
@@ -355,7 +366,11 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
                     log.info("Added permission {} to role {}", permissionName, roleName);
                 } catch (Exception e) {
                     log.error("Failed to add permission {} to role {}: {}", permissionName, roleName, e.getMessage());
-                    errors.add("Failed to add permission " + permissionName + " to role " + roleName + ": " + e.getMessage());
+                    // Sanitize user input when including it in error messages
+                    String sanitizedPermissionName = xssSanitizer.sanitize(permissionName);
+                    String sanitizedRoleName = xssSanitizer.sanitize(roleName);
+                    String sanitizedErrorMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+                    errors.add("Failed to add permission " + sanitizedPermissionName + " to role " + sanitizedRoleName + ": " + sanitizedErrorMessage);
                 }
             }
         }
@@ -372,7 +387,11 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
                 log.info("Removed permission {} from role {}", permissionName, roleName);
             } catch (Exception e) {
                 log.error("Failed to remove permission {} from role {}: {}", permissionName, roleName, e.getMessage());
-                errors.add("Failed to remove permission " + permissionName + " from role " + roleName + ": " + e.getMessage());
+                // Sanitize user input when including it in error messages
+                String sanitizedPermissionName = xssSanitizer.sanitize(permissionName);
+                String sanitizedRoleName = xssSanitizer.sanitize(roleName);
+                String sanitizedErrorMessage = xssSanitizer.sanitize(e.getMessage() != null ? e.getMessage() : "Unknown error");
+                errors.add("Failed to remove permission " + sanitizedPermissionName + " from role " + sanitizedRoleName + ": " + sanitizedErrorMessage);
             }
         }
 
