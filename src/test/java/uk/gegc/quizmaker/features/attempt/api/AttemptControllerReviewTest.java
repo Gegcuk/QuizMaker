@@ -530,7 +530,8 @@ class AttemptControllerReviewTest {
                 true,
                 1.0,
                 Instant.now(),
-                null  // nextQuestion
+                null,  // correctAnswer
+                null   // nextQuestion
         );
 
         when(attemptService.submitAnswer(eq("testuser"), eq(attemptId), any()))
@@ -554,6 +555,49 @@ class AttemptControllerReviewTest {
     }
 
     @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: with flags=false explicitly → does not leak correct answers")
+    @WithMockUser(username = "testuser")
+    void submitAnswer_flagsFalse_explicitlyDoesNotLeakAnswers() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID questionId = UUID.randomUUID();
+        
+        String requestBody = """
+                {
+                    "questionId": "%s",
+                    "response": {"selectedOptionId": "opt_1"},
+                    "includeCorrectness": false,
+                    "includeCorrectAnswer": false
+                }
+                """.formatted(questionId);
+
+        AnswerSubmissionDto submissionDto = new AnswerSubmissionDto(
+                UUID.randomUUID(),
+                questionId,
+                null,  // isCorrect null when not requested
+                1.0,
+                Instant.now(),
+                null,  // correctAnswer null when not requested
+                null   // nextQuestion
+        );
+
+        when(attemptService.submitAnswer(eq("testuser"), eq(attemptId), any()))
+                .thenReturn(submissionDto);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerId").exists())
+                .andExpect(jsonPath("$.questionId").value(questionId.toString()))
+                // Verify sensitive fields are NOT present even when explicitly set to false
+                .andExpect(jsonPath("$.isCorrect").doesNotExist())
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+    }
+
+    @Test
     @DisplayName("POST /api/v1/attempts/{id}/complete: does not leak correct answers or user responses")
     @WithMockUser(username = "testuser")
     void completeAttempt_doesNotLeakAnswers() throws Exception {
@@ -568,7 +612,8 @@ class AttemptControllerReviewTest {
                 true,
                 1.0,
                 Instant.now(),
-                null
+                null,  // correctAnswer
+                null   // nextQuestion
         );
 
         AttemptResultDto resultDto = new AttemptResultDto(

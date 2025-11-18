@@ -41,6 +41,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -278,6 +279,101 @@ class AnonymousAttemptAnswerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("Anonymous submit answer: default behavior (flags omitted) → sensitive fields stay null/missing")
+    void anonymousSubmitAnswer_defaultBehavior_sensitiveFieldsOmitted() throws Exception {
+        // Create share link
+        CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, Instant.now().plusSeconds(600), false);
+        MvcResult created = mockMvc.perform(post("/api/v1/quizzes/{quizId}/share-link", quizId)
+                        .with(user(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = objectMapper.readTree(created.getResponse().getContentAsString()).get("token").asText();
+
+        // Access to set share_token cookie
+        mockMvc.perform(get("/api/v1/quizzes/shared/{token}", token)
+                        .header("User-Agent", "JUnit")
+                        .header("X-Forwarded-For", "198.51.100.5"))
+                .andExpect(status().isOk())
+                .andExpect(cookie().exists("share_token"));
+
+        // Start attempt
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
+        MvcResult started = mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(startReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID attemptId = UUID.fromString(objectMapper.readTree(started.getResponse().getContentAsString()).get("attemptId").asText());
+
+        // Submit answer without flags
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("questionId", questionId.toString());
+        ObjectNode resp = objectMapper.createObjectNode();
+        resp.put("answer", true);
+        payload.set("response", resp);
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId").value(questionId.toString()))
+                .andExpect(jsonPath("$.answerId").exists())
+                // Verify sensitive fields are NOT present
+                .andExpect(jsonPath("$.isCorrect").doesNotExist())
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Anonymous submit answer: includeCorrectAnswer=true → includes correctAnswer field")
+    void anonymousSubmitAnswer_includeCorrectAnswer_includesCorrectAnswer() throws Exception {
+        // Create share link
+        CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, Instant.now().plusSeconds(600), false);
+        MvcResult created = mockMvc.perform(post("/api/v1/quizzes/{quizId}/share-link", quizId)
+                        .with(user(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = objectMapper.readTree(created.getResponse().getContentAsString()).get("token").asText();
+
+        // Access to set share_token cookie
+        mockMvc.perform(get("/api/v1/quizzes/shared/{token}", token)
+                        .header("User-Agent", "JUnit")
+                        .header("X-Forwarded-For", "198.51.100.5"))
+                .andExpect(status().isOk())
+                .andExpect(cookie().exists("share_token"));
+
+        // Start attempt
+        StartAttemptRequest startReq = new StartAttemptRequest(AttemptMode.ALL_AT_ONCE);
+        MvcResult started = mockMvc.perform(post("/api/v1/quizzes/shared/{token}/attempts", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(startReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID attemptId = UUID.fromString(objectMapper.readTree(started.getResponse().getContentAsString()).get("attemptId").asText());
+
+        // Submit answer with includeCorrectAnswer=true
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("questionId", questionId.toString());
+        ObjectNode resp = objectMapper.createObjectNode();
+        resp.put("answer", true);
+        payload.set("response", resp);
+        payload.put("includeCorrectAnswer", true);
+
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers", attemptId)
+                        .cookie(new jakarta.servlet.http.Cookie("share_token", token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(payload)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId").value(questionId.toString()))
+                .andExpect(jsonPath("$.correctAnswer").exists())
+                .andExpect(jsonPath("$.correctAnswer.answer").value(true));
     }
 }
 

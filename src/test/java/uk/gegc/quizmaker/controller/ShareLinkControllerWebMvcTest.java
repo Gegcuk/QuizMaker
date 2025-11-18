@@ -246,7 +246,7 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
-        AnswerSubmissionDto dto = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null);
+        AnswerSubmissionDto dto = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, null);
         when(attemptService.submitAnswer(eq("anonymous"), eq(attemptId), any())).thenReturn(dto);
 
         ObjectNode payload = objectMapper.createObjectNode();
@@ -274,8 +274,8 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
-        AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null);
-        AnswerSubmissionDto dto2 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), false, 0.0, Instant.now(), null);
+        AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, null);
+        AnswerSubmissionDto dto2 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), false, 0.0, Instant.now(), null, null);
         when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
                 .thenReturn(java.util.List.of(dto1, dto2));
 
