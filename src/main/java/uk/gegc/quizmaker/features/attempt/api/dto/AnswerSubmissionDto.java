@@ -16,7 +16,7 @@ public record AnswerSubmissionDto(
         @Schema(description = "UUID of the question", example = "abcdef12-3456-7890-abcd-ef1234567890")
         UUID questionId,
 
-        @Schema(description = "Whether the submitted answer was correct (only included when includeCorrectAnswer=true)", example = "true")
+        @Schema(description = "Whether the submitted answer was correct (only included when includeCorrectness=true)", example = "true")
         Boolean isCorrect,
 
         @Schema(description = "Score awarded for this answer", example = "1.0")
