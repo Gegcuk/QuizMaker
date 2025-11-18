@@ -1,6 +1,6 @@
 # QuizMaker Development Guide (agents.md) — Code Rules Only
 
-**Target stack:** Java 17+/21, Spring Boot 3.x, Spring MVC, Spring Data JPA, Spring Security, Jackson, Jakarta Bean Validation, MapStruct.
+**Target stack:** Java 17, Spring Boot 3.x, Spring MVC, Spring Data JPA, Spring Security, Jackson, Jakarta Bean Validation, MapStruct.
 
 **Layout:** feature-first
 

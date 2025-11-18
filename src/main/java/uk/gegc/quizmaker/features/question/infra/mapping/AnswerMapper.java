@@ -14,7 +14,8 @@ public class AnswerMapper {
                 answer.getIsCorrect(),
                 answer.getScore(),
                 answer.getAnsweredAt(),
-                null
+                null,      // correctAnswer only populated when explicitly requested via submit endpoint
+                null       // no next question context in mapper outputs
         );
     }
 }

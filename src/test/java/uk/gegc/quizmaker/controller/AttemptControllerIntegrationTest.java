@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +57,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE;
 import static uk.gegc.quizmaker.features.question.domain.model.QuestionType.TRUE_FALSE;
 
 
@@ -321,7 +323,9 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
 
         var submission = new AnswerSubmissionRequest(
                 questionId,
-                objectMapper.readTree(responseJson)
+                objectMapper.readTree(responseJson),
+                true,  // includeCorrectness - needed for this test to verify correctness
+                null   // includeCorrectAnswer
         );
         String sJson = objectMapper.writeValueAsString(submission);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
@@ -342,7 +346,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("SubmitAnswer with invalid attemptId → returns 404 NOT_FOUND")
     void submitWithBadAttemptId() throws Exception {
         UUID fakeId = UUID.randomUUID();
-        var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode());
+        var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode(), null, null);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", fakeId)
                         .with(user(regularUserDetails))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -492,6 +496,166 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Illegal State"))
                 .andExpect(jsonPath("$.detail").exists())
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: default behavior (flags omitted) → sensitive fields stay null/missing")
+    void submitAnswer_defaultBehavior_sensitiveFieldsOmitted() throws Exception {
+        // Given
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+        UUID attemptId = startAttempt();
+
+        // When: submit without includeCorrectness or includeCorrectAnswer flags
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                null,  // includeCorrectness
+                null   // includeCorrectAnswer
+        );
+        String sJson = objectMapper.writeValueAsString(submission);
+
+        // Then: sensitive fields should not be present
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(sJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId", is(questionId.toString())))
+                .andExpect(jsonPath("$.answerId").exists())
+                .andExpect(jsonPath("$.score").exists())
+                .andExpect(jsonPath("$.answeredAt").exists())
+                // Verify sensitive fields are NOT present
+                .andExpect(jsonPath("$.isCorrect").doesNotExist())
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeCorrectness=true → includes isCorrect field")
+    void submitAnswer_includeCorrectness_includesIsCorrect() throws Exception {
+        // Given
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+        UUID attemptId = startAttempt();
+
+        // When: submit with includeCorrectness=true
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                true,  // includeCorrectness
+                false  // includeCorrectAnswer
+        );
+        String sJson = objectMapper.writeValueAsString(submission);
+
+        // Then: isCorrect should be present
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(sJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId", is(questionId.toString())))
+                .andExpect(jsonPath("$.isCorrect").exists())
+                .andExpect(jsonPath("$.isCorrect").value(true))
+                // correctAnswer should still not be present
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeCorrectAnswer=true → includes correctAnswer field")
+    void submitAnswer_includeCorrectAnswer_includesCorrectAnswer() throws Exception {
+        // Given: MCQ_SINGLE question with correct option
+        UUID questionId = createDummyQuestion(MCQ_SINGLE, """
+                {
+                    "options": [
+                        {"id": "opt_1", "text": "Option 1", "correct": false},
+                        {"id": "opt_2", "text": "Option 2", "correct": true},
+                        {"id": "opt_3", "text": "Option 3", "correct": false}
+                    ]
+                }
+                """);
+        UUID attemptId = startAttempt();
+
+        // When: submit with includeCorrectAnswer=true
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}"),
+                false,  // includeCorrectness
+                true     // includeCorrectAnswer
+        );
+        String sJson = objectMapper.writeValueAsString(submission);
+
+        // Then: correctAnswer should be present with correct structure
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(sJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId", is(questionId.toString())))
+                .andExpect(jsonPath("$.correctAnswer").exists())
+                .andExpect(jsonPath("$.correctAnswer.correctOptionId").value("opt_2"))
+                // isCorrect should not be present when not requested
+                .andExpect(jsonPath("$.isCorrect").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: both flags true → includes both isCorrect and correctAnswer")
+    void submitAnswer_bothFlagsTrue_includesBothFields() throws Exception {
+        // Given: TRUE_FALSE question
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}");
+        UUID attemptId = startAttempt();
+
+        // When: submit with both flags true
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                true,  // includeCorrectness
+                true   // includeCorrectAnswer
+        );
+        String sJson = objectMapper.writeValueAsString(submission);
+
+        // Then: both fields should be present
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(sJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId", is(questionId.toString())))
+                .andExpect(jsonPath("$.isCorrect").exists())
+                .andExpect(jsonPath("$.isCorrect").value(true))
+                .andExpect(jsonPath("$.correctAnswer").exists())
+                .andExpect(jsonPath("$.correctAnswer.answer").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeCorrectAnswer with valid question → returns correctAnswer successfully")
+    void submitAnswer_includeCorrectAnswer_validQuestion_returnsCorrectAnswer() throws Exception {
+        // Given: Create a valid MCQ_SINGLE question
+        UUID questionId = createDummyQuestion(MCQ_SINGLE, """
+                {
+                    "options": [
+                        {"id": "opt_1", "text": "Option 1", "correct": true},
+                        {"id": "opt_2", "text": "Option 2", "correct": false}
+                    ]
+                }
+                """);
+        UUID attemptId = startAttempt();
+
+        // When: submit with includeCorrectAnswer=true
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}"),
+                false,  // includeCorrectness
+                true     // includeCorrectAnswer
+        );
+        String sJson = objectMapper.writeValueAsString(submission);
+
+        // Then: correctAnswer should be successfully extracted
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(sJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionId", is(questionId.toString())))
+                .andExpect(jsonPath("$.correctAnswer").exists())
+                .andExpect(jsonPath("$.correctAnswer.correctOptionId").value("opt_1"));
     }
 
     @Test
@@ -744,7 +908,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         // Test that the timeout logic is working by submitting an answer immediately
         // This should NOT timeout since we just created the attempt
         String validSubmit = String.format(
-                "{\"questionId\":\"%s\",\"response\":{\"selectedOptionId\":\"A\"}}", questionId
+                "{\"questionId\":\"%s\",\"response\":{\"selectedOptionId\":\"A\"},\"includeCorrectness\":true}", questionId
         );
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
@@ -779,12 +943,16 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
 
         var batchRequest = objectMapper.createObjectNode();
         var arr = batchRequest.putArray("answers");
-        arr.add(objectMapper.createObjectNode()
-                .put("questionId", question1.toString())
-                .set("response", objectMapper.readTree("{ \"answer\": true }")));
-        arr.add(objectMapper.createObjectNode()
-                .put("questionId", question2.toString())
-                .set("response", objectMapper.readTree("{ \"answer\": false }")));
+        ObjectNode answer1 = objectMapper.createObjectNode();
+        answer1.put("questionId", question1.toString());
+        answer1.set("response", objectMapper.readTree("{ \"answer\": true }"));
+        answer1.put("includeCorrectness", true);
+        arr.add(answer1);
+        ObjectNode answer2 = objectMapper.createObjectNode();
+        answer2.put("questionId", question2.toString());
+        answer2.set("response", objectMapper.readTree("{ \"answer\": false }"));
+        answer2.put("includeCorrectness", true);
+        arr.add(answer2);
         String batchJson = objectMapper.writeValueAsString(batchRequest);
 
         mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", attemptId)
@@ -937,7 +1105,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         UUID currentQuestionId = UUID.fromString(questionNode.get("question").get("id").asText());
 
         // Submit answer for the returned current question
-        var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"));
+        var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"), null, null);
         mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
                         .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
@@ -947,7 +1115,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {
-        var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson));
+        var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson), null, null);
         return mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt)
                 .with(user(regularUserDetails))
                 .contentType(APPLICATION_JSON)

@@ -368,12 +368,25 @@ public class AttemptServiceImpl implements AttemptService {
             }
         }
 
+        Boolean isCorrect = request.includeCorrectness() ? baseDto.isCorrect() : null;
+        JsonNode correctAnswer = null;
+        if (request.includeCorrectAnswer()) {
+            try {
+                correctAnswer = correctAnswerExtractor.extractCorrectAnswer(question);
+            } catch (IllegalArgumentException e) {
+                // Log error but don't fail entire response
+                correctAnswer = objectMapper.createObjectNode()
+                        .put("error", "Failed to extract correct answer: " + e.getMessage());
+            }
+        }
+
         return new AnswerSubmissionDto(
                 baseDto.answerId(),
                 baseDto.questionId(),
-                baseDto.isCorrect(),
+                isCorrect,
                 baseDto.score(),
                 baseDto.answeredAt(),
+                correctAnswer,
                 nextQuestion
         );
     }
