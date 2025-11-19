@@ -254,7 +254,8 @@ public class SizeBasedChunker implements UniversalChunker {
 
     @Override
     public boolean canHandle(ProcessDocumentRequest.ChunkingStrategy strategy) {
-        return strategy == ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED;
+        return strategy == ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED ||
+                strategy == ProcessDocumentRequest.ChunkingStrategy.AUTO;
     }
 }
 

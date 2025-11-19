@@ -145,13 +145,13 @@ class SizeBasedChunkerTest {
     }
 
     @Test
-    @DisplayName("canHandle: AUTO returns false")
-    void canHandle_Auto_ReturnsFalse() {
+    @DisplayName("canHandle: AUTO returns true")
+    void canHandle_Auto_ReturnsTrue() {
         // Act
         boolean result = chunker.canHandle(ProcessDocumentRequest.ChunkingStrategy.AUTO);
 
         // Assert
-        assertFalse(result);
+        assertTrue(result, "SizeBasedChunker should handle AUTO strategy as default");
     }
 
     @Test

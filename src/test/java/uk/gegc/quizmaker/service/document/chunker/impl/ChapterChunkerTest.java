@@ -93,12 +93,12 @@ class ChapterChunkerTest {
     }
 
     @Test
-    void canHandle_Auto_ReturnsTrue() {
+    void canHandle_Auto_ReturnsFalse() {
         // Act
         boolean result = chunker.canHandle(ProcessDocumentRequest.ChunkingStrategy.AUTO);
 
         // Assert
-        assertTrue(result);
+        assertFalse(result, "ChapterChunker no longer handles AUTO - SizeBasedChunker is now the default");
     }
 
     @Test

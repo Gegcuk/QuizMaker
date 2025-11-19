@@ -14,7 +14,7 @@ public class DocumentProcessingConfig {
     @Value("${document.chunking.max-chunk-size:50000}")
     private Integer defaultMaxChunkSize;
 
-    @Value("${document.chunking.default-strategy:CHAPTER_BASED}")
+    @Value("${document.chunking.default-strategy:SIZE_BASED}")
     private String defaultStrategy;
 
     @Value("${document.chunking.min-chunk-size:1000}")

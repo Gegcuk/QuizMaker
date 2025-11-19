@@ -643,7 +643,6 @@ public class ChapterChunker implements UniversalChunker {
 
     @Override
     public boolean canHandle(ProcessDocumentRequest.ChunkingStrategy strategy) {
-        return strategy == ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED ||
-                strategy == ProcessDocumentRequest.ChunkingStrategy.AUTO;
+        return strategy == ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED;
     }
 } 
