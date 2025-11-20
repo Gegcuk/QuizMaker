@@ -77,14 +77,12 @@ public class SizeBasedChunker implements UniversalChunker {
         List<Chunk> chunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
 
-        // Prevent infinite recursion
-        if (recursionDepth > 10) {
-            log.warn("Max recursion depth reached, creating single chunk");
-            int totalPages = document.getTotalPages() != null ? document.getTotalPages() : 1;
-            String title = titleGenerator.generateDocumentChunkTitle(documentTitle, startChunkIndex, 1);
-            Chunk chunk = createChunk(title, content, 1, totalPages, startChunkIndex, document);
-            chunks.add(chunk);
-            return chunks;
+        // Absolute safety limit to prevent StackOverflowError (very unlikely to hit)
+        // Use a high limit (1000) to handle very large documents, but still enforce size constraints
+        if (recursionDepth > 1000) {
+            log.error("Recursion depth exceeded safety limit (1000), forcing hard cuts at maxSize boundaries");
+            // Force iterative splitting at exact maxSize boundaries to ensure size constraints
+            return splitContentIteratively(content, documentTitle, request, startChunkIndex, document);
         }
 
         // If content is small enough, create single chunk
@@ -96,15 +94,31 @@ public class SizeBasedChunker implements UniversalChunker {
             return chunks;
         }
 
-        // Use SentenceBoundaryDetector to find best split point
-        int splitPoint = sentenceBoundaryDetector.findBestSplitPoint(content, maxSize);
+        // When recursion is deep (but below safety limit), use simpler hard-cut strategy
+        // to avoid expensive sentence boundary detection while still respecting maxSize
+        boolean useHardCuts = recursionDepth > 50;
         
-        // If no good split point found, use middle
-        if (splitPoint <= 0 || splitPoint >= content.length()) {
-            splitPoint = Math.min(maxSize, content.length() / 2);
+        int splitPoint;
+        if (useHardCuts) {
+            // Force split at maxSize boundary when recursion is deep
+            log.debug("Deep recursion (depth={}), using hard cut at maxSize boundary", recursionDepth);
+            splitPoint = maxSize;
+        } else {
+            // Use SentenceBoundaryDetector to find best split point
+            splitPoint = sentenceBoundaryDetector.findBestSplitPoint(content, maxSize);
+            
+            // If no good split point found, use middle (but ensure it's <= maxSize)
+            if (splitPoint <= 0 || splitPoint >= content.length()) {
+                splitPoint = Math.min(maxSize, content.length() / 2);
+            }
+            
+            // Ensure split point doesn't exceed maxSize (critical constraint)
+            if (splitPoint > maxSize) {
+                splitPoint = maxSize;
+            }
         }
 
-        // Create first chunk
+        // Create first chunk (guaranteed to be <= maxSize due to splitPoint constraint)
         String firstChunkContent = content.substring(0, splitPoint).trim();
         int estimatedTotalChunks = (int) Math.ceil((double) content.length() / maxSize);
         String firstChunkTitle = titleGenerator.generateDocumentChunkTitle(documentTitle, startChunkIndex, estimatedTotalChunks);
@@ -131,12 +145,51 @@ public class SizeBasedChunker implements UniversalChunker {
     }
 
     /**
+     * Iterative splitting at exact maxSize boundaries (fallback for extremely deep recursion)
+     * This ensures we never violate the maxSize constraint, even in edge cases
+     */
+    private List<Chunk> splitContentIteratively(String content, String documentTitle,
+                                                ProcessDocumentRequest request,
+                                                int startChunkIndex, ConvertedDocument document) {
+        List<Chunk> chunks = new ArrayList<>();
+        int maxSize = request.getMaxChunkSize();
+        int totalPages = document.getTotalPages() != null ? document.getTotalPages() : 1;
+        int chunkIndex = startChunkIndex;
+        
+        int offset = 0;
+        int estimatedTotalChunks = (int) Math.ceil((double) content.length() / maxSize);
+        
+        while (offset < content.length()) {
+            int endOffset = Math.min(offset + maxSize, content.length());
+            String chunkContent = content.substring(offset, endOffset).trim();
+            
+            // Skip empty chunks
+            if (chunkContent.isEmpty()) {
+                offset = endOffset;
+                continue;
+            }
+            
+            String chunkTitle = titleGenerator.generateDocumentChunkTitle(documentTitle, chunkIndex, estimatedTotalChunks);
+            Chunk chunk = createChunk(chunkTitle, chunkContent, 1, totalPages, chunkIndex, document);
+            chunks.add(chunk);
+            
+            chunkIndex++;
+            offset = endOffset;
+        }
+        
+        log.warn("Iterative splitting created {} chunks at exact maxSize boundaries", chunks.size());
+        return chunks;
+    }
+
+    /**
      * Combine small chunks with the next chunk
+     * IMPORTANT: This method respects maxChunkSize constraint and never creates chunks exceeding it
      */
     private List<Chunk> combineSmallChunks(List<Chunk> chunks, int minSize, ProcessDocumentRequest request) {
         if (chunks.isEmpty()) return chunks;
 
-        log.info("Combining chunks: {} chunks, minSize={}", chunks.size(), minSize);
+        int maxSize = request.getMaxChunkSize();
+        log.info("Combining chunks: {} chunks, minSize={}, maxSize={}", chunks.size(), minSize, maxSize);
 
         List<Chunk> result = new ArrayList<>();
         Chunk currentChunk = chunks.get(0);
@@ -144,8 +197,21 @@ public class SizeBasedChunker implements UniversalChunker {
         for (int i = 1; i < chunks.size(); i++) {
             Chunk nextChunk = chunks.get(i);
 
-            // More aggressive combination logic for tiny chunks
-            int combinedSize = currentChunk.getCharacterCount() + nextChunk.getCharacterCount();
+            // Calculate combined size including separator ("\n\n" = 2 chars)
+            int separatorSize = 2;
+            int combinedSize = currentChunk.getCharacterCount() + nextChunk.getCharacterCount() + separatorSize;
+
+            // CRITICAL: Never combine if it would exceed maxChunkSize
+            // This is the primary constraint that must be respected
+            if (combinedSize > maxSize) {
+                // Cannot combine without violating maxSize constraint
+                result.add(currentChunk);
+                currentChunk = nextChunk;
+                continue;
+            }
+
+            // At this point, combining is safe from a size perspective
+            // Now apply the combination logic for small chunks
 
             // Always combine if current chunk is very small (< 50% of minSize)
             boolean shouldCombine = currentChunk.getCharacterCount() < (minSize / 2);
@@ -163,8 +229,9 @@ public class SizeBasedChunker implements UniversalChunker {
             }
 
             // Also combine if both chunks are small and combining gets closer to target size
+            // Note: combinedSize is already verified to be <= maxSize above
             if (!shouldCombine && currentChunk.getCharacterCount() < minSize && nextChunk.getCharacterCount() < minSize) {
-                shouldCombine = combinedSize <= 100000 && combinedSize > Math.max(currentChunk.getCharacterCount(), nextChunk.getCharacterCount());
+                shouldCombine = combinedSize > Math.max(currentChunk.getCharacterCount(), nextChunk.getCharacterCount());
             }
 
             if (shouldCombine) {

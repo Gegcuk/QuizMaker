@@ -554,6 +554,112 @@ class SizeBasedChunkerTest {
     }
 
     @Test
+    @DisplayName("chunkDocument: ensures chunks never exceed maxSize even with deep recursion (bug fix)")
+    void chunkDocument_DeepRecursion_NeverExceedsMaxSize() {
+        // Arrange - Create a document that requires more than 11 chunks to trigger old recursion limit
+        // With maxSize=1000, we need content > 11000 chars to force >10 recursions
+        ConvertedDocument document = createVeryLargeDocument();
+        ProcessDocumentRequest request = createTestRequest();
+        request.setMaxChunkSize(1000); // Small max size to force many chunks
+        request.setMinChunkSize(100); // Low min size to prevent aggressive combining
+        request.setAggressiveCombinationThreshold(500); // Low threshold to prevent combining
+
+        // Mock sentence boundary detector to return reasonable split points
+        when(sentenceBoundaryDetector.findBestSplitPoint(anyString(), eq(1000)))
+                .thenAnswer(invocation -> {
+                    String text = invocation.getArgument(0);
+                    int maxLength = invocation.getArgument(1);
+                    // Return split point at ~90% of maxLength to create chunks close to maxSize
+                    return Math.min((int)(maxLength * 0.9), text.length() / 2);
+                });
+
+        when(titleGenerator.generateDocumentChunkTitle(eq("Test Document"), anyInt(), anyInt()))
+                .thenAnswer(invocation -> "Test Document (Part " + ((Integer) invocation.getArgument(1) + 1) + ")");
+
+        // Act
+        List<UniversalChunker.Chunk> result = chunker.chunkDocument(document, request);
+
+        // Assert - CRITICAL: All chunks must respect maxSize constraint
+        assertNotNull(result);
+        assertTrue(result.size() > 10, "Should create more than 10 chunks to trigger old recursion limit scenario");
+        
+        // Verify NO chunk exceeds maxSize (this was the bug - chunks exceeding maxSize)
+        int maxSize = request.getMaxChunkSize();
+        for (int i = 0; i < result.size(); i++) {
+            UniversalChunker.Chunk chunk = result.get(i);
+            int chunkSize = chunk.getCharacterCount();
+            assertTrue(chunkSize <= maxSize, 
+                    String.format("Chunk %d ('%s') exceeds maxSize: %d > %d. " +
+                            "This violates size constraint and breaks token budgets.", 
+                            i, chunk.getTitle(), chunkSize, maxSize));
+            assertTrue(chunkSize > 0, "Chunk should have content");
+            assertEquals(ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, chunk.getChunkType());
+        }
+    }
+
+    @Test
+    @DisplayName("chunkDocument: combining step respects maxChunkSize constraint (bug fix)")
+    void chunkDocument_CombiningRespectsMaxSize_NeverExceedsMaxSize() {
+        // Arrange - Create chunks that are below aggressive threshold but would exceed maxSize when combined
+        // maxSize = 5000, aggressive threshold = 5000 (default), so chunks ~4900 chars would normally combine
+        // but should NOT combine if it would exceed maxSize
+        ConvertedDocument document = new ConvertedDocument();
+        document.setOriginalFilename("test.pdf");
+        document.setTitle("Test Document");
+        document.setAuthor("Test Author");
+        document.setConverterType("TEST_CONVERTER");
+        document.setTotalPages(10);
+        
+        // Create content that splits into ~4900 char chunks
+        String baseSentence = "This is a sentence. ";
+        StringBuilder content = new StringBuilder();
+        // Create two chunks of ~4900 chars each (total ~9800 chars)
+        // With maxSize=5000, they should NOT combine (would exceed maxSize)
+        int charsPerChunk = 4900;
+        for (int i = 0; i < (charsPerChunk * 2) / baseSentence.length(); i++) {
+            content.append(baseSentence);
+        }
+        
+        document.setFullContent(content.toString());
+        ProcessDocumentRequest request = createTestRequest();
+        request.setMaxChunkSize(5000); // Small enough that combining two ~4900 char chunks would exceed it
+        request.setMinChunkSize(100); // Low min size
+        request.setAggressiveCombinationThreshold(5000); // High threshold that would normally trigger combination
+        
+        when(sentenceBoundaryDetector.findBestSplitPoint(anyString(), eq(5000)))
+                .thenAnswer(invocation -> {
+                    String text = invocation.getArgument(0);
+                    // Split roughly in the middle to create two ~4900 char chunks
+                    return Math.min(text.length() / 2, 4900);
+                });
+        
+        when(titleGenerator.generateDocumentChunkTitle(eq("Test Document"), anyInt(), anyInt()))
+                .thenAnswer(invocation -> "Test Document (Part " + ((Integer) invocation.getArgument(1) + 1) + ")");
+        
+        // Act
+        List<UniversalChunker.Chunk> result = chunker.chunkDocument(document, request);
+        
+        // Assert - CRITICAL: NO chunk should exceed maxSize, even after combination
+        assertNotNull(result);
+        assertFalse(result.isEmpty(), "Should create chunks");
+        
+        int maxSize = request.getMaxChunkSize();
+        for (int i = 0; i < result.size(); i++) {
+            UniversalChunker.Chunk chunk = result.get(i);
+            int chunkSize = chunk.getCharacterCount();
+            assertTrue(chunkSize <= maxSize,
+                    String.format("Chunk %d ('%s') exceeds maxSize after combination: %d > %d. " +
+                            "The combining step should respect maxSize constraint and never create oversized chunks.",
+                            i, chunk.getTitle(), chunkSize, maxSize));
+        }
+        
+        // Verify that chunks are not combined when it would exceed maxSize
+        // With two ~4900 char chunks and maxSize=5000, they should NOT be combined
+        // (unless they were already split smaller during the splitting phase)
+        // The key assertion above verifies that no chunk exceeds maxSize, which is the critical bug fix
+    }
+
+    @Test
     @DisplayName("chunkDocument: handles minChunkSize greater than maxChunkSize")
     void chunkDocument_MinSizeGreaterThanMaxSize_HandlesGracefully() {
         // Arrange
@@ -614,11 +720,17 @@ class SizeBasedChunkerTest {
         assertFalse(result.isEmpty());
         
         // Reconstruct content from chunks
+        // Note: When chunks are combined, they include "\n\n" separator in their content.
+        // When chunks are not combined (e.g., due to maxSize constraint), they are just concatenated.
+        // Content is trimmed during splitting, so we need to normalize whitespace for comparison.
         StringBuilder reconstructedContent = new StringBuilder();
         for (UniversalChunker.Chunk chunk : result) {
+            if (reconstructedContent.length() > 0) {
+                // Add a space separator if chunks aren't combined (prevents words from running together)
+                // This accounts for whitespace that may have been lost during split/trim operations
+                reconstructedContent.append(" ");
+            }
             reconstructedContent.append(chunk.getContent());
-            // Chunks are combined with "\n\n", so we need to account for that
-            // But for the last chunk, we don't add separator
         }
         
         // Content should be preserved (allowing for whitespace normalization from trimming)
