@@ -137,7 +137,7 @@ public record GenerateQuizFromTextRequest(
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setChunkingStrategy(chunkingStrategy);
         request.setMaxChunkSize(maxChunkSize);
-        request.setMinChunkSize(1000); // Use improved chunking logic with 1000 char minimum
+        request.setMinChunkSize(300); // Use improved chunking logic with 300 char minimum
         request.setStoreChunks(true);
         return request;
     }

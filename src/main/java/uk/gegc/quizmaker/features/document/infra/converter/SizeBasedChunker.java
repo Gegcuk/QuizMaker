@@ -54,7 +54,7 @@ public class SizeBasedChunker implements UniversalChunker {
         }
 
         // Final combination step to catch any remaining small chunks
-        chunks = combineSmallChunks(chunks, request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000, request);
+        chunks = combineSmallChunks(chunks, request.getMinChunkSize() != null ? request.getMinChunkSize() : 300, request);
 
         log.info("Final chunking result: {} chunks", chunks.size());
 

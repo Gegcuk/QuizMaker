@@ -59,7 +59,7 @@ public class ChapterChunker implements UniversalChunker {
         }
 
         // Final combination step to catch any remaining small chunks
-        int minChunkSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
+        int minChunkSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 300;
         chunks = combineSmallChunks(chunks, minChunkSize, request);
 
         log.info("Final chunking result: {} chunks", chunks.size());
@@ -123,7 +123,7 @@ public class ChapterChunker implements UniversalChunker {
 
         List<Chunk> optimizedChunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
-        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
+        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 300;
 
         log.info("Phase 2: Optimizing {} chapter chunks (maxSize: {}, minSize: {})", 
                 chapterChunks.size(), maxSize, minSize);
@@ -310,7 +310,7 @@ public class ChapterChunker implements UniversalChunker {
                                            int startChunkIndex, ConvertedDocument document) {
         List<Chunk> chunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
-        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
+        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 300;
         int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
                 request.getAggressiveCombinationThreshold() : 3000;
 
@@ -363,7 +363,7 @@ public class ChapterChunker implements UniversalChunker {
                                                int recursionDepth) {
         List<Chunk> chunks = new ArrayList<>();
         int maxSize = request.getMaxChunkSize();
-        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 1000;
+        int minSize = request.getMinChunkSize() != null ? request.getMinChunkSize() : 300;
         int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
                 request.getAggressiveCombinationThreshold() : 5000; // Raised from 3000 to 5000
 

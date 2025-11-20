@@ -12,8 +12,8 @@ public class ProcessDocumentRequest {
     @Schema(description = "Maximum chunk size in characters", example = "50000")
     private Integer maxChunkSize;
     
-    @Schema(description = "Minimum chunk size in characters", example = "1000")
-    private Integer minChunkSize = 1000;
+    @Schema(description = "Minimum chunk size in characters", example = "300")
+    private Integer minChunkSize = 300;
     
     @Schema(description = "Threshold for combining small chunks", example = "3000")
     private Integer aggressiveCombinationThreshold = 3000;

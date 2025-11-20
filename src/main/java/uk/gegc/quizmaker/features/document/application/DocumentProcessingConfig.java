@@ -17,8 +17,8 @@ public class DocumentProcessingConfig {
     @Value("${document.chunking.default-strategy:SIZE_BASED}")
     private String defaultStrategy;
 
-    @Value("${document.chunking.min-chunk-size:1000}")
-    private Integer minChunkSize = 1000; // Default minimum chunk size
+    @Value("${document.chunking.min-chunk-size:300}")
+    private Integer minChunkSize = 300; // Default minimum chunk size
 
     @Value("${document.chunking.aggressive-combination-threshold:5000}")
     private Integer aggressiveCombinationThreshold = 5000; // Default aggressive combination threshold
