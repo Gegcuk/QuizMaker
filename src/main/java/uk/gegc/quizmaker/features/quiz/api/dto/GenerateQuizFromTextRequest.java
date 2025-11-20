@@ -73,7 +73,7 @@ public record GenerateQuizFromTextRequest(
 ) {
     public GenerateQuizFromTextRequest {
         // Set default values
-        chunkingStrategy = (chunkingStrategy == null) ? ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED : chunkingStrategy;
+        chunkingStrategy = (chunkingStrategy == null) ? ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED : chunkingStrategy;
         maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
