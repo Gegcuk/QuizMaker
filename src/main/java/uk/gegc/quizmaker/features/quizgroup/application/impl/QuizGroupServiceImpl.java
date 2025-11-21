@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quizgroup.api.dto.*;
 import uk.gegc.quizmaker.features.quizgroup.application.QuizGroupService;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroup;
@@ -43,6 +44,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
     private final QuizGroupRepository quizGroupRepository;
     private final QuizGroupMembershipRepository membershipRepository;
     private final QuizRepository quizRepository;
+    private final QuestionRepository questionRepository;
     private final UserRepository userRepository;
     private final DocumentRepository documentRepository;
     private final AccessPolicy accessPolicy;
@@ -94,7 +96,10 @@ public class QuizGroupServiceImpl implements QuizGroupService {
 
     @Transactional(readOnly = true)
     @Override
-    public Page<QuizGroupSummaryDto> list(Pageable pageable, Authentication authentication) {
+    public Page<QuizGroupSummaryDto> list(Pageable pageable,
+                                          Authentication authentication,
+                                          boolean includeQuizPreviews,
+                                          int previewSize) {
         User user = getCurrentUser(authentication);
         if (user == null) {
             throw new ForbiddenException("Authentication required");
@@ -102,7 +107,17 @@ public class QuizGroupServiceImpl implements QuizGroupService {
 
         // Owner-only in Phase 1; extend with QUIZ_GROUP_READ for admins later
         Page<QuizGroupSummaryProjection> projections = quizGroupRepository.findByOwnerIdProjected(user.getId(), pageable);
-        return projections.map(QuizGroupSummaryDto::fromProjection);
+        List<QuizGroupSummaryProjection> projectionContent = projections.getContent();
+
+        Map<UUID, List<QuizSummaryDto>> previews = includeQuizPreviews
+                ? buildQuizPreviews(projectionContent, previewSize)
+                : Collections.emptyMap();
+
+        return projections.map(projection ->
+                QuizGroupSummaryDto.fromProjection(
+                        projection,
+                        previews.getOrDefault(projection.getId(), List.of())
+                ));
     }
 
     @Transactional
@@ -164,39 +179,36 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 group.getOwner() != null ? group.getOwner().getId() : null,
                 PermissionName.QUIZ_GROUP_ADMIN);
 
-        // Get memberships ordered by position
-        List<QuizGroupMembership> memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
-        List<UUID> quizIds = memberships.stream()
-                .map(m -> m.getQuiz().getId())
-                .collect(Collectors.toList());
+        Page<QuizGroupMembership> membershipPage = membershipRepository.findPageByGroupId(groupId, pageable);
 
-        if (quizIds.isEmpty()) {
+        if (membershipPage.isEmpty()) {
             return Page.empty(pageable);
         }
 
-        // Fetch quizzes in the order specified by memberships
-        List<Quiz> quizzes = quizRepository.findAllById(quizIds);
+        List<UUID> quizIds = membershipPage.getContent().stream()
+                .map(m -> m.getId().getQuizId())
+                .toList();
+
+        List<Quiz> quizzes = quizRepository.findByIdIn(quizIds);
         Map<UUID, Quiz> quizMap = quizzes.stream()
+                .filter(q -> !Boolean.TRUE.equals(q.getIsDeleted()))
                 .collect(Collectors.toMap(Quiz::getId, q -> q));
 
-        // Sort quizzes according to membership order and filter deleted
-        List<Quiz> orderedQuizzes = quizIds.stream()
-                .map(quizMap::get)
+        Map<UUID, Long> questionCounts = fetchQuestionCounts(quizIds);
+
+        List<QuizSummaryDto> dtos = membershipPage.getContent().stream()
+                .map(membership -> {
+                    Quiz quiz = quizMap.get(membership.getQuiz().getId());
+                    if (quiz == null) {
+                        return null;
+                    }
+                    long questionCount = questionCounts.getOrDefault(quiz.getId(), 0L);
+                    return toQuizSummaryDto(quiz, questionCount);
+                })
                 .filter(Objects::nonNull)
-                .filter(q -> !Boolean.TRUE.equals(q.getIsDeleted()))
                 .collect(Collectors.toList());
 
-        // Apply pagination manually
-        int start = (int) pageable.getOffset();
-        int end = Math.min(start + pageable.getPageSize(), orderedQuizzes.size());
-        List<Quiz> pageContent = start < orderedQuizzes.size() ? orderedQuizzes.subList(start, end) : Collections.emptyList();
-
-        // Map to QuizSummaryDto (simplified - you may want to use projections here)
-        List<QuizSummaryDto> dtos = pageContent.stream()
-                .map(this::toQuizSummaryDto)
-                .collect(Collectors.toList());
-
-        return new org.springframework.data.domain.PageImpl<>(dtos, pageable, orderedQuizzes.size());
+        return new org.springframework.data.domain.PageImpl<>(dtos, pageable, membershipPage.getTotalElements());
     }
 
     @Transactional
@@ -422,8 +434,16 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 pageable
         );
 
-        // Map to QuizSummaryDto using projection or manual mapping
-        return archivedQuizzes.map(this::toQuizSummaryDto);
+        if (archivedQuizzes.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        List<UUID> archivedIds = archivedQuizzes.getContent().stream()
+                .map(Quiz::getId)
+                .toList();
+        Map<UUID, Long> questionCounts = fetchQuestionCounts(archivedIds);
+
+        return archivedQuizzes.map(quiz -> toQuizSummaryDto(quiz, questionCounts.getOrDefault(quiz.getId(), 0L)));
     }
 
     private User getCurrentUser(Authentication authentication) {
@@ -435,8 +455,89 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 .orElse(null);
     }
 
-    private QuizSummaryDto toQuizSummaryDto(Quiz quiz) {
-        // Simplified mapping - you may want to use a proper projection query here
+    private Map<UUID, Long> fetchQuestionCounts(List<UUID> quizIds) {
+        if (quizIds == null || quizIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return questionRepository.countQuestionsForQuizzes(quizIds).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
+    }
+
+    private Map<UUID, List<QuizSummaryDto>> buildQuizPreviews(List<QuizGroupSummaryProjection> projections,
+                                                              int previewSize) {
+        if (previewSize <= 0 || projections.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        int normalizedPreviewSize = Math.min(Math.max(previewSize, 1), 10);
+        List<UUID> groupIds = projections.stream()
+                .map(QuizGroupSummaryProjection::getId)
+                .toList();
+
+        List<QuizGroupMembership> memberships = membershipRepository.findByGroupIdsOrdered(groupIds);
+        if (memberships.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<UUID, List<UUID>> groupToQuizIds = new LinkedHashMap<>();
+        Set<UUID> completed = new HashSet<>();
+
+        for (QuizGroupMembership membership : memberships) {
+            UUID groupId = membership.getId().getGroupId();
+            if (completed.contains(groupId)) {
+                continue;
+            }
+
+            List<UUID> ids = groupToQuizIds.computeIfAbsent(groupId, k -> new ArrayList<>());
+            if (ids.size() < normalizedPreviewSize) {
+                ids.add(membership.getId().getQuizId());
+                if (ids.size() == normalizedPreviewSize) {
+                    completed.add(groupId);
+                    if (completed.size() == groupIds.size()) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (groupToQuizIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<UUID> quizIds = groupToQuizIds.values().stream()
+                .flatMap(Collection::stream)
+                .distinct()
+                .toList();
+
+        List<Quiz> quizzes = quizRepository.findByIdIn(quizIds);
+        if (quizzes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Map<UUID, Quiz> quizById = quizzes.stream()
+                .filter(q -> !Boolean.TRUE.equals(q.getIsDeleted()))
+                .collect(Collectors.toMap(Quiz::getId, q -> q));
+
+        Map<UUID, Long> questionCounts = fetchQuestionCounts(new ArrayList<>(quizById.keySet()));
+
+        Map<UUID, List<QuizSummaryDto>> previews = new HashMap<>();
+        for (UUID groupId : groupIds) {
+            List<UUID> ids = groupToQuizIds.get(groupId);
+            if (ids == null || ids.isEmpty()) {
+                continue;
+            }
+            List<QuizSummaryDto> summaries = ids.stream()
+                    .map(quizById::get)
+                    .filter(Objects::nonNull)
+                    .map(quiz -> toQuizSummaryDto(quiz, questionCounts.getOrDefault(quiz.getId(), 0L)))
+                    .collect(Collectors.toList());
+            previews.put(groupId, summaries);
+        }
+
+        return previews;
+    }
+
+    private QuizSummaryDto toQuizSummaryDto(Quiz quiz, long questionCount) {
         return new QuizSummaryDto(
                 quiz.getId(),
                 quiz.getTitle(),
@@ -449,7 +550,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 quiz.getCreator() != null ? quiz.getCreator().getId() : null,
                 quiz.getCategory() != null ? quiz.getCategory().getName() : null,
                 quiz.getCategory() != null ? quiz.getCategory().getId() : null,
-                quiz.getQuestions() != null ? (long) quiz.getQuestions().size() : 0L,
+                questionCount,
                 quiz.getTags() != null ? (long) quiz.getTags().size() : 0L,
                 quiz.getEstimatedTime()
         );

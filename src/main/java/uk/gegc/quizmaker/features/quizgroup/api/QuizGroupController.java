@@ -74,7 +74,8 @@ public class QuizGroupController {
 
     @Operation(
             summary = "List quiz groups",
-            description = "Returns a page of quiz groups owned by the authenticated user, sorted by creation date (newest first)."
+            description = "Returns a page of quiz groups owned by the authenticated user, sorted by creation date (newest first). " +
+                    "Set includeQuizzes=true to embed a limited preview of quizzes per group (previewSize defaults to 3, max 10)."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page of quiz groups returned"),
@@ -88,9 +89,17 @@ public class QuizGroupController {
             @PageableDefault(page = 0, size = 20)
             @SortDefault(sort = "createdAt", direction = Sort.Direction.DESC)
             Pageable pageable,
+            @RequestParam(name = "includeQuizzes", defaultValue = "false") boolean includeQuizzes,
+            @RequestParam(name = "previewSize", defaultValue = "3") int previewSize,
             Authentication authentication
     ) {
-        Page<QuizGroupSummaryDto> groups = quizGroupService.list(pageable, authentication);
+        int normalizedPreviewSize = includeQuizzes ? Math.max(0, Math.min(previewSize, 10)) : 0;
+        Page<QuizGroupSummaryDto> groups = quizGroupService.list(
+                pageable,
+                authentication,
+                includeQuizzes,
+                normalizedPreviewSize
+        );
         return ResponseEntity.ok(groups);
     }
 
@@ -317,4 +326,3 @@ public class QuizGroupController {
         return ResponseEntity.ok(archivedQuizzes);
     }
 }
-
