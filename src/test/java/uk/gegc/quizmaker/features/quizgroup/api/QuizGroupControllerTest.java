@@ -9,7 +9,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -73,7 +75,7 @@ class QuizGroupControllerTest {
 
         testSummaryDto = new QuizGroupSummaryDto(
                 testGroupId, "Test Group", "Description", "#FF5733", "book",
-                Instant.now(), Instant.now(), 5L
+                Instant.now(), Instant.now(), 5L, List.of()
         );
 
         when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
@@ -135,7 +137,7 @@ class QuizGroupControllerTest {
                     List.of(testSummaryDto), PageRequest.of(0, 20), 1
             );
 
-            when(quizGroupService.list(any(), any()))
+            when(quizGroupService.list(any(Pageable.class), any(Authentication.class), anyBoolean(), anyInt()))
                     .thenReturn(page);
 
             // When & Then
@@ -145,6 +147,41 @@ class QuizGroupControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content").isArray())
                     .andExpect(jsonPath("$.content[0].name").value("Test Group"));
+        }
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_READ"})
+        @DisplayName("Successfully list groups with quiz previews")
+        void listGroups_WithQuizPreviews_Success() throws Exception {
+            // Given
+            QuizSummaryDto quizPreview = new QuizSummaryDto(
+                    UUID.randomUUID(), "Preview Quiz", "Description",
+                    Instant.now(), Instant.now(), QuizStatus.DRAFT,
+                    Visibility.PRIVATE, "owner", UUID.randomUUID(),
+                    "Category", UUID.randomUUID(), 5L, 2L, 10
+            );
+            QuizGroupSummaryDto groupWithPreviews = new QuizGroupSummaryDto(
+                    UUID.randomUUID(), "Test Group", "Description",
+                    "#FF5733", "book", Instant.now(), Instant.now(), 3L, List.of(quizPreview)
+            );
+            Page<QuizGroupSummaryDto> page = new PageImpl<>(
+                    List.of(groupWithPreviews), PageRequest.of(0, 20), 1
+            );
+
+            when(quizGroupService.list(any(Pageable.class), any(Authentication.class), eq(true), eq(5)))
+                    .thenReturn(page);
+
+            // When & Then
+            mockMvc.perform(get("/api/v1/quiz-groups")
+                            .param("page", "0")
+                            .param("size", "20")
+                            .param("includeQuizzes", "true")
+                            .param("previewSize", "5"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isArray())
+                    .andExpect(jsonPath("$.content[0].name").value("Test Group"))
+                    .andExpect(jsonPath("$.content[0].quizPreviews").isArray())
+                    .andExpect(jsonPath("$.content[0].quizPreviews[0].title").value("Preview Quiz"));
         }
     }
 

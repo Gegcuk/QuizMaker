@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quizgroup.api.dto.*;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroup;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroupMembership;
@@ -68,6 +69,9 @@ class QuizGroupServiceImplTest {
 
     @Mock
     private QuizRepository quizRepository;
+
+    @Mock
+    private QuestionRepository questionRepository;
 
     @Mock
     private UserRepository userRepository;
@@ -606,7 +610,7 @@ class QuizGroupServiceImplTest {
                     .thenReturn(projectionPage);
 
             // When
-            Page<QuizGroupSummaryDto> result = quizGroupService.list(pageable, auth);
+            Page<QuizGroupSummaryDto> result = quizGroupService.list(pageable, auth, false, 0);
 
             // Then
             assertThat(result).isNotNull();
@@ -625,9 +629,63 @@ class QuizGroupServiceImplTest {
             when(auth.isAuthenticated()).thenReturn(false);
 
             // When/Then
-            assertThatThrownBy(() -> quizGroupService.list(pageable, auth))
+            assertThatThrownBy(() -> quizGroupService.list(pageable, auth, false, 0))
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessageContaining("Authentication required");
+        }
+
+        @Test
+        @DisplayName("Successfully list groups with quiz previews")
+        void list_WithQuizPreviews_Success() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(true);
+            when(auth.getName()).thenReturn("owner");
+
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+
+            QuizGroupSummaryProjection projection = mock(QuizGroupSummaryProjection.class);
+            when(projection.getId()).thenReturn(group.getId());
+            when(projection.getName()).thenReturn("Group 1");
+            when(projection.getDescription()).thenReturn("Description");
+            when(projection.getColor()).thenReturn("#FF5733");
+            when(projection.getIcon()).thenReturn("book");
+            when(projection.getCreatedAt()).thenReturn(Instant.now());
+            when(projection.getUpdatedAt()).thenReturn(Instant.now());
+            when(projection.getQuizCount()).thenReturn(3L);
+
+            Page<QuizGroupSummaryProjection> projectionPage = new PageImpl<>(
+                    List.of(projection), pageable, 1
+            );
+
+            when(quizGroupRepository.findByOwnerIdProjected(owner.getId(), pageable))
+                    .thenReturn(projectionPage);
+
+            QuizGroupMembership m1 = createMembership(group, quiz1, 0);
+            QuizGroupMembership m2 = createMembership(group, quiz2, 1);
+            when(membershipRepository.findByGroupIdsOrdered(List.of(group.getId())))
+                    .thenReturn(List.of(m1, m2));
+            when(quizRepository.findByIdIn(List.of(quiz1.getId(), quiz2.getId())))
+                    .thenReturn(List.of(quiz1, quiz2));
+            when(questionRepository.countQuestionsForQuizzes(anyList()))
+                    .thenReturn(List.of(new Object[]{quiz1.getId(), 5L}, new Object[]{quiz2.getId(), 3L}));
+
+            // When
+            Page<QuizGroupSummaryDto> result = quizGroupService.list(pageable, auth, true, 5);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).name()).isEqualTo("Group 1");
+            assertThat(result.getContent().get(0).quizPreviews()).isNotNull();
+            assertThat(result.getContent().get(0).quizPreviews()).hasSize(2);
+            verify(quizGroupRepository).findByOwnerIdProjected(owner.getId(), pageable);
+            verify(membershipRepository).findByGroupIdsOrdered(List.of(group.getId()));
+            verify(quizRepository).findByIdIn(anyList());
+            verify(questionRepository).countQuestionsForQuizzes(anyList());
         }
     }
 
@@ -733,10 +791,13 @@ class QuizGroupServiceImplTest {
             when(userRepository.findByUsername("owner"))
                     .thenReturn(Optional.of(owner));
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
-            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
-                    .thenReturn(List.of(m1, m2));
-            when(quizRepository.findAllById(List.of(quiz1.getId(), quiz2.getId())))
+            Page<QuizGroupMembership> membershipPage = new PageImpl<>(List.of(m1, m2), pageable, 2);
+            when(membershipRepository.findPageByGroupId(group.getId(), pageable))
+                    .thenReturn(membershipPage);
+            when(quizRepository.findByIdIn(anyList()))
                     .thenReturn(List.of(quiz1, quiz2));
+            when(questionRepository.countQuestionsForQuizzes(anyList()))
+                    .thenReturn(List.of(new Object[]{quiz1.getId(), 5L}, new Object[]{quiz2.getId(), 3L}));
 
             // When
             Page<QuizSummaryDto> result = quizGroupService.getQuizzesInGroup(group.getId(), pageable, auth);
@@ -747,8 +808,9 @@ class QuizGroupServiceImplTest {
             assertThat(result.getContent()).hasSize(2);
             assertThat(result.getContent().get(0).id()).isEqualTo(quiz1.getId());
             assertThat(result.getContent().get(1).id()).isEqualTo(quiz2.getId());
-            verify(membershipRepository).findByGroupIdOrderByPositionAsc(group.getId());
-            verify(quizRepository).findAllById(anyList());
+            verify(membershipRepository).findPageByGroupId(group.getId(), pageable);
+            verify(quizRepository).findByIdIn(anyList());
+            verify(questionRepository).countQuestionsForQuizzes(anyList());
         }
 
         @Test
@@ -765,8 +827,9 @@ class QuizGroupServiceImplTest {
             when(userRepository.findByUsername("owner"))
                     .thenReturn(Optional.of(owner));
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
-            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
-                    .thenReturn(Collections.emptyList());
+            Page<QuizGroupMembership> emptyPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
+            when(membershipRepository.findPageByGroupId(group.getId(), pageable))
+                    .thenReturn(emptyPage);
 
             // When
             Page<QuizSummaryDto> result = quizGroupService.getQuizzesInGroup(group.getId(), pageable, auth);
@@ -775,6 +838,7 @@ class QuizGroupServiceImplTest {
             assertThat(result).isNotNull();
             assertThat(result.getTotalElements()).isEqualTo(0);
             assertThat(result.getContent()).isEmpty();
+            verify(membershipRepository).findPageByGroupId(group.getId(), pageable);
         }
 
         @Test
