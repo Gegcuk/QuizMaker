@@ -76,6 +76,9 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         sb.append(".matching-col h4{margin:0 0 8px 0;color:#374151;font-size:14px;font-weight:600;} ");
         sb.append(".matching-col ul{list-style:none;padding-left:0;margin:0;} ");
         sb.append(".matching-col li{padding:2px 0;} ");
+        sb.append(".checkbox{display:inline-block;width:14px;height:14px;border:1.5px solid #000;margin-right:8px;vertical-align:middle;} ");
+        sb.append(".radio{display:inline-block;width:14px;height:14px;border:1.5px solid #000;border-radius:50%;margin-right:8px;vertical-align:middle;} ");
+        sb.append(".answer-box{display:inline-block;width:20px;height:18px;border:1.5px solid #000;margin-left:8px;margin-right:6px;vertical-align:middle;text-align:center;line-height:16px;font-size:12px;} ");
         sb.append(".footer{display:none;} ");
         sb.append("@media print{");
         sb.append("@page{margin:0.5in;@top-left{content:none;}@top-center{content:none;}@top-right{content:none;}@bottom-center{content:'Version: ").append(escape(payload.versionCode())).append("';font-size:10px;color:#666;}} ");
@@ -257,14 +260,33 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
         }
 
         switch (question.type()) {
-            case MCQ_SINGLE, MCQ_MULTI -> {
+            case MCQ_SINGLE -> {
                 if (content.has("options")) {
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
                     int optionIdx = 0;
                     for (JsonNode option : content.get("options")) {
                         String text = option.has("text") ? option.get("text").asText() : "";
                         char label = (char) ('A' + optionIdx);
-                        sb.append("<li><strong>").append(label).append(".</strong> ").append(escape(text)).append("</li>");
+                        sb.append("<li>");
+                        sb.append("<span class=\"radio\"></span>");
+                        sb.append("<strong>").append(label).append(".</strong> ").append(escape(text));
+                        sb.append("</li>");
+                        optionIdx++;
+                    }
+                    sb.append("</ul>");
+                }
+            }
+            case MCQ_MULTI -> {
+                if (content.has("options")) {
+                    sb.append("<ul style=\"list-style:none;padding-left:0;\">");
+                    int optionIdx = 0;
+                    for (JsonNode option : content.get("options")) {
+                        String text = option.has("text") ? option.get("text").asText() : "";
+                        char label = (char) ('A' + optionIdx);
+                        sb.append("<li>");
+                        sb.append("<span class=\"checkbox\"></span>");
+                        sb.append("<strong>").append(label).append(".</strong> ").append(escape(text));
+                        sb.append("</li>");
                         optionIdx++;
                     }
                     sb.append("</ul>");
@@ -272,8 +294,14 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             }
             case TRUE_FALSE -> {
                 sb.append("<ul style=\"list-style:none;padding-left:0;\">");
-                sb.append("<li><strong>A.</strong> True</li>");
-                sb.append("<li><strong>B.</strong> False</li>");
+                sb.append("<li>");
+                sb.append("<span class=\"radio\"></span>");
+                sb.append("<strong>A.</strong> True");
+                sb.append("</li>");
+                sb.append("<li>");
+                sb.append("<span class=\"radio\"></span>");
+                sb.append("<strong>B.</strong> False");
+                sb.append("</li>");
                 sb.append("</ul>");
             }
             case FILL_GAP -> {
@@ -294,7 +322,10 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                     for (JsonNode item : content.get("items")) {
                         String text = item.has("text") ? item.get("text").asText() : "";
                         char label = (char) ('A' + itemIdx);
-                        sb.append("<li><strong>").append(label).append(".</strong> ").append(escape(text)).append("</li>");
+                        sb.append("<li>");
+                        sb.append("<span class=\"answer-box\"></span>"); // Box for writing order number
+                        sb.append("<strong>").append(label).append(".</strong> ").append(escape(text));
+                        sb.append("</li>");
                         itemIdx++;
                     }
                     sb.append("</ul>");
@@ -304,14 +335,17 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 if (content.has("left") && content.has("right")) {
                     sb.append("<div class=\"matching-columns\">");
                     
-                    // Left column with numbers
+                    // Left column with numbers and answer boxes before each option
                     sb.append("<div class=\"matching-col\">");
                     sb.append("<h4>Column 1</h4>");
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
                     int leftNum = 1;
                     for (JsonNode item : content.get("left")) {
                         String text = item.has("text") ? item.get("text").asText() : "";
-                        sb.append("<li><strong>").append(leftNum++).append(".</strong> ").append(escape(text)).append("</li>");
+                        sb.append("<li>");
+                        sb.append("<span class=\"answer-box\"></span>"); // Box for writing matching letter - BEFORE the text
+                        sb.append("<strong>").append(leftNum++).append(".</strong> ").append(escape(text));
+                        sb.append("</li>");
                     }
                     sb.append("</ul></div>");
                     
@@ -342,7 +376,10 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                     int stmtNum = 1;
                     for (JsonNode statement : content.get("statements")) {
                         String text = statement.has("text") ? statement.get("text").asText() : "";
-                        sb.append("<li><strong>").append(stmtNum++).append(".</strong> ").append(escape(text)).append("</li>");
+                        sb.append("<li>");
+                        sb.append("<span class=\"checkbox\"></span>"); // Checkbox for compliance
+                        sb.append("<strong>").append(stmtNum++).append(".</strong> ").append(escape(text));
+                        sb.append("</li>");
                     }
                     sb.append("</ul>");
                 }

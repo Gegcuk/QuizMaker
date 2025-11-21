@@ -549,6 +549,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Is Java object-oriented?");
+            assertThat(html).contains("<span class=\"radio\"></span>"); // Radio button visual for true/false
             assertThat(html).contains("<strong>A.</strong> True");
             assertThat(html).contains("<strong>B.</strong> False");
         }
@@ -569,6 +570,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("What is 2+2?");
+            assertThat(html).contains("<span class=\"radio\"></span>"); // Radio button visual for single choice
             assertThat(html).contains("<strong>A.</strong> 3");
             assertThat(html).contains("<strong>B.</strong> 4");
             assertThat(html).contains("<strong>C.</strong> 5");
@@ -591,6 +593,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Select programming languages");
+            assertThat(html).contains("<span class=\"checkbox\"></span>"); // Checkbox visual for multiple choice
             assertThat(html).contains("<strong>A.</strong> Java");
             assertThat(html).contains("<strong>B.</strong> Python");
             assertThat(html).contains("<strong>C.</strong> HTML");
