@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.quiz.application.export.ExportRenderer;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.AnswerKeyEntry;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
@@ -350,7 +351,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         }
 
         switch (question.type()) {
-            case MCQ_SINGLE, MCQ_MULTI -> renderMcqOptions(context, content);
+            case MCQ_SINGLE, MCQ_MULTI -> renderMcqOptions(context, content, question.type());
             case TRUE_FALSE -> renderTrueFalse(context);
             case FILL_GAP -> renderFillGap(context, content);
             case ORDERING -> renderOrdering(context, content);
@@ -365,13 +366,29 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         }
     }
 
-    private void renderMcqOptions(PDPageContext context, JsonNode content) throws IOException {
+    private void renderMcqOptions(PDPageContext context, JsonNode content, QuestionType questionType) throws IOException {
         if (content.has("options")) {
             int optionIdx = 0;
+            float boxSize = 10f; // Size of checkbox/radio button box
+            
             for (JsonNode option : content.get("options")) {
                 String optionText = option.has("text") ? option.get("text").asText() : "";
                 char label = (char) ('A' + optionIdx);
-                context.writeText("   " + label + ". " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                float boxX = MARGIN + 20;
+                float textY = context.getY(); // Use current Y (text baseline)
+                
+                // Draw checkbox (square) or radio button (circle) at same Y as text
+                if (questionType == QuestionType.MCQ_MULTI) {
+                    context.drawCheckbox(boxX, textY, boxSize);
+                } else {
+                    context.drawRadioButton(boxX, textY, boxSize);
+                }
+                
+                // Write option text right after the box at the same Y
+                float textX = boxX + boxSize + 6;
+                context.writeTextAt(textX, textY, "   " + label + ". " + optionText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                
+                // Move to next line
                 context.y -= 14;
                 optionIdx++;
             }
@@ -379,9 +396,19 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     }
 
     private void renderTrueFalse(PDPageContext context) throws IOException {
-        context.writeText("   - True", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        float boxSize = 10f;
+        float boxX = MARGIN + 20;
+        
+        // True option
+        float textY = context.getY();
+        context.drawRadioButton(boxX, textY, boxSize);
+        context.writeTextAt(boxX + boxSize + 6, textY, "   A. True", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
         context.y -= 14;
-        context.writeText("   - False", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+        
+        // False option
+        textY = context.getY();
+        context.drawRadioButton(boxX, textY, boxSize);
+        context.writeTextAt(boxX + boxSize + 6, textY, "   B. False", PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
         context.y -= 14;
     }
 
@@ -400,11 +427,25 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     private void renderOrdering(PDPageContext context, JsonNode content) throws IOException {
         if (content.has("items")) {
             int itemIdx = 0;
+            float boxSize = 14f; // Size of answer box for order number
+            float boxX = MARGIN + 20;
+            
             for (JsonNode item : content.get("items")) {
                 String itemText = item.has("text") ? item.get("text").asText() : "";
                 char label = (char) ('A' + itemIdx);
-                context.writeText("   " + label + ". " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
-                context.y -= 14;
+                float textY = context.getY(); // Use current Y (text baseline)
+                
+                // Draw answer box at same Y as text
+                context.drawAnswerBox(boxX, textY, boxSize);
+                
+                // Write text right after the box with proper spacing at the same Y
+                float textX = boxX + boxSize + 8;
+                context.writeTextAt(textX, textY, label + ". " + itemText, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                
+                // Move to next line - need more space for larger box (14f vs 10f for checkboxes)
+                // Box is centered at y+3, extends from y+3-7=y-4 to y+3+7=y+10
+                // Next line should start below y-4, so add extra spacing
+                context.y -= 18; // Extra spacing to prevent boxes from sticking
                 itemIdx++;
             }
         }
@@ -413,9 +454,11 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     private void renderMatching(PDPageContext context, JsonNode content) throws IOException {
         if (content.has("left") && content.has("right")) {
             // Two-column layout: Column 1 (numbers) and Column 2 (letters)
-            float leftColumnX = MARGIN + 20;
+            float answerBoxSize = 14f; // Size of answer box for matching letter
+            float leftColumnX = MARGIN + 20 + answerBoxSize + 8; // Make room for answer box before text
             float rightColumnX = MARGIN + (MAX_TEXT_WIDTH / 2) + 20;
-            float columnWidth = (MAX_TEXT_WIDTH / 2) - 40;
+            float columnWidth = (MAX_TEXT_WIDTH / 2) - 60; // Leave space for answer box
+            float answerBoxX = MARGIN + 20; // Position of answer box (before text)
             
             // Headers
             context.writeTwoColumnText("Column 1", "Column 2", 
@@ -431,12 +474,14 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             
             // Render items in parallel (numbers on left, letters on right)
             int maxItems = Math.max(leftItems.size(), rightItems.size());
+            
             for (int i = 0; i < maxItems; i++) {
                 String leftText = "";
                 String rightText = "";
                 
                 if (i < leftItems.size()) {
                     String text = leftItems.get(i).has("text") ? leftItems.get(i).get("text").asText() : "";
+                    // Adjust left column X to make room for answer box
                     leftText = (i + 1) + ". " + text;
                 }
                 
@@ -446,10 +491,19 @@ public class PdfPrintExportRenderer implements ExportRenderer {
                     rightText = label + ". " + text;
                 }
                 
+                float textY = context.getY(); // Use current Y (text baseline) for first line
+                
+                // Draw answer box BEFORE the left column text at same Y as first line of text
+                if (i < leftItems.size()) {
+                    context.drawAnswerBox(answerBoxX, textY, answerBoxSize);
+                }
+                
+                // Render wrapped text (this will adjust context.y as it renders)
                 context.writeTwoColumnWrappedText(leftText, rightText,
                                                  leftColumnX, rightColumnX,
                                                  columnWidth,
                                                  PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                
                 context.y -= 3;
             }
         }
@@ -465,9 +519,22 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
     private void renderCompliance(PDPageContext context, JsonNode content) throws IOException {
         if (content.has("statements")) {
+            float boxSize = 10f; // Size of checkbox
+            float boxX = MARGIN + 20;
+            int stmtNum = 1;
+            
             for (JsonNode statement : content.get("statements")) {
                 String text = statement.has("text") ? statement.get("text").asText() : "";
-                context.writeText("   - " + text, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                float textY = context.getY(); // Use current Y (text baseline)
+                
+                // Draw checkbox at same Y as text
+                context.drawCheckbox(boxX, textY, boxSize);
+                
+                // Write text right after the box at the same Y
+                float textX = boxX + boxSize + 6;
+                context.writeTextAt(textX, textY, "   " + stmtNum++ + ". " + text, PDType1Font.HELVETICA, NORMAL_FONT_SIZE);
+                
+                // Move to next line
                 context.y -= 14;
             }
         }
@@ -930,8 +997,9 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         
         /**
          * Helper method to wrap text into lines that fit within a given width
+         * Made package-private for use in renderMatching
          */
-        private List<String> wrapTextToLines(String text, PDFont font, float fontSize, float maxWidth) throws IOException {
+        List<String> wrapTextToLines(String text, PDFont font, float fontSize, float maxWidth) throws IOException {
             List<String> lines = new ArrayList<>();
             if (text == null || text.isBlank()) {
                 return lines;
@@ -962,6 +1030,96 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             return lines;
         }
 
+        /**
+         * Write text at a specific position without affecting y position
+         */
+        public void writeTextAt(float x, float y, String text, PDFont font, float fontSize) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            contentStream.beginText();
+            contentStream.setFont(font, fontSize);
+            contentStream.newLineAtOffset(x, y);
+            contentStream.showText(text);
+            contentStream.endText();
+        }
+        
+        /**
+         * Get the current Y position (text baseline)
+         */
+        public float getY() {
+            return y;
+        }
+        
+        /**
+         * Draw a checkbox (square box) aligned with text
+         * y is the text baseline - center the box vertically with the text
+         * Text sits mostly above the baseline, so center box at approximately y + fontSize/3
+         */
+        public void drawCheckbox(float x, float y, float size) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            contentStream.setLineWidth(1.2f);
+            // Center box vertically with text (text baseline is y, text extends above)
+            // Position box so its center is roughly at y + 3 (where text center is)
+            float boxCenterY = y + 3;
+            float boxBottom = boxCenterY - size / 2;
+            contentStream.addRect(x, boxBottom, size, size);
+            contentStream.stroke();
+        }
+        
+        /**
+         * Draw a radio button (circle) aligned with text
+         * y is the text baseline - center the circle vertically with the text
+         * Text sits mostly above the baseline, so center circle at approximately y + fontSize/3
+         */
+        public void drawRadioButton(float x, float y, float size) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            contentStream.setLineWidth(1.2f);
+            float radius = size / 2;
+            float centerX = x + radius;
+            // Center circle vertically with text (text baseline is y, text extends above)
+            // Position circle so its center is roughly at y + 3 (where text center is)
+            float centerY = y + 3;
+            
+            // Draw circle using 4 cubic bezier curves (approximation)
+            float c = radius * 0.551915f; // Control point distance for circular bezier
+            contentStream.moveTo(centerX, centerY + radius);
+            // Top right arc
+            contentStream.curveTo(centerX + c, centerY + radius, centerX + radius, centerY + c, centerX + radius, centerY);
+            // Bottom right arc
+            contentStream.curveTo(centerX + radius, centerY - c, centerX + c, centerY - radius, centerX, centerY - radius);
+            // Bottom left arc
+            contentStream.curveTo(centerX - c, centerY - radius, centerX - radius, centerY - c, centerX - radius, centerY);
+            // Top left arc
+            contentStream.curveTo(centerX - radius, centerY + c, centerX - c, centerY + radius, centerX, centerY + radius);
+            contentStream.stroke();
+        }
+        
+        /**
+         * Draw an answer box (rectangular box for writing matching letters or order numbers)
+         * y is the text baseline - center the box vertically with the text
+         * Text sits mostly above the baseline, so center box at approximately y + fontSize/3
+         */
+        public void drawAnswerBox(float x, float y, float size) throws IOException {
+            if (currentPage == null) {
+                startNewPage();
+            }
+            contentStream.setLineWidth(1.2f);
+            // Keep it square for consistency - don't make it rectangular
+            float width = size; // Same as height for square
+            float height = size; // Square box
+            // Center box vertically with text (text baseline is y, text extends above)
+            // Position box so its center is roughly at y + 3 (where text center is)
+            float boxCenterY = y + 3;
+            float boxBottom = boxCenterY - height / 2;
+            contentStream.addRect(x, boxBottom, width, height);
+            contentStream.stroke();
+        }
+        
         public void close() throws IOException {
             if (contentStream != null) {
                 contentStream.close();
