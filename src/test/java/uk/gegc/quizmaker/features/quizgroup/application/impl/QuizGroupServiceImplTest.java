@@ -15,10 +15,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
+import uk.gegc.quizmaker.features.quizgroup.domain.repository.projection.QuizGroupSummaryProjection;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quizgroup.api.dto.*;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroup;
@@ -409,6 +412,318 @@ class QuizGroupServiceImplTest {
         }
     }
 
+    // =============== GET Tests ===============
+
+    @Nested
+    @DisplayName("get Tests")
+    class GetTests {
+
+        @Test
+        @DisplayName("Successfully get group by ID")
+        void get_Success() {
+            // Given
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(true);
+            when(auth.getName()).thenReturn("owner");
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(membershipRepository.countByGroupId(group.getId())).thenReturn(5L);
+
+            QuizGroupDto expectedDto = new QuizGroupDto(
+                    group.getId(), owner.getId(), group.getName(), group.getDescription(),
+                    null, null, null, 5L, Instant.now(), Instant.now()
+            );
+            when(quizGroupMapper.toDto(eq(group), eq(5L))).thenReturn(expectedDto);
+
+            // When
+            QuizGroupDto result = quizGroupService.get(group.getId(), auth);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.id()).isEqualTo(group.getId());
+            assertThat(result.quizCount()).isEqualTo(5L);
+            verify(quizGroupRepository).findById(group.getId());
+            verify(accessPolicy).requireOwnerOrAny(eq(owner), eq(owner.getId()), any());
+        }
+
+        @Test
+        @DisplayName("Fail when group not found")
+        void get_NotFound_ThrowsResourceNotFoundException() {
+            // Given
+            UUID nonExistentId = UUID.randomUUID();
+            Authentication auth = mock(Authentication.class);
+
+            when(quizGroupRepository.findById(nonExistentId))
+                    .thenReturn(Optional.empty());
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.get(nonExistentId, auth))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("not found");
+        }
+
+        @Test
+        @DisplayName("Fail when user not authenticated")
+        void get_Unauthenticated_ThrowsForbiddenException() {
+            // Given
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(false);
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.get(group.getId(), auth))
+                    .isInstanceOf(ForbiddenException.class)
+                    .hasMessageContaining("Authentication required");
+        }
+    }
+
+    // =============== LIST Tests ===============
+
+    @Nested
+    @DisplayName("list Tests")
+    class ListTests {
+
+        @Test
+        @DisplayName("Successfully list groups with pagination")
+        void list_Success() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(true);
+            when(auth.getName()).thenReturn("owner");
+
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+
+            QuizGroupSummaryProjection projection = mock(QuizGroupSummaryProjection.class);
+            when(projection.getName()).thenReturn("Group 1");
+            when(projection.getDescription()).thenReturn("Description 1");
+            when(projection.getColor()).thenReturn("#FF5733");
+            when(projection.getIcon()).thenReturn("book");
+            when(projection.getCreatedAt()).thenReturn(Instant.now());
+            when(projection.getUpdatedAt()).thenReturn(Instant.now());
+            when(projection.getQuizCount()).thenReturn(3L);
+
+            Page<QuizGroupSummaryProjection> projectionPage = new PageImpl<>(
+                    List.of(projection), pageable, 1
+            );
+
+            when(quizGroupRepository.findByOwnerIdProjected(owner.getId(), pageable))
+                    .thenReturn(projectionPage);
+
+            // When
+            Page<QuizGroupSummaryDto> result = quizGroupService.list(pageable, auth);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().get(0).name()).isEqualTo("Group 1");
+            verify(quizGroupRepository).findByOwnerIdProjected(owner.getId(), pageable);
+        }
+
+        @Test
+        @DisplayName("Fail when user not authenticated")
+        void list_Unauthenticated_ThrowsForbiddenException() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(false);
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.list(pageable, auth))
+                    .isInstanceOf(ForbiddenException.class)
+                    .hasMessageContaining("Authentication required");
+        }
+    }
+
+    // =============== UPDATE Tests ===============
+
+    @Nested
+    @DisplayName("update Tests")
+    class UpdateTests {
+
+        @Test
+        @DisplayName("Successfully update group")
+        void update_Success() {
+            // Given
+            UpdateQuizGroupRequest request = new UpdateQuizGroupRequest(
+                    "Updated Name", "Updated Description", "#00FF00", "star"
+            );
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(quizGroupRepository.save(any(QuizGroup.class))).thenReturn(group);
+            when(membershipRepository.countByGroupId(group.getId())).thenReturn(3L);
+
+            QuizGroupDto updatedDto = new QuizGroupDto(
+                    group.getId(), owner.getId(), "Updated Name", "Updated Description",
+                    "#00FF00", "star", null, 3L, Instant.now(), Instant.now()
+            );
+            doNothing().when(quizGroupMapper).updateEntity(any(QuizGroup.class), eq(request));
+            when(quizGroupMapper.toDto(eq(group), eq(3L))).thenReturn(updatedDto);
+
+            // When
+            QuizGroupDto result = quizGroupService.update("owner", group.getId(), request);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.name()).isEqualTo("Updated Name");
+            verify(quizGroupMapper).updateEntity(any(QuizGroup.class), eq(request));
+            verify(quizGroupRepository).save(any(QuizGroup.class));
+        }
+
+        @Test
+        @DisplayName("Fail when group not found")
+        void update_NotFound_ThrowsResourceNotFoundException() {
+            // Given
+            UUID nonExistentId = UUID.randomUUID();
+            UpdateQuizGroupRequest request = new UpdateQuizGroupRequest(
+                    "Updated Name", null, null, null
+            );
+
+            when(quizGroupRepository.findById(nonExistentId))
+                    .thenReturn(Optional.empty());
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.update("owner", nonExistentId, request))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("not found");
+        }
+
+        @Test
+        @DisplayName("Fail when user not owner")
+        void update_UnownedGroup_ThrowsForbiddenException() {
+            // Given
+            group.setOwner(otherUser);
+            UpdateQuizGroupRequest request = new UpdateQuizGroupRequest(
+                    "Updated Name", null, null, null
+            );
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doThrow(new ForbiddenException("Forbidden"))
+                    .when(accessPolicy).requireOwnerOrAny(eq(owner), eq(otherUser.getId()), any());
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.update("owner", group.getId(), request))
+                    .isInstanceOf(ForbiddenException.class);
+        }
+    }
+
+    // =============== GET QUIZZES IN GROUP Tests ===============
+
+    @Nested
+    @DisplayName("getQuizzesInGroup Tests")
+    class GetQuizzesInGroupTests {
+
+        @Test
+        @DisplayName("Successfully get quizzes in group")
+        void getQuizzesInGroup_Success() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(true);
+            when(auth.getName()).thenReturn("owner");
+
+            QuizGroupMembership m1 = createMembership(group, quiz1, 0);
+            QuizGroupMembership m2 = createMembership(group, quiz2, 1);
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
+                    .thenReturn(List.of(m1, m2));
+            when(quizRepository.findAllById(List.of(quiz1.getId(), quiz2.getId())))
+                    .thenReturn(List.of(quiz1, quiz2));
+
+            // When
+            Page<QuizSummaryDto> result = quizGroupService.getQuizzesInGroup(group.getId(), pageable, auth);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isEqualTo(2);
+            assertThat(result.getContent()).hasSize(2);
+            assertThat(result.getContent().get(0).id()).isEqualTo(quiz1.getId());
+            assertThat(result.getContent().get(1).id()).isEqualTo(quiz2.getId());
+            verify(membershipRepository).findByGroupIdOrderByPositionAsc(group.getId());
+            verify(quizRepository).findAllById(anyList());
+        }
+
+        @Test
+        @DisplayName("Return empty page when group has no quizzes")
+        void getQuizzesInGroup_EmptyGroup_ReturnsEmptyPage() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(true);
+            when(auth.getName()).thenReturn("owner");
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
+                    .thenReturn(Collections.emptyList());
+
+            // When
+            Page<QuizSummaryDto> result = quizGroupService.getQuizzesInGroup(group.getId(), pageable, auth);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isEqualTo(0);
+            assertThat(result.getContent()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Fail when group not found")
+        void getQuizzesInGroup_NotFound_ThrowsResourceNotFoundException() {
+            // Given
+            UUID nonExistentId = UUID.randomUUID();
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+
+            when(quizGroupRepository.findById(nonExistentId))
+                    .thenReturn(Optional.empty());
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.getQuizzesInGroup(nonExistentId, pageable, auth))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("not found");
+        }
+
+        @Test
+        @DisplayName("Fail when user not authenticated")
+        void getQuizzesInGroup_Unauthenticated_ThrowsForbiddenException() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 20);
+            Authentication auth = mock(Authentication.class);
+            when(auth.isAuthenticated()).thenReturn(false);
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+
+            // When/Then
+            assertThatThrownBy(() -> quizGroupService.getQuizzesInGroup(group.getId(), pageable, auth))
+                    .isInstanceOf(ForbiddenException.class)
+                    .hasMessageContaining("Authentication required");
+        }
+    }
+
     // =============== GET ARCHIVED QUIZZES Tests ===============
 
     @Nested
@@ -458,8 +773,15 @@ class QuizGroupServiceImplTest {
         quiz.setId(UUID.randomUUID());
         quiz.setCreator(creator);
         quiz.setTitle(title);
+        quiz.setDescription("Description for " + title);
         quiz.setStatus(QuizStatus.DRAFT);
+        quiz.setVisibility(Visibility.PRIVATE);
         quiz.setIsDeleted(false);
+        quiz.setCreatedAt(Instant.now());
+        quiz.setUpdatedAt(Instant.now());
+        quiz.setEstimatedTime(10);
+        quiz.setQuestions(new HashSet<>());
+        quiz.setTags(new HashSet<>());
         return quiz;
     }
 

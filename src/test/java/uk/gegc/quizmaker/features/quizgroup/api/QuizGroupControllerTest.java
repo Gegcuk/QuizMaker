@@ -183,6 +183,142 @@ class QuizGroupControllerTest {
     }
 
     @Nested
+    @DisplayName("PATCH /api/v1/quiz-groups/{groupId}")
+    class UpdateGroupTests {
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_UPDATE"})
+        @DisplayName("Successfully update group")
+        void updateGroup_Success() throws Exception {
+            // Given
+            UpdateQuizGroupRequest request = new UpdateQuizGroupRequest(
+                    "Updated Name", "Updated Description", "#00FF00", "star"
+            );
+
+            QuizGroupDto updatedDto = new QuizGroupDto(
+                    testGroupId, testOwnerId, "Updated Name", "Updated Description",
+                    "#00FF00", "star", null, 5L,
+                    Instant.now(), Instant.now()
+            );
+
+            when(quizGroupService.update(anyString(), eq(testGroupId), any(UpdateQuizGroupRequest.class)))
+                    .thenReturn(updatedDto);
+
+            // When & Then
+            mockMvc.perform(patch("/api/v1/quiz-groups/{groupId}", testGroupId)
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("Updated Name"))
+                    .andExpect(jsonPath("$.description").value("Updated Description"))
+                    .andExpect(jsonPath("$.color").value("#00FF00"))
+                    .andExpect(jsonPath("$.icon").value("star"));
+        }
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_UPDATE"})
+        @DisplayName("Return 404 when group not found")
+        void updateGroup_NotFound_404() throws Exception {
+            // Given
+            UpdateQuizGroupRequest request = new UpdateQuizGroupRequest(
+                    "Updated Name", null, null, null
+            );
+
+            when(quizGroupService.update(anyString(), any(), any(UpdateQuizGroupRequest.class)))
+                    .thenThrow(new uk.gegc.quizmaker.shared.exception.ResourceNotFoundException("Not found"));
+
+            // When & Then
+            mockMvc.perform(patch("/api/v1/quiz-groups/{groupId}", UUID.randomUUID())
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
+    @DisplayName("GET /api/v1/quiz-groups/{groupId}/quizzes")
+    class GetQuizzesInGroupTests {
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_READ"})
+        @DisplayName("Successfully get quizzes in group")
+        void getQuizzesInGroup_Success() throws Exception {
+            // Given
+            QuizSummaryDto quiz1 = new QuizSummaryDto(
+                    UUID.randomUUID(), "Quiz 1", "Description 1",
+                    Instant.now(), Instant.now(), QuizStatus.DRAFT,
+                    Visibility.PRIVATE, "owner", testOwnerId,
+                    "Category", UUID.randomUUID(), 5L, 2L, 10
+            );
+
+            QuizSummaryDto quiz2 = new QuizSummaryDto(
+                    UUID.randomUUID(), "Quiz 2", "Description 2",
+                    Instant.now(), Instant.now(), QuizStatus.PUBLISHED,
+                    Visibility.PUBLIC, "owner", testOwnerId,
+                    "Category", UUID.randomUUID(), 3L, 1L, 5
+            );
+
+            Page<QuizSummaryDto> page = new PageImpl<>(
+                    List.of(quiz1, quiz2), PageRequest.of(0, 20), 2
+            );
+
+            when(quizGroupService.getQuizzesInGroup(eq(testGroupId), any(), any()))
+                    .thenReturn(page);
+
+            // When & Then
+            mockMvc.perform(get("/api/v1/quiz-groups/{groupId}/quizzes", testGroupId)
+                            .param("page", "0")
+                            .param("size", "20"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isArray())
+                    .andExpect(jsonPath("$.content.length()").value(2))
+                    .andExpect(jsonPath("$.content[0].title").value("Quiz 1"))
+                    .andExpect(jsonPath("$.content[1].title").value("Quiz 2"))
+                    .andExpect(jsonPath("$.totalElements").value(2));
+        }
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_READ"})
+        @DisplayName("Return empty page when group has no quizzes")
+        void getQuizzesInGroup_EmptyGroup_ReturnsEmptyPage() throws Exception {
+            // Given
+            Page<QuizSummaryDto> page = new PageImpl<>(
+                    List.of(), PageRequest.of(0, 20), 0
+            );
+
+            when(quizGroupService.getQuizzesInGroup(eq(testGroupId), any(), any()))
+                    .thenReturn(page);
+
+            // When & Then
+            mockMvc.perform(get("/api/v1/quiz-groups/{groupId}/quizzes", testGroupId)
+                            .param("page", "0")
+                            .param("size", "20"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isArray())
+                    .andExpect(jsonPath("$.content.length()").value(0))
+                    .andExpect(jsonPath("$.totalElements").value(0));
+        }
+
+        @Test
+        @WithMockUser(authorities = {"QUIZ_GROUP_READ"})
+        @DisplayName("Return 404 when group not found")
+        void getQuizzesInGroup_NotFound_404() throws Exception {
+            // Given
+            UUID nonExistentId = UUID.randomUUID();
+            when(quizGroupService.getQuizzesInGroup(eq(nonExistentId), any(), any()))
+                    .thenThrow(new uk.gegc.quizmaker.shared.exception.ResourceNotFoundException("Not found"));
+
+            // When & Then
+            mockMvc.perform(get("/api/v1/quiz-groups/{groupId}/quizzes", nonExistentId)
+                            .param("page", "0")
+                            .param("size", "20"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Nested
     @DisplayName("POST /api/v1/quiz-groups/{groupId}/quizzes")
     class AddQuizzesTests {
 
