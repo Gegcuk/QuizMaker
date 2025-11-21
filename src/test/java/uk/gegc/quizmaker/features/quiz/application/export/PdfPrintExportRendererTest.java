@@ -708,9 +708,10 @@ class PdfPrintExportRendererTest {
              PDDocument doc = PDDocument.load(is)) {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(doc);
-            // Should display the actual prompt with underscores
+            // Should display the actual prompt with underscores replacing {N} placeholders
             assertThat(text).contains("One of the main functions of NAT");
-            assertThat(text).contains("{1} network");
+            assertThat(text).contains("____ network");
+            assertThat(text).doesNotContain("{1}");
             // Should NOT display the generic question text
             assertThat(text).doesNotContain("Complete the sentence with the missing word(s)");
         }
@@ -836,9 +837,11 @@ class PdfPrintExportRendererTest {
              PDDocument doc = PDDocument.load(is)) {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(doc);
-            // Should display the actual prompt with both underscores
-            assertThat(text).contains("The {1} protocol");
-            assertThat(text).contains("{2} layer");
+            // Should display the actual prompt with underscores replacing {N} placeholders
+            assertThat(text).contains("The ____ protocol");
+            assertThat(text).contains("____ layer");
+            assertThat(text).doesNotContain("{1}");
+            assertThat(text).doesNotContain("{2}");
             assertThat(text).contains("OSI model");
         }
     }

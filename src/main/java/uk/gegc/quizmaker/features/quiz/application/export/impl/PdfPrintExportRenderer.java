@@ -386,6 +386,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
     }
 
     private void renderFillGap(PDPageContext context, JsonNode content) throws IOException {
+        // Render answer fields/blanks for users to fill in
         if (content.has("gaps")) {
             int gapNum = 1;
             for (int i = 0; i < content.get("gaps").size(); i++) {
@@ -697,7 +698,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
 
     /**
      * Get the display text for a question.
-     * For FILL_GAP questions, prefer content.text (which contains the prompt with underscores).
+     * For FILL_GAP questions, prefer content.text and replace {N} placeholders with underscores.
      * Otherwise, use the generic questionText.
      */
     private String getDisplayText(QuestionExportDto question) {
@@ -705,7 +706,9 @@ public class PdfPrintExportRenderer implements ExportRenderer {
             && question.content() != null 
             && question.content().has("text") 
             && !question.content().get("text").asText().isBlank()) {
-            return question.content().get("text").asText();
+            String text = question.content().get("text").asText();
+            // Replace {N} placeholders with underscores for export
+            return text.replaceAll("\\{\\d+\\}", "____");
         }
         return question.questionText();
     }

@@ -277,6 +277,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
                 sb.append("</ul>");
             }
             case FILL_GAP -> {
+                // Render answer fields/blanks for users to fill in
                 if (content.has("gaps")) {
                     sb.append("<ul style=\"list-style:none;padding-left:0;\">");
                     int gapNum = 1;
@@ -601,7 +602,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
 
     /**
      * Get the display text for a question.
-     * For FILL_GAP questions, prefer content.text (which contains the prompt with underscores).
+     * For FILL_GAP questions, prefer content.text and replace {N} placeholders with underscores.
      * Otherwise, use the generic questionText.
      */
     private String getDisplayText(QuestionExportDto question) {
@@ -609,7 +610,9 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
             && question.content() != null 
             && question.content().has("text") 
             && !question.content().get("text").asText().isBlank()) {
-            return question.content().get("text").asText();
+            String text = question.content().get("text").asText();
+            // Replace {N} placeholders with underscores for export
+            return text.replaceAll("\\{\\d+\\}", "____");
         }
         return question.questionText();
     }
