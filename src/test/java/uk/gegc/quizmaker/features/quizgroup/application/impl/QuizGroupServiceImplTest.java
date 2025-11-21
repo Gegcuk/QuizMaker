@@ -375,20 +375,106 @@ class QuizGroupServiceImplTest {
         void removeQuiz_Success() {
             // Given
             QuizGroupMembershipId id = new QuizGroupMembershipId(group.getId(), quiz1.getId());
+            QuizGroupMembership membership1 = createMembership(group, quiz1, 0);
+            QuizGroupMembership membership2 = createMembership(group, quiz2, 1);
 
             when(quizGroupRepository.findById(group.getId()))
                     .thenReturn(Optional.of(group));
             when(userRepository.findByUsername("owner"))
                     .thenReturn(Optional.of(owner));
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
-            when(membershipRepository.existsById(id)).thenReturn(true);
+            when(membershipRepository.findById(id)).thenReturn(Optional.of(membership1));
             doNothing().when(membershipRepository).deleteById(id);
+            doNothing().when(membershipRepository).flush();
+            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
+                    .thenReturn(List.of(membership2)); // After deletion, only quiz2 remains
+            when(membershipRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
 
             // When
             quizGroupService.removeQuiz("owner", group.getId(), quiz1.getId());
 
             // Then
             verify(membershipRepository).deleteById(id);
+            verify(membershipRepository).flush();
+            verify(membershipRepository).saveAll(anyList());
+            
+            // Verify membership2 position was decremented from 1 to 0
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<QuizGroupMembership>> captor = ArgumentCaptor.forClass(List.class);
+            verify(membershipRepository).saveAll(captor.capture());
+            List<QuizGroupMembership> renumbered = captor.getValue();
+            assertThat(renumbered).hasSize(1);
+            assertThat(renumbered.get(0).getPosition()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("Remove quiz from middle - renumbers later positions")
+        void removeQuiz_FromMiddle_RenumbersPositions() {
+            // Given - positions [0, 1, 2], remove position 1
+            Quiz quiz3 = createQuiz(owner, "Quiz 3");
+            QuizGroupMembershipId id = new QuizGroupMembershipId(group.getId(), quiz2.getId());
+            QuizGroupMembership membership1 = createMembership(group, quiz1, 0);
+            QuizGroupMembership membership2 = createMembership(group, quiz2, 1);
+            QuizGroupMembership membership3 = createMembership(group, quiz3, 2);
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(membershipRepository.findById(id)).thenReturn(Optional.of(membership2));
+            doNothing().when(membershipRepository).deleteById(id);
+            doNothing().when(membershipRepository).flush();
+            // After deletion, quiz1 at position 0, quiz3 at position 2
+            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
+                    .thenReturn(List.of(membership1, membership3));
+            when(membershipRepository.saveAll(anyList())).thenAnswer(invocation -> invocation.getArgument(0));
+
+            // When
+            quizGroupService.removeQuiz("owner", group.getId(), quiz2.getId());
+
+            // Then
+            verify(membershipRepository).deleteById(id);
+            verify(membershipRepository).flush();
+            
+            // Verify membership3 position was decremented from 2 to 1
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<QuizGroupMembership>> captor = ArgumentCaptor.forClass(List.class);
+            verify(membershipRepository).saveAll(captor.capture());
+            List<QuizGroupMembership> renumbered = captor.getValue();
+            assertThat(renumbered).hasSize(1);
+            assertThat(renumbered.get(0).getQuiz().getId()).isEqualTo(quiz3.getId());
+            assertThat(renumbered.get(0).getPosition()).isEqualTo(1); // Was 2, now 1
+        }
+
+        @Test
+        @DisplayName("Remove quiz from end - no renumbering needed")
+        void removeQuiz_FromEnd_NoRenumbering() {
+            // Given - positions [0, 1], remove position 1 (last)
+            QuizGroupMembershipId id = new QuizGroupMembershipId(group.getId(), quiz2.getId());
+            QuizGroupMembership membership1 = createMembership(group, quiz1, 0);
+            QuizGroupMembership membership2 = createMembership(group, quiz2, 1);
+
+            when(quizGroupRepository.findById(group.getId()))
+                    .thenReturn(Optional.of(group));
+            when(userRepository.findByUsername("owner"))
+                    .thenReturn(Optional.of(owner));
+            doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
+            when(membershipRepository.findById(id)).thenReturn(Optional.of(membership2));
+            doNothing().when(membershipRepository).deleteById(id);
+            doNothing().when(membershipRepository).flush();
+            // After deletion, only quiz1 remains at position 0
+            when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
+                    .thenReturn(List.of(membership1));
+
+            // When
+            quizGroupService.removeQuiz("owner", group.getId(), quiz2.getId());
+
+            // Then
+            verify(membershipRepository).deleteById(id);
+            verify(membershipRepository).flush();
+            // No renumbering should happen since we removed the last item
+            verify(membershipRepository, never()).saveAll(anyList());
         }
 
         @Test
@@ -402,13 +488,15 @@ class QuizGroupServiceImplTest {
             when(userRepository.findByUsername("owner"))
                     .thenReturn(Optional.of(owner));
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
-            when(membershipRepository.existsById(id)).thenReturn(false);
+            when(membershipRepository.findById(id)).thenReturn(Optional.empty());
 
             // When
             quizGroupService.removeQuiz("owner", group.getId(), quiz1.getId());
 
             // Then
             verify(membershipRepository, never()).deleteById(any());
+            verify(membershipRepository, never()).flush();
+            verify(membershipRepository, never()).saveAll(anyList());
         }
     }
 

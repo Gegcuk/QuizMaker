@@ -302,13 +302,33 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 PermissionName.QUIZ_GROUP_ADMIN);
 
         QuizGroupMembershipId id = new QuizGroupMembershipId(groupId, quizId);
-        if (!membershipRepository.existsById(id)) {
+        QuizGroupMembership membership = membershipRepository.findById(id).orElse(null);
+        if (membership == null) {
             log.debug("Quiz {} is not part of group {}, nothing to remove", quizId, groupId);
             return;
         }
 
+        // Store position before deletion for renumbering
+        int deletedPosition = membership.getPosition();
+
+        // Delete the membership
         membershipRepository.deleteById(id);
-        log.info("Removed quiz {} from group {} by user {}", quizId, groupId, user.getId());
+        membershipRepository.flush(); // Ensure deletion is persisted before renumbering
+
+        // Renumber remaining memberships: decrement positions greater than deleted position
+        List<QuizGroupMembership> remainingMemberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
+        List<QuizGroupMembership> toRenumber = remainingMemberships.stream()
+                .filter(m -> m.getPosition() > deletedPosition)
+                .collect(Collectors.toList());
+
+        if (!toRenumber.isEmpty()) {
+            for (QuizGroupMembership m : toRenumber) {
+                m.setPosition(m.getPosition() - 1);
+            }
+            membershipRepository.saveAll(toRenumber);
+        }
+
+        log.info("Removed quiz {} from group {} by user {} and renumbered positions", quizId, groupId, user.getId());
     }
 
     @Transactional
