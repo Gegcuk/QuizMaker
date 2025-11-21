@@ -68,4 +68,16 @@ public interface QuizService {
             Map<Integer, List<Question>> chunkQuestions,
             GenerateQuizFromDocumentRequest originalRequest
     );
+
+    /**
+     * Archive a quiz by setting its status to ARCHIVED.
+     * Delegates to QuizPublishingService.setStatus().
+     */
+    QuizDto archiveQuiz(String username, UUID quizId);
+
+    /**
+     * Unarchive a quiz by setting its status to DRAFT.
+     * Delegates to QuizPublishingService.setStatus().
+     */
+    QuizDto unarchiveQuiz(String username, UUID quizId);
 }

@@ -27,7 +27,8 @@
         "FOLLOW_DELETE",
         "NOTIFICATION_READ",
         "BILLING_READ",
-        "BILLING_WRITE"
+        "BILLING_WRITE",
+        "QUIZ_GROUP_READ"
       ]
     },
     "ROLE_QUIZ_CREATOR": {
@@ -62,7 +63,11 @@
         "QUESTION_UPDATE",
         "QUESTION_DELETE",
         "CATEGORY_CREATE",
-        "TAG_CREATE"
+        "TAG_CREATE",
+        "QUIZ_GROUP_READ",
+        "QUIZ_GROUP_CREATE",
+        "QUIZ_GROUP_UPDATE",
+        "QUIZ_GROUP_DELETE"
       ]
     },
     "ROLE_MODERATOR": {
@@ -104,7 +109,8 @@
         "CATEGORY_UPDATE",
         "TAG_UPDATE",
         "ATTEMPT_READ_ALL",
-        "USER_MANAGE"
+        "USER_MANAGE",
+        "QUIZ_GROUP_READ"
       ]
     },
     "ROLE_ADMIN": {
@@ -159,7 +165,12 @@
         "AUDIT_READ",
         "NOTIFICATION_CREATE",
         "NOTIFICATION_ADMIN",
-        "ATTEMPT_DELETE"
+        "ATTEMPT_DELETE",
+        "QUIZ_GROUP_READ",
+        "QUIZ_GROUP_CREATE",
+        "QUIZ_GROUP_UPDATE",
+        "QUIZ_GROUP_DELETE",
+        "QUIZ_GROUP_ADMIN"
       ]
     },
     "ROLE_SUPER_ADMIN": {
@@ -221,7 +232,12 @@
         "ROLE_DELETE",
         "PERMISSION_CREATE",
         "PERMISSION_UPDATE",
-        "PERMISSION_DELETE"
+        "PERMISSION_DELETE",
+        "QUIZ_GROUP_READ",
+        "QUIZ_GROUP_CREATE",
+        "QUIZ_GROUP_UPDATE",
+        "QUIZ_GROUP_DELETE",
+        "QUIZ_GROUP_ADMIN"
       ]
     }
   }

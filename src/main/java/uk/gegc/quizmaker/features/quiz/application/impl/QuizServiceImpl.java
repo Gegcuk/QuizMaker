@@ -233,5 +233,17 @@ public class QuizServiceImpl implements QuizService {
         return quizQueryService.getPublicQuizzes(pageable);
     }
 
+    @Override
+    @Transactional
+    public QuizDto archiveQuiz(String username, UUID quizId) {
+        // Delegate to QuizPublishingService.setStatus() with ARCHIVED status
+        return quizPublishingService.setStatus(username, quizId, QuizStatus.ARCHIVED);
+    }
 
+    @Override
+    @Transactional
+    public QuizDto unarchiveQuiz(String username, UUID quizId) {
+        // Delegate to QuizPublishingService.setStatus() with DRAFT status (unarchived state)
+        return quizPublishingService.setStatus(username, quizId, QuizStatus.DRAFT);
+    }
 }

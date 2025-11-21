@@ -32,6 +32,13 @@ public enum PermissionName {
     TAG_DELETE("tag", "delete", "Delete tags"),
     TAG_ADMIN("tag", "admin", "Full tag administration"),
 
+    // Quiz Group Permissions
+    QUIZ_GROUP_READ("quiz_group", "read", "View quiz groups"),
+    QUIZ_GROUP_CREATE("quiz_group", "create", "Create quiz groups"),
+    QUIZ_GROUP_UPDATE("quiz_group", "update", "Update quiz groups"),
+    QUIZ_GROUP_DELETE("quiz_group", "delete", "Delete quiz groups"),
+    QUIZ_GROUP_ADMIN("quiz_group", "admin", "Full quiz group administration"),
+
     // User Permissions
     USER_READ("user", "read", "View user profiles"),
     USER_UPDATE("user", "update", "Update own profile"),

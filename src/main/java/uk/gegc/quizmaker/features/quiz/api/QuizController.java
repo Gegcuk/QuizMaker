@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -1030,6 +1031,64 @@ public class QuizController {
                             .orElseThrow(() -> new UnauthorizedException("Unknown principal"));
                     return user.getId();
                 });
+    }
+
+    @Operation(
+            summary = "Archive a quiz",
+            description = "Archive a quiz by setting its status to ARCHIVED. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "Empty body (no request body needed)",
+            required = false
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Quiz archived successfully",
+                    content = @Content(schema = @Schema(implementation = QuizDto.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @PatchMapping("/{quizId}/archive")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
+    public ResponseEntity<QuizDto> archiveQuiz(
+            @Parameter(description = "UUID of the quiz to archive", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        QuizDto quiz = quizService.archiveQuiz(authentication.getName(), quizId);
+        return ResponseEntity.ok(quiz);
+    }
+
+    @Operation(
+            summary = "Unarchive a quiz",
+            description = "Unarchive a quiz by setting its status to DRAFT. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            description = "Empty body (no request body needed)",
+            required = false
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Quiz unarchived successfully",
+                    content = @Content(schema = @Schema(implementation = QuizDto.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Quiz not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @PatchMapping("/{quizId}/unarchive")
+    @RequirePermission(PermissionName.QUIZ_UPDATE)
+    public ResponseEntity<QuizDto> unarchiveQuiz(
+            @Parameter(description = "UUID of the quiz to unarchive", required = true)
+            @PathVariable UUID quizId,
+            Authentication authentication
+    ) {
+        QuizDto quiz = quizService.unarchiveQuiz(authentication.getName(), quizId);
+        return ResponseEntity.ok(quiz);
     }
 
     @Operation(
