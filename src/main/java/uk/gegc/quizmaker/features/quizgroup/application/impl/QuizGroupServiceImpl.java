@@ -250,7 +250,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
             return;
         }
 
-        List<Quiz> quizzes = quizRepository.findAllById(newQuizIds);
+        List<Quiz> quizzes = quizRepository.findByIdIn(newQuizIds);
         Map<UUID, Quiz> quizzesById = quizzes.stream()
                 .collect(Collectors.toMap(Quiz::getId, q -> q));
 
@@ -284,7 +284,9 @@ public class QuizGroupServiceImpl implements QuizGroupService {
             membershipRepository.flush(); // Ensure shifts are persisted before inserts to avoid constraint violations
         }
 
+        // Collect all new memberships and save in batch
         int nextPosition = insertIndex;
+        List<QuizGroupMembership> newMemberships = new ArrayList<>(newQuizIds.size());
         for (UUID quizId : newQuizIds) {
             Quiz quiz = quizzesById.get(quizId);
             QuizGroupMembership membership = new QuizGroupMembership();
@@ -292,8 +294,9 @@ public class QuizGroupServiceImpl implements QuizGroupService {
             membership.setGroup(group);
             membership.setQuiz(quiz);
             membership.setPosition(nextPosition++);
-            membershipRepository.save(membership);
+            newMemberships.add(membership);
         }
+        membershipRepository.saveAll(newMemberships);
 
         log.info("Added {} quizzes to group {} by user {}", newQuizIds.size(), groupId, user.getId());
     }
@@ -358,7 +361,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 group.getOwner() != null ? group.getOwner().getId() : null,
                 PermissionName.QUIZ_GROUP_ADMIN);
 
-        // Get current memberships
+        // Get current memberships - cache for reuse if no optimistic lock failure
         List<QuizGroupMembership> memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
         Set<UUID> currentQuizIds = memberships.stream()
                 .map(m -> m.getId().getQuizId())
@@ -379,7 +382,10 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                         .orElseThrow(() -> new ResourceNotFoundException("Quiz group " + groupId + " not found"));
 
                 // Reorder memberships - renumber to dense 0..n-1 sequence
-                memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
+                // Only reload memberships on retry (after first attempt), otherwise reuse cached result
+                if (attempt > 0) {
+                    memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
+                }
                 Map<UUID, QuizGroupMembership> membershipMap = memberships.stream()
                         .collect(Collectors.toMap(m -> m.getId().getQuizId(), m -> m));
 

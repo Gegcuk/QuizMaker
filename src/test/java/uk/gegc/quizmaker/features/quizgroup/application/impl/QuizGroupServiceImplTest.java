@@ -211,15 +211,18 @@ class QuizGroupServiceImplTest {
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
             when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
                     .thenReturn(Collections.emptyList());
-            when(quizRepository.findAllById(anyList())).thenReturn(List.of(quiz1, quiz2));
-            when(membershipRepository.save(any(QuizGroupMembership.class)))
+            when(quizRepository.findByIdIn(anyList())).thenReturn(List.of(quiz1, quiz2));
+            when(membershipRepository.saveAll(anyList()))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             // When
             quizGroupService.addQuizzes("owner", group.getId(), request);
 
             // Then
-            verify(membershipRepository, times(2)).save(any(QuizGroupMembership.class));
+            ArgumentCaptor<List<QuizGroupMembership>> captor = ArgumentCaptor.forClass(List.class);
+            verify(membershipRepository, times(1)).saveAll(captor.capture());
+            assertThat(captor.getValue()).hasSize(2);
+            verify(membershipRepository, never()).save(any(QuizGroupMembership.class));
         }
 
         @Test
@@ -238,16 +241,19 @@ class QuizGroupServiceImplTest {
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
             when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
                     .thenReturn(List.of(existing));
-            when(quizRepository.findAllById(List.of(quiz2.getId())))
+            when(quizRepository.findByIdIn(List.of(quiz2.getId())))
                     .thenReturn(List.of(quiz2));
-            when(membershipRepository.save(any(QuizGroupMembership.class)))
+            when(membershipRepository.saveAll(anyList()))
                     .thenAnswer(invocation -> invocation.getArgument(0));
 
             // When
             quizGroupService.addQuizzes("owner", group.getId(), request);
 
             // Then
-            verify(membershipRepository, times(1)).save(any(QuizGroupMembership.class)); // Only quiz2
+            ArgumentCaptor<List<QuizGroupMembership>> captor = ArgumentCaptor.forClass(List.class);
+            verify(membershipRepository, times(1)).saveAll(captor.capture());
+            assertThat(captor.getValue()).hasSize(1); // Only quiz2
+            verify(membershipRepository, never()).save(any(QuizGroupMembership.class));
         }
 
         @Test
@@ -266,7 +272,7 @@ class QuizGroupServiceImplTest {
             doNothing().when(accessPolicy).requireOwnerOrAny(eq(owner), any(), any());
             when(membershipRepository.findByGroupIdOrderByPositionAsc(group.getId()))
                     .thenReturn(Collections.emptyList());
-            when(quizRepository.findAllById(anyList())).thenReturn(List.of(quiz1));
+            when(quizRepository.findByIdIn(anyList())).thenReturn(List.of(quiz1));
 
             // When/Then
             assertThatThrownBy(() -> quizGroupService.addQuizzes("owner", group.getId(), request))
