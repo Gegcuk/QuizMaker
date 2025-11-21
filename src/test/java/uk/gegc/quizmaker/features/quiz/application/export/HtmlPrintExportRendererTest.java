@@ -549,6 +549,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Is Java object-oriented?");
+            assertThat(html).contains("<span class=\"radio\"></span>"); // Radio button visual for true/false
             assertThat(html).contains("<strong>A.</strong> True");
             assertThat(html).contains("<strong>B.</strong> False");
         }
@@ -569,6 +570,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("What is 2+2?");
+            assertThat(html).contains("<span class=\"radio\"></span>"); // Radio button visual for single choice
             assertThat(html).contains("<strong>A.</strong> 3");
             assertThat(html).contains("<strong>B.</strong> 4");
             assertThat(html).contains("<strong>C.</strong> 5");
@@ -591,6 +593,7 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Select programming languages");
+            assertThat(html).contains("<span class=\"checkbox\"></span>"); // Checkbox visual for multiple choice
             assertThat(html).contains("<strong>A.</strong> Java");
             assertThat(html).contains("<strong>B.</strong> Python");
             assertThat(html).contains("<strong>C.</strong> HTML");
@@ -613,6 +616,9 @@ class HtmlPrintExportRendererTest {
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
             assertThat(html).contains("Complete the sentence");
+            // Should replace {N} placeholders with underscores in the text
+            assertThat(html).contains("____");
+            // Should also show separate answer fields/blanks for users to fill in
             assertThat(html).contains("<strong>1.</strong> _________________");
             assertThat(html).contains("<strong>2.</strong> _________________");
         }
@@ -642,9 +648,10 @@ class HtmlPrintExportRendererTest {
         // Then
         try (InputStream is = file.contentSupplier().get()) {
             String html = new String(is.readAllBytes());
-            // Should display the actual prompt with underscores
+            // Should display the actual prompt with underscores replacing {N} placeholders
             assertThat(html).contains("One of the main functions of NAT");
-            assertThat(html).contains("{1} network");
+            assertThat(html).contains("____ network");
+            assertThat(html).doesNotContain("{1}");
             // Should NOT display the generic question text in the header
             int headerIdx = html.indexOf("class=\"question-header\"");
             int nextHeaderIdx = html.indexOf("class=\"question-header\"", headerIdx + 1);
@@ -1269,9 +1276,11 @@ class HtmlPrintExportRendererTest {
 
     private QuestionExportDto createFillGapQuestion(String text) {
         ObjectNode content = objectMapper.createObjectNode();
+        // Include text with {N} placeholders for realistic FILL_GAP questions
+        content.put("text", text + " {1} and {2}");
         ArrayNode gaps = objectMapper.createArrayNode();
-        gaps.add(objectMapper.createObjectNode().put("id", "1").put("answer", "first"));
-        gaps.add(objectMapper.createObjectNode().put("id", "2").put("answer", "second"));
+        gaps.add(objectMapper.createObjectNode().put("id", 1).put("answer", "first"));
+        gaps.add(objectMapper.createObjectNode().put("id", 2).put("answer", "second"));
         content.set("gaps", gaps);
         
         return new QuestionExportDto(
