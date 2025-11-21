@@ -1,9 +1,11 @@
 package uk.gegc.quizmaker.features.quizgroup.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto;
 import uk.gegc.quizmaker.features.quizgroup.domain.repository.projection.QuizGroupSummaryProjection;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Schema(name = "QuizGroupSummaryDto", description = "Summary representation of a quiz group for list views")
@@ -30,13 +32,16 @@ public record QuizGroupSummaryDto(
         Instant updatedAt,
 
         @Schema(description = "Number of quizzes in the group", example = "5")
-        Long quizCount
+        Long quizCount,
+        @Schema(description = "Ordered preview of quizzes in the group (limited size)")
+        List<QuizSummaryDto> quizPreviews
 ) {
     /**
      * Factory method to create from domain projection.
      * No type conversion needed - projection already returns correct types.
      */
-    public static QuizGroupSummaryDto fromProjection(QuizGroupSummaryProjection projection) {
+    public static QuizGroupSummaryDto fromProjection(QuizGroupSummaryProjection projection,
+                                                     List<QuizSummaryDto> quizPreviews) {
         return new QuizGroupSummaryDto(
                 projection.getId(),
                 projection.getName(),
@@ -45,8 +50,8 @@ public record QuizGroupSummaryDto(
                 projection.getIcon(),
                 projection.getCreatedAt(),
                 projection.getUpdatedAt(),
-                projection.getQuizCount()
+                projection.getQuizCount(),
+                quizPreviews
         );
     }
 }
-

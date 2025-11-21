@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,6 +54,9 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificat
 
     List<Quiz> findByCreatorId(UUID creatorId);
     boolean existsByCreatorIdAndTitle(UUID creatorId, String title);
+
+    @EntityGraph(attributePaths = {"creator", "category", "tags"})
+    List<Quiz> findByIdIn(Collection<UUID> ids);
 
     /**
      * Override Specification-based findAll to eagerly fetch small associations used in DTO mapping

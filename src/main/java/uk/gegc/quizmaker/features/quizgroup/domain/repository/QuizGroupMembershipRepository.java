@@ -1,8 +1,12 @@
 package uk.gegc.quizmaker.features.quizgroup.domain.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroupMembership;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroupMembershipId;
@@ -23,6 +27,22 @@ public interface QuizGroupMembershipRepository extends JpaRepository<QuizGroupMe
               ORDER BY m.position ASC
             """)
     List<QuizGroupMembership> findByGroupIdOrderByPositionAsc(@Param("groupId") UUID groupId);
+
+    @Query(value = """
+              SELECT m
+              FROM QuizGroupMembership m
+              WHERE m.group.id = :groupId
+              ORDER BY m.position ASC
+            """)
+    Page<QuizGroupMembership> findPageByGroupId(@Param("groupId") UUID groupId, Pageable pageable);
+
+    @Query("""
+              SELECT m
+              FROM QuizGroupMembership m
+              WHERE m.group.id IN :groupIds
+              ORDER BY m.group.id ASC, m.position ASC
+            """)
+    List<QuizGroupMembership> findByGroupIdsOrdered(@Param("groupIds") Collection<UUID> groupIds);
 
     /**
      * Find all groups that contain a specific quiz.
@@ -46,4 +66,3 @@ public interface QuizGroupMembershipRepository extends JpaRepository<QuizGroupMe
     @Query("SELECT COUNT(m) FROM QuizGroupMembership m WHERE m.group.id = :groupId")
     long countByGroupId(@Param("groupId") UUID groupId);
 }
-

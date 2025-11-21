@@ -13,7 +13,10 @@ public interface QuizGroupService {
 
     QuizGroupDto get(UUID id, Authentication authentication);
 
-    Page<QuizGroupSummaryDto> list(Pageable pageable, Authentication authentication);
+    Page<QuizGroupSummaryDto> list(Pageable pageable,
+                                   Authentication authentication,
+                                   boolean includeQuizPreviews,
+                                   int previewSize);
 
     QuizGroupDto update(String username, UUID id, UpdateQuizGroupRequest request);
 
@@ -40,4 +43,3 @@ public interface QuizGroupService {
             Authentication authentication
     );
 }
-
