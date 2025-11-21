@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroupMembership;
 import uk.gegc.quizmaker.features.quizgroup.domain.model.QuizGroupMembershipId;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
+import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 
 import java.util.HashSet;
 import java.util.List;
@@ -54,6 +55,9 @@ class QuizGroupMembershipRepositoryTest {
     @Autowired
     private QuizRepository quizRepository;
 
+    @Autowired
+    private RoleRepository roleRepository;
+
     private User owner;
     private Category category;
     private QuizGroup group;
@@ -63,12 +67,15 @@ class QuizGroupMembershipRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Create roles
-        Role role = new Role();
-        role.setRoleName("ROLE_USER");
-        role.setDescription("User role");
-        role.setDefault(true);
-        entityManager.persist(role);
+        // Create or find role
+        Role role = roleRepository.findByRoleName("ROLE_USER")
+                .orElseGet(() -> {
+                    Role r = new Role();
+                    r.setRoleName("ROLE_USER");
+                    r.setDescription("User role");
+                    r.setDefault(true);
+                    return entityManager.persist(r);
+                });
         entityManager.flush();
 
         // Create user
