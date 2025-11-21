@@ -198,7 +198,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
 
         List<QuizSummaryDto> dtos = membershipPage.getContent().stream()
                 .map(membership -> {
-                    Quiz quiz = quizMap.get(membership.getQuiz().getId());
+                    Quiz quiz = quizMap.get(membership.getId().getQuizId());
                     if (quiz == null) {
                         return null;
                     }
@@ -232,7 +232,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
 
         List<QuizGroupMembership> existingMemberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
         Set<UUID> existingQuizIds = existingMemberships.stream()
-                .map(m -> m.getQuiz().getId())
+                .map(m -> m.getId().getQuizId())
                 .collect(Collectors.toSet());
 
         List<UUID> normalizedRequestIds = request.quizIds().stream()
@@ -361,7 +361,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
         // Get current memberships
         List<QuizGroupMembership> memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
         Set<UUID> currentQuizIds = memberships.stream()
-                .map(m -> m.getQuiz().getId())
+                .map(m -> m.getId().getQuizId())
                 .collect(Collectors.toSet());
 
         // Validate that orderedQuizIds matches current membership
@@ -381,7 +381,7 @@ public class QuizGroupServiceImpl implements QuizGroupService {
                 // Reorder memberships - renumber to dense 0..n-1 sequence
                 memberships = membershipRepository.findByGroupIdOrderByPositionAsc(groupId);
                 Map<UUID, QuizGroupMembership> membershipMap = memberships.stream()
-                        .collect(Collectors.toMap(m -> m.getQuiz().getId(), m -> m));
+                        .collect(Collectors.toMap(m -> m.getId().getQuizId(), m -> m));
 
                 // Update positions according to new order
                 List<Integer> newPositions = IntStream.range(0, request.orderedQuizIds().size())
