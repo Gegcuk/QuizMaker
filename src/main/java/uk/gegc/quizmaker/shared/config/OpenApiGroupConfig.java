@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.shared.config;
 
-import io.swagger.v3.oas.models.OpenAPI;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +30,7 @@ public class OpenApiGroupConfig {
                 .displayName("Quizzes")
                 .pathsToMatch(
                     "/api/v1/quizzes/**",
+                    "/api/v1/quiz-groups/**",
                     "/api/v1/tags/**",
                     "/api/v1/categories/**",
                     "/api/v1/share-links/**"
