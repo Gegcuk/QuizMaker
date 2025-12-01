@@ -13,6 +13,8 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
@@ -51,6 +53,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final OAuthUsernameGenerator oauthUsernameGenerator;
     private final BillingService billingService;
     private final TransactionTemplate transactionTemplate;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Value("${app.auth.registration-bonus-tokens:100}")
     private long registrationBonusTokens;
@@ -151,6 +156,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         // Create new user with OAuth account
         User newUser = createUserFromOAuth(email, name, profileImageUrl);
         createOAuthAccount(newUser, provider, providerUserId, email, name, profileImageUrl, userRequest);
+        
+        // Flush to ensure user is persisted before bonus credit (required for FK constraint in REQUIRES_NEW transaction)
+        entityManager.flush();
         
         // Grant registration bonus tokens
         creditRegistrationBonusTokens(newUser.getId());
