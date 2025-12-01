@@ -17,6 +17,8 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
@@ -83,6 +85,12 @@ class AuthServiceImplTest {
     private BillingService billingService;
 
     @Mock
+    private TransactionTemplate transactionTemplate;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
     private Clock utcClock;
 
     @InjectMocks
@@ -105,6 +113,18 @@ class AuthServiceImplTest {
         // Use lenient stubbing for clock to avoid unnecessary stubbing warnings in tests that don't use it
         lenient().when(utcClock.instant()).thenReturn(fixedInstant);
         lenient().when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
+        
+        // Mock TransactionTemplate to execute callbacks immediately (for REQUIRES_NEW transaction)
+        when(transactionTemplate.getTransactionManager()).thenReturn(transactionManager);
+        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+        });
+        doAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallbackWithoutResult callback = invocation.getArgument(0);
+            callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
         
         // Set @Value field that Spring would inject in real context
         ReflectionTestUtils.setField(authService, "registrationBonusTokens", 100L);

@@ -15,6 +15,8 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
@@ -63,6 +65,12 @@ class CustomOAuth2UserServiceTest {
     @Mock
     private BillingService billingService;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private CustomOAuth2UserService service;
 
     private Role userRole;
@@ -80,9 +88,18 @@ class CustomOAuth2UserServiceTest {
                 passwordEncoder,
                 tokenCryptoService,
                 usernameGenerator,
-                billingService
+                billingService,
+                transactionTemplate
         );
         service = spy(service);
+        
+        // Mock TransactionTemplate to execute callbacks immediately (for REQUIRES_NEW transaction)
+        when(transactionTemplate.getTransactionManager()).thenReturn(transactionManager);
+        doAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallbackWithoutResult callback = invocation.getArgument(0);
+            callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
         
         // Set @Value field that Spring would inject in real context
         org.springframework.test.util.ReflectionTestUtils.setField(service, "registrationBonusTokens", 100L);
