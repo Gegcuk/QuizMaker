@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.auth.application.impl;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
@@ -43,9 +45,11 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
@@ -57,6 +61,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
+    private final BillingService billingService;
     @Qualifier("utcClock")
     private final Clock utcClock;
     
@@ -71,6 +76,11 @@ public class AuthServiceImpl implements AuthService {
     
     @Value("${app.auth.verification-token-ttl-minutes:1440}")
     private long verificationTokenTtlMinutes;
+
+    @Value("${app.auth.registration-bonus-tokens:100}")
+    private long registrationBonusTokens;
+
+    private static final String REGISTRATION_BONUS_REF = "registration-bonus";
 
     @PostConstruct
     void verifyResetPepper() {
@@ -108,6 +118,9 @@ public class AuthServiceImpl implements AuthService {
         user.setRoles(Set.of(userRole, quizCreatorRole));
 
         User saved = userRepository.save(user);
+        
+        // Grant registration bonus tokens
+        creditRegistrationBonusTokens(saved.getId());
         
         // Send email verification
         generateEmailVerificationToken(saved.getEmail());
@@ -355,6 +368,25 @@ public class AuthServiceImpl implements AuthService {
             }
         }
         // If user doesn't exist, we don't do anything (security through obscurity)
+    }
+
+    /**
+     * Credits registration bonus tokens to a newly registered user.
+     * This method is non-blocking - registration will succeed even if token credit fails.
+     * Errors are logged but do not propagate to ensure user registration always succeeds.
+     *
+     * @param userId the ID of the newly registered user
+     */
+    private void creditRegistrationBonusTokens(UUID userId) {
+        try {
+            String idempotencyKey = REGISTRATION_BONUS_REF + ":" + userId;
+            billingService.creditAdjustment(userId, registrationBonusTokens, idempotencyKey, REGISTRATION_BONUS_REF, null);
+        } catch (Exception e) {
+            // Log error but don't fail registration if token credit fails
+            // This ensures registration succeeds even if billing service has issues
+            // The error will also be logged by the billing service
+            log.warn("Failed to credit registration bonus tokens for user {}: {}", userId, e.getMessage());
+        }
     }
     
     private String generateSecureToken() {

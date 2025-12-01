@@ -16,6 +16,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
@@ -32,6 +33,8 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
@@ -71,7 +74,14 @@ class AuthServiceImplTest {
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
     @Mock
+    private EmailVerificationTokenRepository emailVerificationTokenRepository;
+
+    @Mock
     private EmailService emailService;
+
+    @Mock
+    private BillingService billingService;
+
     @Mock
     private Clock utcClock;
 
@@ -95,6 +105,9 @@ class AuthServiceImplTest {
         // Use lenient stubbing for clock to avoid unnecessary stubbing warnings in tests that don't use it
         lenient().when(utcClock.instant()).thenReturn(fixedInstant);
         lenient().when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
+        
+        // Set @Value field that Spring would inject in real context
+        ReflectionTestUtils.setField(authService, "registrationBonusTokens", 100L);
     }
 
     @Test
@@ -144,10 +157,23 @@ class AuthServiceImplTest {
                 saved.getUpdatedAt()
         );
         when(userMapper.toDto(saved)).thenReturn(expectedDto);
+        // Use lenient stubbing for email verification methods that are called but not directly verified
+        lenient().doNothing().when(emailVerificationTokenRepository).invalidateUserTokens(any());
+        lenient().when(emailVerificationTokenRepository.save(any())).thenReturn(null);
+        lenient().doNothing().when(emailService).sendEmailVerificationEmail(any(), any());
+        // No need to stub billingService - we verify it explicitly below
 
         AuthenticatedUserDto result = authService.register(req);
 
         assertEquals(expectedDto, result);
+        // Verify that registration bonus tokens are credited on registration
+        verify(billingService).creditAdjustment(
+                eq(saved.getId()),
+                eq(100L), // Default value from application.properties
+                eq("registration-bonus:" + saved.getId()),
+                eq("registration-bonus"),
+                isNull()
+        );
         User passed = captor.getValue();
         assertEquals("john", passed.getUsername());
         assertEquals("john@example.com", passed.getEmail());

@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.auth.infra.security;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,6 +21,7 @@ import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -46,6 +48,12 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final PasswordEncoder passwordEncoder;
     private final OAuthTokenCryptoService tokenCryptoService;
     private final OAuthUsernameGenerator oauthUsernameGenerator;
+    private final BillingService billingService;
+
+    @Value("${app.auth.registration-bonus-tokens:100}")
+    private long registrationBonusTokens;
+
+    private static final String REGISTRATION_BONUS_REF = "registration-bonus";
 
     @Override
     @Transactional
@@ -141,6 +149,10 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         // Create new user with OAuth account
         User newUser = createUserFromOAuth(email, name, profileImageUrl);
         createOAuthAccount(newUser, provider, providerUserId, email, name, profileImageUrl, userRequest);
+        
+        // Grant registration bonus tokens
+        creditRegistrationBonusTokens(newUser.getId());
+        
         log.info("Created new user from OAuth: userId={}, provider={}", newUser.getId(), provider);
         
         return newUser;
@@ -243,6 +255,25 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     );
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Credits registration bonus tokens to a newly registered user.
+     * This method is non-blocking - registration will succeed even if token credit fails.
+     * Errors are logged but do not propagate to ensure user registration always succeeds.
+     *
+     * @param userId the ID of the newly registered user
+     */
+    private void creditRegistrationBonusTokens(UUID userId) {
+        try {
+            String idempotencyKey = REGISTRATION_BONUS_REF + ":" + userId;
+            billingService.creditAdjustment(userId, registrationBonusTokens, idempotencyKey, REGISTRATION_BONUS_REF, null);
+        } catch (Exception e) {
+            // Log error but don't fail registration if token credit fails
+            // This ensures registration succeeds even if billing service has issues
+            // The error will also be logged by the billing service
+            log.warn("Failed to credit registration bonus tokens for OAuth user {}: {}", userId, e.getMessage());
+        }
     }
 
     private OAuthProvider mapRegistrationIdToProvider(String registrationId) {

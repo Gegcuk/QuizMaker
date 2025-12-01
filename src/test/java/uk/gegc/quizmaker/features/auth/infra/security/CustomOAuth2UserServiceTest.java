@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -59,6 +60,9 @@ class CustomOAuth2UserServiceTest {
     @Mock
     private OAuthUsernameGenerator usernameGenerator;
 
+    @Mock
+    private BillingService billingService;
+
     private CustomOAuth2UserService service;
 
     private Role userRole;
@@ -75,9 +79,13 @@ class CustomOAuth2UserServiceTest {
                 roleRepository,
                 passwordEncoder,
                 tokenCryptoService,
-                usernameGenerator
+                usernameGenerator,
+                billingService
         );
         service = spy(service);
+        
+        // Set @Value field that Spring would inject in real context
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "registrationBonusTokens", 100L);
 
         // Setup common test data
         userRole = new Role();
