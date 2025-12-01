@@ -524,6 +524,86 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
+    @Transactional
+    public void creditAdjustment(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
+        if (tokens <= 0) {
+            throw new IllegalArgumentException("tokens must be > 0");
+        }
+
+        // Idempotency: if an ADJUSTMENT with this key already exists, noop
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                var tx = existing.get();
+                if (tx.getType() != TokenTransactionType.ADJUSTMENT) {
+                    throw new IdempotencyConflictException("Idempotency key already used for a different operation");
+                }
+                return; // already credited
+            }
+        }
+
+        int attempts = 0;
+        while (true) {
+            attempts++;
+            try {
+                Balance balance = balanceRepository.findByUserId(userId).orElseGet(() -> {
+                    Balance b = new Balance();
+                    b.setUserId(userId);
+                    b.setAvailableTokens(0L);
+                    b.setReservedTokens(0L);
+                    return balanceRepository.save(b);
+                });
+
+                // Credit tokens to available
+                balance.setAvailableTokens(balance.getAvailableTokens() + tokens);
+                balanceRepository.save(balance);
+
+                // Append ADJUSTMENT transaction with snapshots
+                TokenTransaction tx = new TokenTransaction();
+                tx.setUserId(userId);
+                tx.setType(TokenTransactionType.ADJUSTMENT);
+                tx.setSource(TokenTransactionSource.ADMIN);
+                tx.setAmountTokens(tokens);
+                tx.setRefId(ref);
+                tx.setIdempotencyKey(idempotencyKey);
+                tx.setMetaJson(metaJson);
+                tx.setBalanceAfterAvailable(balance.getAvailableTokens());
+                tx.setBalanceAfterReserved(balance.getReservedTokens());
+                transactionRepository.save(tx);
+
+                // Emit structured logging and metrics
+                BillingStructuredLogger.logLedgerWrite(log, "info", 
+                        "Credited {} tokens to user {} via adjustment", 
+                        userId, "ADJUSTMENT", "ADMIN", tokens, idempotencyKey, 
+                        balance.getAvailableTokens(), balance.getReservedTokens(), ref);
+                
+                metricsService.incrementTokensAdjusted(userId, tokens, "ADMIN");
+                metricsService.incrementTokensCredited(userId, tokens, "ADMIN");
+                metricsService.recordBalanceAvailable(userId, balance.getAvailableTokens());
+                metricsService.recordBalanceReserved(userId, balance.getReservedTokens());
+
+                entityManager.flush();
+                return;
+            } catch (OptimisticLockingFailureException ex) {
+                if (attempts >= 2) {
+                    log.warn("creditAdjustment() optimistic lock failed after {} attempts for user {}", attempts, userId);
+                    throw ex;
+                }
+                try { Thread.sleep(20L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            } catch (DataIntegrityViolationException ex) {
+                // handle race on idempotency key
+                if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+                    var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
+                    if (existing.isPresent() && existing.get().getType() == TokenTransactionType.ADJUSTMENT) {
+                        return; // already credited by concurrent request
+                    }
+                }
+                throw ex;
+            }
+        }
+    }
+
+    @Override
     @Scheduled(fixedDelayString = "#{@billingProperties.reservationSweeperMs}")
     @Transactional
     public void expireReservations() {

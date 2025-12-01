@@ -61,4 +61,16 @@ public interface BillingService {
      * @param metaJson        optional metadata JSON
      */
     void deductTokens(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson);
+
+    /**
+     * Credit tokens to user's balance via an ADJUSTMENT transaction (e.g., registration bonus, admin grants).
+     * Idempotent by {@code idempotencyKey}.
+     *
+     * @param userId          user ID to credit tokens to
+     * @param tokens          number of tokens to credit
+     * @param idempotencyKey  unique key to prevent duplicate credits
+     * @param ref             reference (e.g., "registration-bonus", "admin-grant")
+     * @param metaJson        optional metadata JSON
+     */
+    void creditAdjustment(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson);
 }
