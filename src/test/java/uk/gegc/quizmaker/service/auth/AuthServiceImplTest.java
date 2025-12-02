@@ -17,8 +17,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
@@ -35,7 +34,6 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -82,13 +80,7 @@ class AuthServiceImplTest {
     private EmailService emailService;
 
     @Mock
-    private BillingService billingService;
-
-    @Mock
-    private TransactionTemplate transactionTemplate;
-
-    @Mock
-    private PlatformTransactionManager transactionManager;
+    private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private Clock utcClock;
@@ -113,21 +105,6 @@ class AuthServiceImplTest {
         // Use lenient stubbing for clock to avoid unnecessary stubbing warnings in tests that don't use it
         lenient().when(utcClock.instant()).thenReturn(fixedInstant);
         lenient().when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
-        
-        // Mock TransactionTemplate to execute callbacks immediately (for REQUIRES_NEW transaction)
-        when(transactionTemplate.getTransactionManager()).thenReturn(transactionManager);
-        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
-        });
-        doAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
-            return null;
-        }).when(transactionTemplate).executeWithoutResult(any());
-        
-        // Set @Value field that Spring would inject in real context
-        ReflectionTestUtils.setField(authService, "registrationBonusTokens", 100L);
     }
 
     @Test
@@ -181,19 +158,17 @@ class AuthServiceImplTest {
         lenient().doNothing().when(emailVerificationTokenRepository).invalidateUserTokens(any());
         lenient().when(emailVerificationTokenRepository.save(any())).thenReturn(null);
         lenient().doNothing().when(emailService).sendEmailVerificationEmail(any(), any());
-        // No need to stub billingService - we verify it explicitly below
 
         AuthenticatedUserDto result = authService.register(req);
 
         assertEquals(expectedDto, result);
-        // Verify that registration bonus tokens are credited on registration
-        verify(billingService).creditAdjustment(
-                eq(saved.getId()),
-                eq(100L), // Default value from application.properties
-                eq("registration-bonus:" + saved.getId()),
-                eq("registration-bonus"),
-                isNull()
-        );
+        // Verify that UserRegisteredEvent is published
+        verify(eventPublisher).publishEvent(argThat(event -> {
+            if (event instanceof uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent) {
+                return ((uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent) event).getUserId().equals(saved.getId());
+            }
+            return false;
+        }));
         User passed = captor.getValue();
         assertEquals("john", passed.getUsername());
         assertEquals("john@example.com", passed.getEmail());
