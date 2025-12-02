@@ -11,6 +11,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.domain.model.*;
 import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -513,6 +515,66 @@ class BillingInvariantsTest {
 
             // Then - should succeed (idempotent)
             assertThat(balance.getAvailableTokens()).isEqualTo(5000L + tokenAmount);
+        }
+
+        @Test
+        @DisplayName("creditPurchase: duplicate idempotency key race returns gracefully")
+        void creditPurchaseDuplicateIdempotencyKeyRaceReturnsGracefully() {
+            UUID userId = UUID.randomUUID();
+            String idempotencyKey = "race-key";
+            long tokenAmount = 500L;
+
+            Balance balance = new Balance();
+            balance.setUserId(userId);
+            balance.setAvailableTokens(1000L);
+            balance.setReservedTokens(0L);
+            when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+
+            TokenTransaction existingTx = new TokenTransaction();
+            existingTx.setIdempotencyKey(idempotencyKey);
+            existingTx.setType(TokenTransactionType.PURCHASE);
+
+            when(transactionRepository.findByIdempotencyKey(idempotencyKey))
+                    .thenReturn(Optional.empty()) // pre-check
+                    .thenReturn(Optional.of(existingTx)); // after race
+
+            when(transactionRepository.save(any(TokenTransaction.class)))
+                    .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+            assertThatCode(() -> billingService.creditPurchase(userId, tokenAmount, idempotencyKey, "ref", null))
+                    .doesNotThrowAnyException();
+
+            verify(transactionRepository, times(2)).findByIdempotencyKey(idempotencyKey);
+        }
+
+        @Test
+        @DisplayName("creditAdjustment: duplicate idempotency key race returns gracefully")
+        void creditAdjustmentDuplicateIdempotencyKeyRaceReturnsGracefully() {
+            UUID userId = UUID.randomUUID();
+            String idempotencyKey = "adjustment-race-key";
+            long tokenAmount = 250L;
+
+            Balance balance = new Balance();
+            balance.setUserId(userId);
+            balance.setAvailableTokens(1000L);
+            balance.setReservedTokens(0L);
+            when(balanceRepository.findByUserId(userId)).thenReturn(Optional.of(balance));
+
+            TokenTransaction existingTx = new TokenTransaction();
+            existingTx.setIdempotencyKey(idempotencyKey);
+            existingTx.setType(TokenTransactionType.ADJUSTMENT);
+
+            when(transactionRepository.findByIdempotencyKey(idempotencyKey))
+                    .thenReturn(Optional.empty()) // pre-check
+                    .thenReturn(Optional.of(existingTx)); // after race
+
+            when(transactionRepository.save(any(TokenTransaction.class)))
+                    .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+            assertThatCode(() -> billingService.creditAdjustment(userId, tokenAmount, idempotencyKey, "ref", null))
+                    .doesNotThrowAnyException();
+
+            verify(transactionRepository, times(2)).findByIdempotencyKey(idempotencyKey);
         }
     }
 
