@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;

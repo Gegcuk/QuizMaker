@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
@@ -33,6 +34,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.infra.mapping.UserMapper;
+import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
@@ -46,6 +48,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -76,6 +79,11 @@ public class AuthServiceImpl implements AuthService {
     
     @Value("${app.auth.verification-token-ttl-minutes:1440}")
     private long verificationTokenTtlMinutes;
+
+    @Value("${app.auth.registration-bonus-tokens:100}")
+    private long registrationBonusTokens;
+
+    private static final String REGISTRATION_BONUS_REF = "registration-bonus";
 
     @PostConstruct
     void verifyResetPepper() {
