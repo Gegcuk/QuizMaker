@@ -10,11 +10,10 @@ import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserServ
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
@@ -51,16 +50,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final PasswordEncoder passwordEncoder;
     private final OAuthTokenCryptoService tokenCryptoService;
     private final OAuthUsernameGenerator oauthUsernameGenerator;
-    private final BillingService billingService;
-    private final TransactionTemplate transactionTemplate;
-
-    @PersistenceContext
-    private EntityManager entityManager;
-
-    @Value("${app.auth.registration-bonus-tokens:100}")
-    private long registrationBonusTokens;
-
-    private static final String REGISTRATION_BONUS_REF = "registration-bonus";
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -157,11 +147,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         User newUser = createUserFromOAuth(email, name, profileImageUrl);
         createOAuthAccount(newUser, provider, providerUserId, email, name, profileImageUrl, userRequest);
         
-        // Flush to ensure user is persisted before bonus credit (required for FK constraint in REQUIRES_NEW transaction)
-        entityManager.flush();
-        
-        // Grant registration bonus tokens
-        creditRegistrationBonusTokens(newUser.getId());
+        // Publish event to credit registration bonus tokens after transaction commits
+        // This avoids lock conflicts by running the bonus credit in a separate transaction after commit
+        eventPublisher.publishEvent(new UserRegisteredEvent(this, newUser.getId()));
         
         log.info("Created new user from OAuth: userId={}, provider={}", newUser.getId(), provider);
         
@@ -267,35 +255,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Credits registration bonus tokens to a newly registered user.
-     * This method is non-blocking - registration will succeed even if token credit fails.
-     * Uses a separate transaction (REQUIRES_NEW) to prevent rollback of the main registration.
-     * Errors are logged but do not propagate to ensure user registration always succeeds.
-     *
-     * @param userId the ID of the newly registered user
-     */
-    private void creditRegistrationBonusTokens(UUID userId) {
-        try {
-            // Create a new transaction template with REQUIRES_NEW propagation
-            TransactionTemplate newTransactionTemplate = new TransactionTemplate(
-                    transactionTemplate.getTransactionManager()
-            );
-            newTransactionTemplate.setPropagationBehavior(
-                    org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW
-            );
-            
-            newTransactionTemplate.executeWithoutResult(status -> {
-                String idempotencyKey = REGISTRATION_BONUS_REF + ":" + userId;
-                billingService.creditAdjustment(userId, registrationBonusTokens, idempotencyKey, REGISTRATION_BONUS_REF, null);
-            });
-        } catch (Exception e) {
-            // Log error but don't fail registration if token credit fails
-            // This ensures registration succeeds even if billing service has issues
-            // The error will also be logged by the billing service
-            log.warn("Failed to credit registration bonus tokens for OAuth user {}: {}", userId, e.getMessage());
-        }
-    }
 
     private OAuthProvider mapRegistrationIdToProvider(String registrationId) {
         return switch (registrationId.toLowerCase()) {

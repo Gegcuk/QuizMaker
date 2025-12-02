@@ -15,8 +15,7 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.context.ApplicationEventPublisher;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
@@ -63,13 +62,7 @@ class CustomOAuth2UserServiceTest {
     private OAuthUsernameGenerator usernameGenerator;
 
     @Mock
-    private BillingService billingService;
-
-    @Mock
-    private TransactionTemplate transactionTemplate;
-
-    @Mock
-    private PlatformTransactionManager transactionManager;
+    private ApplicationEventPublisher eventPublisher;
 
     private CustomOAuth2UserService service;
 
@@ -88,8 +81,7 @@ class CustomOAuth2UserServiceTest {
                 passwordEncoder,
                 tokenCryptoService,
                 usernameGenerator,
-                billingService,
-                transactionTemplate
+                eventPublisher
         );
         service = spy(service);
         

@@ -11,10 +11,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
+import uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
@@ -62,8 +64,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
-    private final BillingService billingService;
-    private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
     @Qualifier("utcClock")
     private final Clock utcClock;
     
@@ -95,6 +96,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public AuthenticatedUserDto register(RegisterRequest request) {
 
         if (userRepository.existsByUsername(request.username())) {
@@ -121,8 +123,9 @@ public class AuthServiceImpl implements AuthService {
 
         User saved = userRepository.save(user);
         
-        // Grant registration bonus tokens
-        creditRegistrationBonusTokens(saved.getId());
+        // Publish event to credit registration bonus tokens after transaction commits
+        // This avoids lock conflicts by running the bonus credit in a separate transaction after commit
+        eventPublisher.publishEvent(new UserRegisteredEvent(this, saved.getId()));
         
         // Send email verification
         generateEmailVerificationToken(saved.getEmail());
@@ -372,36 +375,6 @@ public class AuthServiceImpl implements AuthService {
         // If user doesn't exist, we don't do anything (security through obscurity)
     }
 
-    /**
-     * Credits registration bonus tokens to a newly registered user.
-     * This method is non-blocking - registration will succeed even if token credit fails.
-     * Uses a separate transaction (REQUIRES_NEW) to prevent rollback of the main registration.
-     * Errors are logged but do not propagate to ensure user registration always succeeds.
-     *
-     * @param userId the ID of the newly registered user
-     */
-    private void creditRegistrationBonusTokens(UUID userId) {
-        try {
-            // Create a new transaction template with REQUIRES_NEW propagation
-            TransactionTemplate newTransactionTemplate = new TransactionTemplate(
-                    transactionTemplate.getTransactionManager()
-            );
-            newTransactionTemplate.setPropagationBehavior(
-                    org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW
-            );
-            
-            newTransactionTemplate.executeWithoutResult(status -> {
-                String idempotencyKey = REGISTRATION_BONUS_REF + ":" + userId;
-                billingService.creditAdjustment(userId, registrationBonusTokens, idempotencyKey, REGISTRATION_BONUS_REF, null);
-            });
-        } catch (Exception e) {
-            // Log error but don't fail registration if token credit fails
-            // This ensures registration succeeds even if billing service has issues
-            // The error will also be logged by the billing service
-            log.warn("Failed to credit registration bonus tokens for user {}: {}", userId, e.getMessage());
-        }
-    }
-    
     private String generateSecureToken() {
         SecureRandom random = new SecureRandom();
         byte[] bytes = new byte[32];
