@@ -105,21 +105,6 @@ class AuthServiceImplTest {
         // Use lenient stubbing for clock to avoid unnecessary stubbing warnings in tests that don't use it
         lenient().when(utcClock.instant()).thenReturn(fixedInstant);
         lenient().when(utcClock.getZone()).thenReturn(ZoneOffset.UTC);
-        
-        // Mock TransactionTemplate to execute callbacks immediately (for REQUIRES_NEW transaction)
-        when(transactionTemplate.getTransactionManager()).thenReturn(transactionManager);
-        when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
-            return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
-        });
-        doAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
-            return null;
-        }).when(transactionTemplate).executeWithoutResult(any());
-        
-        // Set @Value field that Spring would inject in real context
-        ReflectionTestUtils.setField(authService, "registrationBonusTokens", 100L);
     }
 
     @Test

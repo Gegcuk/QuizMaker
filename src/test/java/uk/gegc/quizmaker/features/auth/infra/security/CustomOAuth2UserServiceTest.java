@@ -84,17 +84,6 @@ class CustomOAuth2UserServiceTest {
                 eventPublisher
         );
         service = spy(service);
-        
-        // Mock TransactionTemplate to execute callbacks immediately (for REQUIRES_NEW transaction)
-        when(transactionTemplate.getTransactionManager()).thenReturn(transactionManager);
-        doAnswer(invocation -> {
-            org.springframework.transaction.support.TransactionCallbackWithoutResult callback = invocation.getArgument(0);
-            callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
-            return null;
-        }).when(transactionTemplate).executeWithoutResult(any());
-        
-        // Set @Value field that Spring would inject in real context
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "registrationBonusTokens", 100L);
 
         // Setup common test data
         userRole = new Role();
