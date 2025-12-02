@@ -88,6 +88,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
     public AuthenticatedUserDto register(RegisterRequest request) {
 
         if (userRepository.existsByUsername(request.username())) {
