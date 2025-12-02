@@ -2,7 +2,6 @@ package uk.gegc.quizmaker.features.auth.infra.security;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,7 +22,6 @@ import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
-import uk.gegc.quizmaker.features.billing.application.BillingService;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -302,7 +300,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             case GOOGLE -> oauth2User.getAttribute("picture");
             case GITHUB -> oauth2User.getAttribute("avatar_url");
             case FACEBOOK -> {
-                @SuppressWarnings("unchecked")
                 Map<String, Object> picture = oauth2User.getAttribute("picture");
                 if (picture != null) {
                     @SuppressWarnings("unchecked")

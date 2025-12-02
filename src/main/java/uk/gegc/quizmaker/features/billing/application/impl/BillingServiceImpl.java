@@ -511,7 +511,7 @@ public class BillingServiceImpl implements BillingService {
                 }
                 try { Thread.sleep(20L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             } catch (DataIntegrityViolationException ex) {
-                // handle race on idempotency key
+                // Handle race when two requests insert the same idempotencyKey concurrently
                 if (idempotencyKey != null && !idempotencyKey.isBlank()) {
                     var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
                     if (existing.isPresent() && existing.get().getType() == TokenTransactionType.PURCHASE) {
@@ -591,7 +591,7 @@ public class BillingServiceImpl implements BillingService {
                 }
                 try { Thread.sleep(20L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             } catch (DataIntegrityViolationException ex) {
-                // handle race on idempotency key
+                // Handle race when two requests insert the same idempotencyKey concurrently
                 if (idempotencyKey != null && !idempotencyKey.isBlank()) {
                     var existing = transactionRepository.findByIdempotencyKey(idempotencyKey);
                     if (existing.isPresent() && existing.get().getType() == TokenTransactionType.ADJUSTMENT) {
@@ -802,4 +802,3 @@ public class BillingServiceImpl implements BillingService {
         }
     }
 }
-
