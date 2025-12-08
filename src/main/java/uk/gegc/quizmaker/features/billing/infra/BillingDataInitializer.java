@@ -101,6 +101,7 @@ public class BillingDataInitializer implements CommandLineRunner {
         pack.setPriceCents(amountCents);
         pack.setCurrency(currency);
         pack.setStripePriceId(priceId);
+        pack.setActive(true);
         productPackRepository.save(pack);
 
         log.info("Seeded ProductPack '{}': tokens={}, amountCents={}, currency={}, priceId={}",
@@ -118,4 +119,3 @@ public class BillingDataInitializer implements CommandLineRunner {
         }
     }
 }
-
