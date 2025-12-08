@@ -74,7 +74,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
 
     @Override
     public List<PackDto> getAvailablePacks() {
-        var packs = productPackRepository.findAll().stream()
+        var packs = productPackRepository.findByActiveTrue().stream()
                 .map(pack -> new PackDto(
                         pack.getId(),
                         pack.getName(),

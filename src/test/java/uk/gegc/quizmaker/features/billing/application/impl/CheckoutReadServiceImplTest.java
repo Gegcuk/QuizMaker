@@ -168,7 +168,7 @@ class CheckoutReadServiceImplTest {
             ProductPack pack = createProductPack("Starter", 1000L, 999L);
 
             when(stripeProperties.getPublishableKey()).thenReturn(publishableKey);
-            when(productPackRepository.findAll()).thenReturn(List.of(pack));
+            when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack));
 
             // When
             ConfigResponse result = checkoutReadService.getBillingConfig();
@@ -180,7 +180,7 @@ class CheckoutReadServiceImplTest {
             assertThat(result.prices().get(0).tokens()).isEqualTo(1000L);
 
             verify(stripeProperties).getPublishableKey();
-            verify(productPackRepository).findAll();
+            verify(productPackRepository).findByActiveTrue();
         }
 
         @Test
@@ -240,7 +240,7 @@ class CheckoutReadServiceImplTest {
             ProductPack pack1 = createProductPack("Starter", 1000L, 999L);
             ProductPack pack2 = createProductPack("Pro", 5000L, 4999L);
 
-            when(productPackRepository.findAll()).thenReturn(List.of(pack1, pack2));
+            when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack1, pack2));
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -253,14 +253,14 @@ class CheckoutReadServiceImplTest {
             assertThat(result.get(1).name()).isEqualTo("Pro");
             assertThat(result.get(1).tokens()).isEqualTo(5000L);
 
-            verify(productPackRepository).findAll();
+            verify(productPackRepository).findByActiveTrue();
         }
 
         @Test
         @DisplayName("should return fallback packs when database is empty")
         void getAvailablePacks_emptyDatabase_returnsFallbackPacks() {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_small");
             when(stripeProperties.getPriceMedium()).thenReturn("price_medium");
             when(stripeProperties.getPriceLarge()).thenReturn("price_large");
@@ -277,14 +277,14 @@ class CheckoutReadServiceImplTest {
             assertThat(result.get(2).name()).isEqualTo("Pro Pack");
             assertThat(result.get(2).tokens()).isEqualTo(10000L);
 
-            verify(productPackRepository).findAll();
+            verify(productPackRepository).findByActiveTrue();
         }
 
         @Test
         @DisplayName("should return empty list when database empty and fallback fails")
         void getAvailablePacks_emptyDatabaseAndFallbackFails_returnsEmptyList() {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenThrow(new RuntimeException("Config error"));
 
             // When
@@ -292,14 +292,14 @@ class CheckoutReadServiceImplTest {
 
             // Then
             assertThat(result).isEmpty();
-            verify(productPackRepository).findAll();
+            verify(productPackRepository).findByActiveTrue();
         }
 
         @Test
         @DisplayName("should skip packs with null or blank price IDs in fallback")
         void getAvailablePacks_nullPriceIds_skipsThosePacks() {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn(null);
             when(stripeProperties.getPriceMedium()).thenReturn("  ");
             when(stripeProperties.getPriceLarge()).thenReturn("price_large");
@@ -334,7 +334,7 @@ class CheckoutReadServiceImplTest {
         @DisplayName("should retrieve price details from Stripe when available")
         void fallbackPack_withStripePrice_retrievesPriceDetails() throws Exception {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_123");
             when(stripeProperties.getPriceMedium()).thenReturn(null);
             when(stripeProperties.getPriceLarge()).thenReturn(null);
@@ -369,7 +369,7 @@ class CheckoutReadServiceImplTest {
         @DisplayName("should use product metadata tokens if price metadata not available")
         void fallbackPack_productMetadata_usesProductTokens() throws Exception {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_456");
             when(stripeProperties.getPriceMedium()).thenReturn(null);
             when(stripeProperties.getPriceLarge()).thenReturn(null);
@@ -403,7 +403,7 @@ class CheckoutReadServiceImplTest {
         @DisplayName("should use defaults when Stripe API call fails")
         void fallbackPack_stripeApiFails_usesDefaults() throws Exception {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_error");
             when(stripeProperties.getPriceMedium()).thenReturn(null);
             when(stripeProperties.getPriceLarge()).thenReturn(null);
@@ -428,7 +428,7 @@ class CheckoutReadServiceImplTest {
         @DisplayName("should handle invalid token metadata gracefully")
         void fallbackPack_invalidTokenMetadata_usesDefaults() throws Exception {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_789");
             when(stripeProperties.getPriceMedium()).thenReturn(null);
             when(stripeProperties.getPriceLarge()).thenReturn(null);
@@ -456,7 +456,7 @@ class CheckoutReadServiceImplTest {
         @DisplayName("should handle null price response gracefully")
         void fallbackPack_nullPriceResponse_usesDefaults() throws Exception {
             // Given
-            when(productPackRepository.findAll()).thenReturn(Collections.emptyList());
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
             when(stripeProperties.getPriceSmall()).thenReturn("price_null");
             when(stripeProperties.getPriceMedium()).thenReturn(null);
             when(stripeProperties.getPriceLarge()).thenReturn(null);
@@ -487,4 +487,3 @@ class CheckoutReadServiceImplTest {
         return pack;
     }
 }
-

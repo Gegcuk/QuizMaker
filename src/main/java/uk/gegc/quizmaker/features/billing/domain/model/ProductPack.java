@@ -31,5 +31,7 @@ public class ProductPack {
 
     @Column(name = "stripe_price_id", nullable = false, length = 100)
     private String stripePriceId;
-}
 
+    @Column(name = "active", nullable = false)
+    private boolean active = true;
+}
