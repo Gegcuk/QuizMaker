@@ -28,6 +28,9 @@ public record AnswerSubmissionDto(
         @Schema(description = "Correct answer information (only included when includeCorrectAnswer=true)", type = "object")
         JsonNode correctAnswer,
 
+        @Schema(description = "Explanation of the correct answer (included when includeExplanation=true)", example = "Paris is the capital of France.")
+        String explanation,
+
         @Schema(description = "Next question in ONE_BY_ONE mode (safe, without correct answers)")
         QuestionForAttemptDto nextQuestion
 ) {

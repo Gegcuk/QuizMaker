@@ -379,6 +379,7 @@ public class AttemptServiceImpl implements AttemptService {
                         .put("error", "Failed to extract correct answer: " + e.getMessage());
             }
         }
+        String explanation = request.includeExplanation() ? question.getExplanation() : null;
 
         return new AnswerSubmissionDto(
                 baseDto.answerId(),
@@ -387,6 +388,7 @@ public class AttemptServiceImpl implements AttemptService {
                 baseDto.score(),
                 baseDto.answeredAt(),
                 correctAnswer,
+                explanation,
                 nextQuestion
         );
     }
