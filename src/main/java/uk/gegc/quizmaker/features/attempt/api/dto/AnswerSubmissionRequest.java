@@ -37,7 +37,13 @@ public record AnswerSubmissionRequest(
                 description = "Include the correct answer information (correctAnswer field) in the response. Defaults to false.",
                 example = "false"
         )
-        Boolean includeCorrectAnswer
+        Boolean includeCorrectAnswer,
+
+        @Schema(
+                description = "Include the answer explanation (explanation field) in the response. Defaults to false.",
+                example = "false"
+        )
+        Boolean includeExplanation
 ) {
     public AnswerSubmissionRequest {
         // Default values for optional fields
@@ -46,6 +52,9 @@ public record AnswerSubmissionRequest(
         }
         if (includeCorrectAnswer == null) {
             includeCorrectAnswer = false;
+        }
+        if (includeExplanation == null) {
+            includeExplanation = false;
         }
     }
 }

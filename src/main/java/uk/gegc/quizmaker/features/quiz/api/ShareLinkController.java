@@ -299,7 +299,8 @@ public class ShareLinkController {
                 The request body includes optional flags:
                 - includeCorrectness: include whether the answer is correct (isCorrect field)
                 - includeCorrectAnswer: include the correct answer information (correctAnswer field)
-                By default, both are false and excluded from the response for security reasons.
+                - includeExplanation: include the explanation of the correct answer (explanation field)
+                By default, all optional fields are excluded for security reasons.
                 """
     )
     @ApiResponses({
@@ -347,8 +348,8 @@ public class ShareLinkController {
         summary = "Submit multiple answers for an anonymous attempt",
         description = """
                 Submits a batch of answers for an in-progress anonymous attempt when a valid share token cookie is present.
-                Each answer in the batch can have its own includeCorrectness and includeCorrectAnswer flags.
-                By default, both are false and excluded from the response for security reasons.
+                Each answer in the batch can have its own includeCorrectness, includeCorrectAnswer, and includeExplanation flags.
+                By default, all optional fields are excluded for security reasons.
                 """
     )
     @ApiResponses({

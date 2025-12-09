@@ -246,21 +246,23 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
-        AnswerSubmissionDto dto = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, null);
+        AnswerSubmissionDto dto = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, "Because this is correct", null);
         when(attemptService.submitAnswer(eq("anonymous"), eq(attemptId), any())).thenReturn(dto);
 
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("questionId", UUID.randomUUID().toString());
         payload.set("response", objectMapper.createObjectNode().put("answer", true));
+        payload.put("includeExplanation", true);
 
         mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{attemptId}/answers", attemptId)
                         .with(csrf())
                         .cookie(new jakarta.servlet.http.Cookie("share_token", token))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(payload)))
+                .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answerId").value(dto.answerId().toString()))
-                .andExpect(jsonPath("$.isCorrect").value(true));
+                .andExpect(jsonPath("$.isCorrect").value(true))
+                .andExpect(jsonPath("$.explanation").value("Because this is correct"));
     }
 
     @Test
@@ -274,17 +276,19 @@ class ShareLinkControllerWebMvcTest {
         when(attemptService.getAttemptShareLinkId(attemptId)).thenReturn(shareLink.id());
         when(shareLinkService.hashToken(token)).thenReturn("hash");
 
-        AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, null);
-        AnswerSubmissionDto dto2 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), false, 0.0, Instant.now(), null, null);
+        AnswerSubmissionDto dto1 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), true, 1.0, Instant.now(), null, "Because this is correct", null);
+        AnswerSubmissionDto dto2 = new AnswerSubmissionDto(UUID.randomUUID(), UUID.randomUUID(), false, 0.0, Instant.now(), null, "Explained", null);
         when(attemptService.submitBatch(eq("anonymous"), eq(attemptId), any()))
                 .thenReturn(java.util.List.of(dto1, dto2));
 
         ObjectNode a1 = objectMapper.createObjectNode();
         a1.put("questionId", UUID.randomUUID().toString());
         a1.set("response", objectMapper.createObjectNode().put("answer", true));
+        a1.put("includeExplanation", true);
         ObjectNode a2 = objectMapper.createObjectNode();
         a2.put("questionId", UUID.randomUUID().toString());
         a2.set("response", objectMapper.createObjectNode().put("answer", false));
+        a2.put("includeExplanation", true);
         ObjectNode payload = objectMapper.createObjectNode();
         payload.set("answers", objectMapper.createArrayNode().add(a1).add(a2));
 
@@ -295,7 +299,9 @@ class ShareLinkControllerWebMvcTest {
                         .content(objectMapper.writeValueAsString(payload)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].answerId").value(dto1.answerId().toString()))
-                .andExpect(jsonPath("$[1].answerId").value(dto2.answerId().toString()));
+                .andExpect(jsonPath("$[0].explanation").value("Because this is correct"))
+                .andExpect(jsonPath("$[1].answerId").value(dto2.answerId().toString()))
+                .andExpect(jsonPath("$[1].explanation").value("Explained"));
     }
 
     @Test
@@ -1024,5 +1030,3 @@ class ShareLinkControllerWebMvcTest {
                 .andExpect(status().isUnprocessableEntity());
     }
 }
-
-

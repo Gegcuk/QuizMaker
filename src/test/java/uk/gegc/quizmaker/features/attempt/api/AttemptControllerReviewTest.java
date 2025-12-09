@@ -531,6 +531,7 @@ class AttemptControllerReviewTest {
                 1.0,
                 Instant.now(),
                 null,  // correctAnswer
+                null,  // explanation not included by default
                 null   // nextQuestion
         );
 
@@ -551,7 +552,8 @@ class AttemptControllerReviewTest {
                 .andExpect(jsonPath("$.correctAnswer").doesNotExist())
                 // Verify NO "userResponse" field is leaked (only isCorrect/score)
                 .andExpect(jsonPath("$.userResponse").doesNotExist())
-                .andExpect(jsonPath("$.response").doesNotExist());
+                .andExpect(jsonPath("$.response").doesNotExist())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
     }
 
     @Test
@@ -578,6 +580,7 @@ class AttemptControllerReviewTest {
                 1.0,
                 Instant.now(),
                 null,  // correctAnswer null when not requested
+                null,
                 null   // nextQuestion
         );
 
@@ -594,7 +597,48 @@ class AttemptControllerReviewTest {
                 .andExpect(jsonPath("$.questionId").value(questionId.toString()))
                 // Verify sensitive fields are NOT present even when explicitly set to false
                 .andExpect(jsonPath("$.isCorrect").doesNotExist())
-                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeExplanation=false → omits explanation")
+    @WithMockUser(username = "testuser")
+    void submitAnswer_includeExplanationFalse_omitsExplanation() throws Exception {
+        // Given
+        UUID attemptId = UUID.randomUUID();
+        UUID questionId = UUID.randomUUID();
+
+        String requestBody = """
+                {
+                    "questionId": "%s",
+                    "response": {"selectedOptionId": "opt_1"},
+                    "includeExplanation": false
+                }
+                """.formatted(questionId);
+
+        AnswerSubmissionDto submissionDto = new AnswerSubmissionDto(
+                UUID.randomUUID(),
+                questionId,
+                null,
+                1.0,
+                Instant.now(),
+                null,
+                null,
+                null
+        );
+
+        when(attemptService.submitAnswer(eq("testuser"), eq(attemptId), any()))
+                .thenReturn(submissionDto);
+
+        // When & Then
+        mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answerId").exists())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
     }
 
     @Test
@@ -613,6 +657,7 @@ class AttemptControllerReviewTest {
                 1.0,
                 Instant.now(),
                 null,  // correctAnswer
+                "Because this is correct",   // explanation
                 null   // nextQuestion
         );
 

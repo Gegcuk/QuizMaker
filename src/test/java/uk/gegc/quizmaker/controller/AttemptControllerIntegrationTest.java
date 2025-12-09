@@ -325,7 +325,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree(responseJson),
                 true,  // includeCorrectness - needed for this test to verify correctness
-                null   // includeCorrectAnswer
+                null,  // includeCorrectAnswer
+                null   // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
@@ -346,7 +347,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("SubmitAnswer with invalid attemptId → returns 404 NOT_FOUND")
     void submitWithBadAttemptId() throws Exception {
         UUID fakeId = UUID.randomUUID();
-        var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode(), null, null);
+        var req = new AnswerSubmissionRequest(fakeId, objectMapper.createObjectNode(), null, null, null);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", fakeId)
                         .with(user(regularUserDetails))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -510,7 +511,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree("{\"answer\":true}"),
                 null,  // includeCorrectness
-                null   // includeCorrectAnswer
+                null,  // includeCorrectAnswer
+                null   // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
 
@@ -526,7 +528,80 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.answeredAt").exists())
                 // Verify sensitive fields are NOT present
                 .andExpect(jsonPath("$.isCorrect").doesNotExist())
-                .andExpect(jsonPath("$.correctAnswer").doesNotExist());
+                .andExpect(jsonPath("$.correctAnswer").doesNotExist())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: explanation is omitted by default")
+    void submitAnswer_explanationOmittedByDefault() throws Exception {
+        // Given
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}", "Default explanation");
+        UUID attemptId = startAttempt();
+
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                null,  // includeCorrectness
+                null,  // includeCorrectAnswer
+                null   // includeExplanation defaults to false
+        );
+
+        // Then: explanation should not be present by default
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(submission)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeExplanation=true returns explanation")
+    void submitAnswer_includeExplanationTrue_returnsExplanation() throws Exception {
+        // Given
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}", "Default explanation");
+        UUID attemptId = startAttempt();
+
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                null,   // includeCorrectness
+                null,   // includeCorrectAnswer
+                true    // includeExplanation
+        );
+
+        // Then: explanation should be present
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(submission)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.explanation").value("Default explanation"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/attempts/{id}/answers: includeExplanation=false hides explanation")
+    void submitAnswer_includeExplanationFalse_hidesExplanation() throws Exception {
+        // Given
+        UUID questionId = createDummyQuestion(TRUE_FALSE, "{\"answer\":true}", "Default explanation");
+        UUID attemptId = startAttempt();
+
+        var submission = new AnswerSubmissionRequest(
+                questionId,
+                objectMapper.readTree("{\"answer\":true}"),
+                null,   // includeCorrectness
+                null,   // includeCorrectAnswer
+                false   // includeExplanation
+        );
+
+        // Then: explanation should not be present
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
+                        .with(user(regularUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(submission)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.explanation").doesNotExist());
     }
 
     @Test
@@ -541,7 +616,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree("{\"answer\":true}"),
                 true,  // includeCorrectness
-                false  // includeCorrectAnswer
+                false, // includeCorrectAnswer
+                null   // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
 
@@ -578,7 +654,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}"),
                 false,  // includeCorrectness
-                true     // includeCorrectAnswer
+                true,    // includeCorrectAnswer
+                null     // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
 
@@ -607,7 +684,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree("{\"answer\":true}"),
                 true,  // includeCorrectness
-                true   // includeCorrectAnswer
+                true,  // includeCorrectAnswer
+                null   // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
 
@@ -643,7 +721,8 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 questionId,
                 objectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}"),
                 false,  // includeCorrectness
-                true     // includeCorrectAnswer
+                true,    // includeCorrectAnswer
+                null     // includeExplanation (defaults to false)
         );
         String sJson = objectMapper.writeValueAsString(submission);
 
@@ -1105,7 +1184,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         UUID currentQuestionId = UUID.fromString(questionNode.get("question").get("id").asText());
 
         // Submit answer for the returned current question
-        var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"), null, null);
+        var answerRequest = new AnswerSubmissionRequest(currentQuestionId, objectMapper.readTree("{ \"answer\": true }"), null, null, null);
         mockMvc.perform(post("/api/v1/attempts/{attemptId}/answers", attemptId)
                         .with(user(regularUserDetails))
                         .contentType(APPLICATION_JSON)
@@ -1115,7 +1194,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     private ResultActions postAnswer(UUID attempt, UUID question, String responseJson) throws Exception {
-        var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson), null, null);
+        var request = new AnswerSubmissionRequest(question, objectMapper.readTree(responseJson), null, null, null);
         return mockMvc.perform(post("/api/v1/attempts/{id}/answers", attempt)
                 .with(user(regularUserDetails))
                 .contentType(APPLICATION_JSON)
@@ -1180,6 +1259,31 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
         // Flush to ensure the question-quiz association is persisted
         entityManager.flush();
         
+        return questionId;
+    }
+
+    private UUID createDummyQuestion(QuestionType type, String contentJson, String explanation) throws Exception {
+        CreateQuestionRequest createQuestionRequest = new CreateQuestionRequest();
+        createQuestionRequest.setType(type);
+        createQuestionRequest.setDifficulty(Difficulty.EASY);
+        createQuestionRequest.setQuestionText("Question?");
+        createQuestionRequest.setContent(objectMapper.readTree(contentJson));
+        createQuestionRequest.setTagIds(List.of());
+        createQuestionRequest.setQuizIds(List.of(quizId));
+        createQuestionRequest.setExplanation(explanation);
+        String createQuestionRequestString = objectMapper.writeValueAsString(createQuestionRequest);
+
+        String response = mockMvc.perform(post("/api/v1/questions")
+                        .with(user(adminUserDetails))
+                        .contentType(APPLICATION_JSON)
+                        .content(createQuestionRequestString))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        UUID questionId = UUID.fromString(objectMapper.readTree(response).get("questionId").asText());
+
+        entityManager.flush();
+
         return questionId;
     }
 

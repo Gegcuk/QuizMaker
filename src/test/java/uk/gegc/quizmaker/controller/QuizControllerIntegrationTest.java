@@ -1206,7 +1206,7 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         UUID attemptId = UUID.fromString(objectMapper.readTree(atBody).get("attemptId").asText());
 
-        AnswerSubmissionRequest sub = new AnswerSubmissionRequest(questionId, content, null, null);
+        AnswerSubmissionRequest sub = new AnswerSubmissionRequest(questionId, content, null, null, null);
         mockMvc.perform(post("/api/v1/attempts/{id}/answers", attemptId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(sub))
