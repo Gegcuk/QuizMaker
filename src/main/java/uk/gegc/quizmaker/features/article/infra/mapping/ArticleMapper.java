@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.article.infra.mapping;
 
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.domain.model.*;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
@@ -45,12 +46,24 @@ public class ArticleMapper {
         target.setPrimaryCta(toCtaEntity(request.primaryCta(), "Learn more", "/"));
         target.setSecondaryCta(toCtaEntity(request.secondaryCta(), "Explore", "/"));
 
-        rebuildStats(target, request.stats());
-        rebuildKeyPoints(target, request.keyPoints());
-        rebuildChecklist(target, request.checklist());
-        rebuildSections(target, request.sections());
-        rebuildFaqs(target, request.faqs());
-        rebuildReferences(target, request.references());
+        if (request.stats() != null) {
+            rebuildStats(target, request.stats());
+        }
+        if (request.keyPoints() != null) {
+            rebuildKeyPoints(target, request.keyPoints());
+        }
+        if (request.checklist() != null) {
+            rebuildChecklist(target, request.checklist());
+        }
+        if (request.sections() != null) {
+            rebuildSections(target, request.sections());
+        }
+        if (request.faqs() != null) {
+            rebuildFaqs(target, request.faqs());
+        }
+        if (request.references() != null) {
+            rebuildReferences(target, request.references());
+        }
     }
 
     public ArticleDto toDto(Article article) {
@@ -165,8 +178,8 @@ public class ArticleMapper {
         if (dto == null) {
             return new ArticleCallToAction(defaultLabel, defaultHref, null);
         }
-        String label = dto.label() != null ? dto.label() : defaultLabel;
-        String href = dto.href() != null ? dto.href() : defaultHref;
+        String label = StringUtils.hasText(dto.label()) ? dto.label() : defaultLabel;
+        String href = StringUtils.hasText(dto.href()) ? dto.href() : defaultHref;
         return new ArticleCallToAction(label, href, dto.eventName());
     }
 
@@ -272,10 +285,11 @@ public class ArticleMapper {
     }
 
     private void rebuildStats(Article article, List<ArticleStatDto> stats) {
-        article.getStats().clear();
         if (stats == null || stats.isEmpty()) {
+            article.getStats().clear();
             return;
         }
+        article.getStats().clear();
         int index = 0;
         for (ArticleStatDto dto : stats) {
             if (dto == null) {
@@ -293,10 +307,11 @@ public class ArticleMapper {
     }
 
     private void rebuildKeyPoints(Article article, List<String> keyPoints) {
-        article.getKeyPoints().clear();
         if (keyPoints == null || keyPoints.isEmpty()) {
+            article.getKeyPoints().clear();
             return;
         }
+        article.getKeyPoints().clear();
         int index = 0;
         for (String kp : keyPoints) {
             if (kp == null) {
@@ -311,10 +326,11 @@ public class ArticleMapper {
     }
 
     private void rebuildChecklist(Article article, List<String> checklist) {
-        article.getChecklistItems().clear();
         if (checklist == null || checklist.isEmpty()) {
+            article.getChecklistItems().clear();
             return;
         }
+        article.getChecklistItems().clear();
         int index = 0;
         for (String item : checklist) {
             if (item == null) {
@@ -329,10 +345,11 @@ public class ArticleMapper {
     }
 
     private void rebuildSections(Article article, List<ArticleSectionDto> sections) {
-        article.getSections().clear();
         if (sections == null || sections.isEmpty()) {
+            article.getSections().clear();
             return;
         }
+        article.getSections().clear();
         int index = 0;
         for (ArticleSectionDto dto : sections) {
             if (dto == null) {
@@ -350,10 +367,11 @@ public class ArticleMapper {
     }
 
     private void rebuildFaqs(Article article, List<ArticleFaqDto> faqs) {
-        article.getFaqs().clear();
         if (faqs == null || faqs.isEmpty()) {
+            article.getFaqs().clear();
             return;
         }
+        article.getFaqs().clear();
         int index = 0;
         for (ArticleFaqDto dto : faqs) {
             if (dto == null) {
@@ -369,10 +387,11 @@ public class ArticleMapper {
     }
 
     private void rebuildReferences(Article article, List<ArticleReferenceDto> references) {
-        article.getReferences().clear();
         if (references == null || references.isEmpty()) {
+            article.getReferences().clear();
             return;
         }
+        article.getReferences().clear();
         int index = 0;
         for (ArticleReferenceDto dto : references) {
             if (dto == null) {
