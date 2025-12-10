@@ -16,6 +16,42 @@ import java.util.Set;
 @Component
 public class ArticleMapper {
 
+    public Article toEntity(ArticleUpsertRequest request, Set<Tag> tags) {
+        Article article = new Article();
+        applyUpsert(article, request, tags);
+        return article;
+    }
+
+    public void applyUpsert(Article target, ArticleUpsertRequest request, Set<Tag> tags) {
+        if (target == null || request == null) {
+            return;
+        }
+        target.setSlug(request.slug());
+        target.setTitle(request.title());
+        target.setDescription(request.description());
+        target.setExcerpt(request.excerpt());
+        target.setHeroKicker(request.heroKicker());
+        target.setTags(tags != null ? tags : Set.of());
+        target.setReadingTime(request.readingTime());
+        target.setPublishedAt(request.publishedAt());
+        target.setUpdatedAt(request.updatedAt());
+        target.setStatus(request.status());
+        target.setCanonicalUrl(request.canonicalUrl());
+        target.setOgImage(request.ogImage());
+        target.setNoindex(request.noindex() != null ? request.noindex() : Boolean.FALSE);
+        target.setContentGroup(request.contentGroup() != null ? request.contentGroup() : "blog");
+        target.setAuthor(toAuthorEntity(request.author()));
+        target.setPrimaryCta(toCtaEntity(request.primaryCta(), "Learn more", "/"));
+        target.setSecondaryCta(toCtaEntity(request.secondaryCta(), "Explore", "/"));
+
+        rebuildStats(target, request.stats());
+        rebuildKeyPoints(target, request.keyPoints());
+        rebuildChecklist(target, request.checklist());
+        rebuildSections(target, request.sections());
+        rebuildFaqs(target, request.faqs());
+        rebuildReferences(target, request.references());
+    }
+
     public ArticleDto toDto(Article article) {
         if (article == null) {
             return null;
@@ -113,6 +149,23 @@ public class ArticleMapper {
     private ArticleCallToActionDto toCtaDto(ArticleCallToAction cta) {
         ArticleCallToAction safeCta = cta != null ? cta : new ArticleCallToAction("Learn more", "/", null);
         return new ArticleCallToActionDto(safeCta.getLabel(), safeCta.getHref(), safeCta.getEventName());
+    }
+
+    private ArticleAuthor toAuthorEntity(ArticleAuthorDto dto) {
+        if (dto == null) {
+            return new ArticleAuthor("Unknown", "Author");
+        }
+        String title = dto.title() != null ? dto.title() : "Author";
+        return new ArticleAuthor(dto.name(), title);
+    }
+
+    private ArticleCallToAction toCtaEntity(ArticleCallToActionDto dto, String defaultLabel, String defaultHref) {
+        if (dto == null) {
+            return new ArticleCallToAction(defaultLabel, defaultHref, null);
+        }
+        String label = dto.label() != null ? dto.label() : defaultLabel;
+        String href = dto.href() != null ? dto.href() : defaultHref;
+        return new ArticleCallToAction(label, href, dto.eventName());
     }
 
     private List<String> mapTags(Set<Tag> tags) {
@@ -214,5 +267,122 @@ public class ArticleMapper {
             position = reference.getPosition();
         }
         return position == null ? Integer.MAX_VALUE : position;
+    }
+
+    private void rebuildStats(Article article, List<ArticleStatDto> stats) {
+        article.getStats().clear();
+        if (stats == null || stats.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (ArticleStatDto dto : stats) {
+            if (dto == null) {
+                continue;
+            }
+            ArticleStat stat = new ArticleStat();
+            stat.setArticle(article);
+            stat.setLabel(dto.label());
+            stat.setValue(dto.value());
+            stat.setDetail(dto.detail());
+            stat.setLink(dto.link());
+            stat.setPosition(index++);
+            article.getStats().add(stat);
+        }
+    }
+
+    private void rebuildKeyPoints(Article article, List<String> keyPoints) {
+        article.getKeyPoints().clear();
+        if (keyPoints == null || keyPoints.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (String kp : keyPoints) {
+            if (kp == null) {
+                continue;
+            }
+            ArticleKeyPoint keyPoint = new ArticleKeyPoint();
+            keyPoint.setArticle(article);
+            keyPoint.setContent(kp);
+            keyPoint.setPosition(index++);
+            article.getKeyPoints().add(keyPoint);
+        }
+    }
+
+    private void rebuildChecklist(Article article, List<String> checklist) {
+        article.getChecklistItems().clear();
+        if (checklist == null || checklist.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (String item : checklist) {
+            if (item == null) {
+                continue;
+            }
+            ArticleChecklistItem checklistItem = new ArticleChecklistItem();
+            checklistItem.setArticle(article);
+            checklistItem.setContent(item);
+            checklistItem.setPosition(index++);
+            article.getChecklistItems().add(checklistItem);
+        }
+    }
+
+    private void rebuildSections(Article article, List<ArticleSectionDto> sections) {
+        article.getSections().clear();
+        if (sections == null || sections.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (ArticleSectionDto dto : sections) {
+            if (dto == null) {
+                continue;
+            }
+            ArticleSection section = new ArticleSection();
+            section.setArticle(article);
+            section.setSectionId(dto.sectionId());
+            section.setTitle(dto.title());
+            section.setSummary(dto.summary());
+            section.setContent(dto.content());
+            section.setPosition(index++);
+            article.getSections().add(section);
+        }
+    }
+
+    private void rebuildFaqs(Article article, List<ArticleFaqDto> faqs) {
+        article.getFaqs().clear();
+        if (faqs == null || faqs.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (ArticleFaqDto dto : faqs) {
+            if (dto == null) {
+                continue;
+            }
+            ArticleFaq faq = new ArticleFaq();
+            faq.setArticle(article);
+            faq.setQuestion(dto.question());
+            faq.setAnswer(dto.answer());
+            faq.setPosition(index++);
+            article.getFaqs().add(faq);
+        }
+    }
+
+    private void rebuildReferences(Article article, List<ArticleReferenceDto> references) {
+        article.getReferences().clear();
+        if (references == null || references.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (ArticleReferenceDto dto : references) {
+            if (dto == null) {
+                continue;
+            }
+            ArticleReference reference = new ArticleReference();
+            reference.setArticle(article);
+            reference.setTitle(dto.title());
+            reference.setUrl(dto.url());
+            reference.setSourceType(dto.sourceType());
+            reference.setPosition(index++);
+            article.getReferences().add(reference);
+        }
     }
 }
