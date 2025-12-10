@@ -105,8 +105,9 @@ public class ArticleMapper {
     }
 
     private ArticleAuthorDto toAuthorDto(ArticleAuthor author) {
-        ArticleAuthor safeAuthor = author != null ? author : new ArticleAuthor("Unknown", null);
-        return new ArticleAuthorDto(safeAuthor.getName(), safeAuthor.getTitle());
+        ArticleAuthor safeAuthor = author != null ? author : new ArticleAuthor("Unknown", "Author");
+        String title = safeAuthor.getTitle() != null ? safeAuthor.getTitle() : "Author";
+        return new ArticleAuthorDto(safeAuthor.getName(), title);
     }
 
     private ArticleCallToActionDto toCtaDto(ArticleCallToAction cta) {

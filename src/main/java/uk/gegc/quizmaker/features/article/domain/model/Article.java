@@ -150,7 +150,7 @@ public class Article {
             noindex = false;
         }
         if (author == null) {
-            author = new ArticleAuthor("Unknown", null);
+            author = new ArticleAuthor("Unknown", "Author");
         }
         if (primaryCta == null) {
             primaryCta = new ArticleCallToAction("Learn more", "/", null);
