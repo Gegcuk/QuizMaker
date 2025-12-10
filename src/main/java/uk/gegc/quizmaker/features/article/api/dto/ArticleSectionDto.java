@@ -5,7 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "Section of an article with optional summary and body content")
 public record ArticleSectionDto(
         @Schema(description = "Stable section identifier", example = "research")
-        String id,
+        String sectionId,
 
         @Schema(description = "Section title", example = "Evidence in plain English")
         String title,

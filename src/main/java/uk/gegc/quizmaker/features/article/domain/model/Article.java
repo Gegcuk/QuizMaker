@@ -4,8 +4,10 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import jakarta.validation.constraints.NotNull;
 import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
 import java.time.Instant;
@@ -56,6 +58,7 @@ public class Article {
     @Column(name = "published_at", nullable = false)
     private Instant publishedAt;
 
+    @UpdateTimestamp
     @Column(name = "updated_at")
     private Instant updatedAt;
 
@@ -76,6 +79,7 @@ public class Article {
     private String contentGroup;
 
     @Embedded
+    @NotNull
     private ArticleAuthor author;
 
     @Embedded
@@ -84,6 +88,7 @@ public class Article {
             @AttributeOverride(name = "href", column = @Column(name = "primary_cta_href", length = 2048)),
             @AttributeOverride(name = "eventName", column = @Column(name = "primary_cta_event_name", length = 255))
     })
+    @NotNull
     private ArticleCallToAction primaryCta;
 
     @Embedded
@@ -92,6 +97,7 @@ public class Article {
             @AttributeOverride(name = "href", column = @Column(name = "secondary_cta_href", length = 2048)),
             @AttributeOverride(name = "eventName", column = @Column(name = "secondary_cta_event_name", length = 255))
     })
+    @NotNull
     private ArticleCallToAction secondaryCta;
 
     @OneToMany(mappedBy = "article", cascade = CascadeType.ALL, orphanRemoval = true)

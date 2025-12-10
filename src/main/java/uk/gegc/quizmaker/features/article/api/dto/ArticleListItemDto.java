@@ -30,7 +30,7 @@ public record ArticleListItemDto(
         @Schema(description = "Tag names", example = "[\"Retrieval practice\", \"Teaching tips\"]")
         List<String> tags,
 
-        @Schema(description = "Author details")
+        @Schema(description = "Author details", nullable = true)
         ArticleAuthorDto author,
 
         @Schema(description = "Estimated reading time label", example = "8 minute read")
@@ -57,10 +57,10 @@ public record ArticleListItemDto(
         @Schema(description = "Whether the page should be excluded from indexing", example = "false")
         Boolean noindex,
 
-        @Schema(description = "Primary CTA configuration")
+        @Schema(description = "Primary CTA configuration", nullable = true)
         ArticleCallToActionDto primaryCta,
 
-        @Schema(description = "Secondary CTA configuration")
+        @Schema(description = "Secondary CTA configuration", nullable = true)
         ArticleCallToActionDto secondaryCta,
 
         @Schema(description = "Revision for cache revalidation", example = "3")
