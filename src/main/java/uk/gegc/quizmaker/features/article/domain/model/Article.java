@@ -84,8 +84,8 @@ public class Article {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "label", column = @Column(name = "primary_cta_label", length = 255)),
-            @AttributeOverride(name = "href", column = @Column(name = "primary_cta_href", length = 2048)),
+            @AttributeOverride(name = "label", column = @Column(name = "primary_cta_label", length = 255, nullable = false)),
+            @AttributeOverride(name = "href", column = @Column(name = "primary_cta_href", length = 2048, nullable = false)),
             @AttributeOverride(name = "eventName", column = @Column(name = "primary_cta_event_name", length = 255))
     })
     @NotNull
@@ -93,8 +93,8 @@ public class Article {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "label", column = @Column(name = "secondary_cta_label", length = 255)),
-            @AttributeOverride(name = "href", column = @Column(name = "secondary_cta_href", length = 2048)),
+            @AttributeOverride(name = "label", column = @Column(name = "secondary_cta_label", length = 255, nullable = false)),
+            @AttributeOverride(name = "href", column = @Column(name = "secondary_cta_href", length = 2048, nullable = false)),
             @AttributeOverride(name = "eventName", column = @Column(name = "secondary_cta_event_name", length = 255))
     })
     @NotNull
