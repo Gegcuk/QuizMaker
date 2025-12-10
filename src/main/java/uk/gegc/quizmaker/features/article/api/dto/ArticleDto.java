@@ -30,7 +30,7 @@ public record ArticleDto(
         @Schema(description = "Tags associated with the article", example = "[\"Retrieval practice\", \"SEO template\"]")
         List<String> tags,
 
-        @Schema(description = "Author info", nullable = true)
+        @Schema(description = "Author info", requiredMode = Schema.RequiredMode.REQUIRED)
         ArticleAuthorDto author,
 
         @Schema(description = "Estimated reading time label", example = "8 minute read")
@@ -57,10 +57,10 @@ public record ArticleDto(
         @Schema(description = "Content grouping for analytics", defaultValue = "blog", example = "blog")
         String contentGroup,
 
-        @Schema(description = "Primary CTA block", nullable = true)
+        @Schema(description = "Primary CTA block", requiredMode = Schema.RequiredMode.REQUIRED)
         ArticleCallToActionDto primaryCta,
 
-        @Schema(description = "Secondary CTA block", nullable = true)
+        @Schema(description = "Secondary CTA block", requiredMode = Schema.RequiredMode.REQUIRED)
         ArticleCallToActionDto secondaryCta,
 
         @Schema(description = "Stats to render in highlights")

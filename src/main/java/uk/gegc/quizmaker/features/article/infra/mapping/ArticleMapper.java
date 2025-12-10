@@ -105,17 +105,13 @@ public class ArticleMapper {
     }
 
     private ArticleAuthorDto toAuthorDto(ArticleAuthor author) {
-        if (author == null) {
-            return null;
-        }
-        return new ArticleAuthorDto(author.getName(), author.getTitle());
+        ArticleAuthor safeAuthor = author != null ? author : new ArticleAuthor("Unknown", null);
+        return new ArticleAuthorDto(safeAuthor.getName(), safeAuthor.getTitle());
     }
 
     private ArticleCallToActionDto toCtaDto(ArticleCallToAction cta) {
-        if (cta == null) {
-            return null;
-        }
-        return new ArticleCallToActionDto(cta.getLabel(), cta.getHref(), cta.getEventName());
+        ArticleCallToAction safeCta = cta != null ? cta : new ArticleCallToAction("Learn more", "/", null);
+        return new ArticleCallToActionDto(safeCta.getLabel(), safeCta.getHref(), safeCta.getEventName());
     }
 
     private List<String> mapTags(Set<Tag> tags) {
