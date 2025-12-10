@@ -91,7 +91,10 @@ public class ArticleMapper {
         }
 
         String url = Optional.ofNullable(projection.getCanonicalUrl())
-                .orElse(null);
+                .orElseGet(() -> projection.getSlug() == null ? null : "/blog/" + projection.getSlug());
+        if (url == null) {
+            throw new IllegalArgumentException("Sitemap projection must contain either canonicalUrl or slug");
+        }
 
         return new SitemapEntryDto(
                 url,
