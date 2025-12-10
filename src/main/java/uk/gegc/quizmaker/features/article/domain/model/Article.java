@@ -149,5 +149,14 @@ public class Article {
         if (noindex == null) {
             noindex = false;
         }
+        if (author == null) {
+            author = new ArticleAuthor("Unknown", null);
+        }
+        if (primaryCta == null) {
+            primaryCta = new ArticleCallToAction("Learn more", "/", null);
+        }
+        if (secondaryCta == null) {
+            secondaryCta = new ArticleCallToAction("Explore", "/", null);
+        }
     }
 }
