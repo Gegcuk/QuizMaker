@@ -6,6 +6,7 @@ import uk.gegc.quizmaker.features.article.domain.model.*;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Comparator;
 import java.util.List;
@@ -155,8 +156,9 @@ public class ArticleMapper {
         if (dto == null) {
             return new ArticleAuthor("Unknown", "Author");
         }
-        String title = dto.title() != null ? dto.title() : "Author";
-        return new ArticleAuthor(dto.name(), title);
+        String name = requireOrDefault(dto.name(), "Unknown", "Author name");
+        String title = requireOrDefault(dto.title(), "Author", "Author title");
+        return new ArticleAuthor(name, title);
     }
 
     private ArticleCallToAction toCtaEntity(ArticleCallToActionDto dto, String defaultLabel, String defaultHref) {
@@ -338,8 +340,8 @@ public class ArticleMapper {
             }
             ArticleSection section = new ArticleSection();
             section.setArticle(article);
-            section.setSectionId(dto.sectionId());
-            section.setTitle(dto.title());
+            section.setSectionId(require(dto.sectionId(), "Section sectionId"));
+            section.setTitle(require(dto.title(), "Section title"));
             section.setSummary(dto.summary());
             section.setContent(dto.content());
             section.setPosition(index++);
@@ -359,7 +361,7 @@ public class ArticleMapper {
             }
             ArticleFaq faq = new ArticleFaq();
             faq.setArticle(article);
-            faq.setQuestion(dto.question());
+            faq.setQuestion(require(dto.question(), "FAQ question"));
             faq.setAnswer(dto.answer());
             faq.setPosition(index++);
             article.getFaqs().add(faq);
@@ -378,11 +380,28 @@ public class ArticleMapper {
             }
             ArticleReference reference = new ArticleReference();
             reference.setArticle(article);
-            reference.setTitle(dto.title());
-            reference.setUrl(dto.url());
+            reference.setTitle(require(dto.title(), "Reference title"));
+            reference.setUrl(require(dto.url(), "Reference url"));
             reference.setSourceType(dto.sourceType());
             reference.setPosition(index++);
             article.getReferences().add(reference);
         }
+    }
+
+    private String require(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new ValidationException(field + " is required");
+        }
+        return value;
+    }
+
+    private String requireOrDefault(String value, String defaultValue, String field) {
+        if (value == null || value.isBlank()) {
+            if (defaultValue != null) {
+                return defaultValue;
+            }
+            throw new ValidationException(field + " is required");
+        }
+        return value;
     }
 }
