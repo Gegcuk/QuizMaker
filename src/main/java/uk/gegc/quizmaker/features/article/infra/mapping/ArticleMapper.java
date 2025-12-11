@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,7 +41,12 @@ public class ArticleMapper {
         target.setDescription(request.description());
         target.setExcerpt(request.excerpt());
         target.setHeroKicker(request.heroKicker());
-        target.setTags(tags != null ? tags : Set.of());
+        Set<Tag> targetTags = target.getTags() != null ? target.getTags() : new HashSet<>();
+        targetTags.clear();
+        if (tags != null) {
+            targetTags.addAll(tags);
+        }
+        target.setTags(targetTags);
         target.setReadingTime(request.readingTime());
         target.setPublishedAt(request.publishedAt());
         if (request.status() != null) {

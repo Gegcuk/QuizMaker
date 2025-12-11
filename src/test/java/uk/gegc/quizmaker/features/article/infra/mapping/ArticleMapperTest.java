@@ -6,6 +6,7 @@ import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
@@ -228,6 +229,48 @@ class ArticleMapperTest {
 
         assertThatThrownBy(() -> mapper.applyUpsert(target, request, Set.of()))
                 .isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    @DisplayName("applyUpsert replaces tags by clearing existing collection")
+    void applyUpsertReplacesTags() {
+        Article target = new Article();
+        Tag oldTag = new Tag();
+        oldTag.setName("Old");
+        target.setTags(new java.util.HashSet<>(Set.of(oldTag)));
+
+        Tag newTag = new Tag();
+        newTag.setName("New");
+
+        ArticleUpsertRequest request = new ArticleUpsertRequest(
+                "slug",
+                "title",
+                "description",
+                "excerpt",
+                "hero",
+                List.of("tag"),
+                new ArticleAuthorDto("Author", "Role"),
+                "5 min",
+                Instant.parse("2024-01-01T00:00:00Z"),
+                ArticleStatus.PUBLISHED,
+                "https://example.com",
+                "https://example.com/og",
+                false,
+                "blog",
+                new ArticleCallToActionDto("Label", "/href", null),
+                new ArticleCallToActionDto("Label2", "/href2", null),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        mapper.applyUpsert(target, request, Set.of(newTag));
+
+        assertThat(target.getTags()).extracting(Tag::getName)
+                .containsExactly("New");
     }
 
     @Test
