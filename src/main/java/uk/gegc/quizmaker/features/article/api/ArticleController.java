@@ -22,8 +22,11 @@ import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,9 +38,13 @@ import java.util.UUID;
 public class ArticleController {
 
     private final ArticleService articleService;
+    private final RateLimitService rateLimitService;
+    private final TrustedProxyUtil trustedProxyUtil;
 
-    public ArticleController(ArticleService articleService) {
+    public ArticleController(ArticleService articleService, RateLimitService rateLimitService, TrustedProxyUtil trustedProxyUtil) {
         this.articleService = articleService;
+        this.rateLimitService = rateLimitService;
+        this.trustedProxyUtil = trustedProxyUtil;
     }
 
     @Operation(summary = "Search articles")
@@ -55,6 +62,22 @@ public class ArticleController {
             @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
             @PageableDefault(size = 20) Pageable pageable) {
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
+        return articleService.searchArticles(criteria, pageable);
+    }
+
+    @Operation(summary = "Public search articles", description = "Public endpoint returning published articles")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Articles found",
+                    content = @Content(schema = @Schema(implementation = Page.class)))
+    })
+    @GetMapping("/public")
+    public Page<ArticleListItemDto> searchPublicArticles(
+            @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @PageableDefault(size = 20) Pageable pageable,
+            HttpServletRequest request) {
+        rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, contentGroup);
         return articleService.searchArticles(criteria, pageable);
     }
 
@@ -90,6 +113,21 @@ public class ArticleController {
             @Parameter(description = "Article slug") @PathVariable String slug,
             @RequestParam(defaultValue = "false") boolean includeDrafts) {
         return articleService.getArticleBySlug(slug, includeDrafts);
+    }
+
+    @Operation(summary = "Get article by slug (public)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Article found",
+                    content = @Content(schema = @Schema(implementation = ArticleDto.class))),
+            @ApiResponse(responseCode = "404", description = "Article not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @GetMapping("/public/slug/{slug}")
+    public ArticleDto getArticleBySlugPublic(
+            @Parameter(description = "Article slug") @PathVariable String slug,
+            HttpServletRequest request) {
+        rateLimitService.checkRateLimit("articles-public-get", trustedProxyUtil.getClientIp(request), 240);
+        return articleService.getArticleBySlug(slug, false);
     }
 
     @Operation(summary = "Get articles by IDs")

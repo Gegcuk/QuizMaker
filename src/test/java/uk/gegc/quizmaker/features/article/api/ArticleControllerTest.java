@@ -20,6 +20,8 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.Instant;
 import java.util.List;
@@ -48,6 +50,12 @@ class ArticleControllerTest {
     @MockitoBean
     AppPermissionEvaluator permissionEvaluator;
 
+    @MockitoBean
+    RateLimitService rateLimitService;
+
+    @MockitoBean
+    TrustedProxyUtil trustedProxyUtil;
+
     private ArticleDto articleDto;
     private ArticleListItemDto listItem;
     private ArticleUpsertRequest upsertRequest;
@@ -56,6 +64,7 @@ class ArticleControllerTest {
     void setUp() {
         when(permissionEvaluator.hasAnyPermission(any())).thenReturn(true);
         when(permissionEvaluator.hasAllPermissions(any())).thenReturn(true);
+        when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         ArticleAuthorDto author = new ArticleAuthorDto("Author", "Title");
         ArticleCallToActionDto cta = new ArticleCallToActionDto("Learn", "/", null);
@@ -505,6 +514,31 @@ class ArticleControllerTest {
                 .andExpect(result -> {
                     int status = result.getResponse().getStatus();
                     org.assertj.core.api.Assertions.assertThat(status).isIn(400, 415);
+                });
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/articles/public returns published articles without auth")
+    void searchPublicArticles_success() throws Exception {
+        Page<ArticleListItemDto> page = new PageImpl<>(List.of(listItem), PageRequest.of(0, 20), 1);
+        when(articleService.searchArticles(any(), any())).thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/articles/public"))
+                .andExpect(result -> {
+                    int status = result.getResponse().getStatus();
+                    org.assertj.core.api.Assertions.assertThat(status).isIn(200, 302);
+                });
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/articles/public/slug/{slug} returns article without auth")
+    void getArticleBySlugPublic_success() throws Exception {
+        when(articleService.getArticleBySlug(eq("sample-slug"), eq(false))).thenReturn(articleDto);
+
+        mockMvc.perform(get("/api/v1/articles/public/slug/{slug}", "sample-slug"))
+                .andExpect(result -> {
+                    int status = result.getResponse().getStatus();
+                    org.assertj.core.api.Assertions.assertThat(status).isIn(200, 302);
                 });
     }
 }

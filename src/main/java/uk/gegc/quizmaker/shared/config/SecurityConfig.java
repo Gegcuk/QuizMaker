@@ -85,6 +85,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/billing/estimate/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
+                        // Article public endpoints
+                        .requestMatchers(HttpMethod.GET, "/api/v1/articles/public/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/articles/sitemap").permitAll()
                         // Quiz endpoints - tighten permissions
                         .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/export").permitAll() // Public scope export
                         .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/public/**").permitAll()
