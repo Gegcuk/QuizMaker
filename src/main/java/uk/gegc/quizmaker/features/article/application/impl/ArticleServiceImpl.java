@@ -247,13 +247,21 @@ public class ArticleServiceImpl implements ArticleService {
                 .collect(Collectors.toMap(tag -> tag.getName().toLowerCase(Locale.ROOT), tag -> tag, (a, b) -> a));
 
         Set<Tag> result = new HashSet<>(existing);
+        Set<String> seenLower = new HashSet<>(existingByLower.keySet());
         for (String name : normalized) {
             String lower = name.toLowerCase(Locale.ROOT);
-            if (!existingByLower.containsKey(lower)) {
-                Tag tag = new Tag();
-                tag.setName(name);
-                result.add(tag);
+            if (!seenLower.add(lower)) {
+                continue; // skip duplicates regardless of case
             }
+            Tag existingTag = existingByLower.get(lower);
+            if (existingTag != null) {
+                result.add(existingTag);
+                continue;
+            }
+            Tag tag = new Tag();
+            tag.setName(name);
+            result.add(tag);
+            existingByLower.put(lower, tag);
         }
         return result;
     }
