@@ -180,6 +180,16 @@ class ArticleControllerTest {
 
     @Test
     @WithMockUser(authorities = "ARTICLE_READ")
+    @DisplayName("GET /api/v1/articles with status=DRAFT requires elevated permission")
+    void searchArticles_draftForbidden() throws Exception {
+        when(articleService.searchArticles(any(), any())).thenThrow(new ForbiddenException("drafts forbidden"));
+
+        mockMvc.perform(get("/api/v1/articles").param("status", "DRAFT"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ARTICLE_READ")
     @DisplayName("GET /api/v1/articles rejects negative paging parameters")
     void searchArticles_negativePaging() throws Exception {
         mockMvc.perform(get("/api/v1/articles").param("page", "-1"))

@@ -40,6 +40,12 @@ public class ArticleServiceImpl implements ArticleService {
     @Transactional(readOnly = true)
     public Page<ArticleListItemDto> searchArticles(ArticleSearchCriteria criteria, Pageable pageable) {
         ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog");
+        if (effectiveCriteria.status() == null) {
+            effectiveCriteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, effectiveCriteria.tags(), effectiveCriteria.contentGroup());
+        }
+        if (effectiveCriteria.status() == ArticleStatus.DRAFT) {
+            enforceDraftAccess(true);
+        }
         return articleRepository.findAll(ArticleSpecifications.build(effectiveCriteria), pageable)
                 .map(articleMapper::toListItem);
     }
