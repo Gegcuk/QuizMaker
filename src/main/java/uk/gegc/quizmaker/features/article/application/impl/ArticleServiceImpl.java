@@ -96,11 +96,12 @@ public class ArticleServiceImpl implements ArticleService {
             return List.of();
         }
         checkDuplicateSlugs(requests);
+        Map<String, Tag> tagPool = buildTagPool(requests);
         List<Article> articles = new ArrayList<>();
         for (ArticleUpsertRequest request : requests) {
             validateUpsert(request);
             assertSlugAvailable(request.slug(), null);
-            Article article = articleMapper.toEntity(request, resolveTags(request.tags()));
+            Article article = articleMapper.toEntity(request, resolveTagsFromPool(request.tags(), tagPool));
             articles.add(article);
         }
         List<Article> saved = articleRepository.saveAll(articles);
@@ -267,6 +268,67 @@ public class ArticleServiceImpl implements ArticleService {
             tag.setName(name);
             result.add(tag);
             existingByLower.put(lower, tag);
+        }
+        return result;
+    }
+
+    private Map<String, Tag> buildTagPool(List<ArticleUpsertRequest> requests) {
+        Map<String, String> originalByLower = new LinkedHashMap<>();
+        if (requests != null) {
+            for (ArticleUpsertRequest request : requests) {
+                if (request == null || request.tags() == null) {
+                    continue;
+                }
+                for (String tagName : request.tags()) {
+                    if (!StringUtils.hasText(tagName)) {
+                        continue;
+                    }
+                    String trimmed = tagName.trim();
+                    String lower = trimmed.toLowerCase(Locale.ROOT);
+                    originalByLower.putIfAbsent(lower, trimmed);
+                }
+            }
+        }
+        if (originalByLower.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<String> lowerNames = new ArrayList<>(originalByLower.keySet());
+        List<Tag> existing = tagRepository.findByNameInIgnoreCase(lowerNames);
+
+        Map<String, Tag> pool = new HashMap<>();
+        for (Tag tag : existing) {
+            pool.put(tag.getName().toLowerCase(Locale.ROOT), tag);
+        }
+
+        for (String lower : lowerNames) {
+            if (!pool.containsKey(lower)) {
+                Tag tag = new Tag();
+                tag.setName(originalByLower.get(lower));
+                pool.put(lower, tag);
+            }
+        }
+        return pool;
+    }
+
+    private Set<Tag> resolveTagsFromPool(List<String> tagNames, Map<String, Tag> pool) {
+        if (tagNames == null || tagNames.isEmpty() || pool.isEmpty()) {
+            return Set.of();
+        }
+        Set<Tag> result = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        for (String name : tagNames) {
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            String lower = name.trim().toLowerCase(Locale.ROOT);
+            if (!seen.add(lower)) {
+                continue;
+            }
+            Tag tag = pool.get(lower);
+            if (tag != null) {
+                result.add(tag);
+            }
         }
         return result;
     }
