@@ -126,17 +126,21 @@ public class ArticleServiceImpl implements ArticleService {
         if (updates == null || updates.isEmpty()) {
             return List.of();
         }
-        checkDuplicateSlugs(
-                updates.stream()
-                        .filter(Objects::nonNull)
+        List<ArticleBulkUpdateItem> safeUpdates = updates.stream()
+                .filter(Objects::nonNull)
+                .toList();
+        checkDuplicateSlugs(safeUpdates.stream()
+                .map(ArticleBulkUpdateItem::payload)
+                .toList());
+
+        Map<String, Tag> tagPool = buildTagPool(
+                safeUpdates.stream()
                         .map(ArticleBulkUpdateItem::payload)
                         .toList()
         );
+
         List<ArticleDto> results = new ArrayList<>();
-        for (ArticleBulkUpdateItem update : updates) {
-            if (update == null) {
-                continue;
-            }
+        for (ArticleBulkUpdateItem update : safeUpdates) {
             ArticleUpsertRequest request = update.payload();
             UUID id = update.articleId();
             validateUpsert(request);
@@ -145,7 +149,7 @@ public class ArticleServiceImpl implements ArticleService {
             if (StringUtils.hasText(request.slug())) {
                 assertSlugAvailable(request.slug(), id);
             }
-            articleMapper.applyUpsert(article, request, resolveTags(request.tags()));
+            articleMapper.applyUpsert(article, request, resolveTagsFromPool(request.tags(), tagPool));
             results.add(articleMapper.toDto(articleRepository.save(article)));
         }
         return results;
