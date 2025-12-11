@@ -305,7 +305,7 @@ public class ArticleMapper {
         article.getKeyPoints().clear();
         int index = 0;
         for (String kp : keyPoints) {
-            if (kp == null) {
+            if (kp == null || kp.isBlank()) {
                 continue;
             }
             ArticleKeyPoint keyPoint = new ArticleKeyPoint();
@@ -324,7 +324,7 @@ public class ArticleMapper {
         article.getChecklistItems().clear();
         int index = 0;
         for (String item : checklist) {
-            if (item == null) {
+            if (item == null || item.isBlank()) {
                 continue;
             }
             ArticleChecklistItem checklistItem = new ArticleChecklistItem();

@@ -43,7 +43,9 @@ public final class ArticleSpecifications {
                         .filter(Objects::nonNull)
                         .map(tag -> tag.toLowerCase(Locale.ROOT))
                         .toList();
-                predicates.add(cb.lower(tagJoin.get("name")).in(loweredTags));
+                if (!loweredTags.isEmpty()) {
+                    predicates.add(cb.lower(tagJoin.get("name")).in(loweredTags));
+                }
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));

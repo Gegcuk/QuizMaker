@@ -35,9 +35,6 @@ public record ArticleUpsertRequest(
         @Schema(description = "Publish timestamp", example = "2024-12-10T00:00:00Z")
         Instant publishedAt,
 
-        @Schema(description = "Last updated timestamp", example = "2025-02-21T00:00:00Z")
-        Instant updatedAt,
-
         @Schema(description = "Publication status", example = "PUBLISHED")
         ArticleStatus status,
 
