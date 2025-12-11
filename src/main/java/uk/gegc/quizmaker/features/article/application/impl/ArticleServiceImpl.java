@@ -154,7 +154,8 @@ public class ArticleServiceImpl implements ArticleService {
             validateUpsert(request);
             Article article = articleRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Article " + id + " not found"));
-            assertSlugAvailable(request.slug(), id);
+            String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+            assertSlugAvailable(normalizedSlug, id);
             articleMapper.applyUpsert(article, request, resolveTagsFromPool(request.tags(), tagPool));
             results.add(articleMapper.toDto(articleRepository.save(article)));
         }
