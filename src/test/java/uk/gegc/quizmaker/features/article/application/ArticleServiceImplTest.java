@@ -21,8 +21,11 @@ import uk.gegc.quizmaker.features.article.domain.repository.ArticleSpecification
 import uk.gegc.quizmaker.features.article.infra.mapping.ArticleMapper;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.time.Instant;
 import java.util.*;
@@ -44,6 +47,8 @@ class ArticleServiceImplTest extends BaseUnitTest {
     TagRepository tagRepository;
     @Mock
     ArticleMapper articleMapper;
+    @Mock
+    AppPermissionEvaluator permissionEvaluator;
 
     @InjectMocks
     ArticleServiceImpl service;
@@ -97,6 +102,17 @@ class ArticleServiceImplTest extends BaseUnitTest {
         assertThatThrownBy(() -> service.createArticle("user", request))
                 .isInstanceOf(ValidationException.class);
         verify(articleRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getArticle with includeDrafts enforces elevated permissions")
+    void getArticle_includeDrafts_requiresPermission() {
+        when(permissionEvaluator.hasAnyPermission(eq(PermissionName.ARTICLE_UPDATE), eq(PermissionName.ARTICLE_ADMIN))).thenReturn(false);
+
+        assertThatThrownBy(() -> service.getArticle(UUID.randomUUID(), true))
+                .isInstanceOf(ForbiddenException.class);
+
+        verify(articleRepository, never()).findById(any());
     }
 
     @Test
@@ -330,6 +346,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         Article draft = new Article();
         draft.setId(id);
         draft.setStatus(ArticleStatus.DRAFT);
+        when(permissionEvaluator.hasAnyPermission(PermissionName.ARTICLE_UPDATE, PermissionName.ARTICLE_ADMIN)).thenReturn(true);
         when(articleRepository.findById(id)).thenReturn(Optional.of(draft));
         when(articleMapper.toDto(draft)).thenReturn(dto);
 

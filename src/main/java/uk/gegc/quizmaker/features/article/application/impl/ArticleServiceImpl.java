@@ -17,8 +17,11 @@ import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTa
 import uk.gegc.quizmaker.features.article.infra.mapping.ArticleMapper;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,6 +34,7 @@ public class ArticleServiceImpl implements ArticleService {
     private final ArticleRepository articleRepository;
     private final TagRepository tagRepository;
     private final ArticleMapper articleMapper;
+    private final AppPermissionEvaluator permissionEvaluator;
 
     @Override
     @Transactional(readOnly = true)
@@ -43,6 +47,7 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(readOnly = true)
     public ArticleDto getArticle(UUID articleId, boolean includeDrafts) {
+        enforceDraftAccess(includeDrafts);
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
         if (!includeDrafts && article.getStatus() != ArticleStatus.PUBLISHED) {
@@ -54,12 +59,14 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(readOnly = true)
     public ArticleDto getArticleBySlug(String slug, boolean includeDrafts) {
-        if (!StringUtils.hasText(slug)) {
+        String normalizedSlug = slug != null ? slug.trim() : null;
+        if (!StringUtils.hasText(normalizedSlug)) {
             throw new ValidationException("Slug is required");
         }
+        enforceDraftAccess(includeDrafts);
         Optional<Article> articleOpt = includeDrafts
-                ? articleRepository.findBySlug(slug)
-                : articleRepository.findBySlugAndStatus(slug, ArticleStatus.PUBLISHED);
+                ? articleRepository.findBySlug(normalizedSlug)
+                : articleRepository.findBySlugAndStatus(normalizedSlug, ArticleStatus.PUBLISHED);
         Article article = articleOpt.orElseThrow(() -> new ResourceNotFoundException("Article with slug " + slug + " not found"));
         return articleMapper.toDto(article);
     }
@@ -83,7 +90,8 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     public ArticleDto createArticle(String username, ArticleUpsertRequest request) {
         validateUpsert(request);
-        assertSlugAvailable(request.slug(), null);
+        String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+        assertSlugAvailable(normalizedSlug, null);
         Set<Tag> tags = resolveTags(request.tags());
         Article article = articleMapper.toEntity(request, tags);
         Article saved = articleRepository.save(article);
@@ -100,7 +108,8 @@ public class ArticleServiceImpl implements ArticleService {
         List<Article> articles = new ArrayList<>();
         for (ArticleUpsertRequest request : requests) {
             validateUpsert(request);
-            assertSlugAvailable(request.slug(), null);
+            String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+            assertSlugAvailable(normalizedSlug, null);
             Article article = articleMapper.toEntity(request, resolveTagsFromPool(request.tags(), tagPool));
             articles.add(article);
         }
@@ -113,7 +122,8 @@ public class ArticleServiceImpl implements ArticleService {
         validateUpsert(request);
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
-        assertSlugAvailable(request.slug(), articleId);
+        String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+        assertSlugAvailable(normalizedSlug, articleId);
         articleMapper.applyUpsert(article, request, resolveTags(request.tags()));
         Article saved = articleRepository.save(article);
         return articleMapper.toDto(saved);
@@ -222,12 +232,19 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     private void assertSlugAvailable(String slug, UUID currentId) {
-        if (!StringUtils.hasText(slug)) {
+        String normalized = slug != null ? slug.trim() : null;
+        if (!StringUtils.hasText(normalized)) {
             throw new ValidationException("Slug is required");
         }
-        Optional<Article> existing = articleRepository.findBySlug(slug);
+        Optional<Article> existing = articleRepository.findBySlug(normalized);
         if (existing.isPresent() && (currentId == null || !existing.get().getId().equals(currentId))) {
-            throw new ValidationException("Slug already in use: " + slug);
+            throw new ValidationException("Slug already in use: " + normalized);
+        }
+    }
+
+    private void enforceDraftAccess(boolean includeDrafts) {
+        if (includeDrafts && !permissionEvaluator.hasAnyPermission(PermissionName.ARTICLE_UPDATE, PermissionName.ARTICLE_ADMIN)) {
+            throw new ForbiddenException("Viewing drafts requires ARTICLE_UPDATE or ARTICLE_ADMIN permission");
         }
     }
 
