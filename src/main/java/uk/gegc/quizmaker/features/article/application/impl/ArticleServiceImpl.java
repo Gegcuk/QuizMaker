@@ -251,8 +251,8 @@ public class ArticleServiceImpl implements ArticleService {
         Map<String, Tag> existingByLower = existing.stream()
                 .collect(Collectors.toMap(tag -> tag.getName().toLowerCase(Locale.ROOT), tag -> tag, (a, b) -> a));
 
-        Set<Tag> result = new HashSet<>(existing);
-        Set<String> seenLower = new HashSet<>(existingByLower.keySet());
+        Set<Tag> result = new HashSet<>();
+        Set<String> seenLower = new HashSet<>();
         for (String name : normalized) {
             String lower = name.toLowerCase(Locale.ROOT);
             if (!seenLower.add(lower)) {
