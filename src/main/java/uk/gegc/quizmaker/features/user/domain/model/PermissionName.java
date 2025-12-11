@@ -87,7 +87,14 @@ public enum PermissionName {
     SYSTEM_ADMIN("system", "admin", "Full system administration"),
     NOTIFICATION_READ("notification", "read", "View notifications"),
     NOTIFICATION_CREATE("notification", "create", "Create notifications"),
-    NOTIFICATION_ADMIN("notification", "admin", "Manage all notifications");
+    NOTIFICATION_ADMIN("notification", "admin", "Manage all notifications"),
+
+    // Article Permissions
+    ARTICLE_READ("article", "read", "View articles"),
+    ARTICLE_CREATE("article", "create", "Create articles"),
+    ARTICLE_UPDATE("article", "update", "Update articles"),
+    ARTICLE_DELETE("article", "delete", "Delete articles"),
+    ARTICLE_ADMIN("article", "admin", "Full article administration");
 
     private final String resource;
     private final String action;

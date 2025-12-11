@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
@@ -13,6 +15,13 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
+@ActiveProfiles("test")
+@TestPropertySource(properties = {
+        "document.chunking.default-strategy=SIZE_BASED",
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.hibernate.hbm2ddl.auto=update",
+        "spring.flyway.enabled=false"
+})
 @DisplayName("SizeBasedChunker Integration Tests")
 class SizeBasedChunkerIntegrationTest {
 
@@ -158,4 +167,3 @@ class SizeBasedChunkerIntegrationTest {
         return document;
     }
 }
-

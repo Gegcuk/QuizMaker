@@ -1,0 +1,382 @@
+package uk.gegc.quizmaker.features.article.application.impl;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+import uk.gegc.quizmaker.features.article.api.dto.*;
+import uk.gegc.quizmaker.features.article.application.ArticleService;
+import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
+import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
+import uk.gegc.quizmaker.features.article.domain.repository.ArticleSpecifications;
+import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
+import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
+import uk.gegc.quizmaker.features.article.infra.mapping.ArticleMapper;
+import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional
+@RequiredArgsConstructor
+public class ArticleServiceImpl implements ArticleService {
+
+    private final ArticleRepository articleRepository;
+    private final TagRepository tagRepository;
+    private final ArticleMapper articleMapper;
+    private final AppPermissionEvaluator permissionEvaluator;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ArticleListItemDto> searchArticles(ArticleSearchCriteria criteria, Pageable pageable) {
+        ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog");
+        if (effectiveCriteria.status() == null) {
+            effectiveCriteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, effectiveCriteria.tags(), effectiveCriteria.contentGroup());
+        }
+        if (effectiveCriteria.status() == ArticleStatus.DRAFT) {
+            enforceDraftAccess(true);
+        }
+        return articleRepository.findAll(ArticleSpecifications.build(effectiveCriteria), pageable)
+                .map(articleMapper::toListItem);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ArticleDto getArticle(UUID articleId, boolean includeDrafts) {
+        enforceDraftAccess(includeDrafts);
+        Article article = articleRepository.findById(articleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
+        if (!includeDrafts && article.getStatus() != ArticleStatus.PUBLISHED) {
+            throw new ResourceNotFoundException("Article " + articleId + " not found");
+        }
+        return articleMapper.toDto(article);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ArticleDto getArticleBySlug(String slug, boolean includeDrafts) {
+        String normalizedSlug = slug != null ? slug.trim() : null;
+        if (!StringUtils.hasText(normalizedSlug)) {
+            throw new ValidationException("Slug is required");
+        }
+        enforceDraftAccess(includeDrafts);
+        Optional<Article> articleOpt = includeDrafts
+                ? articleRepository.findBySlug(normalizedSlug)
+                : articleRepository.findBySlugAndStatus(normalizedSlug, ArticleStatus.PUBLISHED);
+        Article article = articleOpt.orElseThrow(() -> new ResourceNotFoundException("Article with slug " + slug + " not found"));
+        return articleMapper.toDto(article);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArticleDto> getArticlesByIds(List<UUID> articleIds) {
+        if (articleIds == null || articleIds.isEmpty()) {
+            return List.of();
+        }
+        List<Article> articles = articleRepository.findAllById(articleIds);
+        Map<UUID, Article> byId = articles.stream()
+                .collect(Collectors.toMap(Article::getId, a -> a));
+        return articleIds.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .map(articleMapper::toDto)
+                .toList();
+    }
+
+    @Override
+    public ArticleDto createArticle(String username, ArticleUpsertRequest request) {
+        validateUpsert(request);
+        String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+        assertSlugAvailable(normalizedSlug, null);
+        Set<Tag> tags = resolveTags(request.tags());
+        Article article = articleMapper.toEntity(request, tags);
+        Article saved = articleRepository.save(article);
+        return articleMapper.toDto(saved);
+    }
+
+    @Override
+    public List<ArticleDto> createArticles(String username, List<ArticleUpsertRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return List.of();
+        }
+        checkDuplicateSlugs(requests);
+        Map<String, Tag> tagPool = buildTagPool(requests);
+        List<Article> articles = new ArrayList<>();
+        for (ArticleUpsertRequest request : requests) {
+            validateUpsert(request);
+            String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+            assertSlugAvailable(normalizedSlug, null);
+            Article article = articleMapper.toEntity(request, resolveTagsFromPool(request.tags(), tagPool));
+            articles.add(article);
+        }
+        List<Article> saved = articleRepository.saveAll(articles);
+        return saved.stream().map(articleMapper::toDto).toList();
+    }
+
+    @Override
+    public ArticleDto updateArticle(String username, UUID articleId, ArticleUpsertRequest request) {
+        validateUpsert(request);
+        Article article = articleRepository.findById(articleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
+        String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+        assertSlugAvailable(normalizedSlug, articleId);
+        articleMapper.applyUpsert(article, request, resolveTags(request.tags()));
+        Article saved = articleRepository.save(article);
+        return articleMapper.toDto(saved);
+    }
+
+    @Override
+    public List<ArticleDto> updateArticles(String username, List<ArticleBulkUpdateItem> updates) {
+        if (updates == null || updates.isEmpty()) {
+            return List.of();
+        }
+        List<ArticleBulkUpdateItem> safeUpdates = updates.stream()
+                .filter(Objects::nonNull)
+                .toList();
+        checkDuplicateSlugs(safeUpdates.stream()
+                .map(ArticleBulkUpdateItem::payload)
+                .toList());
+
+        Map<String, Tag> tagPool = buildTagPool(
+                safeUpdates.stream()
+                        .map(ArticleBulkUpdateItem::payload)
+                        .toList()
+        );
+
+        List<ArticleDto> results = new ArrayList<>();
+        for (ArticleBulkUpdateItem update : safeUpdates) {
+            ArticleUpsertRequest request = update.payload();
+            UUID id = update.articleId();
+            validateUpsert(request);
+            Article article = articleRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Article " + id + " not found"));
+            String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+            assertSlugAvailable(normalizedSlug, id);
+            articleMapper.applyUpsert(article, request, resolveTagsFromPool(request.tags(), tagPool));
+            results.add(articleMapper.toDto(articleRepository.save(article)));
+        }
+        return results;
+    }
+
+    @Override
+    public void deleteArticle(String username, UUID articleId) {
+        if (!articleRepository.existsById(articleId)) {
+            throw new ResourceNotFoundException("Article " + articleId + " not found");
+        }
+        articleRepository.deleteById(articleId);
+    }
+
+    @Override
+    public void deleteArticles(String username, List<UUID> articleIds) {
+        if (articleIds == null || articleIds.isEmpty()) {
+            return;
+        }
+        for (UUID id : articleIds) {
+            if (!articleRepository.existsById(id)) {
+                throw new ResourceNotFoundException("Article " + id + " not found");
+            }
+        }
+        articleRepository.deleteAllById(articleIds);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArticleTagWithCountDto> getTagsWithCounts(ArticleStatus status) {
+        List<ArticleTagCountProjection> projections = articleRepository.countTags(status);
+        return projections.stream()
+                .map(articleMapper::toTagWithCount)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SitemapEntryDto> getSitemapEntries(ArticleStatus status) {
+        List<ArticleSitemapProjection> projections = articleRepository.findSitemapEntries(status != null ? status : ArticleStatus.PUBLISHED);
+        return projections.stream()
+                .map(articleMapper::toSitemapEntry)
+                .toList();
+    }
+
+    private void validateUpsert(ArticleUpsertRequest request) {
+        if (request == null) {
+            throw new ValidationException("Request body is required");
+        }
+        List<String> errors = new ArrayList<>();
+        if (!StringUtils.hasText(request.slug())) {
+            errors.add("Slug is required");
+        }
+        if (!StringUtils.hasText(request.title())) {
+            errors.add("Title is required");
+        }
+        if (!StringUtils.hasText(request.description())) {
+            errors.add("Description is required");
+        }
+        if (!StringUtils.hasText(request.excerpt())) {
+            errors.add("Excerpt is required");
+        }
+        if (!StringUtils.hasText(request.readingTime())) {
+            errors.add("Reading time is required");
+        }
+        if (request.publishedAt() == null) {
+            errors.add("PublishedAt is required");
+        }
+        if (request.status() == null) {
+            errors.add("Status is required");
+        }
+        if (!errors.isEmpty()) {
+            throw new ValidationException(String.join("; ", errors));
+        }
+    }
+
+    private void assertSlugAvailable(String slug, UUID currentId) {
+        String normalized = slug != null ? slug.trim() : null;
+        if (!StringUtils.hasText(normalized)) {
+            throw new ValidationException("Slug is required");
+        }
+        Optional<Article> existing = articleRepository.findBySlug(normalized);
+        if (existing.isPresent() && (currentId == null || !existing.get().getId().equals(currentId))) {
+            throw new ValidationException("Slug already in use: " + normalized);
+        }
+    }
+
+    private void enforceDraftAccess(boolean includeDrafts) {
+        if (includeDrafts && !permissionEvaluator.hasAnyPermission(PermissionName.ARTICLE_UPDATE, PermissionName.ARTICLE_ADMIN)) {
+            throw new ForbiddenException("Viewing drafts requires ARTICLE_UPDATE or ARTICLE_ADMIN permission");
+        }
+    }
+
+    private Set<Tag> resolveTags(List<String> tagNames) {
+        if (tagNames == null || tagNames.isEmpty()) {
+            return Set.of();
+        }
+        List<String> normalized = tagNames.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+        if (normalized.isEmpty()) {
+            return Set.of();
+        }
+
+        List<String> lowerNames = normalized.stream()
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .toList();
+
+        List<Tag> existing = tagRepository.findByNameInIgnoreCase(lowerNames);
+        Map<String, Tag> existingByLower = existing.stream()
+                .collect(Collectors.toMap(tag -> tag.getName().toLowerCase(Locale.ROOT), tag -> tag, (a, b) -> a));
+
+        Set<Tag> result = new HashSet<>();
+        Set<String> seenLower = new HashSet<>();
+        for (String name : normalized) {
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (!seenLower.add(lower)) {
+                continue; // skip duplicates regardless of case
+            }
+            Tag existingTag = existingByLower.get(lower);
+            if (existingTag != null) {
+                result.add(existingTag);
+                continue;
+            }
+            Tag tag = new Tag();
+            tag.setName(name);
+            result.add(tag);
+            existingByLower.put(lower, tag);
+        }
+        return result;
+    }
+
+    private Map<String, Tag> buildTagPool(List<ArticleUpsertRequest> requests) {
+        Map<String, String> originalByLower = new LinkedHashMap<>();
+        if (requests != null) {
+            for (ArticleUpsertRequest request : requests) {
+                if (request == null || request.tags() == null) {
+                    continue;
+                }
+                for (String tagName : request.tags()) {
+                    if (!StringUtils.hasText(tagName)) {
+                        continue;
+                    }
+                    String trimmed = tagName.trim();
+                    String lower = trimmed.toLowerCase(Locale.ROOT);
+                    originalByLower.putIfAbsent(lower, trimmed);
+                }
+            }
+        }
+        if (originalByLower.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        List<String> lowerNames = new ArrayList<>(originalByLower.keySet());
+        List<Tag> existing = tagRepository.findByNameInIgnoreCase(lowerNames);
+
+        Map<String, Tag> pool = new HashMap<>();
+        for (Tag tag : existing) {
+            pool.put(tag.getName().toLowerCase(Locale.ROOT), tag);
+        }
+
+        for (String lower : lowerNames) {
+            if (!pool.containsKey(lower)) {
+                Tag tag = new Tag();
+                tag.setName(originalByLower.get(lower));
+                pool.put(lower, tag);
+            }
+        }
+        return pool;
+    }
+
+    private Set<Tag> resolveTagsFromPool(List<String> tagNames, Map<String, Tag> pool) {
+        if (tagNames == null || tagNames.isEmpty()) {
+            return Set.of();
+        }
+        Set<Tag> result = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        for (String name : tagNames) {
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            String lower = name.trim().toLowerCase(Locale.ROOT);
+            if (!seen.add(lower)) {
+                continue;
+            }
+            Tag tag = pool != null ? pool.get(lower) : null;
+            if (tag != null) {
+                result.add(tag);
+            } else {
+                Tag newTag = new Tag();
+                newTag.setName(name.trim());
+                result.add(newTag);
+                if (pool != null) {
+                    pool.put(lower, newTag);
+                }
+            }
+        }
+        return result;
+    }
+
+    private void checkDuplicateSlugs(List<ArticleUpsertRequest> requests) {
+        if (requests == null) {
+            return;
+        }
+        Set<String> seen = new HashSet<>();
+        for (ArticleUpsertRequest request : requests) {
+            if (request == null || !StringUtils.hasText(request.slug())) {
+                continue;
+            }
+            String normalized = request.slug().trim();
+            if (!seen.add(normalized)) {
+                throw new ValidationException("Duplicate slug in bulk request: " + normalized);
+            }
+        }
+    }
+}
