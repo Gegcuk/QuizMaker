@@ -332,6 +332,9 @@ public class ArticleServiceImpl implements ArticleService {
                 Tag newTag = new Tag();
                 newTag.setName(name.trim());
                 result.add(newTag);
+                if (pool != null) {
+                    pool.put(lower, newTag);
+                }
             }
         }
         return result;

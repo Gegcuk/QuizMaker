@@ -62,6 +62,13 @@ public class ApiDocumentationService {
                     27
             ),
             ApiGroupSummary.of(
+                    "articles",
+                    "Articles",
+                    "Manage blog articles, sections, FAQs, references, and tags",
+                    "📰",
+                    42
+            ),
+            ApiGroupSummary.of(
                     "ai",
                     "AI Features",
                     "AI-powered quiz generation, document analysis, and recommendation endpoints",
@@ -91,4 +98,3 @@ public class ApiDocumentationService {
         return GROUPS;
     }
 }
-

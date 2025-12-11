@@ -75,6 +75,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi articlesGroup() {
+        return GroupedOpenApi.builder()
+                .group("articles")
+                .displayName("Articles")
+                .pathsToMatch("/api/v1/articles/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi aiGroup() {
         return GroupedOpenApi.builder()
                 .group("ai")
@@ -92,4 +101,3 @@ public class OpenApiGroupConfig {
                 .build();
     }
 }
-
