@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS articles (
     secondary_cta_label VARCHAR(255) NOT NULL,
     secondary_cta_href VARCHAR(2048) NOT NULL,
     secondary_cta_event_name VARCHAR(255),
-    revision INT,
+    revision INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (article_id)
 ) ENGINE=InnoDB;

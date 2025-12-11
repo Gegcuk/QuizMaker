@@ -158,5 +158,8 @@ public class Article {
         if (secondaryCta == null) {
             secondaryCta = new ArticleCallToAction("Explore", "/", null);
         }
+        if (revision == null) {
+            revision = 0;
+        }
     }
 }
