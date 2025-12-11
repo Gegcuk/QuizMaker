@@ -50,24 +50,12 @@ public class ArticleMapper {
         target.setPrimaryCta(toCtaEntity(request.primaryCta(), "Learn more", "/"));
         target.setSecondaryCta(toCtaEntity(request.secondaryCta(), "Explore", "/"));
 
-        if (request.stats() != null) {
-            rebuildStats(target, request.stats());
-        }
-        if (request.keyPoints() != null) {
-            rebuildKeyPoints(target, request.keyPoints());
-        }
-        if (request.checklist() != null) {
-            rebuildChecklist(target, request.checklist());
-        }
-        if (request.sections() != null) {
-            rebuildSections(target, request.sections());
-        }
-        if (request.faqs() != null) {
-            rebuildFaqs(target, request.faqs());
-        }
-        if (request.references() != null) {
-            rebuildReferences(target, request.references());
-        }
+        rebuildStats(target, request.stats());
+        rebuildKeyPoints(target, request.keyPoints());
+        rebuildChecklist(target, request.checklist());
+        rebuildSections(target, request.sections());
+        rebuildFaqs(target, request.faqs());
+        rebuildReferences(target, request.references());
     }
 
     public ArticleDto toDto(Article article) {
