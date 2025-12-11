@@ -125,7 +125,12 @@ public class ArticleServiceImpl implements ArticleService {
         if (updates == null || updates.isEmpty()) {
             return List.of();
         }
-        checkDuplicateSlugs(updates.stream().map(ArticleBulkUpdateItem::payload).toList());
+        checkDuplicateSlugs(
+                updates.stream()
+                        .filter(Objects::nonNull)
+                        .map(ArticleBulkUpdateItem::payload)
+                        .toList()
+        );
         List<ArticleDto> results = new ArrayList<>();
         for (ArticleBulkUpdateItem update : updates) {
             if (update == null) {
