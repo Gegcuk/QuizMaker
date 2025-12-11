@@ -36,7 +36,6 @@ public class ArticleMapper {
         target.setTags(tags != null ? tags : Set.of());
         target.setReadingTime(request.readingTime());
         target.setPublishedAt(request.publishedAt());
-        target.setUpdatedAt(request.updatedAt());
         if (request.status() != null) {
             target.setStatus(request.status());
         } else if (target.getStatus() == null) {
