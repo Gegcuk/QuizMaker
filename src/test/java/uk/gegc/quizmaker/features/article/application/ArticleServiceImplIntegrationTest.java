@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
@@ -28,6 +29,10 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.hibernate.hbm2ddl.auto=update"
+})
 class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
 
     @Autowired

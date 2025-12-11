@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 
@@ -24,8 +25,12 @@ import static org.assertj.core.api.Assertions.assertThat;
     "billing.strict-amount-validation=false",
     "billing.allow-negative-balance=false",
     "billing.allow-email-fallback-for-customer-ownership=true",
-    "quizmaker.features.billing=true"
+    "quizmaker.features.billing=true",
+    "spring.jpa.hibernate.ddl-auto=update",
+    "spring.jpa.hibernate.hbm2ddl.auto=update",
+    "spring.flyway.enabled=false"
 })
+@ActiveProfiles("test")
 class BillingPropertiesTest {
 
     @Autowired

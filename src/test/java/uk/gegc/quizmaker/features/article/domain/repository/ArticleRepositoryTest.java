@@ -7,6 +7,7 @@ import org.hibernate.stat.Statistics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.article.api.dto.ArticleSearchCriteria;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
@@ -23,6 +24,10 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.hibernate.hbm2ddl.auto=update"
+})
 class ArticleRepositoryTest extends BaseIntegrationTest {
 
     @Autowired

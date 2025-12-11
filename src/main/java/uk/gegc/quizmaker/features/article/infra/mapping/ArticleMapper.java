@@ -34,7 +34,8 @@ public class ArticleMapper {
         if (request == null) {
             throw new ValidationException("Request body is required");
         }
-        target.setSlug(request.slug());
+        String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
+        target.setSlug(normalizedSlug);
         target.setTitle(request.title());
         target.setDescription(request.description());
         target.setExcerpt(request.excerpt());
@@ -85,8 +86,8 @@ public class ArticleMapper {
                 article.getOgImage(),
                 article.getNoindex(),
                 article.getContentGroup(),
-                toCtaDto(article.getPrimaryCta()),
-                toCtaDto(article.getSecondaryCta()),
+                toCtaDto(article.getPrimaryCta(), "Learn more", "/"),
+                toCtaDto(article.getSecondaryCta(), "Explore", "/"),
                 mapStats(article.getStats()),
                 mapKeyPoints(article.getKeyPoints()),
                 mapChecklist(article.getChecklistItems()),
@@ -119,8 +120,8 @@ public class ArticleMapper {
                 article.getCanonicalUrl(),
                 article.getOgImage(),
                 article.getNoindex(),
-                toCtaDto(article.getPrimaryCta()),
-                toCtaDto(article.getSecondaryCta()),
+                toCtaDto(article.getPrimaryCta(), "Learn more", "/"),
+                toCtaDto(article.getSecondaryCta(), "Explore", "/"),
                 article.getRevision()
         );
     }
@@ -162,9 +163,11 @@ public class ArticleMapper {
         return new ArticleAuthorDto(safeAuthor.getName(), title);
     }
 
-    private ArticleCallToActionDto toCtaDto(ArticleCallToAction cta) {
-        ArticleCallToAction safeCta = cta != null ? cta : new ArticleCallToAction("Learn more", "/", null);
-        return new ArticleCallToActionDto(safeCta.getLabel(), safeCta.getHref(), safeCta.getEventName());
+    private ArticleCallToActionDto toCtaDto(ArticleCallToAction cta, String defaultLabel, String defaultHref) {
+        ArticleCallToAction safeCta = cta != null ? cta : new ArticleCallToAction(defaultLabel, defaultHref, null);
+        String label = StringUtils.hasText(safeCta.getLabel()) ? safeCta.getLabel() : defaultLabel;
+        String href = StringUtils.hasText(safeCta.getHref()) ? safeCta.getHref() : defaultHref;
+        return new ArticleCallToActionDto(label, href, safeCta.getEventName());
     }
 
     private ArticleAuthor toAuthorEntity(ArticleAuthorDto dto) {

@@ -231,6 +231,40 @@ class ArticleMapperTest {
     }
 
     @Test
+    @DisplayName("applyUpsert trims slug before setting on entity")
+    void applyUpsertTrimsSlug() {
+        Article target = new Article();
+        ArticleUpsertRequest request = new ArticleUpsertRequest(
+                "  slug-with-spaces  ",
+                "title",
+                "description",
+                "excerpt",
+                "hero",
+                List.of("tag"),
+                new ArticleAuthorDto("Author", "Role"),
+                "5 min",
+                Instant.parse("2024-01-01T00:00:00Z"),
+                ArticleStatus.PUBLISHED,
+                "https://example.com",
+                "https://example.com/og",
+                false,
+                "blog",
+                null,
+                null,
+                List.<ArticleStatDto>of(),
+                List.<String>of(),
+                List.<String>of(),
+                List.<ArticleSectionDto>of(),
+                List.<ArticleFaqDto>of(),
+                List.<ArticleReferenceDto>of()
+        );
+
+        mapper.applyUpsert(target, request, Set.of());
+
+        assertThat(target.getSlug()).isEqualTo("slug-with-spaces");
+    }
+
+    @Test
     @DisplayName("toAuthorEntity defaults missing values to Unknown/Author")
     void toAuthorEntityDefaults() {
         Article target = new Article();
@@ -284,7 +318,7 @@ class ArticleMapperTest {
         assertThat(dto.author().name()).isEqualTo("Unknown");
         assertThat(dto.author().title()).isEqualTo("Author");
         assertThat(dto.primaryCta().label()).isEqualTo("Learn more");
-        assertThat(dto.secondaryCta().label()).isEqualTo("Learn more");
+        assertThat(dto.secondaryCta().label()).isEqualTo("Explore");
     }
 
     @Test

@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.tag.domain.repository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 
@@ -10,6 +11,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.hibernate.hbm2ddl.auto=update"
+})
 class TagRepositoryTest extends BaseIntegrationTest {
 
     @Autowired
