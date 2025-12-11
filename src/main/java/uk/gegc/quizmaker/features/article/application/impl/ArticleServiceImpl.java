@@ -316,7 +316,7 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     private Set<Tag> resolveTagsFromPool(List<String> tagNames, Map<String, Tag> pool) {
-        if (tagNames == null || tagNames.isEmpty() || pool.isEmpty()) {
+        if (tagNames == null || tagNames.isEmpty()) {
             return Set.of();
         }
         Set<Tag> result = new HashSet<>();
@@ -329,9 +329,13 @@ public class ArticleServiceImpl implements ArticleService {
             if (!seen.add(lower)) {
                 continue;
             }
-            Tag tag = pool.get(lower);
+            Tag tag = pool != null ? pool.get(lower) : null;
             if (tag != null) {
                 result.add(tag);
+            } else {
+                Tag newTag = new Tag();
+                newTag.setName(name.trim());
+                result.add(newTag);
             }
         }
         return result;
