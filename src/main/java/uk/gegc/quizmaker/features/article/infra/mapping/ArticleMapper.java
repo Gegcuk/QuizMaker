@@ -37,7 +37,11 @@ public class ArticleMapper {
         target.setReadingTime(request.readingTime());
         target.setPublishedAt(request.publishedAt());
         target.setUpdatedAt(request.updatedAt());
-        target.setStatus(request.status());
+        if (request.status() != null) {
+            target.setStatus(request.status());
+        } else if (target.getStatus() == null) {
+            target.setStatus(ArticleStatus.DRAFT);
+        }
         target.setCanonicalUrl(request.canonicalUrl());
         target.setOgImage(request.ogImage());
         target.setNoindex(request.noindex() != null ? request.noindex() : Boolean.FALSE);
@@ -297,8 +301,8 @@ public class ArticleMapper {
             }
             ArticleStat stat = new ArticleStat();
             stat.setArticle(article);
-            stat.setLabel(dto.label());
-            stat.setValue(dto.value());
+            stat.setLabel(require(dto.label(), "Stat label"));
+            stat.setValue(require(dto.value(), "Stat value"));
             stat.setDetail(dto.detail());
             stat.setLink(dto.link());
             stat.setPosition(index++);

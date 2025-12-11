@@ -207,6 +207,9 @@ public class ArticleServiceImpl implements ArticleService {
         if (request.publishedAt() == null) {
             errors.add("PublishedAt is required");
         }
+        if (request.status() == null) {
+            errors.add("Status is required");
+        }
         if (!errors.isEmpty()) {
             throw new ValidationException(String.join("; ", errors));
         }
