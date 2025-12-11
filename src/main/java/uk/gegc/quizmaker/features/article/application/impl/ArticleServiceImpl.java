@@ -113,9 +113,7 @@ public class ArticleServiceImpl implements ArticleService {
         validateUpsert(request);
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
-        if (StringUtils.hasText(request.slug())) {
-            assertSlugAvailable(request.slug(), articleId);
-        }
+        assertSlugAvailable(request.slug(), articleId);
         articleMapper.applyUpsert(article, request, resolveTags(request.tags()));
         Article saved = articleRepository.save(article);
         return articleMapper.toDto(saved);
@@ -146,9 +144,7 @@ public class ArticleServiceImpl implements ArticleService {
             validateUpsert(request);
             Article article = articleRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Article " + id + " not found"));
-            if (StringUtils.hasText(request.slug())) {
-                assertSlugAvailable(request.slug(), id);
-            }
+            assertSlugAvailable(request.slug(), id);
             articleMapper.applyUpsert(article, request, resolveTagsFromPool(request.tags(), tagPool));
             results.add(articleMapper.toDto(articleRepository.save(article)));
         }
