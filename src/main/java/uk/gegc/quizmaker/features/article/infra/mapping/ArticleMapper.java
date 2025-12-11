@@ -19,14 +19,20 @@ import java.util.Set;
 public class ArticleMapper {
 
     public Article toEntity(ArticleUpsertRequest request, Set<Tag> tags) {
+        if (request == null) {
+            throw new ValidationException("Request body is required");
+        }
         Article article = new Article();
         applyUpsert(article, request, tags);
         return article;
     }
 
     public void applyUpsert(Article target, ArticleUpsertRequest request, Set<Tag> tags) {
-        if (target == null || request == null) {
-            return;
+        if (target == null) {
+            throw new ValidationException("Target article is required");
+        }
+        if (request == null) {
+            throw new ValidationException("Request body is required");
         }
         target.setSlug(request.slug());
         target.setTitle(request.title());
