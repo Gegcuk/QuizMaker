@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -22,13 +24,16 @@ import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.ArrayList;
 
 @RestController
 @RequestMapping("/api/v1/articles")
@@ -62,7 +67,8 @@ public class ArticleController {
             @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
             @PageableDefault(size = 20) Pageable pageable) {
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
-        return articleService.searchArticles(criteria, pageable);
+        Pageable safePageable = sanitizePageable(pageable);
+        return articleService.searchArticles(criteria, safePageable);
     }
 
     @Operation(summary = "Public search articles", description = "Public endpoint returning published articles")
@@ -78,7 +84,8 @@ public class ArticleController {
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, contentGroup);
-        return articleService.searchArticles(criteria, pageable);
+        Pageable safePageable = sanitizePageable(pageable);
+        return articleService.searchArticles(criteria, safePageable);
     }
 
     @Operation(summary = "Get article by ID")
@@ -277,5 +284,44 @@ public class ArticleController {
     public List<SitemapEntryDto> getSitemapEntries(
             @RequestParam(required = false) ArticleStatus status) {
         return articleService.getSitemapEntries(status);
+    }
+
+    private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of(
+            "publishedAt",
+            "updatedAt",
+            "createdAt",
+            "title",
+            "slug",
+            "status",
+            "revision"
+    );
+
+    private Pageable sanitizePageable(Pageable pageable) {
+        if (pageable == null || pageable.getSort().isUnsorted()) {
+            return pageable;
+        }
+
+        List<Sort.Order> sanitizedOrders = new ArrayList<>();
+        for (Sort.Order order : pageable.getSort()) {
+            String property = order.getProperty();
+            if (property == null || property.isBlank()) {
+                continue;
+            }
+
+            Sort.Direction direction = order.getDirection();
+            if (property.startsWith("-")) {
+                property = property.substring(1);
+                direction = Sort.Direction.DESC;
+            }
+
+            if (!ALLOWED_SORT_PROPERTIES.contains(property)) {
+                throw new ValidationException("Invalid sort property: " + property);
+            }
+
+            sanitizedOrders.add(new Sort.Order(direction, property));
+        }
+
+        Sort sort = sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
     }
 }

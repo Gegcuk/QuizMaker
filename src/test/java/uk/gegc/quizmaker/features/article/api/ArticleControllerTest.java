@@ -9,6 +9,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -26,9 +28,11 @@ import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.mockito.ArgumentCaptor;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -540,5 +544,32 @@ class ArticleControllerTest {
                     int status = result.getResponse().getStatus();
                     org.assertj.core.api.Assertions.assertThat(status).isIn(200, 302);
                 });
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/v1/articles/public translates sort=-publishedAt to descending")
+    void searchPublicArticles_hyphenSortTranslated() throws Exception {
+        Page<ArticleListItemDto> page = new PageImpl<>(List.of(listItem), PageRequest.of(0, 20), 1);
+        when(articleService.searchArticles(any(), any())).thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/articles/public")
+                        .param("sort", "-publishedAt"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(articleService).searchArticles(any(), pageableCaptor.capture());
+        Sort.Order order = pageableCaptor.getValue().getSort().getOrderFor("publishedAt");
+        org.assertj.core.api.Assertions.assertThat(order).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(order.getDirection()).isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/v1/articles/public rejects invalid sort property")
+    void searchPublicArticles_invalidSortProperty() throws Exception {
+        mockMvc.perform(get("/api/v1/articles/public")
+                        .param("sort", "invalidField"))
+                .andExpect(status().isBadRequest());
     }
 }

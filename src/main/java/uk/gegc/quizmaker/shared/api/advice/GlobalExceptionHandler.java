@@ -16,6 +16,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.lang.NonNull;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -196,6 +197,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 request
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<ProblemDetail> handlePropertyReference(PropertyReferenceException ex, HttpServletRequest request) {
+        String propertyName = ex.getPropertyName();
+        String message = propertyName != null
+                ? "Invalid sort property: " + propertyName
+                : "Invalid sort property";
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.VALIDATION_FAILED,
+                "Invalid Sort Parameter",
+                message,
+                request
+        );
+        return ResponseEntity.badRequest().body(problem);
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
