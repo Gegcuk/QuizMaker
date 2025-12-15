@@ -581,6 +581,24 @@ class ArticleControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/v1/articles/public respects explicit direction for hyphenated sort")
+    void searchPublicArticles_hyphenSortRespectsExplicitDirection() throws Exception {
+        Page<ArticleListItemDto> page = new PageImpl<>(List.of(listItem), PageRequest.of(0, 20), 1);
+        when(articleService.searchArticles(any(), any())).thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/articles/public")
+                        .param("sort", "-publishedAt,asc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(articleService).searchArticles(any(), pageableCaptor.capture());
+        Sort.Order order = pageableCaptor.getValue().getSort().getOrderFor("publishedAt");
+        org.assertj.core.api.Assertions.assertThat(order).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(order.getDirection()).isEqualTo(Sort.Direction.ASC);
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/v1/articles/public rejects invalid sort property")
     void searchPublicArticles_invalidSortProperty() throws Exception {
         mockMvc.perform(get("/api/v1/articles/public")

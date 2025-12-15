@@ -65,9 +65,10 @@ public class ArticleController {
             @Parameter(description = "Filter by status") @RequestParam(required = false) ArticleStatus status,
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
             @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @PageableDefault(size = 20) Pageable pageable,
+            HttpServletRequest request) {
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
-        Pageable safePageable = sanitizePageable(pageable);
+        Pageable safePageable = sanitizePageable(pageable, request);
         return articleService.searchArticles(criteria, safePageable);
     }
 
@@ -84,7 +85,7 @@ public class ArticleController {
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, contentGroup);
-        Pageable safePageable = sanitizePageable(pageable);
+        Pageable safePageable = sanitizePageable(pageable, request);
         return articleService.searchArticles(criteria, safePageable);
     }
 
@@ -296,13 +297,36 @@ public class ArticleController {
             "revision"
     );
 
-    private Pageable sanitizePageable(Pageable pageable) {
-        if (pageable == null || pageable.getSort().isUnsorted()) {
-            return pageable;
+    private Pageable sanitizePageable(Pageable pageable, HttpServletRequest request) {
+        if (pageable == null) {
+            return null;
+        }
+
+        Sort sort = sanitizeSort(
+                pageable.getSort(),
+                request != null ? request.getParameterValues("sort") : null
+        );
+
+        if (pageable.isUnpaged()) {
+            return Pageable.unpaged(sort);
+        }
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+    }
+
+    private Sort sanitizeSort(Sort sort, String[] rawSortParams) {
+        if (rawSortParams != null && rawSortParams.length > 0) {
+            return sanitizeSortFromParams(rawSortParams);
+        }
+
+        if (sort == null || sort.isUnsorted()) {
+            return Sort.unsorted();
         }
 
         List<Sort.Order> sanitizedOrders = new ArrayList<>();
-        for (Sort.Order order : pageable.getSort()) {
+        for (Sort.Order order : sort) {
+            if (order == null) {
+                continue;
+            }
             String property = order.getProperty();
             if (property == null || property.isBlank()) {
                 continue;
@@ -318,10 +342,79 @@ public class ArticleController {
                 throw new ValidationException("Invalid sort property: " + property);
             }
 
-            sanitizedOrders.add(new Sort.Order(direction, property));
+            Sort.Order sanitized = new Sort.Order(direction, property);
+            if (order.isIgnoreCase()) {
+                sanitized = sanitized.ignoreCase();
+            }
+            sanitized = sanitized.with(order.getNullHandling());
+            sanitizedOrders.add(sanitized);
         }
 
-        Sort sort = sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
+        return sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
+    }
+
+    private Sort sanitizeSortFromParams(String[] rawSortParams) {
+        List<Sort.Order> sanitizedOrders = new ArrayList<>();
+        for (String rawSort : rawSortParams) {
+            if (rawSort == null || rawSort.isBlank()) {
+                continue;
+            }
+
+            String[] parts = rawSort.split(",");
+            String property = parts[0] != null ? parts[0].trim() : "";
+            if (property.isBlank()) {
+                continue;
+            }
+
+            boolean directionSpecified = false;
+            Sort.Direction direction = Sort.Direction.ASC;
+            boolean ignoreCase = false;
+            Sort.NullHandling nullHandling = Sort.NullHandling.NATIVE;
+
+            for (int i = 1; i < parts.length; i++) {
+                String token = parts[i] != null ? parts[i].trim() : "";
+                if (token.isBlank()) {
+                    continue;
+                }
+
+                if ("asc".equalsIgnoreCase(token) || "desc".equalsIgnoreCase(token)) {
+                    directionSpecified = true;
+                    direction = Sort.Direction.fromString(token);
+                    continue;
+                }
+                if ("ignorecase".equalsIgnoreCase(token)) {
+                    ignoreCase = true;
+                    continue;
+                }
+                if ("nullsfirst".equalsIgnoreCase(token)) {
+                    nullHandling = Sort.NullHandling.NULLS_FIRST;
+                    continue;
+                }
+                if ("nullslast".equalsIgnoreCase(token)) {
+                    nullHandling = Sort.NullHandling.NULLS_LAST;
+                }
+            }
+
+            if (property.startsWith("-")) {
+                property = property.substring(1);
+                if (!directionSpecified) {
+                    direction = Sort.Direction.DESC;
+                }
+            }
+            if (property.startsWith("+")) {
+                property = property.substring(1);
+            }
+
+            if (!ALLOWED_SORT_PROPERTIES.contains(property)) {
+                throw new ValidationException("Invalid sort property: " + property);
+            }
+
+            Sort.Order order = new Sort.Order(direction, property).with(nullHandling);
+            if (ignoreCase) {
+                order = order.ignoreCase();
+            }
+            sanitizedOrders.add(order);
+        }
+        return sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
     }
 }
