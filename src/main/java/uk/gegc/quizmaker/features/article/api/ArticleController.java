@@ -64,7 +64,7 @@ public class ArticleController {
     public Page<ArticleListItemDto> searchArticles(
             @Parameter(description = "Filter by status") @RequestParam(required = false) ArticleStatus status,
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
             @PageableDefault(size = 20) Pageable pageable) {
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
         Pageable safePageable = sanitizePageable(pageable);
@@ -79,7 +79,7 @@ public class ArticleController {
     @GetMapping("/public")
     public Page<ArticleListItemDto> searchPublicArticles(
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
             @PageableDefault(size = 20) Pageable pageable,
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);

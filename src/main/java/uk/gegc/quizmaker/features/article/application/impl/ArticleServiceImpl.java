@@ -39,7 +39,7 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(readOnly = true)
     public Page<ArticleListItemDto> searchArticles(ArticleSearchCriteria criteria, Pageable pageable) {
-        ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog");
+        ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), null);
         if (effectiveCriteria.status() == null) {
             effectiveCriteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, effectiveCriteria.tags(), effectiveCriteria.contentGroup());
         }

@@ -163,6 +163,21 @@ class ArticleControllerTest {
 
     @Test
     @WithMockUser(authorities = "ARTICLE_READ")
+    @DisplayName("GET /api/v1/articles defaults to all content groups when omitted")
+    void searchArticles_defaultContentGroupNotFiltered() throws Exception {
+        Page<ArticleListItemDto> page = new PageImpl<>(List.of(listItem), PageRequest.of(0, 20), 1);
+        when(articleService.searchArticles(any(), any())).thenReturn(page);
+
+        mockMvc.perform(get("/api/v1/articles"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ArticleSearchCriteria> criteriaCaptor = ArgumentCaptor.forClass(ArticleSearchCriteria.class);
+        verify(articleService).searchArticles(criteriaCaptor.capture(), any(Pageable.class));
+        org.assertj.core.api.Assertions.assertThat(criteriaCaptor.getValue().contentGroup()).isNull();
+    }
+
+    @Test
+    @WithMockUser(authorities = "ARTICLE_READ")
     @DisplayName("GET /api/v1/articles with includeDrafts=true returns 403 without elevated permission")
     void searchArticles_includeDraftsForbidden() throws Exception {
         when(articleService.searchArticles(any(), any())).thenThrow(new ForbiddenException("no drafts"));
