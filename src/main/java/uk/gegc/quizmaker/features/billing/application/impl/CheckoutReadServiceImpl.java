@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.stripe.model.Price;
 import com.stripe.StripeClient;
+import com.stripe.param.PriceRetrieveParams;
 import org.springframework.util.StringUtils;
 
 /**
@@ -114,27 +115,44 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
         long tokens = defaultTokens;
         long amountCents = 0L;
         String currency = "usd";
+        boolean tokensResolved = false;
         try {
+            PriceRetrieveParams retrieveParams = PriceRetrieveParams.builder()
+                    .addExpand("product")
+                    .build();
+
             Price price = (stripeClient != null)
-                    ? stripeClient.prices().retrieve(priceId)
-                    : Price.retrieve(priceId);
+                    ? stripeClient.prices().retrieve(priceId, retrieveParams)
+                    : Price.retrieve(priceId, retrieveParams, null);
             if (price != null) {
                 if (price.getUnitAmount() != null) amountCents = price.getUnitAmount();
                 if (StringUtils.hasText(price.getCurrency())) currency = price.getCurrency();
                 if (price.getMetadata() != null) {
                     String t = price.getMetadata().get("tokens");
                     if (StringUtils.hasText(t)) {
-                        try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        try {
+                            tokens = Long.parseLong(t.trim());
+                            tokensResolved = true;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    String d = price.getMetadata().get("description");
+                    if (StringUtils.hasText(d)) {
+                        description = d;
                     }
                 }
                 if (price.getProductObject() != null) {
                     var prod = price.getProductObject();
                     if (StringUtils.hasText(prod.getName())) name = prod.getName();
-                    if (StringUtils.hasText(prod.getDescription())) description = prod.getDescription();
+                    if (StringUtils.hasText(prod.getDescription())) {
+                        description = prod.getDescription();
+                    }
                     if (prod.getMetadata() != null) {
                         String t = prod.getMetadata().get("tokens");
-                        if (StringUtils.hasText(t)) {
-                            try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        if (StringUtils.hasText(t) && !tokensResolved) {
+                            try {
+                                tokens = Long.parseLong(t.trim());
+                                tokensResolved = true;
+                            } catch (NumberFormatException ignored) {}
                         }
                         if (!StringUtils.hasText(description)) {
                             String d = prod.getMetadata().get("description");

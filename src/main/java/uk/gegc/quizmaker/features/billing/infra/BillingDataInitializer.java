@@ -75,43 +75,44 @@ public class BillingDataInitializer implements CommandLineRunner {
                     ? stripeClient.prices().retrieve(priceId, retrieveParams)
                     : Price.retrieve(priceId, retrieveParams, null);
 
-            if (price != null) {
-                if (price.getUnitAmount() != null) {
-                    amountCents = price.getUnitAmount();
-                }
-                if (StringUtils.hasText(price.getCurrency())) {
-                    currency = price.getCurrency();
-                }
-                if (StringUtils.hasText(price.getNickname())) {
-                    name = price.getNickname();
-                }
-                if (price.getMetadata() != null) {
-                    String fromPriceMeta = price.getMetadata().get("description");
-                    if (StringUtils.hasText(fromPriceMeta)) {
-                        description = fromPriceMeta;
-                    }
-                }
+	            if (price != null) {
+	                if (price.getUnitAmount() != null) {
+	                    amountCents = price.getUnitAmount();
+	                }
+	                if (StringUtils.hasText(price.getCurrency())) {
+	                    currency = price.getCurrency();
+	                }
+	                if (StringUtils.hasText(price.getNickname())) {
+	                    name = price.getNickname();
+	                } else if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getName())) {
+	                    name = price.getProductObject().getName();
+	                }
 
-                // Try metadata for tokens (prefer price metadata, fallback to product metadata)
-                Long tokensFromMeta = extractTokensFromMetadata(price.getMetadata());
-                if (tokensFromMeta == null && price.getProductObject() != null) {
-                    tokensFromMeta = extractTokensFromMetadata(price.getProductObject().getMetadata());
-                    if (StringUtils.hasText(price.getProductObject().getName())) {
-                        name = price.getProductObject().getName();
-                    }
-                    if (StringUtils.hasText(price.getProductObject().getDescription())) {
-                        description = price.getProductObject().getDescription();
-                    } else if (price.getProductObject().getMetadata() != null) {
-                        String fromMeta = price.getProductObject().getMetadata().get("description");
-                        if (StringUtils.hasText(fromMeta)) {
-                            description = fromMeta;
-                        }
-                    }
-                }
-                if (tokensFromMeta != null && tokensFromMeta > 0) {
-                    tokens = tokensFromMeta;
-                }
-            }
+	                if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getDescription())) {
+	                    description = price.getProductObject().getDescription();
+	                }
+	                if (!StringUtils.hasText(description) && price.getMetadata() != null) {
+	                    String fromPriceMeta = price.getMetadata().get("description");
+	                    if (StringUtils.hasText(fromPriceMeta)) {
+	                        description = fromPriceMeta;
+	                    }
+	                }
+	                if (!StringUtils.hasText(description) && price.getProductObject() != null && price.getProductObject().getMetadata() != null) {
+	                    String fromMeta = price.getProductObject().getMetadata().get("description");
+	                    if (StringUtils.hasText(fromMeta)) {
+	                        description = fromMeta;
+	                    }
+	                }
+
+	                // Try metadata for tokens (prefer price metadata, fallback to product metadata)
+	                Long tokensFromMeta = extractTokensFromMetadata(price.getMetadata());
+	                if (tokensFromMeta == null && price.getProductObject() != null) {
+	                    tokensFromMeta = extractTokensFromMetadata(price.getProductObject().getMetadata());
+	                }
+	                if (tokensFromMeta != null && tokensFromMeta > 0) {
+	                    tokens = tokensFromMeta;
+	                }
+	            }
         } catch (Exception e) {
             log.info("Could not retrieve Stripe Price {} (using defaults): {}", priceId, e.getMessage());
         }
