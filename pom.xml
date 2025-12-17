@@ -49,6 +49,7 @@
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
                             <useUnlimitedThreads>true</useUnlimitedThreads>
+                            <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
                             <!-- Include all tests when running locally -->
                         </configuration>
                     </plugin>
@@ -364,6 +365,7 @@
                 <configuration>
                     <!-- Allow the JUnit Platform to manage threads -->
                     <useUnlimitedThreads>true</useUnlimitedThreads>
+                    <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
                     <!-- Exclude OpenAI API tests from CI to avoid costs -->
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
@@ -378,6 +380,30 @@
                         <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+
+            <!-- Copy Byte Buddy agent so Mockito inline mocking works without dynamic attach -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-byte-buddy-agent</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>test</includeScope>
+                            <includeGroupIds>net.bytebuddy</includeGroupIds>
+                            <includeArtifactIds>byte-buddy-agent</includeArtifactIds>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <stripVersion>true</stripVersion>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Flyway Maven plugin to allow running migrations in CI -->
