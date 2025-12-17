@@ -166,6 +166,7 @@ class CheckoutReadServiceImplTest {
             // Given
             String publishableKey = "pk_test_12345";
             ProductPack pack = createProductPack("Starter", 1000L, 999L);
+            pack.setDescription("Starter pack description");
 
             when(stripeProperties.getPublishableKey()).thenReturn(publishableKey);
             when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack));
@@ -177,6 +178,7 @@ class CheckoutReadServiceImplTest {
             assertThat(result.publishableKey()).isEqualTo(publishableKey);
             assertThat(result.prices()).hasSize(1);
             assertThat(result.prices().get(0).name()).isEqualTo("Starter");
+            assertThat(result.prices().get(0).description()).isEqualTo("Starter pack description");
             assertThat(result.prices().get(0).tokens()).isEqualTo(1000L);
 
             verify(stripeProperties).getPublishableKey();
@@ -239,6 +241,8 @@ class CheckoutReadServiceImplTest {
             // Given
             ProductPack pack1 = createProductPack("Starter", 1000L, 999L);
             ProductPack pack2 = createProductPack("Pro", 5000L, 4999L);
+            pack1.setDescription("Starter description");
+            pack2.setDescription("Pro description");
 
             when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack1, pack2));
 
@@ -248,9 +252,11 @@ class CheckoutReadServiceImplTest {
             // Then
             assertThat(result).hasSize(2);
             assertThat(result.get(0).name()).isEqualTo("Starter");
+            assertThat(result.get(0).description()).isEqualTo("Starter description");
             assertThat(result.get(0).tokens()).isEqualTo(1000L);
             assertThat(result.get(0).priceCents()).isEqualTo(999L);
             assertThat(result.get(1).name()).isEqualTo("Pro");
+            assertThat(result.get(1).description()).isEqualTo("Pro description");
             assertThat(result.get(1).tokens()).isEqualTo(5000L);
 
             verify(productPackRepository).findByActiveTrue();
@@ -348,6 +354,7 @@ class CheckoutReadServiceImplTest {
 
             Product product = mock(Product.class);
             when(product.getName()).thenReturn("Custom Starter");
+            when(product.getDescription()).thenReturn("Custom Starter description");
             when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
@@ -359,6 +366,7 @@ class CheckoutReadServiceImplTest {
             // Then
             assertThat(result).hasSize(1);
             assertThat(result.get(0).name()).isEqualTo("Custom Starter");
+            assertThat(result.get(0).description()).isEqualTo("Custom Starter description");
             assertThat(result.get(0).tokens()).isEqualTo(2500L);
             assertThat(result.get(0).priceCents()).isEqualTo(1999L);
             assertThat(result.get(0).currency()).isEqualTo("eur");

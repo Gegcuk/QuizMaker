@@ -81,6 +81,7 @@ public class StripePackSyncServiceImpl implements StripePackSyncService {
                 }
 
                 String name = resolveName(price);
+                String description = resolveDescription(price);
                 long amountCents = price.getUnitAmount() != null ? price.getUnitAmount() : 0L;
                 if (!StringUtils.hasText(currency)) {
                     currency = desiredCurrency;
@@ -99,6 +100,7 @@ public class StripePackSyncServiceImpl implements StripePackSyncService {
                 }
 
                 pack.setName(name);
+                pack.setDescription(description);
                 pack.setTokens(tokens);
                 pack.setPriceCents(amountCents);
                 pack.setCurrency(currency.toLowerCase(Locale.ROOT));
@@ -192,5 +194,28 @@ public class StripePackSyncServiceImpl implements StripePackSyncService {
         }
         return "Token Pack";
     }
-}
 
+    private String resolveDescription(Price price) {
+        if (price == null) return null;
+
+        if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getDescription())) {
+            return price.getProductObject().getDescription();
+        }
+
+        if (price.getMetadata() != null) {
+            String fromPrice = price.getMetadata().get("description");
+            if (StringUtils.hasText(fromPrice)) {
+                return fromPrice;
+            }
+        }
+
+        if (price.getProductObject() != null && price.getProductObject().getMetadata() != null) {
+            String fromProductMeta = price.getProductObject().getMetadata().get("description");
+            if (StringUtils.hasText(fromProductMeta)) {
+                return fromProductMeta;
+            }
+        }
+
+        return null;
+    }
+}

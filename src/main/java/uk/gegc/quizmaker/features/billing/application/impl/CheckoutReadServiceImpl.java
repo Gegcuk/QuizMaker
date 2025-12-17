@@ -78,6 +78,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                 .map(pack -> new PackDto(
                         pack.getId(),
                         pack.getName(),
+                        pack.getDescription(),
                         pack.getTokens(),
                         pack.getPriceCents(),
                         pack.getCurrency(),
@@ -109,6 +110,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
     private void addFallbackPack(java.util.List<PackDto> out, String priceId, String defaultName, long defaultTokens) {
         if (!StringUtils.hasText(priceId)) return;
         String name = defaultName;
+        String description = null;
         long tokens = defaultTokens;
         long amountCents = 0L;
         String currency = "usd";
@@ -128,10 +130,15 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                 if (price.getProductObject() != null) {
                     var prod = price.getProductObject();
                     if (StringUtils.hasText(prod.getName())) name = prod.getName();
+                    if (StringUtils.hasText(prod.getDescription())) description = prod.getDescription();
                     if (prod.getMetadata() != null) {
                         String t = prod.getMetadata().get("tokens");
                         if (StringUtils.hasText(t)) {
                             try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        }
+                        if (!StringUtils.hasText(description)) {
+                            String d = prod.getMetadata().get("description");
+                            if (StringUtils.hasText(d)) description = d;
                         }
                     }
                 }
@@ -139,6 +146,6 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
         } catch (Exception e) {
             log.info("Could not retrieve Stripe Price {} for fallback packs (using defaults): {}", priceId, e.getMessage());
         }
-        out.add(new PackDto(UUID.randomUUID(), name, tokens, amountCents, currency, priceId));
+        out.add(new PackDto(UUID.randomUUID(), name, description, tokens, amountCents, currency, priceId));
     }
 }
