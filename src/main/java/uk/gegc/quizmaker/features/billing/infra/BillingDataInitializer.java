@@ -75,18 +75,18 @@ public class BillingDataInitializer implements CommandLineRunner {
                     ? stripeClient.prices().retrieve(priceId, retrieveParams)
                     : Price.retrieve(priceId, retrieveParams, null);
 
-	            if (price != null) {
-	                if (price.getUnitAmount() != null) {
-	                    amountCents = price.getUnitAmount();
-	                }
-	                if (StringUtils.hasText(price.getCurrency())) {
-	                    currency = price.getCurrency();
-	                }
-	                if (StringUtils.hasText(price.getNickname())) {
-	                    name = price.getNickname();
-	                } else if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getName())) {
-	                    name = price.getProductObject().getName();
-	                }
+            if (price != null) {
+                if (price.getUnitAmount() != null) {
+                    amountCents = price.getUnitAmount();
+                }
+                if (StringUtils.hasText(price.getCurrency())) {
+                    currency = price.getCurrency();
+                }
+                if (StringUtils.hasText(price.getNickname())) {
+                    name = price.getNickname();
+                } else if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getName())) {
+                    name = price.getProductObject().getName();
+                }
 
 	                if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getDescription())) {
 	                    description = price.getProductObject().getDescription();
