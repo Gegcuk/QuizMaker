@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.billing.application.impl;
 import com.stripe.StripeClient;
 import com.stripe.model.Price;
 import com.stripe.model.Product;
+import com.stripe.param.PriceRetrieveParams;
 import com.stripe.service.PriceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -166,6 +167,7 @@ class CheckoutReadServiceImplTest {
             // Given
             String publishableKey = "pk_test_12345";
             ProductPack pack = createProductPack("Starter", 1000L, 999L);
+            pack.setDescription("Starter pack description");
 
             when(stripeProperties.getPublishableKey()).thenReturn(publishableKey);
             when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack));
@@ -177,6 +179,7 @@ class CheckoutReadServiceImplTest {
             assertThat(result.publishableKey()).isEqualTo(publishableKey);
             assertThat(result.prices()).hasSize(1);
             assertThat(result.prices().get(0).name()).isEqualTo("Starter");
+            assertThat(result.prices().get(0).description()).isEqualTo("Starter pack description");
             assertThat(result.prices().get(0).tokens()).isEqualTo(1000L);
 
             verify(stripeProperties).getPublishableKey();
@@ -239,6 +242,8 @@ class CheckoutReadServiceImplTest {
             // Given
             ProductPack pack1 = createProductPack("Starter", 1000L, 999L);
             ProductPack pack2 = createProductPack("Pro", 5000L, 4999L);
+            pack1.setDescription("Starter description");
+            pack2.setDescription("Pro description");
 
             when(productPackRepository.findByActiveTrue()).thenReturn(List.of(pack1, pack2));
 
@@ -248,9 +253,11 @@ class CheckoutReadServiceImplTest {
             // Then
             assertThat(result).hasSize(2);
             assertThat(result.get(0).name()).isEqualTo("Starter");
+            assertThat(result.get(0).description()).isEqualTo("Starter description");
             assertThat(result.get(0).tokens()).isEqualTo(1000L);
             assertThat(result.get(0).priceCents()).isEqualTo(999L);
             assertThat(result.get(1).name()).isEqualTo("Pro");
+            assertThat(result.get(1).description()).isEqualTo("Pro description");
             assertThat(result.get(1).tokens()).isEqualTo(5000L);
 
             verify(productPackRepository).findByActiveTrue();
@@ -342,23 +349,26 @@ class CheckoutReadServiceImplTest {
             Price price = mock(Price.class);
             when(price.getUnitAmount()).thenReturn(1999L);
             when(price.getCurrency()).thenReturn("eur");
+            when(price.getNickname()).thenReturn("Custom Starter Nickname");
             Map<String, String> metadata = new HashMap<>();
             metadata.put("tokens", "2500");
             when(price.getMetadata()).thenReturn(metadata);
 
             Product product = mock(Product.class);
             when(product.getName()).thenReturn("Custom Starter");
+            when(product.getDescription()).thenReturn("Custom Starter description");
             when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_123")).thenReturn(price);
+            when(priceService.retrieve(eq("price_123"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
 
             // Then
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).name()).isEqualTo("Custom Starter");
+            assertThat(result.get(0).name()).isEqualTo("Custom Starter Nickname");
+            assertThat(result.get(0).description()).isEqualTo("Custom Starter description");
             assertThat(result.get(0).tokens()).isEqualTo(2500L);
             assertThat(result.get(0).priceCents()).isEqualTo(1999L);
             assertThat(result.get(0).currency()).isEqualTo("eur");
@@ -387,7 +397,7 @@ class CheckoutReadServiceImplTest {
             when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_456")).thenReturn(price);
+            when(priceService.retrieve(eq("price_456"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -409,7 +419,7 @@ class CheckoutReadServiceImplTest {
             when(stripeProperties.getPriceLarge()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_error"))
+            when(priceService.retrieve(eq("price_error"), any(PriceRetrieveParams.class)))
                     .thenThrow(new RuntimeException("Stripe API error"));
 
             // When
@@ -442,7 +452,7 @@ class CheckoutReadServiceImplTest {
             when(price.getProductObject()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_789")).thenReturn(price);
+            when(priceService.retrieve(eq("price_789"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -462,7 +472,7 @@ class CheckoutReadServiceImplTest {
             when(stripeProperties.getPriceLarge()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_null")).thenReturn(null);
+            when(priceService.retrieve(eq("price_null"), any(PriceRetrieveParams.class))).thenReturn(null);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();

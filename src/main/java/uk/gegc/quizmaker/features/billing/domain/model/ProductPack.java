@@ -20,6 +20,9 @@ public class ProductPack {
     @Column(name = "name", nullable = false, length = 100)
     private String name;
 
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
     @Column(name = "tokens", nullable = false)
     private long tokens;
 

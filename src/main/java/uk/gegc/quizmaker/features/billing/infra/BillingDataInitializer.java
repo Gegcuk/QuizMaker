@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.billing.infra;
 
 import com.stripe.StripeClient;
 import com.stripe.model.Price;
+import com.stripe.param.PriceRetrieveParams;
 import org.springframework.boot.CommandLineRunner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,43 +61,65 @@ public class BillingDataInitializer implements CommandLineRunner {
         }
 
         String name = defaultName;
+        String description = null;
         long tokens = defaultTokens;
         long amountCents = 0L;
         String currency = "usd";
 
         try {
+            PriceRetrieveParams retrieveParams = PriceRetrieveParams.builder()
+                    .addExpand("product")
+                    .build();
+
             Price price = (stripeClient != null)
-                    ? stripeClient.prices().retrieve(priceId)
-                    : Price.retrieve(priceId);
+                    ? stripeClient.prices().retrieve(priceId, retrieveParams)
+                    : Price.retrieve(priceId, retrieveParams, null);
 
-            if (price != null) {
-                if (price.getUnitAmount() != null) {
-                    amountCents = price.getUnitAmount();
-                }
-                if (StringUtils.hasText(price.getCurrency())) {
-                    currency = price.getCurrency();
-                }
-                if (StringUtils.hasText(price.getNickname())) {
-                    name = price.getNickname();
-                }
+	            if (price != null) {
+	                if (price.getUnitAmount() != null) {
+	                    amountCents = price.getUnitAmount();
+	                }
+	                if (StringUtils.hasText(price.getCurrency())) {
+	                    currency = price.getCurrency();
+	                }
+	                if (StringUtils.hasText(price.getNickname())) {
+	                    name = price.getNickname();
+	                } else if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getName())) {
+	                    name = price.getProductObject().getName();
+	                }
 
-                // Try metadata for tokens (prefer price metadata, fallback to product metadata)
-                Long tokensFromMeta = extractTokensFromMetadata(price.getMetadata());
-                if (tokensFromMeta == null && price.getProductObject() != null) {
-                    tokensFromMeta = extractTokensFromMetadata(price.getProductObject().getMetadata());
-                    if (StringUtils.hasText(price.getProductObject().getName())) {
-                        name = price.getProductObject().getName();
-                    }
-                }
-                if (tokensFromMeta != null && tokensFromMeta > 0) {
-                    tokens = tokensFromMeta;
-                }
-            }
+	                if (price.getProductObject() != null && StringUtils.hasText(price.getProductObject().getDescription())) {
+	                    description = price.getProductObject().getDescription();
+	                }
+	                if (!StringUtils.hasText(description) && price.getMetadata() != null) {
+	                    String fromPriceMeta = price.getMetadata().get("description");
+	                    if (StringUtils.hasText(fromPriceMeta)) {
+	                        description = fromPriceMeta;
+	                    }
+	                }
+	                if (!StringUtils.hasText(description) && price.getProductObject() != null && price.getProductObject().getMetadata() != null) {
+	                    String fromMeta = price.getProductObject().getMetadata().get("description");
+	                    if (StringUtils.hasText(fromMeta)) {
+	                        description = fromMeta;
+	                    }
+	                }
+
+	                // Try metadata for tokens (prefer price metadata, fallback to product metadata)
+	                Long tokensFromMeta = extractTokensFromMetadata(price.getMetadata());
+	                if (tokensFromMeta == null && price.getProductObject() != null) {
+	                    tokensFromMeta = extractTokensFromMetadata(price.getProductObject().getMetadata());
+	                }
+	                if (tokensFromMeta != null && tokensFromMeta > 0) {
+	                    tokens = tokensFromMeta;
+	                }
+	            }
         } catch (Exception e) {
             log.info("Could not retrieve Stripe Price {} (using defaults): {}", priceId, e.getMessage());
         }
 
-        ProductPack pack = new ProductPack();pack.setName(name);
+        ProductPack pack = new ProductPack();
+        pack.setName(name);
+        pack.setDescription(description);
         pack.setTokens(tokens);
         pack.setPriceCents(amountCents);
         pack.setCurrency(currency);

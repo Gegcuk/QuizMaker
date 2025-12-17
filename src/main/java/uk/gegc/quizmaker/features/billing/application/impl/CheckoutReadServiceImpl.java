@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.stripe.model.Price;
 import com.stripe.StripeClient;
+import com.stripe.param.PriceRetrieveParams;
 import org.springframework.util.StringUtils;
 
 /**
@@ -78,6 +79,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                 .map(pack -> new PackDto(
                         pack.getId(),
                         pack.getName(),
+                        pack.getDescription(),
                         pack.getTokens(),
                         pack.getPriceCents(),
                         pack.getCurrency(),
@@ -109,36 +111,69 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
     private void addFallbackPack(java.util.List<PackDto> out, String priceId, String defaultName, long defaultTokens) {
         if (!StringUtils.hasText(priceId)) return;
         String name = defaultName;
+        String description = null;
+        String priceMetadataDescription = null;
         long tokens = defaultTokens;
         long amountCents = 0L;
         String currency = "usd";
+        boolean tokensResolved = false;
         try {
+            PriceRetrieveParams retrieveParams = PriceRetrieveParams.builder()
+                    .addExpand("product")
+                    .build();
+
             Price price = (stripeClient != null)
-                    ? stripeClient.prices().retrieve(priceId)
-                    : Price.retrieve(priceId);
+                    ? stripeClient.prices().retrieve(priceId, retrieveParams)
+                    : Price.retrieve(priceId, retrieveParams, null);
             if (price != null) {
+                boolean nicknameResolved = false;
                 if (price.getUnitAmount() != null) amountCents = price.getUnitAmount();
                 if (StringUtils.hasText(price.getCurrency())) currency = price.getCurrency();
+                if (StringUtils.hasText(price.getNickname())) {
+                    name = price.getNickname();
+                    nicknameResolved = true;
+                }
                 if (price.getMetadata() != null) {
                     String t = price.getMetadata().get("tokens");
                     if (StringUtils.hasText(t)) {
-                        try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        try {
+                            tokens = Long.parseLong(t.trim());
+                            tokensResolved = true;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    String d = price.getMetadata().get("description");
+                    if (StringUtils.hasText(d)) {
+                        priceMetadataDescription = d;
                     }
                 }
                 if (price.getProductObject() != null) {
                     var prod = price.getProductObject();
-                    if (StringUtils.hasText(prod.getName())) name = prod.getName();
+                    if (!nicknameResolved && StringUtils.hasText(prod.getName())) name = prod.getName();
+                    if (StringUtils.hasText(prod.getDescription())) {
+                        description = prod.getDescription();
+                    }
                     if (prod.getMetadata() != null) {
                         String t = prod.getMetadata().get("tokens");
-                        if (StringUtils.hasText(t)) {
-                            try { tokens = Long.parseLong(t.trim()); } catch (NumberFormatException ignored) {}
+                        if (StringUtils.hasText(t) && !tokensResolved) {
+                            try {
+                                tokens = Long.parseLong(t.trim());
+                                tokensResolved = true;
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        if (!StringUtils.hasText(description) && !StringUtils.hasText(priceMetadataDescription)) {
+                            String d = prod.getMetadata().get("description");
+                            if (StringUtils.hasText(d)) description = d;
                         }
                     }
+                }
+
+                if (!StringUtils.hasText(description) && StringUtils.hasText(priceMetadataDescription)) {
+                    description = priceMetadataDescription;
                 }
             }
         } catch (Exception e) {
             log.info("Could not retrieve Stripe Price {} for fallback packs (using defaults): {}", priceId, e.getMessage());
         }
-        out.add(new PackDto(UUID.randomUUID(), name, tokens, amountCents, currency, priceId));
+        out.add(new PackDto(UUID.randomUUID(), name, description, tokens, amountCents, currency, priceId));
     }
 }
