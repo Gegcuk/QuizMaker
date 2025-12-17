@@ -13,7 +13,7 @@ public record ArticleSearchCriteria(
         @Schema(description = "Tags to filter by (case-insensitive match on tag name)", example = "[\"ai\", \"learning\"]")
         List<String> tags,
 
-        @Schema(description = "Content group identifier for analytics and sitemap grouping", example = "blog")
+        @Schema(description = "Content group identifier for analytics and sitemap grouping", defaultValue = "blog", example = "blog")
         String contentGroup
 ) {
 }

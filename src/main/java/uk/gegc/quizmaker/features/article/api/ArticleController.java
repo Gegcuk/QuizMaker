@@ -10,9 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -24,16 +22,13 @@ import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
-import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.ArrayList;
 
 @RestController
 @RequestMapping("/api/v1/articles")
@@ -64,12 +59,10 @@ public class ArticleController {
     public Page<ArticleListItemDto> searchArticles(
             @Parameter(description = "Filter by status") @RequestParam(required = false) ArticleStatus status,
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
-            @PageableDefault(size = 20) Pageable pageable,
-            HttpServletRequest request) {
+            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @PageableDefault(size = 20) Pageable pageable) {
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
-        Pageable safePageable = sanitizePageable(pageable, request);
-        return articleService.searchArticles(criteria, safePageable);
+        return articleService.searchArticles(criteria, pageable);
     }
 
     @Operation(summary = "Public search articles", description = "Public endpoint returning published articles")
@@ -80,13 +73,12 @@ public class ArticleController {
     @GetMapping("/public")
     public Page<ArticleListItemDto> searchPublicArticles(
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
             @PageableDefault(size = 20) Pageable pageable,
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
         ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, contentGroup);
-        Pageable safePageable = sanitizePageable(pageable, request);
-        return articleService.searchArticles(criteria, safePageable);
+        return articleService.searchArticles(criteria, pageable);
     }
 
     @Operation(summary = "Get article by ID")
@@ -285,136 +277,5 @@ public class ArticleController {
     public List<SitemapEntryDto> getSitemapEntries(
             @RequestParam(required = false) ArticleStatus status) {
         return articleService.getSitemapEntries(status);
-    }
-
-    private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of(
-            "publishedAt",
-            "updatedAt",
-            "createdAt",
-            "title",
-            "slug",
-            "status",
-            "revision"
-    );
-
-    private Pageable sanitizePageable(Pageable pageable, HttpServletRequest request) {
-        if (pageable == null) {
-            return null;
-        }
-
-        Sort sort = sanitizeSort(
-                pageable.getSort(),
-                request != null ? request.getParameterValues("sort") : null
-        );
-
-        if (pageable.isUnpaged()) {
-            return Pageable.unpaged(sort);
-        }
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sort);
-    }
-
-    private Sort sanitizeSort(Sort sort, String[] rawSortParams) {
-        if (rawSortParams != null && rawSortParams.length > 0) {
-            return sanitizeSortFromParams(rawSortParams);
-        }
-
-        if (sort == null || sort.isUnsorted()) {
-            return Sort.unsorted();
-        }
-
-        List<Sort.Order> sanitizedOrders = new ArrayList<>();
-        for (Sort.Order order : sort) {
-            if (order == null) {
-                continue;
-            }
-            String property = order.getProperty();
-            if (property == null || property.isBlank()) {
-                continue;
-            }
-
-            Sort.Direction direction = order.getDirection();
-            if (property.startsWith("-")) {
-                property = property.substring(1);
-                direction = Sort.Direction.DESC;
-            }
-
-            if (!ALLOWED_SORT_PROPERTIES.contains(property)) {
-                throw new ValidationException("Invalid sort property: " + property);
-            }
-
-            Sort.Order sanitized = new Sort.Order(direction, property);
-            if (order.isIgnoreCase()) {
-                sanitized = sanitized.ignoreCase();
-            }
-            sanitized = sanitized.with(order.getNullHandling());
-            sanitizedOrders.add(sanitized);
-        }
-
-        return sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
-    }
-
-    private Sort sanitizeSortFromParams(String[] rawSortParams) {
-        List<Sort.Order> sanitizedOrders = new ArrayList<>();
-        for (String rawSort : rawSortParams) {
-            if (rawSort == null || rawSort.isBlank()) {
-                continue;
-            }
-
-            String[] parts = rawSort.split(",");
-            String property = parts[0] != null ? parts[0].trim() : "";
-            if (property.isBlank()) {
-                continue;
-            }
-
-            boolean directionSpecified = false;
-            Sort.Direction direction = Sort.Direction.ASC;
-            boolean ignoreCase = false;
-            Sort.NullHandling nullHandling = Sort.NullHandling.NATIVE;
-
-            for (int i = 1; i < parts.length; i++) {
-                String token = parts[i] != null ? parts[i].trim() : "";
-                if (token.isBlank()) {
-                    continue;
-                }
-
-                if ("asc".equalsIgnoreCase(token) || "desc".equalsIgnoreCase(token)) {
-                    directionSpecified = true;
-                    direction = Sort.Direction.fromString(token);
-                    continue;
-                }
-                if ("ignorecase".equalsIgnoreCase(token)) {
-                    ignoreCase = true;
-                    continue;
-                }
-                if ("nullsfirst".equalsIgnoreCase(token)) {
-                    nullHandling = Sort.NullHandling.NULLS_FIRST;
-                    continue;
-                }
-                if ("nullslast".equalsIgnoreCase(token)) {
-                    nullHandling = Sort.NullHandling.NULLS_LAST;
-                }
-            }
-
-            if (property.startsWith("-")) {
-                property = property.substring(1);
-                if (!directionSpecified) {
-                    direction = Sort.Direction.DESC;
-                }
-            }
-            if (property.startsWith("+")) {
-                property = property.substring(1);
-            }
-
-            if (!ALLOWED_SORT_PROPERTIES.contains(property)) {
-                throw new ValidationException("Invalid sort property: " + property);
-            }
-
-            Sort.Order order = new Sort.Order(direction, property).with(nullHandling);
-            if (ignoreCase) {
-                order = order.ignoreCase();
-            }
-            sanitizedOrders.add(order);
-        }
-        return sanitizedOrders.isEmpty() ? Sort.unsorted() : Sort.by(sanitizedOrders);
     }
 }
