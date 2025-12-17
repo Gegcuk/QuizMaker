@@ -349,6 +349,7 @@ class CheckoutReadServiceImplTest {
             Price price = mock(Price.class);
             when(price.getUnitAmount()).thenReturn(1999L);
             when(price.getCurrency()).thenReturn("eur");
+            when(price.getNickname()).thenReturn("Custom Starter Nickname");
             Map<String, String> metadata = new HashMap<>();
             metadata.put("tokens", "2500");
             when(price.getMetadata()).thenReturn(metadata);
@@ -366,7 +367,7 @@ class CheckoutReadServiceImplTest {
 
             // Then
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).name()).isEqualTo("Custom Starter");
+            assertThat(result.get(0).name()).isEqualTo("Custom Starter Nickname");
             assertThat(result.get(0).description()).isEqualTo("Custom Starter description");
             assertThat(result.get(0).tokens()).isEqualTo(2500L);
             assertThat(result.get(0).priceCents()).isEqualTo(1999L);

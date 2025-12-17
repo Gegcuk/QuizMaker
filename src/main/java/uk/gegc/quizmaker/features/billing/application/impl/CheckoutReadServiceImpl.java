@@ -126,8 +126,13 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                     ? stripeClient.prices().retrieve(priceId, retrieveParams)
                     : Price.retrieve(priceId, retrieveParams, null);
             if (price != null) {
+                boolean nicknameResolved = false;
                 if (price.getUnitAmount() != null) amountCents = price.getUnitAmount();
                 if (StringUtils.hasText(price.getCurrency())) currency = price.getCurrency();
+                if (StringUtils.hasText(price.getNickname())) {
+                    name = price.getNickname();
+                    nicknameResolved = true;
+                }
                 if (price.getMetadata() != null) {
                     String t = price.getMetadata().get("tokens");
                     if (StringUtils.hasText(t)) {
@@ -143,7 +148,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                 }
                 if (price.getProductObject() != null) {
                     var prod = price.getProductObject();
-                    if (StringUtils.hasText(prod.getName())) name = prod.getName();
+                    if (!nicknameResolved && StringUtils.hasText(prod.getName())) name = prod.getName();
                     if (StringUtils.hasText(prod.getDescription())) {
                         description = prod.getDescription();
                     }
