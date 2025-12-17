@@ -352,12 +352,8 @@ class CheckoutReadServiceImplTest {
             when(price.getNickname()).thenReturn("Custom Starter Nickname");
             Map<String, String> metadata = new HashMap<>();
             metadata.put("tokens", "2500");
+            metadata.put("description", "Custom Starter description");
             when(price.getMetadata()).thenReturn(metadata);
-
-            Product product = mock(Product.class);
-            when(product.getName()).thenReturn("Custom Starter");
-            when(product.getDescription()).thenReturn("Custom Starter description");
-            when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
             when(priceService.retrieve(eq("price_123"), any(PriceRetrieveParams.class))).thenReturn(price);

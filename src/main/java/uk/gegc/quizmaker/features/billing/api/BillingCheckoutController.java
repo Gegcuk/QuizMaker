@@ -42,6 +42,7 @@ import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import org.springframework.http.HttpStatus;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -113,6 +114,33 @@ public class BillingCheckoutController {
         
         ConfigResponse config = checkoutReadService.getBillingConfig();
         return ResponseEntity.ok(config);
+    }
+
+    @Operation(
+            summary = "Get available token packs",
+            description = "Returns active token packs, optionally filtered by currency"
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Packs retrieved",
+                    content = @Content(
+                            mediaType = "application/json",
+                            array = @io.swagger.v3.oas.annotations.media.ArraySchema(schema = @Schema(implementation = PackDto.class))
+                    )
+            ),
+            @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @GetMapping("/packs")
+    public ResponseEntity<List<PackDto>> getPacks(
+            @Parameter(description = "Optional currency filter (e.g., usd, gbp)")
+            @RequestParam(required = false) String currency
+    ) {
+        if (!featureFlags.isBilling()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        return ResponseEntity.ok(checkoutReadService.getAvailablePacks(currency));
     }
 
     @Operation(

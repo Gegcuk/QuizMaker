@@ -60,7 +60,6 @@ public class StripePackSyncServiceImpl implements StripePackSyncService {
             }
 
             Set<String> seenPriceIds = new HashSet<>();
-            String desiredCurrency = billingProperties.getCurrency();
 
             for (Price price : stripePrices) {
                 String priceId = price.getId();
@@ -74,18 +73,9 @@ public class StripePackSyncServiceImpl implements StripePackSyncService {
                 }
 
                 String currency = price.getCurrency();
-                if (StringUtils.hasText(desiredCurrency) && StringUtils.hasText(currency)) {
-                    if (!currency.equalsIgnoreCase(desiredCurrency)) {
-                        continue;
-                    }
-                }
-
                 String name = resolveName(price);
                 String description = resolveDescription(price);
                 long amountCents = price.getUnitAmount() != null ? price.getUnitAmount() : 0L;
-                if (!StringUtils.hasText(currency)) {
-                    currency = desiredCurrency;
-                }
                 if (!StringUtils.hasText(currency)) {
                     currency = "usd";
                 }
