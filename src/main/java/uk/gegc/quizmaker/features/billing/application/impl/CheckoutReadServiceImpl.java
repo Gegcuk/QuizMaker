@@ -112,6 +112,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
         if (!StringUtils.hasText(priceId)) return;
         String name = defaultName;
         String description = null;
+        String priceMetadataDescription = null;
         long tokens = defaultTokens;
         long amountCents = 0L;
         String currency = "usd";
@@ -137,7 +138,7 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                     }
                     String d = price.getMetadata().get("description");
                     if (StringUtils.hasText(d)) {
-                        description = d;
+                        priceMetadataDescription = d;
                     }
                 }
                 if (price.getProductObject() != null) {
@@ -154,11 +155,15 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
                                 tokensResolved = true;
                             } catch (NumberFormatException ignored) {}
                         }
-                        if (!StringUtils.hasText(description)) {
+                        if (!StringUtils.hasText(description) && !StringUtils.hasText(priceMetadataDescription)) {
                             String d = prod.getMetadata().get("description");
                             if (StringUtils.hasText(d)) description = d;
                         }
                     }
+                }
+
+                if (!StringUtils.hasText(description) && StringUtils.hasText(priceMetadataDescription)) {
+                    description = priceMetadataDescription;
                 }
             }
         } catch (Exception e) {

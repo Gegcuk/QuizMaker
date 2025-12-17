@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.billing.application.impl;
 import com.stripe.StripeClient;
 import com.stripe.model.Price;
 import com.stripe.model.Product;
+import com.stripe.param.PriceRetrieveParams;
 import com.stripe.service.PriceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -358,7 +359,7 @@ class CheckoutReadServiceImplTest {
             when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_123")).thenReturn(price);
+            when(priceService.retrieve(eq("price_123"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -395,7 +396,7 @@ class CheckoutReadServiceImplTest {
             when(price.getProductObject()).thenReturn(product);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_456")).thenReturn(price);
+            when(priceService.retrieve(eq("price_456"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -417,7 +418,7 @@ class CheckoutReadServiceImplTest {
             when(stripeProperties.getPriceLarge()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_error"))
+            when(priceService.retrieve(eq("price_error"), any(PriceRetrieveParams.class)))
                     .thenThrow(new RuntimeException("Stripe API error"));
 
             // When
@@ -450,7 +451,7 @@ class CheckoutReadServiceImplTest {
             when(price.getProductObject()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_789")).thenReturn(price);
+            when(priceService.retrieve(eq("price_789"), any(PriceRetrieveParams.class))).thenReturn(price);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
@@ -470,7 +471,7 @@ class CheckoutReadServiceImplTest {
             when(stripeProperties.getPriceLarge()).thenReturn(null);
 
             when(stripeClient.prices()).thenReturn(priceService);
-            when(priceService.retrieve("price_null")).thenReturn(null);
+            when(priceService.retrieve(eq("price_null"), any(PriceRetrieveParams.class))).thenReturn(null);
 
             // When
             List<PackDto> result = checkoutReadService.getAvailablePacks();
