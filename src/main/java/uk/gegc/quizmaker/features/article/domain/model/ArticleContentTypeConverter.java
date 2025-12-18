@@ -13,7 +13,12 @@ public class ArticleContentTypeConverter implements AttributeConverter<ArticleCo
 
     @Override
     public ArticleContentType convertToEntityAttribute(String dbData) {
-        ArticleContentType resolved = ArticleContentType.fromValue(dbData);
-        return resolved != null ? resolved : ArticleContentType.BLOG;
+        try {
+            ArticleContentType resolved = ArticleContentType.fromValue(dbData);
+            return resolved != null ? resolved : ArticleContentType.BLOG;
+        } catch (IllegalArgumentException ex) {
+            // Fallback to a safe default when persisted data is corrupted or unexpected
+            return ArticleContentType.BLOG;
+        }
     }
 }
