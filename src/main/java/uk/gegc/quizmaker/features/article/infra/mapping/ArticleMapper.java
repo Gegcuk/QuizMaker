@@ -57,7 +57,7 @@ public class ArticleMapper {
         target.setCanonicalUrl(request.canonicalUrl());
         target.setOgImage(request.ogImage());
         target.setNoindex(request.noindex() != null ? request.noindex() : Boolean.FALSE);
-        target.setContentGroup(request.contentGroup() != null ? request.contentGroup() : "blog");
+        target.setContentGroup(request.contentGroup() != null ? request.contentGroup() : ArticleContentType.BLOG);
         target.setAuthor(toAuthorEntity(request.author()));
         target.setPrimaryCta(toCtaEntity(request.primaryCta(), "Learn more", "/"));
         target.setSecondaryCta(toCtaEntity(request.secondaryCta(), "Explore", "/"));

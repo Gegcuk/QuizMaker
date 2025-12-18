@@ -11,6 +11,7 @@ import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.article.api.dto.ArticleSearchCriteria;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleAuthor;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleCallToAction;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
@@ -42,7 +43,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
         Article article = createArticleWithTag("spec-article", "learning");
         articleRepository.save(article);
 
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, java.util.Arrays.asList((String) null), "blog");
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, java.util.Arrays.asList((String) null), ArticleContentType.BLOG);
 
         var page = articleRepository.findAll(ArticleSpecifications.build(criteria), PageRequest.of(0, 10));
 
@@ -51,20 +52,20 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("Specifications filter by status and contentGroup case-insensitively")
+    @DisplayName("Specifications filter by status and contentGroup")
     void specificationsFilterStatusAndContentGroup() {
-        Article published = createArticleWithTag("spec-status", "focus");
-        published.setContentGroup("blog");
-        published.setStatus(ArticleStatus.PUBLISHED);
-        Article draft = createArticleWithTag("spec-draft", "focus");
-        draft.setContentGroup("BLOG");
-        draft.setStatus(ArticleStatus.DRAFT);
+        Article blogArticle = createArticleWithTag("spec-status", "focus");
+        blogArticle.setContentGroup(ArticleContentType.BLOG);
+        blogArticle.setStatus(ArticleStatus.PUBLISHED);
+        Article researchArticle = createArticleWithTag("spec-draft", "focus");
+        researchArticle.setContentGroup(ArticleContentType.RESEARCH);
+        researchArticle.setStatus(ArticleStatus.PUBLISHED);
         Tag focusTag = tag("focus");
-        published.setTags(Set.of(focusTag));
-        draft.setTags(Set.of(focusTag));
-        articleRepository.saveAll(List.of(published, draft));
+        blogArticle.setTags(Set.of(focusTag));
+        researchArticle.setTags(Set.of(focusTag));
+        articleRepository.saveAll(List.of(blogArticle, researchArticle));
 
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "BLOG");
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), ArticleContentType.BLOG);
         Page<Article> page = articleRepository.findAll(ArticleSpecifications.build(criteria), PageRequest.of(0, 10));
 
         assertThat(page.getTotalElements()).isEqualTo(1);
@@ -83,7 +84,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
         second.setTags(Set.of(shared));
         articleRepository.saveAll(List.of(first, second));
 
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of("shared"), "blog");
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of("shared"), ArticleContentType.BLOG);
         Page<Article> page = articleRepository.findAll(ArticleSpecifications.build(criteria), PageRequest.of(0, 10));
 
         assertThat(page.getTotalElements()).isEqualTo(2);
@@ -169,7 +170,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
         stats.clear();
 
         Page<Article> page = articleRepository.findAll(
-                ArticleSpecifications.build(new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog")),
+                ArticleSpecifications.build(new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), ArticleContentType.BLOG)),
                 PageRequest.of(0, 10)
         );
         long afterQuery = stats.getPrepareStatementCount();
@@ -198,7 +199,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
         article.setCanonicalUrl("https://example.com/" + slug);
         article.setOgImage("https://example.com/og.png");
         article.setNoindex(false);
-        article.setContentGroup("blog");
+        article.setContentGroup(ArticleContentType.BLOG);
         article.setAuthor(new ArticleAuthor("Author", "Author"));
         article.setPrimaryCta(new ArticleCallToAction("Learn", "/", null));
         article.setSecondaryCta(new ArticleCallToAction("Explore", "/explore", null));

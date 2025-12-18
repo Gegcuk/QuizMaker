@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
@@ -350,7 +351,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
         private String canonicalUrl = "https://example.com/" + UUID.randomUUID();
         private String ogImage = "https://example.com/og.png";
         private Boolean noindex = false;
-        private String contentGroup = "blog";
+        private ArticleContentType contentGroup = ArticleContentType.BLOG;
         private ArticleCallToActionDto primaryCta = new ArticleCallToActionDto("Learn", "/", null);
         private ArticleCallToActionDto secondaryCta = new ArticleCallToActionDto("Explore", "/explore", null);
         private List<ArticleStatDto> stats = List.of(new ArticleStatDto("Stat", "Val", "Detail", null));

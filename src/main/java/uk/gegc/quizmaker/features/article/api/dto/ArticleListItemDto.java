@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.article.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 
 import java.time.Instant;
@@ -46,7 +47,7 @@ public record ArticleListItemDto(
         ArticleStatus status,
 
         @Schema(description = "Content grouping for analytics", example = "blog")
-        String contentGroup,
+        ArticleContentType contentGroup,
 
         @Schema(description = "Canonical URL if provided", example = "https://www.quizzence.com/blog/retrieval-practice-template")
         String canonicalUrl,

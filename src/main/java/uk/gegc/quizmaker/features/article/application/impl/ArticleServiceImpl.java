@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleSpecifications;
@@ -39,7 +40,7 @@ public class ArticleServiceImpl implements ArticleService {
     @Override
     @Transactional(readOnly = true)
     public Page<ArticleListItemDto> searchArticles(ArticleSearchCriteria criteria, Pageable pageable) {
-        ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog");
+        ArticleSearchCriteria effectiveCriteria = criteria != null ? criteria : new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), ArticleContentType.BLOG);
         if (effectiveCriteria.status() == null) {
             effectiveCriteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, effectiveCriteria.tags(), effectiveCriteria.contentGroup());
         }

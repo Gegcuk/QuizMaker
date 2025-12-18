@@ -75,8 +75,9 @@ public class Article {
     @Column(name = "noindex", nullable = false)
     private Boolean noindex;
 
+    @Convert(converter = ArticleContentTypeConverter.class)
     @Column(name = "content_group", nullable = false, length = 100)
-    private String contentGroup;
+    private ArticleContentType contentGroup;
 
     @Embedded
     @NotNull
@@ -143,8 +144,8 @@ public class Article {
         if (status == null) {
             status = ArticleStatus.DRAFT;
         }
-        if (contentGroup == null || contentGroup.isBlank()) {
-            contentGroup = "blog";
+        if (contentGroup == null) {
+            contentGroup = ArticleContentType.BLOG;
         }
         if (noindex == null) {
             noindex = false;

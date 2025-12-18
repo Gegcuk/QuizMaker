@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.article.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 
 import java.time.Instant;
@@ -55,7 +56,7 @@ public record ArticleDto(
         Boolean noindex,
 
         @Schema(description = "Content grouping for analytics", defaultValue = "blog", example = "blog")
-        String contentGroup,
+        ArticleContentType contentGroup,
 
         @Schema(description = "Primary CTA block", requiredMode = Schema.RequiredMode.REQUIRED)
         ArticleCallToActionDto primaryCta,

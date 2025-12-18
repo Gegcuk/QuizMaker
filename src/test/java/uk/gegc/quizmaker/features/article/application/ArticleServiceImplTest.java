@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
@@ -66,7 +67,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         entity.setStatus(ArticleStatus.PUBLISHED);
         dto = new ArticleDto(entity.getId(), "slug-one", "Title", "Desc", "Ex", null,
                 List.of("Tag1"), new ArticleAuthorDto("A", "B"), "5", Instant.now(), Instant.now(),
-                ArticleStatus.PUBLISHED, null, null, false, "blog",
+                ArticleStatus.PUBLISHED, null, null, false, ArticleContentType.BLOG,
                 new ArticleCallToActionDto("p", "/", null), new ArticleCallToActionDto("s", "/s", null),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1);
     }
@@ -304,9 +305,9 @@ class ArticleServiceImplTest extends BaseUnitTest {
         when(articleMapper.toListItem(article)).thenReturn(new ArticleListItemDto(
                 UUID.randomUUID(), "slug", "title", "desc", "ex", null, List.of(),
                 new ArticleAuthorDto("a", "b"), "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED,
-                "blog", null, null, false, null, null, 1));
+                ArticleContentType.BLOG, null, null, false, null, null, 1));
 
-        Page<ArticleListItemDto> result = service.searchArticles(new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), "blog"), PageRequest.of(0, 10));
+        Page<ArticleListItemDto> result = service.searchArticles(new ArticleSearchCriteria(ArticleStatus.PUBLISHED, List.of(), ArticleContentType.BLOG), PageRequest.of(0, 10));
         assertThat(result.getTotalElements()).isEqualTo(1);
     }
 
@@ -403,7 +404,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
                 .thenReturn(page);
         when(articleMapper.toListItem(any())).thenReturn(new ArticleListItemDto(
                 entity.getId(), "slug", "t", "d", "e", null, List.of(), new ArticleAuthorDto("a", "b"),
-                "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED, "blog", null, null, false, null, null, 1));
+                "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED, ArticleContentType.BLOG, null, null, false, null, null, 1));
 
         Page<ArticleListItemDto> result = service.searchArticles(null, PageRequest.of(0, 5));
         assertThat(result.getTotalElements()).isEqualTo(1);
@@ -468,7 +469,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
                     "https://example.com",
                     "https://example.com/og.png",
                     false,
-                    "blog",
+                    ArticleContentType.BLOG,
                     new ArticleCallToActionDto("p", "/", null),
                     new ArticleCallToActionDto("s", "/s", null),
                     List.of(new ArticleStatDto("S", "V", null, null)),
