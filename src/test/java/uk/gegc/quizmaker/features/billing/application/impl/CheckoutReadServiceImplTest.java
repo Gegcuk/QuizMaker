@@ -479,6 +479,42 @@ class CheckoutReadServiceImplTest {
             assertThat(result.get(0).tokens()).isEqualTo(1000L);
             assertThat(result.get(0).priceCents()).isEqualTo(0L);
         }
+
+        @Test
+        @DisplayName("should prefer product description over price metadata description when both exist")
+        void fallbackPack_prefersProductDescription_overPriceMetadata() throws Exception {
+            // Given
+            when(productPackRepository.findByActiveTrue()).thenReturn(Collections.emptyList());
+            when(stripeProperties.getPriceSmall()).thenReturn("price_desc");
+            when(stripeProperties.getPriceMedium()).thenReturn(null);
+            when(stripeProperties.getPriceLarge()).thenReturn(null);
+
+            Price price = mock(Price.class);
+            when(price.getUnitAmount()).thenReturn(1599L);
+            when(price.getCurrency()).thenReturn("usd");
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("tokens", "1200");
+            metadata.put("description", "price metadata description");
+            when(price.getMetadata()).thenReturn(metadata);
+
+            Product product = mock(Product.class);
+            when(product.getName()).thenReturn("Product Pack");
+            when(product.getDescription()).thenReturn("product description takes priority");
+            when(product.getMetadata()).thenReturn(Collections.emptyMap());
+            when(price.getProductObject()).thenReturn(product);
+
+            when(stripeClient.prices()).thenReturn(priceService);
+            when(priceService.retrieve(eq("price_desc"), any(PriceRetrieveParams.class))).thenReturn(price);
+
+            // When
+            List<PackDto> result = checkoutReadService.getAvailablePacks();
+
+            // Then
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).description()).isEqualTo("product description takes priority");
+            assertThat(result.get(0).tokens()).isEqualTo(1200L);
+            assertThat(result.get(0).priceCents()).isEqualTo(1599L);
+        }
     }
 
     // Helper method to create ProductPack
