@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.PackDto;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.mapping.PaymentMapper;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
@@ -68,31 +69,54 @@ public class CheckoutReadServiceImpl implements CheckoutReadService {
         }
         
         // Get available product packs
-        List<PackDto> packs = getAvailablePacks();
+        List<PackDto> packs = getAvailablePacks(null);
         
         return new ConfigResponse(publishableKey, packs);
     }
 
     @Override
     public List<PackDto> getAvailablePacks() {
-        var packs = productPackRepository.findByActiveTrue().stream()
-                .map(pack -> new PackDto(
-                        pack.getId(),
-                        pack.getName(),
-                        pack.getDescription(),
-                        pack.getTokens(),
-                        pack.getPriceCents(),
-                        pack.getCurrency(),
-                        pack.getStripePriceId()
-                ))
+        return getAvailablePacks(null);
+    }
+
+    @Override
+    public List<PackDto> getAvailablePacks(String currency) {
+        List<ProductPack> activePacks;
+        if (StringUtils.hasText(currency)) {
+            activePacks = productPackRepository.findByActiveTrueAndCurrencyIgnoreCase(currency);
+        } else {
+            activePacks = productPackRepository.findByActiveTrue();
+        }
+
+        var packs = activePacks.stream()
+                .map(this::toDto)
                 .toList();
 
         if (!packs.isEmpty()) {
             return packs;
         }
 
-        log.warn("No ProductPacks found in DB; falling back to configured Stripe price IDs for /config response");
-        return buildFallbackPacksFromStripe();
+        log.warn("No ProductPacks found in DB{}; falling back to configured Stripe price IDs for /config response",
+                StringUtils.hasText(currency) ? " for currency " + currency : "");
+        var fallback = buildFallbackPacksFromStripe();
+        if (StringUtils.hasText(currency)) {
+            return fallback.stream()
+                    .filter(p -> StringUtils.hasText(p.currency()) && p.currency().equalsIgnoreCase(currency))
+                    .toList();
+        }
+        return fallback;
+    }
+
+    private PackDto toDto(ProductPack pack) {
+        return new PackDto(
+                pack.getId(),
+                pack.getName(),
+                pack.getDescription(),
+                pack.getTokens(),
+                pack.getPriceCents(),
+                pack.getCurrency(),
+                pack.getStripePriceId()
+        );
     }
 
     private List<PackDto> buildFallbackPacksFromStripe() {

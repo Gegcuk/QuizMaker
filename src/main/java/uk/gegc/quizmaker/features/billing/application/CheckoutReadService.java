@@ -35,4 +35,12 @@ public interface CheckoutReadService {
      * @return list of available product packs
      */
     List<PackDto> getAvailablePacks();
+
+    /**
+     * Get available product packs filtered by currency if provided.
+     *
+     * @param currency optional currency code to filter by
+     * @return list of available product packs
+     */
+    List<PackDto> getAvailablePacks(String currency);
 }

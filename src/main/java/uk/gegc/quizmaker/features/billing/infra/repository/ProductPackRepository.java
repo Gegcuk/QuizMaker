@@ -11,4 +11,6 @@ public interface ProductPackRepository extends JpaRepository<ProductPack, UUID> 
     Optional<ProductPack> findByStripePriceId(String stripePriceId);
 
     List<ProductPack> findByActiveTrue();
+
+    List<ProductPack> findByActiveTrueAndCurrencyIgnoreCase(String currency);
 }
