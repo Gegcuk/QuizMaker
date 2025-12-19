@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.article.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 
 import java.util.List;
@@ -14,6 +15,6 @@ public record ArticleSearchCriteria(
         List<String> tags,
 
         @Schema(description = "Content group identifier for analytics and sitemap grouping", defaultValue = "blog", example = "blog")
-        String contentGroup
+        ArticleContentType contentGroup
 ) {
 }

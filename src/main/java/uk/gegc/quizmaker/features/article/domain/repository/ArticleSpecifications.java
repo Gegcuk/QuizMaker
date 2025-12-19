@@ -32,9 +32,8 @@ public final class ArticleSpecifications {
                 predicates.add(cb.equal(root.get("status"), criteria.status()));
             }
 
-            if (criteria.contentGroup() != null && !criteria.contentGroup().isBlank()) {
-                predicates.add(cb.equal(cb.lower(root.get("contentGroup")),
-                        criteria.contentGroup().toLowerCase(Locale.ROOT)));
+            if (criteria.contentGroup() != null) {
+                predicates.add(cb.equal(root.get("contentGroup"), criteria.contentGroup()));
             }
 
             if (criteria.tags() != null && !criteria.tags().isEmpty()) {

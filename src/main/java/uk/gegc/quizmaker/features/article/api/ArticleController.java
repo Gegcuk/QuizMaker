@@ -20,8 +20,10 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
@@ -61,7 +63,7 @@ public class ArticleController {
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
             @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
             @PageableDefault(size = 20) Pageable pageable) {
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, contentGroup);
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, resolveContentTypeOrDefault(contentGroup));
         return articleService.searchArticles(criteria, pageable);
     }
 
@@ -77,7 +79,7 @@ public class ArticleController {
             @PageableDefault(size = 20) Pageable pageable,
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, contentGroup);
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, resolveContentTypeOrDefault(contentGroup));
         return articleService.searchArticles(criteria, pageable);
     }
 
@@ -277,5 +279,15 @@ public class ArticleController {
     public List<SitemapEntryDto> getSitemapEntries(
             @RequestParam(required = false) ArticleStatus status) {
         return articleService.getSitemapEntries(status);
+    }
+
+    private ArticleContentType resolveContentTypeOrDefault(String rawContentType) {
+        ArticleContentType resolved;
+        try {
+            resolved = ArticleContentType.fromValue(rawContentType);
+        } catch (IllegalArgumentException ex) {
+            throw new ValidationException(ex.getMessage());
+        }
+        return resolved != null ? resolved : ArticleContentType.BLOG;
     }
 }

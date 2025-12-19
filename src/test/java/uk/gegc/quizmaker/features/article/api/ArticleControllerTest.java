@@ -15,6 +15,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -84,7 +85,7 @@ class ArticleControllerTest {
                 null,
                 null,
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 cta,
                 cta,
                 List.of(),
@@ -132,7 +133,7 @@ class ArticleControllerTest {
                 null,
                 null,
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 cta,
                 cta,
                 List.of(),

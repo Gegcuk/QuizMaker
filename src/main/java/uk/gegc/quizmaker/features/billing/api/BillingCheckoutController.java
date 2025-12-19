@@ -28,6 +28,9 @@ import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.domain.model.Payment;
+import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import com.stripe.model.StripeObject;
@@ -36,10 +39,12 @@ import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
+import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import org.springframework.http.HttpStatus;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -61,6 +66,7 @@ public class BillingCheckoutController {
     private final RateLimitService rateLimitService;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final ProductPackRepository productPackRepository;
     private final BillingProperties billingProperties;
     private final FeatureFlags featureFlags;
 
@@ -312,6 +318,9 @@ public class BillingCheckoutController {
             request.priceId(), 
             request.packId()
         );
+
+        // Seed a pending payment record so /checkout-sessions/{id} resolves immediately after redirect
+        seedPendingPayment(currentUserId, session.sessionId(), request.priceId(), request.packId());
         
         log.info("Checkout session created successfully: {} for user: {}", session.sessionId(), currentUserId);
         
@@ -548,5 +557,67 @@ public class BillingCheckoutController {
                 .orElseThrow(() -> new IllegalStateException("User not found for subscription creation"));
         var created = stripeService.createCustomer(userId, user.getEmail());
         return created.id();
+    }
+
+    private void seedPendingPayment(UUID userId, String sessionId, String priceId, UUID packId) {
+        // Avoid duplicate seed if it somehow exists (e.g., retrying create with same session)
+        if (paymentRepository.findByStripeSessionId(sessionId).isPresent()) {
+            log.info("Payment already exists for session {}, skipping pending seed", sessionId);
+            return;
+        }
+
+        long amountCents = 0L;
+        long tokens = 0L;
+        String currency = "usd"; // safe default; will be overwritten by webhook upsert
+
+        var pack = resolvePack(packId, priceId).orElse(null);
+        if (pack != null) {
+            amountCents = pack.getPriceCents();
+            tokens = pack.getTokens();
+            if (StringUtils.hasText(pack.getCurrency())) {
+                currency = pack.getCurrency();
+            }
+        }
+
+        Payment payment = new Payment();
+        payment.setUserId(userId);
+        payment.setStatus(PaymentStatus.PENDING);
+        payment.setStripeSessionId(sessionId);
+        payment.setPackId(packId);
+        payment.setAmountCents(amountCents);
+        payment.setCurrency(currency);
+        payment.setCreditedTokens(tokens);
+        payment.setRefundedAmountCents(0L);
+        payment.setSessionMetadata(buildPendingMetadata(priceId, packId));
+
+        paymentRepository.save(payment);
+        log.info("Seeded pending payment for session {} user {} (amountCents={} currency={} tokens={})",
+                sessionId, userId, amountCents, currency, tokens);
+    }
+
+    private java.util.Optional<ProductPack> resolvePack(UUID packId, String priceId) {
+        if (packId != null) {
+            var byId = productPackRepository.findById(packId);
+            if (byId.isPresent()) return byId;
+        }
+        if (StringUtils.hasText(priceId)) {
+            return productPackRepository.findByStripePriceId(priceId);
+        }
+        return java.util.Optional.empty();
+    }
+
+    private String buildPendingMetadata(String priceId, UUID packId) {
+        try {
+            java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+            meta.put("priceId", priceId);
+            if (packId != null) {
+                meta.put("packId", packId.toString());
+            }
+            meta.put("status", "PENDING");
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(meta);
+        } catch (Exception e) {
+            log.debug("Failed to build pending payment metadata: {}", e.getMessage());
+            return null;
+        }
     }
 }

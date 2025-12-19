@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
@@ -46,7 +47,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
                 List.of(),
@@ -79,7 +80,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
                 Arrays.asList(
@@ -139,7 +140,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 new ArticleCallToActionDto("", "", null),
                 null,
                 List.of(),
@@ -164,7 +165,7 @@ class ArticleMapperTest {
         Article target = new Article();
         target.setStatus(null);
         target.setNoindex(true);
-        target.setContentGroup("other");
+        target.setContentGroup(ArticleContentType.RESEARCH);
 
         ArticleUpsertRequest request = new ArticleUpsertRequest(
                 "slug",
@@ -195,7 +196,7 @@ class ArticleMapperTest {
 
         assertThat(target.getStatus()).isEqualTo(ArticleStatus.DRAFT);
         assertThat(target.getNoindex()).isFalse();
-        assertThat(target.getContentGroup()).isEqualTo("blog");
+        assertThat(target.getContentGroup()).isEqualTo(ArticleContentType.BLOG);
     }
 
     @Test
@@ -216,7 +217,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
                 List.of(new ArticleStatDto(null, "val", null, null)),
@@ -256,7 +257,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
                 List.of(),
@@ -291,7 +292,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 null,
                 null,
                 List.<ArticleStatDto>of(),
@@ -325,7 +326,7 @@ class ArticleMapperTest {
                 "https://example.com",
                 "https://example.com/og",
                 false,
-                "blog",
+                ArticleContentType.BLOG,
                 null,
                 null,
                 List.<ArticleStatDto>of(),
@@ -351,7 +352,7 @@ class ArticleMapperTest {
         article.setDescription("desc");
         article.setExcerpt("ex");
         article.setStatus(ArticleStatus.PUBLISHED);
-        article.setContentGroup("blog");
+        article.setContentGroup(ArticleContentType.BLOG);
 
         ArticleDto dto = mapper.toDto(article);
 
