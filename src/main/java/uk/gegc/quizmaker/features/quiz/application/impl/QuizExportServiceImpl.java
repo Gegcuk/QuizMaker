@@ -9,9 +9,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
 import uk.gegc.quizmaker.features.quiz.application.export.ExportRenderer;
-import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
-import uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions;
-import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportPayload;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizExportSpecifications;
@@ -68,7 +66,7 @@ public class QuizExportServiceImpl implements QuizExportService {
         String filenamePrefix = buildFilenamePrefix(filter, clock);
         ExportPayload payload = new ExportPayload(
                 exportDtos, 
-                printOptions != null ? printOptions : uk.gegc.quizmaker.features.quiz.domain.model.PrintOptions.defaults(), 
+                printOptions != null ? printOptions : PrintOptions.defaults(),
                 filenamePrefix,
                 exportId,
                 versionCode,
@@ -180,8 +178,8 @@ public class QuizExportServiceImpl implements QuizExportService {
         switch (scope) {
             case "public" -> {
                 // Public scope: only visible and published quizzes
-                return quiz.getVisibility() == uk.gegc.quizmaker.features.quiz.domain.model.Visibility.PUBLIC
-                        && quiz.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus.PUBLISHED;
+                return quiz.getVisibility() == Visibility.PUBLIC
+                        && quiz.getStatus() == QuizStatus.PUBLISHED;
             }
             case "me" -> {
                 // Me scope: user's own quizzes (any visibility/status)

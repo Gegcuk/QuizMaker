@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.application.export.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.application.export.AnswerKeyBuilder;
 import uk.gegc.quizmaker.features.quiz.application.export.ExportRenderer;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
@@ -643,7 +644,7 @@ public class HtmlPrintExportRenderer implements ExportRenderer {
      * Otherwise, use the generic questionText.
      */
     private String getDisplayText(QuestionExportDto question) {
-        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP 
+        if (question.type() == QuestionType.FILL_GAP
             && question.content() != null 
             && question.content().has("text") 
             && !question.content().get("text").asText().isBlank()) {

@@ -5,6 +5,8 @@ import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import uk.gegc.quizmaker.features.billing.domain.model.TokenTransaction;
+import uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType;
 
 import java.util.List;
 import java.util.UUID;
@@ -134,7 +136,7 @@ public class LedgerInvariantExtension implements BeforeEachCallback, AfterEachCa
      */
     private void validateI4_Idempotency(UUID reservationId) {
         // Get all transactions for this reservation
-        List<uk.gegc.quizmaker.features.billing.domain.model.TokenTransaction> transactions = 
+        List<TokenTransaction> transactions =
             ledgerView.getTransactionsByReservationId(reservationId);
         
         // Group by idempotency key and operation type
@@ -146,8 +148,7 @@ public class LedgerInvariantExtension implements BeforeEachCallback, AfterEachCa
             .forEach((key, txList) -> {
                 String[] parts = key.split(":");
                 String idempotencyKey = parts[0];
-                uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType operationType = 
-                    uk.gegc.quizmaker.features.billing.domain.model.TokenTransactionType.valueOf(parts[1]);
+                TokenTransactionType operationType = TokenTransactionType.valueOf(parts[1]);
                 
                 LedgerAsserts.assertI4_Idempotent(idempotencyKey, operationType, txList);
             });

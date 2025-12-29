@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
@@ -398,7 +399,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         builder.questionText(questionNode.get("questionText").asText());
         QuestionType type = QuestionType.valueOf(questionNode.get("type").asText());
         builder.type(type);
-        builder.difficulty(uk.gegc.quizmaker.features.question.domain.model.Difficulty.valueOf(
+        builder.difficulty(Difficulty.valueOf(
                 questionNode.get("difficulty").asText()));
         
         // Content must be serialized as JSON string for storage

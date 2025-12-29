@@ -7,16 +7,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.features.article.api.dto.SitemapEntryDto;
-import uk.gegc.quizmaker.features.article.application.ArticleService;
-
-import java.time.Instant;
-import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -24,7 +17,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(SitemapController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@TestPropertySource(properties = "app.frontend.base-url=http://localhost:3000")
 @DisplayName("SitemapController")
 class SitemapControllerTest {
 
@@ -32,13 +24,19 @@ class SitemapControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ArticleService articleService;
+    private SitemapService sitemapService;
 
     @Test
     @DisplayName("GET /sitemap.xml returns XML sitemap")
     void sitemapXml_returnsUrlset() throws Exception {
-        SitemapEntryDto entry = new SitemapEntryDto("/blog/sample-slug", Instant.parse("2025-01-01T00:00:00Z"), "weekly", 0.8);
-        when(articleService.getSitemapEntries(any())).thenReturn(List.of(entry));
+        when(sitemapService.getSitemapXml()).thenReturn("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                  <url>
+                    <loc>http://localhost:3000/blog/sample-slug</loc>
+                  </url>
+                </urlset>
+                """);
 
         mockMvc.perform(get("/sitemap.xml"))
                 .andExpect(status().isOk())
@@ -50,7 +48,11 @@ class SitemapControllerTest {
     @Test
     @DisplayName("GET /sitemap_articles.xml returns article sitemap")
     void sitemapArticlesXml_returnsUrlset() throws Exception {
-        when(articleService.getSitemapEntries(any())).thenReturn(List.of());
+        when(sitemapService.getArticleSitemapXml()).thenReturn("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                </urlset>
+                """);
 
         mockMvc.perform(get("/sitemap_articles.xml"))
                 .andExpect(status().isOk())
@@ -61,7 +63,7 @@ class SitemapControllerTest {
     @Test
     @DisplayName("GET /robots.txt returns robots content")
     void robotsTxt_returnsContent() throws Exception {
-        when(articleService.getSitemapEntries(any())).thenReturn(List.of());
+        when(sitemapService.getRobotsTxt()).thenReturn("User-agent: *\nSitemap: http://localhost:3000/sitemap.xml\n");
 
         mockMvc.perform(get("/robots.txt"))
                 .andExpect(status().isOk())
