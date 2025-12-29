@@ -100,6 +100,7 @@ public class SecurityConfig {
                         // Question schemas - allow public access for documentation
                         .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/sitemap.xml", "/sitemap_articles.xml", "/robots.txt").permitAll()
                         // Question endpoints - require authentication for general access
                         .requestMatchers("/api/v1/questions/**").authenticated()
                         // API Documentation - allow public access
