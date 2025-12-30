@@ -84,6 +84,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi seoGroup() {
+        return GroupedOpenApi.builder()
+                .group("seo")
+                .displayName("SEO & Sitemaps")
+                .pathsToMatch("/sitemap.xml", "/sitemap_articles.xml", "/robots.txt")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi aiGroup() {
         return GroupedOpenApi.builder()
                 .group("ai")

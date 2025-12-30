@@ -157,7 +157,7 @@ class ApiDocumentationTest {
         assertThat(json.get("fullSpecUrl").asText()).isEqualTo("/v3/api-docs");
         assertThat(json.get("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
         assertThat(json.get("groups").isArray()).isTrue();
-        assertThat(json.get("groups").size()).isEqualTo(9);
+        assertThat(json.get("groups").size()).isEqualTo(10);
     }
 
     @Test
@@ -190,6 +190,7 @@ class ApiDocumentationTest {
                 .contains("\"group\":\"documents\"")
                 .contains("\"group\":\"billing\"")
                 .contains("\"group\":\"articles\"")
+                .contains("\"group\":\"seo\"")
                 .contains("\"group\":\"ai\"")
                 .contains("\"group\":\"admin\"");
     }
