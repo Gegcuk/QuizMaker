@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS media_assets (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (asset_id),
-    UNIQUE KEY uk_media_object_key (object_key),
+    UNIQUE KEY uk_media_object_key (object_key(255)),
     KEY idx_media_status_type (status, type),
     KEY idx_media_article_id (article_id)
 ) ENGINE=InnoDB;
