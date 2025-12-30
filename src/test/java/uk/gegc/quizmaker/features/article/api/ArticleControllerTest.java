@@ -69,6 +69,7 @@ class ArticleControllerTest {
 
         ArticleAuthorDto author = new ArticleAuthorDto("Author", "Title");
         ArticleCallToActionDto cta = new ArticleCallToActionDto("Learn", "/", null);
+        ArticleImageDto heroImage = new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption");
         articleDto = new ArticleDto(
                 UUID.randomUUID(),
                 "sample-slug",
@@ -76,6 +77,7 @@ class ArticleControllerTest {
                 "Desc",
                 "Excerpt",
                 "Hero",
+                heroImage,
                 List.of("Tag"),
                 author,
                 "5 min",
@@ -94,6 +96,7 @@ class ArticleControllerTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(),
                 1
         );
 
@@ -104,6 +107,7 @@ class ArticleControllerTest {
                 articleDto.description(),
                 articleDto.excerpt(),
                 articleDto.heroKicker(),
+                articleDto.heroImage(),
                 articleDto.tags(),
                 author,
                 articleDto.readingTime(),
@@ -125,6 +129,7 @@ class ArticleControllerTest {
                 "Desc",
                 "Excerpt",
                 "Hero",
+                heroImage,
                 List.of("Tag"),
                 author,
                 "5 min",
@@ -136,6 +141,7 @@ class ArticleControllerTest {
                 ArticleContentType.BLOG,
                 cta,
                 cta,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),

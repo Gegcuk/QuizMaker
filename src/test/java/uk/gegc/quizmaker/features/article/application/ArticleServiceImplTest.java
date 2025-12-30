@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleBlockType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
@@ -65,11 +66,12 @@ class ArticleServiceImplTest extends BaseUnitTest {
         entity.setId(UUID.randomUUID());
         entity.setSlug("slug-one");
         entity.setStatus(ArticleStatus.PUBLISHED);
+        ArticleImageDto heroImage = new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption");
         dto = new ArticleDto(entity.getId(), "slug-one", "Title", "Desc", "Ex", null,
-                List.of("Tag1"), new ArticleAuthorDto("A", "B"), "5", Instant.now(), Instant.now(),
+                heroImage, List.of("Tag1"), new ArticleAuthorDto("A", "B"), "5", Instant.now(), Instant.now(),
                 ArticleStatus.PUBLISHED, null, null, false, ArticleContentType.BLOG,
                 new ArticleCallToActionDto("p", "/", null), new ArticleCallToActionDto("s", "/s", null),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1);
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1);
     }
 
     @Test
@@ -237,8 +239,10 @@ class ArticleServiceImplTest extends BaseUnitTest {
                 " ",
                 "",
                 null,
+                null,
                 List.of("tag"),
                 new ArticleAuthorDto("a", "b"),
+                null,
                 null,
                 null,
                 null,
@@ -303,7 +307,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         when(articleRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(PageRequest.class)))
                 .thenReturn(page);
         when(articleMapper.toListItem(article)).thenReturn(new ArticleListItemDto(
-                UUID.randomUUID(), "slug", "title", "desc", "ex", null, List.of(),
+                UUID.randomUUID(), "slug", "title", "desc", "ex", null, null, List.of(),
                 new ArticleAuthorDto("a", "b"), "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED,
                 ArticleContentType.BLOG, null, null, false, null, null, 1));
 
@@ -403,7 +407,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         when(articleRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(articleMapper.toListItem(any())).thenReturn(new ArticleListItemDto(
-                entity.getId(), "slug", "t", "d", "e", null, List.of(), new ArticleAuthorDto("a", "b"),
+                entity.getId(), "slug", "t", "d", "e", null, null, List.of(), new ArticleAuthorDto("a", "b"),
                 "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED, ArticleContentType.BLOG, null, null, false, null, null, 1));
 
         Page<ArticleListItemDto> result = service.searchArticles(null, PageRequest.of(0, 5));
@@ -461,6 +465,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
                     "Desc",
                     "Excerpt",
                     "Hero",
+                    new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                     tags,
                     new ArticleAuthorDto("Author", "Role"),
                     "5 min",
@@ -475,6 +480,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
                     List.of(new ArticleStatDto("S", "V", null, null)),
                     List.of("K1"),
                     List.of("C1"),
+                    List.of(new ArticleBlockDto(ArticleBlockType.PARAGRAPH, "Body", null, null, null, null)),
                     List.of(new ArticleSectionDto("sec", "title", null, null)),
                     List.of(new ArticleFaqDto("Q", "A")),
                     List.of(new ArticleReferenceDto("R", "https://r", null))

@@ -94,7 +94,13 @@ public enum PermissionName {
     ARTICLE_CREATE("article", "create", "Create articles"),
     ARTICLE_UPDATE("article", "update", "Update articles"),
     ARTICLE_DELETE("article", "delete", "Delete articles"),
-    ARTICLE_ADMIN("article", "admin", "Full article administration");
+    ARTICLE_ADMIN("article", "admin", "Full article administration"),
+
+    // Media Permissions
+    MEDIA_READ("media", "read", "View media assets"),
+    MEDIA_CREATE("media", "create", "Create media upload intents"),
+    MEDIA_DELETE("media", "delete", "Delete media assets"),
+    MEDIA_ADMIN("media", "admin", "Full media administration");
 
     private final String resource;
     private final String action;

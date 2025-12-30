@@ -44,6 +44,15 @@ public class Article {
     @Column(name = "hero_kicker", length = 255)
     private String heroKicker;
 
+    @Column(name = "hero_image_asset_id")
+    private UUID heroImageAssetId;
+
+    @Column(name = "hero_image_alt", length = 512)
+    private String heroImageAlt;
+
+    @Column(name = "hero_image_caption", length = 1024)
+    private String heroImageCaption;
+
     @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
             name = "article_tags",
@@ -121,6 +130,10 @@ public class Article {
     @BatchSize(size = 50)
     private List<ArticleSection> sections = new ArrayList<>();
 
+    @Convert(converter = ArticleContentBlocksConverter.class)
+    @Column(name = "content_blocks", columnDefinition = "JSON")
+    private List<ArticleContentBlock> contentBlocks = new ArrayList<>();
+
     @OneToMany(mappedBy = "article", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @BatchSize(size = 50)
@@ -158,6 +171,9 @@ public class Article {
         }
         if (secondaryCta == null) {
             secondaryCta = new ArticleCallToAction("Explore", "/", null);
+        }
+        if (contentBlocks == null) {
+            contentBlocks = new ArrayList<>();
         }
     }
 }

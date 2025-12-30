@@ -28,6 +28,9 @@ public record ArticleDto(
         @Schema(description = "Optional hero kicker", example = "Evidence-backed")
         String heroKicker,
 
+        @Schema(description = "Hero image reference with alt/caption")
+        ArticleImageDto heroImage,
+
         @Schema(description = "Tags associated with the article", example = "[\"Retrieval practice\", \"SEO template\"]")
         List<String> tags,
 
@@ -72,6 +75,9 @@ public record ArticleDto(
 
         @Schema(description = "Optional checklist items for readers")
         List<String> checklist,
+
+        @Schema(description = "Structured content blocks (preferred over raw HTML)")
+        List<ArticleBlockDto> blocks,
 
         @Schema(description = "Structured sections with summaries and content")
         List<ArticleSectionDto> sections,
