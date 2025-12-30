@@ -59,7 +59,7 @@ public class ApiDiscoveryController {
                     This helps debug issues where /v3/api-docs?group=X returns the full spec instead of filtered content.
                     
                     Expected behavior:
-                    - Should show 9 groups: auth, quizzes, questions, attempts, documents, billing, articles, ai, admin
+                    - Should show 10 groups: auth, quizzes, questions, attempts, documents, billing, articles, seo, ai, admin
                     - Each group should have its pathsToMatch configured
                     
                     If this returns empty or missing groups, check:
@@ -92,8 +92,8 @@ public class ApiDiscoveryController {
                 "totalGroups", groups.size(),
                 "groups", groups,
                 "configClass", "uk.gegc.quizmaker.shared.config.OpenApiGroupConfig",
-                "expectedGroups", 9,
-                "status", groups.size() == 9 ? "✅ OK" : "⚠️ MISSING GROUPS"
+                "expectedGroups", 10,
+                "status", groups.size() == 10 ? "✅ OK" : "⚠️ MISSING GROUPS"
         ));
     }
 }

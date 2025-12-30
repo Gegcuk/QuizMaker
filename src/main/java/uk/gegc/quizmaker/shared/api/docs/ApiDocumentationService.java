@@ -69,6 +69,13 @@ public class ApiDocumentationService {
                     42
             ),
             ApiGroupSummary.of(
+                    "seo",
+                    "SEO & Sitemaps",
+                    "Public sitemaps and robots.txt for search engine discovery",
+                    "🔎",
+                    3
+            ),
+            ApiGroupSummary.of(
                     "ai",
                     "AI Features",
                     "AI-powered quiz generation, document analysis, and recommendation endpoints",
