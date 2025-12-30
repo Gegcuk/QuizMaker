@@ -105,8 +105,8 @@ public class MediaAssetServiceImpl implements MediaAssetService {
 
         if (request != null && StringUtils.hasText(request.sha256())) {
             String normalized = request.sha256().trim().toLowerCase(Locale.ROOT);
-            if (normalized.length() < 32 || normalized.length() > 64) {
-                throw new ValidationException("SHA-256 checksum must be between 32 and 64 characters");
+            if (normalized.length() != 64 || !normalized.matches("^[0-9a-f]{64}$")) {
+                throw new ValidationException("SHA-256 checksum must be a 64-character hexadecimal string");
             }
             asset.setSha256(normalized);
         }
