@@ -65,6 +65,10 @@ public class MediaAsset {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     public boolean isImage() {
         return MediaAssetType.IMAGE.equals(type);
     }
