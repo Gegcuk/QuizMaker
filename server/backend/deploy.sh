@@ -45,6 +45,17 @@ done
 
 echo "✅ Environment variables validated"
 
+# Ensure clean working tree to avoid shipping stale/untracked sources
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "❌ Error: Working tree is dirty. Commit or stash changes before deployment."
+        git status --short
+        exit 1
+    fi
+else
+    echo "⚠️  Warning: git not available; skipping clean working tree check"
+fi
+
 # Create deployment directory
 echo "📁 Creating deployment directory..."
 rm -rf deployment && mkdir -p deployment
