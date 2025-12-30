@@ -77,6 +77,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     }
 
     @Override
+    @Transactional(noRollbackFor = ResourceNotFoundException.class)
     public MediaAssetResponse finalizeUpload(UUID assetId, MediaUploadCompleteRequest request, String username) {
         MediaAsset asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
                 .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
