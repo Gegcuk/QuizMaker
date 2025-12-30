@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.admin.application.PolicyReconciliationService;
 import uk.gegc.quizmaker.features.admin.aplication.PermissionService;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.RoleRepository;
@@ -280,8 +281,7 @@ public class PolicyReconciliationServiceImpl implements PolicyReconciliationServ
             if (!permissionService.permissionExists(permissionName)) {
                 try {
                     // Get permission details from PermissionName enum
-                    uk.gegc.quizmaker.features.user.domain.model.PermissionName permEnum = 
-                        uk.gegc.quizmaker.features.user.domain.model.PermissionName.valueOf(permissionName);
+                    PermissionName permEnum = PermissionName.valueOf(permissionName);
                     
                     permissionService.createPermission(
                         permissionName,

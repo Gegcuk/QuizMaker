@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.AnswerKeyEntry;
 
@@ -28,7 +29,7 @@ public class AnswerKeyBuilder {
         int index = 1;
         for (QuestionExportDto q : questions) {
             // Create a lightweight Question surrogate to reuse extractor logic
-            uk.gegc.quizmaker.features.question.domain.model.Question surrogate = new uk.gegc.quizmaker.features.question.domain.model.Question();
+            Question surrogate = new Question();
             surrogate.setId(q.id());
             surrogate.setType(q.type());
             surrogate.setDifficulty(q.difficulty());

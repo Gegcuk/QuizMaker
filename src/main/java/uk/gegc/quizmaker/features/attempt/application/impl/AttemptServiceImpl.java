@@ -39,6 +39,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.ShareLinkRepository;
 import uk.gegc.quizmaker.features.result.api.dto.LeaderboardEntryDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuestionStatsDto;
 import uk.gegc.quizmaker.features.result.api.dto.QuizResultSummaryDto;
+import uk.gegc.quizmaker.features.result.application.QuizAnalyticsService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -75,7 +76,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final SafeQuestionContentBuilder safeQuestionContentBuilder;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
-    private final uk.gegc.quizmaker.features.result.application.QuizAnalyticsService quizAnalyticsService;
+    private final QuizAnalyticsService quizAnalyticsService;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {

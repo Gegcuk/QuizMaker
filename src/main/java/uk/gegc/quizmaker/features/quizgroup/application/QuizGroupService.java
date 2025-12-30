@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quizgroup.application;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto;
 import uk.gegc.quizmaker.features.quizgroup.api.dto.*;
 
 import java.util.UUID;
@@ -22,7 +23,7 @@ public interface QuizGroupService {
 
     void delete(String username, UUID id);
 
-    Page<uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto> getQuizzesInGroup(
+    Page<QuizSummaryDto> getQuizzesInGroup(
             UUID groupId,
             Pageable pageable,
             Authentication authentication
@@ -38,7 +39,7 @@ public interface QuizGroupService {
      * Get archived quizzes for the authenticated user (virtual group).
      * Uses QuizStatus.ARCHIVED for filtering.
      */
-    Page<uk.gegc.quizmaker.features.quiz.api.dto.QuizSummaryDto> getArchivedQuizzes(
+    Page<QuizSummaryDto> getArchivedQuizzes(
             Pageable pageable,
             Authentication authentication
     );

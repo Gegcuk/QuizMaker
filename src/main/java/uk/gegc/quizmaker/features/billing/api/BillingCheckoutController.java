@@ -15,6 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.security.annotation.RequirePermission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import org.springframework.validation.annotation.Validated;
@@ -397,13 +398,13 @@ public class BillingCheckoutController {
                 String custEmail = rawCustomer.getEmail();
                 if (user == null || custEmail == null || !custEmail.equalsIgnoreCase(user.getEmail())) {
                     log.warn("User {} attempted to access customer {} not owned by them (email fallback enabled)", currentUserId, customerId);
-                    throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: customer not owned by user");
+                    throw new ForbiddenException("Access denied: customer not owned by user");
                 }
                 log.info("User {} accessing customer {} via email fallback (metadata userId missing)", currentUserId, customerId);
             } else {
                 // Metadata-only ownership required
                 log.warn("User {} attempted to access customer {} without proper metadata userId (email fallback disabled)", currentUserId, customerId);
-                throw new uk.gegc.quizmaker.shared.exception.ForbiddenException("Access denied: metadata-only ownership required");
+                throw new ForbiddenException("Access denied: metadata-only ownership required");
             }
         }
         log.info("User {} accessing own customer {}", currentUserId, customerId);
@@ -533,7 +534,7 @@ public class BillingCheckoutController {
         }
         return safeParseUuid(principal)
                 .orElseGet(() -> {
-                    uk.gegc.quizmaker.features.user.domain.model.User user = userRepository.findByUsername(principal)
+                    User user = userRepository.findByUsername(principal)
                             .or(() -> userRepository.findByEmail(principal))
                             .orElseThrow(() -> new IllegalStateException("Unknown principal"));
                     return user.getId();

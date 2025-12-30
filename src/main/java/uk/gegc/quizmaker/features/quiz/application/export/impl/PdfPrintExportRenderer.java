@@ -236,7 +236,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
         
         // Question text (wrapped)
         // For FILL_GAP, the prompt with underscores can be longer, so allocate more lines
-        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP) {
+        if (question.type() == QuestionType.FILL_GAP) {
             height += NORMAL_FONT_SIZE * LINE_SPACING * 3; // Average 3 lines for FILL_GAP
         } else {
             height += NORMAL_FONT_SIZE * LINE_SPACING * 2; // Average 2 lines for other types
@@ -769,7 +769,7 @@ public class PdfPrintExportRenderer implements ExportRenderer {
      * Otherwise, use the generic questionText.
      */
     private String getDisplayText(QuestionExportDto question) {
-        if (question.type() == uk.gegc.quizmaker.features.question.domain.model.QuestionType.FILL_GAP 
+        if (question.type() == QuestionType.FILL_GAP
             && question.content() != null 
             && question.content().has("text") 
             && !question.content().get("text").asText().isBlank()) {

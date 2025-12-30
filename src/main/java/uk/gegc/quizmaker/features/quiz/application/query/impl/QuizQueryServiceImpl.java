@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +15,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -115,7 +117,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
             user = null;
         }
 
-        org.springframework.data.jpa.domain.Specification<Quiz> spec = uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications.build(criteria);
+        Specification<Quiz> spec = QuizSpecifications.build(criteria);
         
         // Apply scoping based on the scope parameter
         switch (scope.toLowerCase()) {
