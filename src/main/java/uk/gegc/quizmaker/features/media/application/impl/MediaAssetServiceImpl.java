@@ -238,7 +238,10 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     }
 
     private void assertOwnership(MediaAsset asset, String username) {
-        if (asset.getCreatedBy() == null || StringUtils.hasText(username) && asset.getCreatedBy().equals(username)) {
+        boolean isOwner = StringUtils.hasText(username)
+                && asset.getCreatedBy() != null
+                && asset.getCreatedBy().equals(username);
+        if (isOwner) {
             return;
         }
         boolean isAdmin = permissionEvaluator.hasAnyPermission(
