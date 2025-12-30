@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.bugreport.application.BugReportService;
 import uk.gegc.quizmaker.features.bugreport.domain.model.BugReportSeverity;
 import uk.gegc.quizmaker.features.bugreport.domain.model.BugReportStatus;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.security.aspect.PermissionAspect;
 
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -144,6 +146,28 @@ class BugReportAdminControllerTest {
 
     @Test
     @WithMockUser(authorities = "SYSTEM_ADMIN")
+    @DisplayName("PATCH /api/v1/admin/bug-reports/{id} with blank message returns 400")
+    void updateBugReport_blankMessage() throws Exception {
+        UpdateBugReportRequest request = new UpdateBugReportRequest(
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        mockMvc.perform(patch("/api/v1/admin/bug-reports/{id}", UUID.randomUUID()).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(authorities = "SYSTEM_ADMIN")
     @DisplayName("POST /api/v1/admin/bug-reports creates a bug report")
     void createBugReport_success() throws Exception {
         when(bugReportService.createReport(any(CreateBugReportRequest.class), isNull()))
@@ -167,6 +191,28 @@ class BugReportAdminControllerTest {
     }
 
     @Test
+    @WithMockUser(authorities = "OTHER")
+    @DisplayName("POST /api/v1/admin/bug-reports without SYSTEM_ADMIN returns 403")
+    void createBugReport_forbiddenWithoutPermission() throws Exception {
+        when(appPermissionEvaluator.hasAnyPermission(any(PermissionName[].class))).thenReturn(false);
+
+        CreateBugReportRequest request = new CreateBugReportRequest(
+                "Something broke",
+                "Jane",
+                "jane@example.com",
+                null,
+                null,
+                null,
+                BugReportSeverity.HIGH
+        );
+
+        mockMvc.perform(post("/api/v1/admin/bug-reports").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @WithMockUser(authorities = "SYSTEM_ADMIN")
     @DisplayName("POST /api/v1/admin/bug-reports/bulk-delete deletes provided ids")
     void bulkDeleteBugReports_success() throws Exception {
@@ -178,5 +224,57 @@ class BugReportAdminControllerTest {
                 .andExpect(status().isNoContent());
 
         verify(bugReportService).deleteReports(ids);
+    }
+
+    @Test
+    @WithMockUser(authorities = "SYSTEM_ADMIN")
+    @DisplayName("GET /api/v1/admin/bug-reports/{id} returns 404 when not found")
+    void getBugReport_notFound() throws Exception {
+        when(bugReportService.getReport(sampleDto.id())).thenThrow(new ResourceNotFoundException("missing"));
+
+        mockMvc.perform(get("/api/v1/admin/bug-reports/{id}", sampleDto.id()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(authorities = "SYSTEM_ADMIN")
+    @DisplayName("GET /api/v1/admin/bug-reports with invalid status enum returns 400")
+    void listBugReports_invalidStatus() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/bug-reports").param("status", "INVALID"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(authorities = "SYSTEM_ADMIN")
+    @DisplayName("GET /api/v1/admin/bug-reports/{id} returns report")
+    void getBugReport_success() throws Exception {
+        when(bugReportService.getReport(sampleDto.id())).thenReturn(sampleDto);
+
+        mockMvc.perform(get("/api/v1/admin/bug-reports/{id}", sampleDto.id()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sampleDto.id().toString()))
+                .andExpect(jsonPath("$.message").value("Editor crashed"));
+    }
+
+    @Test
+    @WithMockUser(authorities = "SYSTEM_ADMIN")
+    @DisplayName("POST /api/v1/admin/bug-reports rejects missing message")
+    void createBugReport_validationFailure() throws Exception {
+        CreateBugReportRequest request = new CreateBugReportRequest(
+                null,
+                "Jane",
+                "jane@example.com",
+                null,
+                null,
+                null,
+                BugReportSeverity.HIGH
+        );
+
+        mockMvc.perform(post("/api/v1/admin/bug-reports").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(bugReportService);
     }
 }
