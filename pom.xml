@@ -303,6 +303,13 @@
             <version>2.20.26</version>
         </dependency>
 
+        <!-- AWS SDK v2 S3 client for DigitalOcean Spaces uploads/presigning -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.20.26</version>
+        </dependency>
+
         <!-- AWS SDK Apache HTTP client (configurable timeouts, pooling) -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>

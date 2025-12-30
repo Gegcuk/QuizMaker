@@ -33,6 +33,19 @@ jobs:
       FACEBOOK_CLIENT_SECRET: ${{ secrets.FACEBOOK_CLIENT_SECRET || 'ci-test-facebook-client-secret' }}
       MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID || 'ci-test-microsoft-client-id' }}
       MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET || 'ci-test-microsoft-client-secret' }}
+      # Media / CDN (Spaces)
+      MEDIA_BUCKET: ${{ secrets.MEDIA_BUCKET || 'quizzence' }}
+      MEDIA_REGION: ${{ secrets.MEDIA_REGION || 'lon1' }}
+      MEDIA_ENDPOINT: ${{ secrets.MEDIA_ENDPOINT || 'https://lon1.digitaloceanspaces.com' }}
+      MEDIA_CDN_BASE_URL: ${{ secrets.MEDIA_CDN_BASE_URL || 'https://cdn.quizzence.com' }}
+      DO_SPACES_ACCESS_KEY: ${{ secrets.DO_SPACES_ACCESS_KEY || 'ci-access-key' }}
+      DO_SPACES_SECRET_KEY: ${{ secrets.DO_SPACES_SECRET_KEY || 'ci-secret-key' }}
+      MEDIA_UPLOAD_URL_TTL: ${{ secrets.MEDIA_UPLOAD_URL_TTL || 'PT15M' }}
+      MEDIA_MAX_IMAGE_SIZE_BYTES: ${{ secrets.MEDIA_MAX_IMAGE_SIZE_BYTES || '20971520' }}
+      MEDIA_MAX_DOC_SIZE_BYTES: ${{ secrets.MEDIA_MAX_DOC_SIZE_BYTES || '20971520' }}
+      MEDIA_DELETE_REMOTE: ${{ secrets.MEDIA_DELETE_REMOTE || 'false' }}
+      MEDIA_ARTICLE_PREFIX: ${{ secrets.MEDIA_ARTICLE_PREFIX || 'articles' }}
+      MEDIA_LIBRARY_PREFIX: ${{ secrets.MEDIA_LIBRARY_PREFIX || 'library' }}
 
     services:
       mysql:

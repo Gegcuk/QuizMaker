@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleBlockType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
@@ -343,6 +344,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
         private String description = "Description";
         private String excerpt = "Excerpt";
         private String hero = "Hero";
+        private ArticleImageDto heroImage = new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption");
         private List<String> tags = List.of("DefaultTag");
         private ArticleAuthorDto author = new ArticleAuthorDto("Author", "Author");
         private String readingTime = "5 minute read";
@@ -357,6 +359,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
         private List<ArticleStatDto> stats = List.of(new ArticleStatDto("Stat", "Val", "Detail", null));
         private List<String> keyPoints = List.of("KP1", "KP2");
         private List<String> checklist = List.of("CL1");
+        private List<ArticleBlockDto> blocks = List.of(new ArticleBlockDto(ArticleBlockType.PARAGRAPH, "Body", null, null, null, null));
         private List<ArticleSectionDto> sections = List.of(new ArticleSectionDto("sec", "Section", "Summary", "Content"));
         private List<ArticleFaqDto> faqs = List.of(new ArticleFaqDto("Q", "A"));
         private List<ArticleReferenceDto> references = List.of(new ArticleReferenceDto("Ref", "https://ref", "journal"));
@@ -410,6 +413,11 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
             return this;
         }
 
+        ArticleRequestBuilder withBlocks(List<ArticleBlockDto> blocks) {
+            this.blocks = blocks;
+            return this;
+        }
+
         ArticleRequestBuilder withSections(List<ArticleSectionDto> sections) {
             this.sections = sections;
             return this;
@@ -432,6 +440,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
                     description,
                     excerpt,
                     hero,
+                    heroImage,
                     tags,
                     author,
                     readingTime,
@@ -446,6 +455,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
                     stats,
                     keyPoints,
                     checklist,
+                    blocks,
                     sections,
                     faqs,
                     references

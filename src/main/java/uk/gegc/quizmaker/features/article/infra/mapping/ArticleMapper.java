@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -41,6 +42,7 @@ public class ArticleMapper {
         target.setDescription(request.description());
         target.setExcerpt(request.excerpt());
         target.setHeroKicker(request.heroKicker());
+        applyHeroImage(target, request.heroImage());
         Set<Tag> targetTags = target.getTags() != null ? target.getTags() : new HashSet<>();
         targetTags.clear();
         if (tags != null) {
@@ -65,6 +67,7 @@ public class ArticleMapper {
         rebuildStats(target, request.stats());
         rebuildKeyPoints(target, request.keyPoints());
         rebuildChecklist(target, request.checklist());
+        rebuildBlocks(target, request.blocks());
         rebuildSections(target, request.sections());
         rebuildFaqs(target, request.faqs());
         rebuildReferences(target, request.references());
@@ -82,6 +85,7 @@ public class ArticleMapper {
                 article.getDescription(),
                 article.getExcerpt(),
                 article.getHeroKicker(),
+                mapHeroImage(article),
                 mapTags(article.getTags()),
                 toAuthorDto(article.getAuthor()),
                 article.getReadingTime(),
@@ -97,6 +101,7 @@ public class ArticleMapper {
                 mapStats(article.getStats()),
                 mapKeyPoints(article.getKeyPoints()),
                 mapChecklist(article.getChecklistItems()),
+                mapBlocks(article.getContentBlocks()),
                 mapSections(article.getSections()),
                 mapFaqs(article.getFaqs()),
                 mapReferences(article.getReferences()),
@@ -116,6 +121,7 @@ public class ArticleMapper {
                 article.getDescription(),
                 article.getExcerpt(),
                 article.getHeroKicker(),
+                mapHeroImage(article),
                 mapTags(article.getTags()),
                 toAuthorDto(article.getAuthor()),
                 article.getReadingTime(),
@@ -194,12 +200,55 @@ public class ArticleMapper {
         return new ArticleCallToAction(label, href, dto.eventName());
     }
 
+    private void applyHeroImage(Article target, ArticleImageDto heroImage) {
+        if (heroImage == null || heroImage.assetId() == null) {
+            target.setHeroImageAssetId(null);
+            target.setHeroImageAlt(null);
+            target.setHeroImageCaption(null);
+            return;
+        }
+        if (!StringUtils.hasText(heroImage.alt())) {
+            throw new ValidationException("Hero image alt text is required");
+        }
+        target.setHeroImageAssetId(heroImage.assetId());
+        target.setHeroImageAlt(heroImage.alt().trim());
+        target.setHeroImageCaption(heroImage.caption());
+    }
+
     private List<String> mapTags(Set<Tag> tags) {
         return tags == null
                 ? List.of()
                 : tags.stream()
                 .filter(Objects::nonNull)
                 .map(Tag::getName)
+                .toList();
+    }
+
+    private ArticleImageDto mapHeroImage(Article article) {
+        if (article == null || article.getHeroImageAssetId() == null) {
+            return null;
+        }
+        return new ArticleImageDto(
+                article.getHeroImageAssetId(),
+                article.getHeroImageAlt(),
+                article.getHeroImageCaption()
+        );
+    }
+
+    private List<ArticleBlockDto> mapBlocks(List<ArticleContentBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            return List.of();
+        }
+        return blocks.stream()
+                .filter(Objects::nonNull)
+                .map(block -> new ArticleBlockDto(
+                        block.getType(),
+                        block.getText(),
+                        block.getAssetId(),
+                        block.getAlt(),
+                        block.getCaption(),
+                        block.getAlign()
+                ))
                 .toList();
     }
 
@@ -353,6 +402,37 @@ public class ArticleMapper {
             checklistItem.setPosition(index++);
             article.getChecklistItems().add(checklistItem);
         }
+    }
+
+    private void rebuildBlocks(Article article, List<ArticleBlockDto> blocks) {
+        List<ArticleContentBlock> targetBlocks = new ArrayList<>();
+        if (blocks != null) {
+            for (ArticleBlockDto dto : blocks) {
+                if (dto == null) {
+                    continue;
+                }
+                if (dto.type() == null) {
+                    throw new ValidationException("Block type is required");
+                }
+                ArticleContentBlock block = new ArticleContentBlock();
+                block.setType(dto.type());
+                block.setText(StringUtils.hasText(dto.text()) ? dto.text() : null);
+                block.setAssetId(dto.assetId());
+                block.setAlt(dto.alt());
+                block.setCaption(dto.caption());
+                block.setAlign(dto.align());
+                if (dto.type() == ArticleBlockType.IMAGE) {
+                    if (dto.assetId() == null) {
+                        throw new ValidationException("Image blocks require assetId");
+                    }
+                    if (!StringUtils.hasText(dto.alt())) {
+                        throw new ValidationException("Alt text is required for image blocks");
+                    }
+                }
+                targetBlocks.add(block);
+            }
+        }
+        article.setContentBlocks(targetBlocks);
     }
 
     private void rebuildSections(Article article, List<ArticleSectionDto> sections) {

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
+import uk.gegc.quizmaker.features.article.domain.model.ArticleBlockType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleContentType;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,6 +41,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -50,6 +53,7 @@ class ArticleMapperTest {
                 ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -72,6 +76,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -90,6 +95,7 @@ class ArticleMapperTest {
                 ),
                 Arrays.asList("KP1", null, "KP2"),
                 Arrays.asList("CL1", "", "CL2"),
+                List.of(new ArticleBlockDto(ArticleBlockType.PARAGRAPH, "Block", null, null, null, null)),
                 Arrays.asList(new ArticleSectionDto("sec1", "t1", null, null), null, new ArticleSectionDto("sec2", "t2", null, null)),
                 Arrays.asList(new ArticleFaqDto("Q1", "A1"), null, new ArticleFaqDto("Q2", "A2")),
                 Arrays.asList(new ArticleReferenceDto("R1", "https://r1", null), null, new ArticleReferenceDto("R2", "https://r2", null))
@@ -132,6 +138,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                null,
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -143,6 +150,7 @@ class ArticleMapperTest {
                 ArticleContentType.BLOG,
                 new ArticleCallToActionDto("", "", null),
                 null,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -173,6 +181,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 null, // hero
+                null, // hero image
                 List.of("tag"),
                 null, // author
                 "5 min",
@@ -187,6 +196,7 @@ class ArticleMapperTest {
                 List.<ArticleStatDto>of(),
                 List.<String>of(),
                 List.<String>of(),
+                List.<ArticleBlockDto>of(),
                 List.<ArticleSectionDto>of(),
                 List.<ArticleFaqDto>of(),
                 List.<ArticleReferenceDto>of()
@@ -209,6 +219,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -223,6 +234,7 @@ class ArticleMapperTest {
                 List.of(new ArticleStatDto(null, "val", null, null)),
                 List.<String>of(),
                 List.<String>of(),
+                List.<ArticleBlockDto>of(),
                 List.of(new ArticleSectionDto("sec1", null, null, null)),
                 List.<ArticleFaqDto>of(),
                 List.<ArticleReferenceDto>of()
@@ -249,6 +261,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -260,6 +273,7 @@ class ArticleMapperTest {
                 ArticleContentType.BLOG,
                 new ArticleCallToActionDto("Label", "/href", null),
                 new ArticleCallToActionDto("Label2", "/href2", null),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -284,6 +298,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto("Author", "Role"),
                 "5 min",
@@ -298,6 +313,7 @@ class ArticleMapperTest {
                 List.<ArticleStatDto>of(),
                 List.<String>of(),
                 List.<String>of(),
+                List.<ArticleBlockDto>of(),
                 List.<ArticleSectionDto>of(),
                 List.<ArticleFaqDto>of(),
                 List.<ArticleReferenceDto>of()
@@ -318,6 +334,7 @@ class ArticleMapperTest {
                 "description",
                 "excerpt",
                 "hero",
+                new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption"),
                 List.of("tag"),
                 new ArticleAuthorDto(" ", null),
                 "5 min",
@@ -332,6 +349,7 @@ class ArticleMapperTest {
                 List.<ArticleStatDto>of(),
                 List.<String>of(),
                 List.<String>of(),
+                List.<ArticleBlockDto>of(),
                 List.<ArticleSectionDto>of(),
                 List.<ArticleFaqDto>of(),
                 List.<ArticleReferenceDto>of()

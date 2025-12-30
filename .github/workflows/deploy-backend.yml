@@ -158,6 +158,20 @@ jobs:
             AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
             AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
             AWS_REGION="${{ secrets.AWS_REGION }}"
+
+            # DigitalOcean Spaces / CDN
+            MEDIA_BUCKET="${{ secrets.MEDIA_BUCKET || 'quizzence' }}"
+            MEDIA_REGION="${{ secrets.MEDIA_REGION || 'lon1' }}"
+            MEDIA_ENDPOINT="${{ secrets.MEDIA_ENDPOINT || 'https://lon1.digitaloceanspaces.com' }}"
+            MEDIA_CDN_BASE_URL="${{ secrets.MEDIA_CDN_BASE_URL || 'https://cdn.quizzence.com' }}"
+            DO_SPACES_ACCESS_KEY="${{ secrets.DO_SPACES_ACCESS_KEY }}"
+            DO_SPACES_SECRET_KEY="${{ secrets.DO_SPACES_SECRET_KEY }}"
+            MEDIA_UPLOAD_URL_TTL="${{ secrets.MEDIA_UPLOAD_URL_TTL || 'PT15M' }}"
+            MEDIA_MAX_IMAGE_SIZE_BYTES="${{ secrets.MEDIA_MAX_IMAGE_SIZE_BYTES || '20971520' }}"
+            MEDIA_MAX_DOC_SIZE_BYTES="${{ secrets.MEDIA_MAX_DOC_SIZE_BYTES || '20971520' }}"
+            MEDIA_DELETE_REMOTE="${{ secrets.MEDIA_DELETE_REMOTE || 'false' }}"
+            MEDIA_ARTICLE_PREFIX="${{ secrets.MEDIA_ARTICLE_PREFIX || 'articles' }}"
+            MEDIA_LIBRARY_PREFIX="${{ secrets.MEDIA_LIBRARY_PREFIX || 'library' }}"
             
             # Frontend Configuration
             FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"

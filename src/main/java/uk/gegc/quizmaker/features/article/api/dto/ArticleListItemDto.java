@@ -28,6 +28,9 @@ public record ArticleListItemDto(
         @Schema(description = "Optional hero kicker", example = "Evidence-backed")
         String heroKicker,
 
+        @Schema(description = "Hero image reference with alt/caption")
+        ArticleImageDto heroImage,
+
         @Schema(description = "Tag names", example = "[\"Retrieval practice\", \"Teaching tips\"]")
         List<String> tags,
 
