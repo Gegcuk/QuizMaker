@@ -44,6 +44,7 @@ public interface ArticleRepository extends JpaRepository<Article, UUID>, JpaSpec
                    a.updatedAt AS updatedAt
             FROM Article a
             WHERE a.status = :status
+              AND a.noindex = false
             """)
     List<ArticleSitemapProjection> findSitemapEntries(@Param("status") ArticleStatus status);
 

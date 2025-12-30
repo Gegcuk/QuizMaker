@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.shared.seo;
+package uk.gegc.quizmaker.shared.seo.service;
 
 public interface SitemapService {
 

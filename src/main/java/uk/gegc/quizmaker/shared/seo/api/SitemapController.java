@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.shared.seo;
+package uk.gegc.quizmaker.shared.seo.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import uk.gegc.quizmaker.shared.seo.service.SitemapService;
 
 @RestController
 @Tag(name = "SEO", description = "Sitemap and robots endpoints")

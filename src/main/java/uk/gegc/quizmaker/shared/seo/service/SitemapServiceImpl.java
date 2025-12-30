@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.shared.seo;
+package uk.gegc.quizmaker.shared.seo.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -6,6 +6,7 @@ import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.article.api.dto.SitemapEntryDto;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
+import uk.gegc.quizmaker.shared.seo.config.SeoProperties;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -18,31 +19,26 @@ import java.util.Map;
 @Service
 public class SitemapServiceImpl implements SitemapService {
 
-    private static final List<StaticEntry> DEFAULT_STATIC_ENTRIES = List.of(
-            new StaticEntry("/", "weekly", 1.0),
-            new StaticEntry("/blog/", "weekly", 0.8),
-            new StaticEntry("/terms/", "monthly", 0.4),
-            new StaticEntry("/privacy/", "monthly", 0.4),
-            new StaticEntry("/theme-demo/", "monthly", 0.3)
-    );
-
     private final ArticleService articleService;
+    private final SeoProperties seoProperties;
     private final String baseUrl;
 
     public SitemapServiceImpl(
             ArticleService articleService,
+            SeoProperties seoProperties,
             @Value("${app.frontend.base-url:http://localhost:3000}") String frontendBaseUrl
     ) {
         this.articleService = articleService;
+        this.seoProperties = seoProperties;
         this.baseUrl = normalizeBaseUrl(frontendBaseUrl);
     }
 
     @Override
     public String getSitemapXml() {
         Map<String, UrlEntry> entries = new LinkedHashMap<>();
-        for (StaticEntry entry : DEFAULT_STATIC_ENTRIES) {
-            String loc = toAbsoluteUrl(entry.path());
-            entries.put(loc, new UrlEntry(loc, null, entry.changefreq(), entry.priority()));
+        for (SeoProperties.SitemapEntry entry : safeStaticEntries()) {
+            String loc = toAbsoluteUrl(entry.getPath());
+            entries.put(loc, new UrlEntry(loc, null, entry.getChangefreq(), entry.getPriority()));
         }
         for (SitemapEntryDto entry : articleService.getSitemapEntries(ArticleStatus.PUBLISHED)) {
             String loc = toAbsoluteUrl(entry.url());
@@ -67,12 +63,26 @@ public class SitemapServiceImpl implements SitemapService {
     @Override
     public String getRobotsTxt() {
         StringBuilder builder = new StringBuilder();
-        builder.append("User-agent: *\n");
-        builder.append("Allow: /\n");
-        builder.append("Disallow: /api/\n");
-        builder.append("Disallow: /swagger-ui/\n");
-        builder.append("Disallow: /v3/api-docs/\n");
-        builder.append("Sitemap: ").append(baseUrl).append("/sitemap.xml\n");
+        SeoProperties.Robots robots = seoProperties.getRobots();
+        String userAgent = robots != null && StringUtils.hasText(robots.getUserAgent())
+                ? robots.getUserAgent()
+                : "*";
+        builder.append("User-agent: ").append(userAgent).append("\n");
+        for (String allow : safeList(robots != null ? robots.getAllow() : null)) {
+            if (StringUtils.hasText(allow)) {
+                builder.append("Allow: ").append(allow).append("\n");
+            }
+        }
+        for (String disallow : safeList(robots != null ? robots.getDisallow() : null)) {
+            if (StringUtils.hasText(disallow)) {
+                builder.append("Disallow: ").append(disallow).append("\n");
+            }
+        }
+        for (String sitemapPath : safeList(seoProperties.getSitemapPaths())) {
+            if (StringUtils.hasText(sitemapPath)) {
+                builder.append("Sitemap: ").append(toAbsoluteUrl(sitemapPath)).append("\n");
+            }
+        }
         return builder.toString();
     }
 
@@ -118,6 +128,15 @@ public class SitemapServiceImpl implements SitemapService {
         return baseUrl + trimmed;
     }
 
+    private List<SeoProperties.SitemapEntry> safeStaticEntries() {
+        List<SeoProperties.SitemapEntry> entries = seoProperties.getStaticEntries();
+        return entries != null ? entries : List.of();
+    }
+
+    private List<String> safeList(List<String> values) {
+        return values != null ? values : List.of();
+    }
+
     private String normalizeBaseUrl(String rawBaseUrl) {
         String candidate = StringUtils.hasText(rawBaseUrl) ? rawBaseUrl.trim() : "http://localhost:3000";
         if (candidate.endsWith("/")) {
@@ -141,9 +160,6 @@ public class SitemapServiceImpl implements SitemapService {
         escaped = escaped.replace("\"", "&quot;");
         escaped = escaped.replace("'", "&apos;");
         return escaped;
-    }
-
-    private record StaticEntry(String path, String changefreq, Double priority) {
     }
 
     private record UrlEntry(String loc, Instant lastmod, String changefreq, Double priority) {
