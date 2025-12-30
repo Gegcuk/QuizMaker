@@ -32,6 +32,11 @@ public class NoopEmailService implements EmailService {
                 maskEmail(email), maskToken(verificationToken));
     }
 
+    @Override
+    public void sendPlainTextEmail(String to, String subject, String body) {
+        log.info("[NOOP] Would send plain text email to: {} with subject: {}", maskEmail(to), subject);
+    }
+
     private String maskEmail(String email) {
         if (email == null || email.isEmpty()) {
             return "***";

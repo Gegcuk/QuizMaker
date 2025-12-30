@@ -103,6 +103,27 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    public void sendPlainTextEmail(String to, String subject, String body) {
+        if (fromEmail == null || fromEmail.isBlank()) {
+            log.warn("Email service disabled - skipping plain text email to: {}", maskEmail(to));
+            return;
+        }
+
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(to);
+            message.setSubject(subject);
+            message.setText(body);
+
+            mailSender.send(message);
+            log.info("Plain text email sent to: {}", maskEmail(to));
+        } catch (Exception e) {
+            log.error("Failed to send plain text email to: {}", maskEmail(to), e);
+        }
+    }
+
     private String maskEmail(String email) {
         if (email == null || email.isEmpty()) {
             return "***";

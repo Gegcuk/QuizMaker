@@ -33,6 +33,7 @@ public class AwsSesEmailService implements EmailService {
 
     private static final String EMAIL_TYPE_PASSWORD_RESET = "password-reset";
     private static final String EMAIL_TYPE_VERIFICATION = "email-verification";
+    private static final String EMAIL_TYPE_NOTIFICATION = "notification";
 
     private final SesV2Client sesClient;
     private final MeterRegistry meterRegistry;
@@ -159,6 +160,21 @@ public class AwsSesEmailService implements EmailService {
             // Catch any other unexpected exceptions to prevent information leakage
             log.error("Unexpected error sending email verification to: {}", maskEmail(email), e);
             recordFailure(EMAIL_TYPE_VERIFICATION, "unexpected");
+        }
+    }
+
+    @Override
+    public void sendPlainTextEmail(String to, String subject, String body) {
+        try {
+            SendEmailRequest request = buildEmailRequest(to, subject, body);
+            SendEmailResponse response = sesClient.sendEmail(request);
+            log.info("Plain text email sent to: {} | SES MessageId: {}", maskEmail(to), response.messageId());
+            recordSuccess(EMAIL_TYPE_NOTIFICATION);
+        } catch (SesV2Exception e) {
+            handleSesException("plain text notification", EMAIL_TYPE_NOTIFICATION, to, e);
+        } catch (Exception e) {
+            log.error("Unexpected error sending plain text email to: {}", maskEmail(to), e);
+            recordFailure(EMAIL_TYPE_NOTIFICATION, "unexpected");
         }
     }
 

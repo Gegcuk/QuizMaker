@@ -102,6 +102,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi bugReportsGroup() {
+        return GroupedOpenApi.builder()
+                .group("bug-reports")
+                .displayName("Bug Reports")
+                .pathsToMatch("/api/v1/bug-reports/**", "/api/v1/admin/bug-reports/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi adminGroup() {
         return GroupedOpenApi.builder()
                 .group("admin")

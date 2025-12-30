@@ -74,6 +74,7 @@ public class SecurityConfig {
                                 "/oauth2/**",
                                 "/login/oauth2/**"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/bug-reports").permitAll()
                         // Stripe webhook must be callable by Stripe without authentication
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/billing/webhooks").permitAll()
