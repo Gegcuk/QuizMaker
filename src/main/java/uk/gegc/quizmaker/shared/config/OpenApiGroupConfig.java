@@ -111,6 +111,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi mediaGroup() {
+        return GroupedOpenApi.builder()
+                .group("media")
+                .displayName("Media Library")
+                .pathsToMatch("/api/v1/media/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi adminGroup() {
         return GroupedOpenApi.builder()
                 .group("admin")
