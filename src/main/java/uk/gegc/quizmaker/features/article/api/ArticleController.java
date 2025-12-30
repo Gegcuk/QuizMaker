@@ -67,7 +67,11 @@ public class ArticleController {
         return articleService.searchArticles(criteria, pageable);
     }
 
-    @Operation(summary = "Public search articles", description = "Public endpoint returning published articles")
+    @Operation(
+            summary = "Public search articles",
+            description = "Public endpoint returning published articles",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Articles found",
                     content = @Content(schema = @Schema(implementation = Page.class)))
@@ -117,7 +121,10 @@ public class ArticleController {
         return articleService.getArticleBySlug(slug, includeDrafts);
     }
 
-    @Operation(summary = "Get article by slug (public)")
+    @Operation(
+            summary = "Get article by slug (public)",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Article found",
                     content = @Content(schema = @Schema(implementation = ArticleDto.class))),
@@ -270,7 +277,10 @@ public class ArticleController {
         return articleService.getTagsWithCounts(status);
     }
 
-    @Operation(summary = "Get sitemap entries")
+    @Operation(
+            summary = "Get sitemap entries",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Sitemap entries retrieved",
                     content = @Content(schema = @Schema(implementation = SitemapEntryDto.class)))

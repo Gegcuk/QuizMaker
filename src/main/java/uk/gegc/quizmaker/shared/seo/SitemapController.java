@@ -20,7 +20,11 @@ public class SitemapController {
         this.sitemapService = sitemapService;
     }
 
-    @Operation(summary = "Get XML sitemap", description = "Returns the XML sitemap for static pages and published articles.")
+    @Operation(
+            summary = "Get XML sitemap",
+            description = "Returns the XML sitemap for static pages and published articles.",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Sitemap XML",
                     content = @Content(mediaType = "application/xml", schema = @Schema(implementation = String.class)))
@@ -30,7 +34,11 @@ public class SitemapController {
         return sitemapService.getSitemapXml();
     }
 
-    @Operation(summary = "Get XML article sitemap", description = "Returns the XML sitemap for published articles only.")
+    @Operation(
+            summary = "Get XML article sitemap",
+            description = "Returns the XML sitemap for published articles only.",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Article sitemap XML",
                     content = @Content(mediaType = "application/xml", schema = @Schema(implementation = String.class)))
@@ -40,7 +48,11 @@ public class SitemapController {
         return sitemapService.getArticleSitemapXml();
     }
 
-    @Operation(summary = "Get robots.txt", description = "Returns robots directives including sitemap location.")
+    @Operation(
+            summary = "Get robots.txt",
+            description = "Returns robots directives including sitemap location.",
+            security = {}
+    )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Robots.txt content",
                     content = @Content(mediaType = "text/plain", schema = @Schema(implementation = String.class)))
