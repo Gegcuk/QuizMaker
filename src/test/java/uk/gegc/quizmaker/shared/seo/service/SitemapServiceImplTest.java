@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.shared.seo;
+package uk.gegc.quizmaker.shared.seo.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.article.api.dto.SitemapEntryDto;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
+import uk.gegc.quizmaker.shared.seo.config.SeoProperties;
 
 import java.time.Instant;
 import java.util.List;
@@ -27,7 +28,10 @@ class SitemapServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        sitemapService = new SitemapServiceImpl(articleService, "https://www.quizzence.com/");
+        SeoProperties seoProperties = new SeoProperties();
+        seoProperties.setStaticEntries(List.of(new SeoProperties.SitemapEntry("/", "weekly", 1.0)));
+        seoProperties.setSitemapPaths(List.of("/sitemap.xml"));
+        sitemapService = new SitemapServiceImpl(articleService, seoProperties, "https://www.quizzence.com/");
     }
 
     @Test

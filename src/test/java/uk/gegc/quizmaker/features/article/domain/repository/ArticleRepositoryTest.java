@@ -156,6 +156,25 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("findSitemapEntries excludes noindex articles")
+    void findSitemapEntriesExcludesNoindex() {
+        Article visible = createArticleWithTag("sitemap-visible", "tag");
+        visible.setStatus(ArticleStatus.PUBLISHED);
+
+        Article hidden = createArticleWithTag("sitemap-hidden", "tag");
+        hidden.setStatus(ArticleStatus.PUBLISHED);
+        hidden.setNoindex(true);
+
+        articleRepository.saveAll(List.of(visible, hidden));
+
+        List<ArticleSitemapProjection> entries = articleRepository.findSitemapEntries(ArticleStatus.PUBLISHED);
+
+        assertThat(entries).extracting(ArticleSitemapProjection::getSlug)
+                .contains("sitemap-visible")
+                .doesNotContain("sitemap-hidden");
+    }
+
+    @Test
     @DisplayName("Entity graph on findAll prevents N+1 tag loading")
     void tagJoinDoesNotTriggerNPlusOne() {
         articleRepository.saveAll(List.of(
