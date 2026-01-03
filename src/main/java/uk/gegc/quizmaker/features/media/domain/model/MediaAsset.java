@@ -18,7 +18,6 @@ import java.util.UUID;
 public class MediaAsset {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "asset_id", updatable = false, nullable = false)
     private UUID id;
 

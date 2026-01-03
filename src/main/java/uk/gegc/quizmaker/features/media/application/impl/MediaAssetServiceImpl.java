@@ -13,6 +13,8 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
+import software.amazon.awssdk.services.s3.model.PutObjectAclRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
@@ -83,7 +85,8 @@ public class MediaAssetServiceImpl implements MediaAssetService {
                 .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
         assertOwnership(asset, username);
         if (asset.getStatus() == MediaAssetStatus.READY) {
-            throw new ValidationException("Upload already finalized");
+            makePublicIfImage(asset);
+            return mediaAssetMapper.toResponse(asset);
         }
 
         HeadObjectResponse head = headObject(asset);
@@ -112,6 +115,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
         }
 
         asset.setSizeBytes(actualSize);
+        makePublicIfImage(asset);
         asset.setStatus(MediaAssetStatus.READY);
         MediaAsset saved = mediaAssetRepository.save(asset);
         return mediaAssetMapper.toResponse(saved);
@@ -235,6 +239,22 @@ public class MediaAssetServiceImpl implements MediaAssetService {
             asset.setStatus(MediaAssetStatus.FAILED);
             mediaAssetRepository.save(asset);
             throw new ResourceNotFoundException("Uploaded object not found for " + asset.getId());
+        }
+    }
+
+    private void makePublicIfImage(MediaAsset asset) {
+        if (asset.getType() != MediaAssetType.IMAGE) {
+            return;
+        }
+        try {
+            s3Client.putObjectAcl(PutObjectAclRequest.builder()
+                    .bucket(properties.getBucket())
+                    .key(asset.getKey())
+                    .acl(ObjectCannedACL.PUBLIC_READ)
+                    .build());
+        } catch (Exception ex) {
+            log.error("Failed to set public ACL for asset {}: {}", asset.getId(), ex.getMessage(), ex);
+            throw new IllegalStateException("Unable to publish uploaded image. Please try again.");
         }
     }
 
