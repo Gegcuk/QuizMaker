@@ -61,9 +61,9 @@ public class ArticleController {
     public Page<ArticleListItemDto> searchArticles(
             @Parameter(description = "Filter by status") @RequestParam(required = false) ArticleStatus status,
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
             @PageableDefault(size = 20) Pageable pageable) {
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, resolveContentTypeOrDefault(contentGroup));
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(status, tags, resolveContentType(contentGroup));
         return articleService.searchArticles(criteria, pageable);
     }
 
@@ -79,11 +79,11 @@ public class ArticleController {
     @GetMapping("/public")
     public Page<ArticleListItemDto> searchPublicArticles(
             @Parameter(description = "Filter by tags") @RequestParam(required = false) List<String> tags,
-            @Parameter(description = "Filter by content group") @RequestParam(required = false, defaultValue = "blog") String contentGroup,
+            @Parameter(description = "Filter by content group") @RequestParam(required = false) String contentGroup,
             @PageableDefault(size = 20) Pageable pageable,
             HttpServletRequest request) {
         rateLimitService.checkRateLimit("articles-public-search", trustedProxyUtil.getClientIp(request), 120);
-        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, resolveContentTypeOrDefault(contentGroup));
+        ArticleSearchCriteria criteria = new ArticleSearchCriteria(ArticleStatus.PUBLISHED, tags, resolveContentType(contentGroup));
         return articleService.searchArticles(criteria, pageable);
     }
 
@@ -291,13 +291,15 @@ public class ArticleController {
         return articleService.getSitemapEntries(status);
     }
 
-    private ArticleContentType resolveContentTypeOrDefault(String rawContentType) {
-        ArticleContentType resolved;
+    private ArticleContentType resolveContentType(String rawContentType) {
+        if (rawContentType == null || rawContentType.isBlank()) {
+            return null; // Return null to indicate no filtering by content group
+        }
         try {
-            resolved = ArticleContentType.fromValue(rawContentType);
+            ArticleContentType resolved = ArticleContentType.fromValue(rawContentType);
+            return resolved;
         } catch (IllegalArgumentException ex) {
             throw new ValidationException(ex.getMessage());
         }
-        return resolved != null ? resolved : ArticleContentType.BLOG;
     }
 }
