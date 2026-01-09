@@ -3,7 +3,6 @@ package uk.gegc.quizmaker.shared.seo.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import uk.gegc.quizmaker.features.article.api.dto.SitemapEntryDto;
 import uk.gegc.quizmaker.features.article.application.ArticleService;
 import uk.gegc.quizmaker.features.article.domain.model.ArticleStatus;
 import uk.gegc.quizmaker.shared.seo.config.SeoProperties;
@@ -11,10 +10,8 @@ import uk.gegc.quizmaker.shared.seo.config.SeoProperties;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 @Service
 public class SitemapServiceImpl implements SitemapService {
@@ -35,16 +32,14 @@ public class SitemapServiceImpl implements SitemapService {
 
     @Override
     public String getSitemapXml() {
-        Map<String, UrlEntry> entries = new LinkedHashMap<>();
+        // Main sitemap only includes static pages, not individual articles
+        // Articles are included in /sitemap_articles.xml via getArticleSitemapXml()
+        List<UrlEntry> entries = new ArrayList<>();
         for (SeoProperties.SitemapEntry entry : safeStaticEntries()) {
             String loc = toAbsoluteUrl(entry.getPath());
-            entries.put(loc, new UrlEntry(loc, null, entry.getChangefreq(), entry.getPriority()));
+            entries.add(new UrlEntry(loc, null, entry.getChangefreq(), entry.getPriority()));
         }
-        for (SitemapEntryDto entry : articleService.getSitemapEntries(ArticleStatus.PUBLISHED)) {
-            String loc = toAbsoluteUrl(entry.url());
-            entries.putIfAbsent(loc, new UrlEntry(loc, entry.updatedAt(), entry.changefreq(), entry.priority()));
-        }
-        return buildUrlSetXml(new ArrayList<>(entries.values()));
+        return buildUrlSetXml(entries);
     }
 
     @Override
