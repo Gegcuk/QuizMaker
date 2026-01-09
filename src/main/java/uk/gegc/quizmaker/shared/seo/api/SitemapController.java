@@ -23,7 +23,7 @@ public class SitemapController {
 
     @Operation(
             summary = "Get XML sitemap",
-            description = "Returns the XML sitemap for static pages and published articles.",
+            description = "Returns the XML sitemap for static pages only. For articles, see /sitemap_articles.xml.",
             security = {}
     )
     @ApiResponses({
