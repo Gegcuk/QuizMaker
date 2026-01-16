@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.media.api.dto.MediaUploadResponse;
 import uk.gegc.quizmaker.features.media.api.dto.UploadTargetDto;
 import uk.gegc.quizmaker.features.media.config.MediaStorageProperties;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAsset;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -59,6 +60,21 @@ public class MediaAssetMapper {
                 asset.getCreatedBy(),
                 asset.getCreatedAt(),
                 asset.getUpdatedAt()
+        );
+    }
+
+    public MediaRefDto toMediaRef(MediaAsset asset) {
+        if (asset == null) {
+            return null;
+        }
+        return new MediaRefDto(
+                asset.getId(),
+                toCdnUrl(asset.getKey()),
+                null,
+                null,
+                asset.getWidth(),
+                asset.getHeight(),
+                asset.getMimeType()
         );
     }
 
