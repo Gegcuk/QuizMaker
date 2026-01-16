@@ -48,11 +48,7 @@ public class McqSingleHandler extends QuestionHandler {
             }
             ids.add(id);
 
-            // Validate text field
-            JsonNode textNode = option.get("text");
-            if (textNode == null || textNode.asText().isBlank()) {
-                throw new ValidationException("Each option needs a non-empty 'text'");
-            }
+            validateTextOrMedia(option, "Each option");
             if (option.path("correct").asBoolean(false)) {
                 correctCount++;
             }

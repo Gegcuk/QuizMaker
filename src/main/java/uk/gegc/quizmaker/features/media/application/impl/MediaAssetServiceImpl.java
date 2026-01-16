@@ -35,9 +35,11 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -119,6 +121,47 @@ public class MediaAssetServiceImpl implements MediaAssetService {
         asset.setStatus(MediaAssetStatus.READY);
         MediaAsset saved = mediaAssetRepository.save(asset);
         return mediaAssetMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MediaAssetResponse getByIdForValidation(UUID assetId, String username) {
+        if (assetId == null) {
+            throw new ValidationException("Media asset id is required");
+        }
+        MediaAsset asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
+                .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
+        if (asset.getStatus() != MediaAssetStatus.READY) {
+            throw new ValidationException("Media asset %s is not ready".formatted(assetId));
+        }
+        if (!asset.isImage()) {
+            throw new ValidationException("Media asset %s is not an image".formatted(assetId));
+        }
+        assertOwnership(asset, username);
+        return mediaAssetMapper.toResponse(asset);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<MediaRefDto> getByIdForResolution(UUID assetId) {
+        if (assetId == null) {
+            return Optional.empty();
+        }
+        Optional<MediaAsset> asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED);
+        if (asset.isEmpty()) {
+            log.warn("Media asset {} not found for resolution", assetId);
+            return Optional.empty();
+        }
+        MediaAsset found = asset.get();
+        if (found.getStatus() != MediaAssetStatus.READY) {
+            log.warn("Media asset {} not ready for resolution", assetId);
+            return Optional.empty();
+        }
+        if (!found.isImage()) {
+            log.warn("Media asset {} is not an image", assetId);
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mediaAssetMapper.toMediaRef(found));
     }
 
     @Override

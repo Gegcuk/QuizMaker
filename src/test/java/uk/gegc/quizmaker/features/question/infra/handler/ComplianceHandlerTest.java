@@ -108,6 +108,24 @@ class ComplianceHandlerTest {
     }
 
     @Test
+    void mediaOnlyStatement_isAllowed() throws Exception {
+        String assetId = UUID.randomUUID().toString();
+        JsonNode p = mapper.readTree("""
+                {"statements":[{"id":1,"media":{"assetId":"%s"},"compliant":true},{"id":2,"text":"Second","compliant":false}]}
+                """.formatted(assetId));
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void invalidMediaAssetId_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"statements":[{"id":1,"media":{"assetId":"not-a-uuid"},"compliant":true},{"id":2,"text":"Second","compliant":false}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
     void emptyStatementText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"statements":[{"id":1,"text":"","compliant":true},{"id":2,"text":"Second","compliant":false}]}

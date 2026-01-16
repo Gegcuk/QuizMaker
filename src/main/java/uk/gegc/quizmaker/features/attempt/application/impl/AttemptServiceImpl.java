@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
@@ -74,6 +75,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final CorrectAnswerExtractor correctAnswerExtractor;
     private final SafeQuestionContentBuilder safeQuestionContentBuilder;
+    private final QuestionMediaResolver questionMediaResolver;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final QuizAnalyticsService quizAnalyticsService;
@@ -950,6 +952,7 @@ public class AttemptServiceImpl implements AttemptService {
                         question.getContent(),
                         true  // deterministic=true for review (no shuffling, ensures cacheability and consistent UX)
                 );
+                questionSafeContent = questionMediaResolver.resolveMediaInContent(questionSafeContent);
             } catch (Exception e) {
                 // Log error but don't fail entire response
                 questionSafeContent = objectMapper.createObjectNode()
@@ -957,12 +960,17 @@ public class AttemptServiceImpl implements AttemptService {
             }
         }
 
+        var attachment = includeQuestionContext
+                ? questionMediaResolver.resolveAttachment(question.getAttachmentAssetId())
+                : null;
+
         return new AnswerReviewDto(
                 question.getId(),
                 question.getType(),
                 includeQuestionContext ? question.getQuestionText() : null,
                 includeQuestionContext ? question.getHint() : null,
                 includeQuestionContext ? question.getAttachmentUrl() : null,
+                attachment,
                 includeCorrectAnswers ? question.getExplanation() : null,
                 questionSafeContent,
                 userResponse,

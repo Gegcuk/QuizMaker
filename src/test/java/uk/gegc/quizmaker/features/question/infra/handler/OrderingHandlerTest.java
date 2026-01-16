@@ -109,6 +109,24 @@ class OrderingHandlerTest {
     }
 
     @Test
+    void mediaOnlyItem_isAllowed() throws Exception {
+        String assetId = UUID.randomUUID().toString();
+        JsonNode p = mapper.readTree("""
+                {"items":[{"id":1,"media":{"assetId":"%s"}},{"id":2,"text":"Second"}]}
+                """.formatted(assetId));
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void invalidMediaAssetId_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                {"items":[{"id":1,"media":{"assetId":"not-a-uuid"}},{"id":2,"text":"Second"}]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
     void emptyItemText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"items":[{"id":1,"text":""},{"id":2,"text":"Second"}]}

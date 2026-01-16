@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.util.UUID;
 
@@ -34,6 +35,9 @@ public class QuestionForAttemptDto {
 
     @Schema(description = "Optional hint", example = "Think carefully about the options")
     private String hint;
+
+    @Schema(description = "Resolved attachment metadata")
+    private MediaRefDto attachment;
 
     @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
     private String attachmentUrl;

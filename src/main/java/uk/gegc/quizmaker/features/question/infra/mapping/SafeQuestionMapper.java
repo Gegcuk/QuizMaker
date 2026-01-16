@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 public class SafeQuestionMapper {
 
     private final SafeQuestionContentBuilder contentBuilder;
+    private final QuestionMediaResolver questionMediaResolver;
 
     public QuestionForAttemptDto toSafeDto(Question question) {
         QuestionForAttemptDto dto = new QuestionForAttemptDto();
@@ -29,6 +30,9 @@ public class SafeQuestionMapper {
                 question.getType(),
                 question.getContent()
         ));
+
+        dto.setAttachment(questionMediaResolver.resolveAttachment(question.getAttachmentAssetId()));
+        dto.setSafeContent(questionMediaResolver.resolveMediaInContent(dto.getSafeContent()));
 
         return dto;
     }

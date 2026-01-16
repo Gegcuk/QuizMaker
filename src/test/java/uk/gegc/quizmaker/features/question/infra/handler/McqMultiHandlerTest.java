@@ -104,6 +104,30 @@ class McqMultiHandlerTest {
     }
 
     @Test
+    void mediaOnlyOption_isAllowed() throws Exception {
+        String assetId = UUID.randomUUID().toString();
+        JsonNode p = mapper.readTree("""
+                  {"options":[
+                    {"id":"a","media":{"assetId":"%s"},"correct":true},
+                    {"id":"b","text":"B","correct":false}
+                  ]}
+                """.formatted(assetId));
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
+    void invalidMediaAssetId_throws() throws Exception {
+        JsonNode p = mapper.readTree("""
+                  {"options":[
+                    {"id":"a","media":{"assetId":"not-a-uuid"},"correct":true},
+                    {"id":"b","text":"B","correct":false}
+                  ]}
+                """);
+        assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(p)));
+    }
+
+    @Test
     void blankText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                   {"options":[

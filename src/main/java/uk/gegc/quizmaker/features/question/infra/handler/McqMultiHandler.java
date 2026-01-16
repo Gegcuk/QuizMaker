@@ -48,10 +48,7 @@ public class McqMultiHandler extends QuestionHandler {
             }
             ids.add(id);
 
-            // Validate text field
-            if (!option.has("text") || option.get("text").asText().isBlank()) {
-                throw new ValidationException("Each option needs a non-empty 'text'");
-            }
+            validateTextOrMedia(option, "Each option");
             if (option.path("correct").asBoolean(false)) {
                 hasCorrect = true;
             }

@@ -955,6 +955,7 @@ public class AttemptControllerIntegrationTest extends BaseIntegrationTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(),
                 List.of());
         String questionJson = objectMapper.writeValueAsString(createQuestionRequest);

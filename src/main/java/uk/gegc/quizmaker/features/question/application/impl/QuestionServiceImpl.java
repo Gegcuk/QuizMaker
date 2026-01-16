@@ -1,6 +1,9 @@
 package uk.gegc.quizmaker.features.question.application.impl;
 
 import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -15,6 +18,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -23,12 +27,16 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
+import uk.gegc.quizmaker.features.media.application.MediaAssetService;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -44,6 +52,8 @@ public class QuestionServiceImpl implements QuestionService {
     private final QuestionHandlerFactory handlerFactory;
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final UserRepository userRepository;
+    private final QuestionMediaResolver questionMediaResolver;
+    private final MediaAssetService mediaAssetService;
 
     @Override
     public UUID createQuestion(String username, CreateQuestionRequest questionDto) {
@@ -53,6 +63,10 @@ public class QuestionServiceImpl implements QuestionService {
 
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
         questionHandler.validateContent(questionDto);
+
+        JsonNode sanitizedContent = sanitizeMediaForStorage(questionDto.getContent());
+        validateAttachmentAsset(questionDto.getAttachmentAssetId(), username);
+        validateMediaInContent(sanitizedContent, username);
 
         List<Quiz> quizzes = loadQuizzesByIds(questionDto.getQuizIds());
         
@@ -68,6 +82,9 @@ public class QuestionServiceImpl implements QuestionService {
         List<Tag> tags = loadTagsByIds(questionDto.getTagIds());
 
         Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
+        if (sanitizedContent != null) {
+            question.setContent(sanitizedContent.toString());
+        }
         questionRepository.save(question);
 
         return question.getId();
@@ -126,7 +143,7 @@ public class QuestionServiceImpl implements QuestionService {
             retrievedPage = questionRepository.findAllByQuizId_IdIn(userQuizIds, page);
         }
 
-        return retrievedPage.map(QuestionMapper::toDto);
+        return retrievedPage.map(question -> enrichQuestionDtoWithMedia(QuestionMapper.toDto(question), question));
     }
 
     @Override
@@ -175,7 +192,7 @@ public class QuestionServiceImpl implements QuestionService {
             throw new ForbiddenException("Access denied: cannot view this question");
         }
 
-        return QuestionMapper.toDto(question);
+        return enrichQuestionDtoWithMedia(QuestionMapper.toDto(question), question);
     }
 
     @Override
@@ -199,6 +216,12 @@ public class QuestionServiceImpl implements QuestionService {
             }
         }
 
+        JsonNode sanitizedContent = sanitizeMediaForStorage(request.getContent());
+        if (!Boolean.TRUE.equals(request.getClearAttachment())) {
+            validateAttachmentAsset(request.getAttachmentAssetId(), username);
+        }
+        validateMediaInContent(sanitizedContent, username);
+
         List<Quiz> quizzes = (request.getQuizIds() == null)
                 ? null
                 : loadQuizzesByIds(request.getQuizIds());
@@ -219,10 +242,13 @@ public class QuestionServiceImpl implements QuestionService {
                 : loadTagsByIds(request.getTagIds());
 
         QuestionMapper.updateEntity(question, request, quizzes, tags);
+        if (sanitizedContent != null) {
+            question.setContent(sanitizedContent.toString());
+        }
 
         Question updatedQuestion = questionRepository.saveAndFlush(question);
 
-        return QuestionMapper.toDto(updatedQuestion);
+        return enrichQuestionDtoWithMedia(QuestionMapper.toDto(updatedQuestion), updatedQuestion);
     }
 
     @Override
@@ -303,6 +329,116 @@ public class QuestionServiceImpl implements QuestionService {
                 // For multiple missing entities, use the new format
                 String entityName = entityType.equals("Quiz") ? "Quizzes" : "Tags";
                 throw new ResourceNotFoundException(entityName + " not found: " + missingIds);
+            }
+        }
+    }
+
+    private QuestionDto enrichQuestionDtoWithMedia(QuestionDto dto, Question question) {
+        if (dto == null || question == null) {
+            return dto;
+        }
+        MediaRefDto attachment = questionMediaResolver.resolveAttachment(question.getAttachmentAssetId());
+        if (attachment == null && question.getAttachmentUrl() != null) {
+            attachment = new MediaRefDto(
+                    null,
+                    question.getAttachmentUrl(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
+        dto.setAttachment(attachment);
+        dto.setContent(questionMediaResolver.resolveMediaInContent(dto.getContent()));
+        return dto;
+    }
+
+    private void validateAttachmentAsset(UUID assetId, String username) {
+        if (assetId == null) {
+            return;
+        }
+        try {
+            mediaAssetService.getByIdForValidation(assetId, username);
+        } catch (ResourceNotFoundException | ForbiddenException | ValidationException ex) {
+            throw new ValidationException(ex.getMessage());
+        }
+    }
+
+    private void validateMediaInContent(JsonNode content, String username) {
+        if (content == null) {
+            return;
+        }
+        Set<UUID> seen = new HashSet<>();
+        validateMediaNode(content, username, seen);
+    }
+
+    private void validateMediaNode(JsonNode node, String username, Set<UUID> seen) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            JsonNode mediaNode = node.get("media");
+            if (mediaNode != null && mediaNode.isObject()) {
+                JsonNode assetIdNode = mediaNode.get("assetId");
+                if (assetIdNode != null && assetIdNode.isTextual()) {
+                    String raw = assetIdNode.asText();
+                    try {
+                        UUID assetId = UUID.fromString(raw);
+                        if (seen.add(assetId)) {
+                            validateAttachmentAsset(assetId, username);
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        throw new ValidationException("Invalid media assetId: " + raw);
+                    }
+                }
+            }
+            node.fields().forEachRemaining(entry -> validateMediaNode(entry.getValue(), username, seen));
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                validateMediaNode(item, username, seen);
+            }
+        }
+    }
+
+    private JsonNode sanitizeMediaForStorage(JsonNode content) {
+        if (content == null) {
+            return null;
+        }
+        JsonNode copy = content.deepCopy();
+        stripMediaFields(copy);
+        return copy;
+    }
+
+    private void stripMediaFields(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            ObjectNode obj = (ObjectNode) node;
+            JsonNode mediaNode = obj.get("media");
+            if (mediaNode != null) {
+                if (mediaNode.isObject()) {
+                    JsonNode assetIdNode = mediaNode.get("assetId");
+                    if (assetIdNode != null && assetIdNode.isTextual() && !assetIdNode.asText().isBlank()) {
+                        ObjectNode cleanMedia = JsonNodeFactory.instance.objectNode();
+                        cleanMedia.put("assetId", assetIdNode.asText());
+                        obj.set("media", cleanMedia);
+                    } else {
+                        obj.remove("media");
+                    }
+                } else {
+                    obj.remove("media");
+                }
+            }
+            obj.fields().forEachRemaining(entry -> stripMediaFields(entry.getValue()));
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                stripMediaFields(item);
             }
         }
     }

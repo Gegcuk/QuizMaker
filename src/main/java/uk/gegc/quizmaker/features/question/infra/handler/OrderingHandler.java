@@ -39,8 +39,8 @@ public class OrderingHandler extends QuestionHandler {
 
         Set<Integer> ids = new java.util.HashSet<>();
         for (JsonNode it : items) {
-            if (!it.has("id") || !it.has("text") || it.get("text").asText().isBlank()) {
-                throw new ValidationException("Each item needs an 'id' and non-empty 'text'");
+            if (!it.has("id")) {
+                throw new ValidationException("Each item must have an 'id'");
             }
             if (!it.get("id").canConvertToInt()) {
                 throw new ValidationException("Item 'id' must be an integer");
@@ -50,6 +50,7 @@ public class OrderingHandler extends QuestionHandler {
                 throw new ValidationException("Item IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
+            validateTextOrMedia(it, "Each item");
         }
     }
 

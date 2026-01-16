@@ -56,6 +56,9 @@ public class Question {
     @Column(name = "attachment_url", length = 2048)
     private String attachmentUrl;
 
+    @Column(name = "attachment_asset_id")
+    private UUID attachmentAssetId;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;

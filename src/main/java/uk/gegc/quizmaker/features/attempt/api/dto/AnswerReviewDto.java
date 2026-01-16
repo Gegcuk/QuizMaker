@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -26,6 +27,9 @@ public record AnswerReviewDto(
     @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
     String attachmentUrl,
 
+    @Schema(description = "Resolved attachment metadata")
+    MediaRefDto attachment,
+
     @Schema(description = "Optional explanation of the correct answer (only included when includeCorrectAnswers=true)", example = "Paris is the capital and largest city of France")
     String explanation,
 
@@ -47,5 +51,34 @@ public record AnswerReviewDto(
         @Schema(description = "Timestamp when the answer was submitted", example = "2025-05-20T14:35:00Z")
         Instant answeredAt
 ) {
+    public AnswerReviewDto(
+            UUID questionId,
+            QuestionType type,
+            String questionText,
+            String hint,
+            String attachmentUrl,
+            String explanation,
+            JsonNode questionSafeContent,
+            JsonNode userResponse,
+            JsonNode correctAnswer,
+            Boolean isCorrect,
+            Double score,
+            Instant answeredAt
+    ) {
+        this(
+                questionId,
+                type,
+                questionText,
+                hint,
+                attachmentUrl,
+                null,
+                explanation,
+                questionSafeContent,
+                userResponse,
+                correctAnswer,
+                isCorrect,
+                score,
+                answeredAt
+        );
+    }
 }
-

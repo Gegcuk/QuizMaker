@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.question.application.impl.QuestionServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
@@ -36,6 +37,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.features.media.application.MediaAssetService;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
@@ -72,6 +74,10 @@ class QuestionServiceImplTest {
     private UserRepository userRepository;
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
+    @Mock
+    private QuestionMediaResolver questionMediaResolver;
+    @Mock
+    private MediaAssetService mediaAssetService;
 
     @InjectMocks
     private QuestionServiceImpl questionService;
@@ -86,6 +92,8 @@ class QuestionServiceImplTest {
         testUser = createTestUser();
         setupUserRepositoryMock();
         setupPermissionEvaluatorMock();
+        lenient().when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
+        lenient().when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private User createTestUser() {
@@ -405,5 +413,51 @@ class QuestionServiceImplTest {
                 .hasMessageContaining("Tag " + badTag);
 
         verify(questionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getQuestion: falls back to attachmentUrl when resolution fails")
+    void getQuestion_fallbacksToAttachmentUrl() {
+        UUID id = UUID.randomUUID();
+        Question question = new Question();
+        question.setId(id);
+        question.setAttachmentUrl("https://example.com/legacy.png");
+        question.setQuizId(List.of(createTestQuiz(UUID.randomUUID(), testUser)));
+
+        Quiz quiz = question.getQuizId().get(0);
+        quiz.setVisibility(Visibility.PUBLIC);
+        quiz.setStatus(QuizStatus.PUBLISHED);
+
+        when(questionRepository.findById(id)).thenReturn(Optional.of(question));
+        when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
+
+        QuestionDto dto = questionService.getQuestion(id, mock(Authentication.class));
+
+        assertThat(dto.getAttachment()).isNotNull();
+        assertThat(dto.getAttachment().cdnUrl()).isEqualTo("https://example.com/legacy.png");
+    }
+
+    @Test
+    @DisplayName("updateQuestion: clearAttachment skips attachment validation")
+    void updateQuestion_clearAttachment_skipsValidation() {
+        UUID id = UUID.randomUUID();
+        Question existing = new Question();
+        existing.setId(id);
+        existing.setQuizId(List.of(createTestQuiz(UUID.randomUUID(), testUser)));
+
+        UpdateQuestionRequest req = new UpdateQuestionRequest();
+        req.setType(QuestionType.TRUE_FALSE);
+        req.setDifficulty(Difficulty.EASY);
+        req.setQuestionText("Question?");
+        req.setContent(objectMapper.createObjectNode().put("answer", false));
+        req.setClearAttachment(true);
+        req.setAttachmentAssetId(UUID.randomUUID());
+
+        when(questionRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(questionRepository.saveAndFlush(any(Question.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        questionService.updateQuestion(DUMMY_USER, id, req);
+
+        verify(mediaAssetService, never()).getByIdForValidation(any(), anyString());
     }
 }

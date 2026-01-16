@@ -50,11 +50,8 @@ public class ComplianceHandler extends QuestionHandler {
                 throw new ValidationException("Statement IDs must be unique, found duplicate ID: " + id);
             }
             ids.add(id);
-            
-            // Validate text field
-            if (!statement.has("text") || statement.get("text").asText().isBlank()) {
-                throw new ValidationException("Each statement must have a non-empty 'text'");
-            }
+
+            validateTextOrMedia(statement, "Each statement");
             
             // Validate compliant field
             if (!statement.has("compliant")) {

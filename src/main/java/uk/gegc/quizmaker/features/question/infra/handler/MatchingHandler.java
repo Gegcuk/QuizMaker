@@ -51,13 +51,11 @@ public class MatchingHandler extends QuestionHandler {
             if (!leftIds.add(id)) {
                 throw new ValidationException("Left item IDs must be unique, duplicate: " + id);
             }
-            if (!l.has("text") || l.get("text").asText().isBlank()) {
-                throw new ValidationException("Each left item needs non-empty 'text'");
-            }
             if (!l.has("matchId") || !l.get("matchId").canConvertToInt()) {
                 throw new ValidationException("Each left item must have integer 'matchId'");
             }
             rightIdsReferenced.add(l.get("matchId").asInt());
+            validateTextOrMedia(l, "Each left item");
         }
 
         // Validate right items: id(int), text(non-empty)
@@ -70,9 +68,7 @@ public class MatchingHandler extends QuestionHandler {
             if (!rightIds.add(id)) {
                 throw new ValidationException("Right item IDs must be unique, duplicate: " + id);
             }
-            if (!r.has("text") || r.get("text").asText().isBlank()) {
-                throw new ValidationException("Each right item needs non-empty 'text'");
-            }
+            validateTextOrMedia(r, "Each right item");
         }
 
         // Ensure all referenced right IDs exist
@@ -109,5 +105,4 @@ public class MatchingHandler extends QuestionHandler {
         return ans;
     }
 }
-
 

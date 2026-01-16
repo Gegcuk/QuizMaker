@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
@@ -60,6 +61,9 @@ class AttemptServiceCurrentQuestionTest {
 
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
+
+    @Mock
+    private QuestionMediaResolver questionMediaResolver;
 
     @InjectMocks
     private AttemptServiceImpl attemptService;
@@ -172,7 +176,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(0L);
         
         // Use a custom answer that returns different DTOs based on the question
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenAnswer(invocation -> {
                     Question question = invocation.getArgument(0);
                     if (question != null && question.getId().equals(question1.getId())) {
@@ -205,7 +209,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(1L);
         
         // Use a custom answer that returns different DTOs based on the question
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenAnswer(invocation -> {
                     Question question = invocation.getArgument(0);
                     if (question != null && question.getId().equals(question1.getId())) {
@@ -302,7 +306,7 @@ class AttemptServiceCurrentQuestionTest {
                 .thenReturn(2L);
         
         // Use a custom answer that returns different DTOs based on the question
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenAnswer(invocation -> {
                     Question question = invocation.getArgument(0);
                     if (question != null && question.getId().equals(question3.getId())) {
@@ -343,7 +347,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(7L); // 7 questions answered, so should return question 8
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenReturn(safeQuestionDto1);
 
         // Act
@@ -375,7 +379,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(0L); // No questions answered
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenReturn(safeQuestionDto1);
 
         // Act
@@ -446,7 +450,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(1L); // 1 question answered, should return second question
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenAnswer(invocation -> {
                     Question question = invocation.getArgument(0);
                     if (question.getId().equals(q2.getId())) {
@@ -474,7 +478,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(0L); // No answers
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenReturn(safeQuestionDto1);
 
         // Act
@@ -496,7 +500,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(1L); // 1 answer, should return second question
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenReturn(safeQuestionDto2);
 
         // Act
@@ -518,7 +522,7 @@ class AttemptServiceCurrentQuestionTest {
         when(answerRepository.countByAttemptId(attemptId))
                 .thenReturn(2L); // 2 answers, should return third question (last)
         
-        when(safeQuestionMapper.toSafeDto(any(Question.class)))
+        when(safeQuestionMapper.toSafeDto(any()))
                 .thenReturn(safeQuestionDto2);
 
         // Act

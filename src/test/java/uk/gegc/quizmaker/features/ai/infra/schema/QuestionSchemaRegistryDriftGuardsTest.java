@@ -194,6 +194,26 @@ class QuestionSchemaRegistryDriftGuardsTest {
         assertThat(statementProps.has("text")).isTrue();
         assertThat(statementProps.has("compliant")).isTrue();
     }
+
+    @Test
+    @DisplayName("AI schema should strip media and require text for MCQ options")
+    void aiSchemaShouldStripMediaForMcqOptions() {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(QuestionType.MCQ_SINGLE);
+        JsonNode optionItem = schema
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content")
+                .get("properties")
+                .get("options")
+                .get("items");
+
+        JsonNode optionProps = optionItem.get("properties");
+        assertThat(optionProps.has("media")).isFalse();
+        assertThat(optionItem.has("anyOf")).isFalse();
+        assertThat(optionItem.get("required").toString()).contains("text");
+    }
     
     @Test
     @DisplayName("FILL_GAP gaps should be array of objects with id/answer, not string array")
@@ -234,4 +254,3 @@ class QuestionSchemaRegistryDriftGuardsTest {
                 .get("properties");
     }
 }
-

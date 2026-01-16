@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
@@ -85,6 +86,8 @@ class AttemptServiceImplReviewTest {
     private SafeQuestionContentBuilder safeQuestionContentBuilder;
     @Mock
     private ObjectMapper objectMapper;
+    @Mock
+    private QuestionMediaResolver questionMediaResolver;
 
     @InjectMocks
     private AttemptServiceImpl service;
@@ -100,6 +103,8 @@ class AttemptServiceImplReviewTest {
     @BeforeEach
     void setUp() {
         realObjectMapper = new ObjectMapper();
+        lenient().when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
 
         // Create test user
         testUser = new User();
@@ -770,4 +775,3 @@ class AttemptServiceImplReviewTest {
         verify(correctAnswerExtractor, times(2)).extractCorrectAnswer(any());
     }
 }
-

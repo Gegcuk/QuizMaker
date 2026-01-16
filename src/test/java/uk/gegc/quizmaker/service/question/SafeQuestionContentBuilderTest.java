@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -70,6 +71,41 @@ class SafeQuestionContentBuilderTest {
         safe.get("right").forEach(n -> rightIds.add(n.get("id").asInt()));
         assertEquals(Set.of(10, 11), rightIds);
     }
+
+    @Test
+    void buildSafeContent_mcq_preservesMediaAssetIdOnly() throws Exception {
+        String assetId = UUID.randomUUID().toString();
+        String raw = """
+                {
+                  "options": [
+                    {"id":"a","text":"A","correct":true,"media":{"assetId":"%s","cdnUrl":"https://cdn/x.png","width":100}},
+                    {"id":"b","text":"B","correct":false}
+                  ]
+                }
+                """.formatted(assetId);
+
+        JsonNode safe = builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw);
+
+        JsonNode option = safe.get("options").get(0);
+        assertTrue(option.has("media"));
+        assertEquals(1, option.get("media").size());
+        assertEquals(assetId, option.get("media").get("assetId").asText());
+    }
+
+    @Test
+    void buildSafeContent_mcq_invalidMediaAssetId_isSkipped() {
+        String raw = """
+                {
+                  "options": [
+                    {"id":"a","text":"A","correct":true,"media":{"assetId":"not-a-uuid"}},
+                    {"id":"b","text":"B","correct":false}
+                  ]
+                }
+                """;
+
+        JsonNode safe = builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw);
+
+        JsonNode option = safe.get("options").get(0);
+        assertFalse(option.has("media"));
+    }
 }
-
-

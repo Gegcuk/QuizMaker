@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
+import java.util.UUID;
 
 public abstract class QuestionHandler {
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,4 +58,33 @@ public abstract class QuestionHandler {
             JsonNode content,
             JsonNode response
     );
+
+    protected void validateTextOrMedia(JsonNode node, String context) {
+        boolean hasText = node != null
+                && node.has("text")
+                && !node.get("text").asText().isBlank();
+        boolean hasMedia = validateMedia(node != null ? node.get("media") : null, context);
+        if (!hasText && !hasMedia) {
+            throw new ValidationException(context + " must have non-empty 'text' or valid 'media.assetId'");
+        }
+    }
+
+    private boolean validateMedia(JsonNode mediaNode, String context) {
+        if (mediaNode == null || mediaNode.isNull()) {
+            return false;
+        }
+        if (!mediaNode.isObject()) {
+            throw new ValidationException(context + " 'media' must be an object");
+        }
+        JsonNode assetIdNode = mediaNode.get("assetId");
+        if (assetIdNode == null || assetIdNode.asText().isBlank()) {
+            throw new ValidationException(context + " 'media.assetId' is required");
+        }
+        try {
+            UUID.fromString(assetIdNode.asText());
+        } catch (IllegalArgumentException ex) {
+            throw new ValidationException(context + " 'media.assetId' must be a valid UUID");
+        }
+        return true;
+    }
 }

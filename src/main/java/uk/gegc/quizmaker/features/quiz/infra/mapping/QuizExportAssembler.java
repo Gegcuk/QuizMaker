@@ -8,10 +8,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,6 +29,7 @@ import java.util.stream.Collectors;
 public class QuizExportAssembler {
 
     private final ObjectMapper objectMapper;
+    private final QuestionMediaResolver questionMediaResolver;
 
     /**
      * Convert a single Quiz entity to export DTO
@@ -109,6 +112,13 @@ public class QuizExportAssembler {
                 || question.getType() == QuestionType.COMPLIANCE) {
             content = shuffleQuestionContent(content, question.getType(), rng);
         }
+
+        content = questionMediaResolver.resolveMediaInContent(content);
+
+        MediaRefDto attachment = questionMediaResolver.resolveAttachment(question.getAttachmentAssetId());
+        if (attachment == null && question.getAttachmentUrl() != null) {
+            attachment = new MediaRefDto(null, question.getAttachmentUrl(), null, null, null, null, null);
+        }
         
         return new QuestionExportDto(
                 question.getId(),
@@ -118,7 +128,8 @@ public class QuizExportAssembler {
                 content,
                 question.getHint(),
                 question.getExplanation(),
-                question.getAttachmentUrl()
+                question.getAttachmentUrl(),
+                attachment
         );
     }
 
@@ -229,4 +240,3 @@ public class QuizExportAssembler {
         return shuffledContent;
     }
 }
-
