@@ -118,7 +118,8 @@ public class QuizExportAssembler {
                 content,
                 question.getHint(),
                 question.getExplanation(),
-                question.getAttachmentUrl()
+                question.getAttachmentUrl(),
+                null
         );
     }
 
@@ -229,4 +230,3 @@ public class QuizExportAssembler {
         return shuffledContent;
     }
 }
-

@@ -963,6 +963,7 @@ public class AttemptServiceImpl implements AttemptService {
                 includeQuestionContext ? question.getQuestionText() : null,
                 includeQuestionContext ? question.getHint() : null,
                 includeQuestionContext ? question.getAttachmentUrl() : null,
+                null,
                 includeCorrectAnswers ? question.getExplanation() : null,
                 questionSafeContent,
                 userResponse,

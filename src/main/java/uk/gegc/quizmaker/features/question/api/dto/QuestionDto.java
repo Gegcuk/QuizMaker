@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Instant;
 import java.util.List;
@@ -39,6 +40,9 @@ public class QuestionDto {
 
     @Schema(description = "Optional explanation text", example = "Because that option matches the criteria")
     private String explanation;
+
+    @Schema(description = "Resolved attachment metadata")
+    private MediaRefDto attachment;
 
     @Schema(description = "Optional attachment URL", example = "http://example.com/diagram.png")
     private String attachmentUrl;

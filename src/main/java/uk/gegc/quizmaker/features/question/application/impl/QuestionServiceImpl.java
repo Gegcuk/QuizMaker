@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -27,6 +28,7 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.util.Collections;
 import java.util.List;
@@ -44,6 +46,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final QuestionHandlerFactory handlerFactory;
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final UserRepository userRepository;
+    private final QuestionMediaResolver questionMediaResolver;
 
     @Override
     public UUID createQuestion(String username, CreateQuestionRequest questionDto) {
@@ -126,7 +129,7 @@ public class QuestionServiceImpl implements QuestionService {
             retrievedPage = questionRepository.findAllByQuizId_IdIn(userQuizIds, page);
         }
 
-        return retrievedPage.map(QuestionMapper::toDto);
+        return retrievedPage.map(question -> enrichQuestionDtoWithMedia(QuestionMapper.toDto(question), question));
     }
 
     @Override
@@ -175,7 +178,7 @@ public class QuestionServiceImpl implements QuestionService {
             throw new ForbiddenException("Access denied: cannot view this question");
         }
 
-        return QuestionMapper.toDto(question);
+        return enrichQuestionDtoWithMedia(QuestionMapper.toDto(question), question);
     }
 
     @Override
@@ -222,7 +225,7 @@ public class QuestionServiceImpl implements QuestionService {
 
         Question updatedQuestion = questionRepository.saveAndFlush(question);
 
-        return QuestionMapper.toDto(updatedQuestion);
+        return enrichQuestionDtoWithMedia(QuestionMapper.toDto(updatedQuestion), updatedQuestion);
     }
 
     @Override
@@ -305,5 +308,26 @@ public class QuestionServiceImpl implements QuestionService {
                 throw new ResourceNotFoundException(entityName + " not found: " + missingIds);
             }
         }
+    }
+
+    private QuestionDto enrichQuestionDtoWithMedia(QuestionDto dto, Question question) {
+        if (dto == null || question == null) {
+            return dto;
+        }
+        MediaRefDto attachment = questionMediaResolver.resolveAttachment(question.getAttachmentAssetId());
+        if (attachment == null && question.getAttachmentUrl() != null) {
+            attachment = new MediaRefDto(
+                    null,
+                    question.getAttachmentUrl(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
+        dto.setAttachment(attachment);
+        dto.setContent(questionMediaResolver.resolveMediaInContent(dto.getContent()));
+        return dto;
     }
 }

@@ -62,6 +62,18 @@ public class UpdateQuestionRequest implements QuestionContentRequest {
     private String attachmentUrl;
 
     @Schema(
+            description = "Optional media asset id for an attachment",
+            example = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    )
+    private UUID attachmentAssetId;
+
+    @Schema(
+            description = "Set to true to clear the attachment, false or null to leave unchanged",
+            example = "false"
+    )
+    private Boolean clearAttachment = false;
+
+    @Schema(
             description = "List of quiz IDs to re-associate this question with",
             example = "[\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"]"
     )
