@@ -1191,6 +1191,7 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
                                         null,
                                         null,
                                         null,
+                                        null,
                                         List.of(quizId),
                                         List.of()
                                 )

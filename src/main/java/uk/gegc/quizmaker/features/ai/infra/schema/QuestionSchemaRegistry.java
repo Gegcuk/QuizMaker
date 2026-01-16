@@ -259,7 +259,7 @@ public class QuestionSchemaRegistry {
      * Schema for MCQ content (options with correctness)
      * Prompt template shows: {"id": "a", "text": "...", "correct": false}
      * Parser validates: text and correct (id is optional but recommended)
-     * 
+     * <p>
      * MCQ_SINGLE: Exactly 4 options (aligned with prompt template requirement)
      * MCQ_MULTI: 4-6 options (flexible for multiple correct answers)
      */
@@ -484,7 +484,7 @@ public class QuestionSchemaRegistry {
 
     private boolean removeMediaAnyOf(ObjectNode obj) {
         JsonNode anyOfNode = obj.get("anyOf");
-        if (!anyOfNode.isArray()) {
+        if (anyOfNode == null || !anyOfNode.isArray()) {
             return false;
         }
 
