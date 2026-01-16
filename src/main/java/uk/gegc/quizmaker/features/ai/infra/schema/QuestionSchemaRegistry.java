@@ -50,6 +50,19 @@ public class QuestionSchemaRegistry {
         log.debug("Generated schema for question type: {}", questionType);
         return schema;
     }
+
+    /**
+     * Get the JSON schema for AI generation (media stripped, text required).
+     *
+     * @param questionType The type of question to generate schema for
+     * @return AI-safe JSON schema as JsonNode
+     */
+    public JsonNode getSchemaForQuestionTypeAi(QuestionType questionType) {
+        JsonNode requestSchema = getSchemaForQuestionType(questionType);
+        ObjectNode aiSchema = toAiSchema(requestSchema);
+        log.debug("Generated AI schema for question type: {}", questionType);
+        return aiSchema;
+    }
     
     /**
      * Get a composite schema that supports multiple question types.
@@ -73,6 +86,18 @@ public class QuestionSchemaRegistry {
         
         log.debug("Generated composite schema for all question types");
         return schema;
+    }
+
+    /**
+     * Get a composite schema for AI generation (media stripped, text required).
+     *
+     * @return AI-safe composite JSON schema
+     */
+    public JsonNode getCompositeSchemaAi() {
+        JsonNode requestSchema = getCompositeSchema();
+        ObjectNode aiSchema = toAiSchema(requestSchema);
+        log.debug("Generated AI composite schema for all question types");
+        return aiSchema;
     }
     
     /**
@@ -271,7 +296,6 @@ public class QuestionSchemaRegistry {
         
         ArrayNode optionRequired = objectMapper.createArrayNode();
         optionRequired.add("id");
-        optionRequired.add("text");
         optionRequired.add("correct");
         optionItem.set("required", optionRequired);
         
@@ -287,6 +311,8 @@ public class QuestionSchemaRegistry {
         optionText.put("type", "string");
         optionText.put("description", "Option text");
         optionProps.set("text", optionText);
+
+        optionProps.set("media", createMediaSchema());
         
         ObjectNode optionCorrect = objectMapper.createObjectNode();
         optionCorrect.put("type", "boolean");
@@ -294,6 +320,7 @@ public class QuestionSchemaRegistry {
         optionProps.set("correct", optionCorrect);
         
         optionItem.set("properties", optionProps);
+        optionItem.set("anyOf", createTextOrMediaAnyOf());
         options.set("items", optionItem);
         
         properties.set("options", options);
@@ -407,6 +434,151 @@ public class QuestionSchemaRegistry {
         content.set("properties", properties);
         return content;
     }
+
+    private ObjectNode toAiSchema(JsonNode requestSchema) {
+        if (!(requestSchema instanceof ObjectNode requestObject)) {
+            log.warn("Expected ObjectNode for request schema, got: {}", requestSchema == null ? "null" : requestSchema.getNodeType());
+            return objectMapper.createObjectNode();
+        }
+
+        ObjectNode aiSchema = requestObject.deepCopy();
+        stripMediaFromSchema(aiSchema);
+        return aiSchema;
+    }
+
+    private void stripMediaFromSchema(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+
+        if (node.isObject()) {
+            ObjectNode obj = (ObjectNode) node;
+
+            boolean removedMedia = removeMediaFromProperties(obj);
+            boolean removedAnyOf = removeMediaAnyOf(obj);
+            removeRequiredField(obj, "media");
+
+            if (removedMedia || removedAnyOf) {
+                ensureTextRequired(obj);
+            }
+
+            obj.fields().forEachRemaining(entry -> stripMediaFromSchema(entry.getValue()));
+            return;
+        }
+
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                stripMediaFromSchema(item);
+            }
+        }
+    }
+
+    private boolean removeMediaFromProperties(ObjectNode obj) {
+        JsonNode propertiesNode = obj.get("properties");
+        if (propertiesNode instanceof ObjectNode properties && properties.has("media")) {
+            properties.remove("media");
+            return true;
+        }
+        return false;
+    }
+
+    private boolean removeMediaAnyOf(ObjectNode obj) {
+        JsonNode anyOfNode = obj.get("anyOf");
+        if (!anyOfNode.isArray()) {
+            return false;
+        }
+
+        for (JsonNode anyOfItem : anyOfNode) {
+            JsonNode required = anyOfItem.get("required");
+            if (required != null && required.isArray()) {
+                for (JsonNode req : required) {
+                    if ("media".equals(req.asText())) {
+                        obj.remove("anyOf");
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void removeRequiredField(ObjectNode obj, String fieldName) {
+        JsonNode requiredNode = obj.get("required");
+        if (requiredNode == null || !requiredNode.isArray()) {
+            return;
+        }
+
+        ArrayNode required = (ArrayNode) requiredNode;
+        for (int i = required.size() - 1; i >= 0; i--) {
+            if (fieldName.equals(required.get(i).asText())) {
+                required.remove(i);
+            }
+        }
+    }
+
+    private void ensureTextRequired(ObjectNode obj) {
+        JsonNode propertiesNode = obj.get("properties");
+        if (!(propertiesNode instanceof ObjectNode properties) || !properties.has("text")) {
+            return;
+        }
+
+        ArrayNode required;
+        JsonNode requiredNode = obj.get("required");
+        if (requiredNode instanceof ArrayNode arrayNode) {
+            required = arrayNode;
+        } else {
+            required = objectMapper.createArrayNode();
+            obj.set("required", required);
+        }
+
+        for (JsonNode req : required) {
+            if ("text".equals(req.asText())) {
+                return;
+            }
+        }
+
+        required.add("text");
+    }
+
+    private ObjectNode createMediaSchema() {
+        ObjectNode media = objectMapper.createObjectNode();
+        media.put("type", "object");
+        media.put("description", "Optional media reference (human-provided only, not AI-generated). Responses may include additional resolved fields.");
+        media.put("additionalProperties", false);
+
+        ArrayNode required = objectMapper.createArrayNode();
+        required.add("assetId");
+        media.set("required", required);
+
+        ObjectNode properties = objectMapper.createObjectNode();
+        ObjectNode assetId = objectMapper.createObjectNode();
+        assetId.put("type", "string");
+        assetId.put("format", "uuid");
+        assetId.put("description", "Media asset identifier (must reference an existing, ready image asset uploaded via media library)");
+        properties.set("assetId", assetId);
+        media.set("properties", properties);
+
+        return media;
+    }
+
+    private ArrayNode createTextOrMediaAnyOf() {
+        ArrayNode anyOf = objectMapper.createArrayNode();
+
+        ObjectNode textRequired = objectMapper.createObjectNode();
+        ArrayNode textRequiredFields = objectMapper.createArrayNode();
+        textRequiredFields.add("text");
+        textRequired.set("required", textRequiredFields);
+        anyOf.add(textRequired);
+
+        ObjectNode mediaRequired = objectMapper.createObjectNode();
+        ArrayNode mediaRequiredFields = objectMapper.createArrayNode();
+        mediaRequiredFields.add("media");
+        mediaRequired.set("required", mediaRequiredFields);
+        anyOf.add(mediaRequired);
+
+        return anyOf;
+    }
     
     /**
      * Schema for ORDERING content
@@ -437,7 +609,6 @@ public class QuestionSchemaRegistry {
         
         ArrayNode itemRequired = objectMapper.createArrayNode();
         itemRequired.add("id");
-        itemRequired.add("text");
         itemSchema.set("required", itemRequired);
         
         ObjectNode itemProps = objectMapper.createObjectNode();
@@ -454,8 +625,11 @@ public class QuestionSchemaRegistry {
         itemText.put("minLength", 5);
         itemText.put("maxLength", 200);
         itemProps.set("text", itemText);
+
+        itemProps.set("media", createMediaSchema());
         
         itemSchema.set("properties", itemProps);
+        itemSchema.set("anyOf", createTextOrMediaAnyOf());
         items.set("items", itemSchema);
         
         properties.set("items", items);
@@ -492,7 +666,6 @@ public class QuestionSchemaRegistry {
         
         ArrayNode leftRequired = objectMapper.createArrayNode();
         leftRequired.add("id");
-        leftRequired.add("text");
         leftRequired.add("matchId");
         leftItem.set("required", leftRequired);
         
@@ -507,6 +680,8 @@ public class QuestionSchemaRegistry {
         leftText.put("type", "string");
         leftText.put("description", "Text content of left item");
         leftProps.set("text", leftText);
+
+        leftProps.set("media", createMediaSchema());
         
         ObjectNode matchId = objectMapper.createObjectNode();
         matchId.put("type", "integer");
@@ -514,6 +689,7 @@ public class QuestionSchemaRegistry {
         leftProps.set("matchId", matchId);
         
         leftItem.set("properties", leftProps);
+        leftItem.set("anyOf", createTextOrMediaAnyOf());
         left.set("items", leftItem);
         properties.set("left", left);
         
@@ -529,7 +705,6 @@ public class QuestionSchemaRegistry {
         
         ArrayNode rightRequired = objectMapper.createArrayNode();
         rightRequired.add("id");
-        rightRequired.add("text");
         rightItem.set("required", rightRequired);
         
         ObjectNode rightProps = objectMapper.createObjectNode();
@@ -543,8 +718,11 @@ public class QuestionSchemaRegistry {
         rightText.put("type", "string");
         rightText.put("description", "Text content of right item");
         rightProps.set("text", rightText);
+
+        rightProps.set("media", createMediaSchema());
         
         rightItem.set("properties", rightProps);
+        rightItem.set("anyOf", createTextOrMediaAnyOf());
         right.set("items", rightItem);
         properties.set("right", right);
         
@@ -663,7 +841,6 @@ public class QuestionSchemaRegistry {
         
         ArrayNode statementRequired = objectMapper.createArrayNode();
         statementRequired.add("id");
-        statementRequired.add("text");
         statementRequired.add("compliant");
         statementItem.set("required", statementRequired);
         
@@ -678,6 +855,8 @@ public class QuestionSchemaRegistry {
         text.put("type", "string");
         text.put("description", "The compliance statement or action");
         statementProps.set("text", text);
+
+        statementProps.set("media", createMediaSchema());
         
         ObjectNode compliant = objectMapper.createObjectNode();
         compliant.put("type", "boolean");
@@ -685,6 +864,7 @@ public class QuestionSchemaRegistry {
         statementProps.set("compliant", compliant);
         
         statementItem.set("properties", statementProps);
+        statementItem.set("anyOf", createTextOrMediaAnyOf());
         statements.set("items", statementItem);
         
         properties.set("statements", statements);

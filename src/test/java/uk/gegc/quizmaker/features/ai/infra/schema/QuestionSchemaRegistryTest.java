@@ -194,6 +194,31 @@ class QuestionSchemaRegistryTest {
         assertThat(optionProps.has("correct")).isTrue();
         assertThat(optionProps.get("correct").get("type").asText()).isEqualTo("boolean");
     }
+
+    @Test
+    void shouldIncludeMediaSchemaAndAnyOfForMcqOptions() {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.MCQ_SINGLE);
+        JsonNode optionItem = extractMcqOptionItemSchema(schema);
+
+        JsonNode optionProps = optionItem.get("properties");
+        assertThat(optionProps.has("media")).isTrue();
+        assertThat(optionProps.get("media").get("required").toString()).contains("assetId");
+        assertThat(optionProps.get("media").get("additionalProperties").asBoolean()).isFalse();
+
+        assertThat(optionItem.has("anyOf")).isTrue();
+        assertThat(optionItem.get("anyOf").toString()).contains("text", "media");
+    }
+
+    @Test
+    void shouldGenerateAiSchemaWithoutMediaForMcqOptions() {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(QuestionType.MCQ_SINGLE);
+        JsonNode optionItem = extractMcqOptionItemSchema(schema);
+
+        JsonNode optionProps = optionItem.get("properties");
+        assertThat(optionProps.has("media")).isFalse();
+        assertThat(optionItem.has("anyOf")).isFalse();
+        assertThat(optionItem.get("required").toString()).contains("text");
+    }
     
     @Test
     void shouldGenerateOpenQuestionSchemaWithAnswer() {
@@ -285,5 +310,16 @@ class QuestionSchemaRegistryTest {
                 .get("content")
                 .get("properties");
     }
-}
 
+    private JsonNode extractMcqOptionItemSchema(JsonNode fullSchema) {
+        return fullSchema
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content")
+                .get("properties")
+                .get("options")
+                .get("items");
+    }
+}

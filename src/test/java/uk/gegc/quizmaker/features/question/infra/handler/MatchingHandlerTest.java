@@ -55,6 +55,39 @@ class MatchingHandlerTest {
     }
 
     @Test
+    void validate_mediaOnlyItems_ok() throws Exception {
+        String assetId = UUID.randomUUID().toString();
+        JsonNode content = mapper.readTree("""
+                {
+                  "left": [
+                    {"id":1,"media":{"assetId":"%s"},"matchId":10},
+                    {"id":2,"text":"Banana","matchId":11}
+                  ],
+                  "right": [
+                    {"id":10,"media":{"assetId":"%s"}},
+                    {"id":11,"text":"Yellow"}
+                  ]
+                }
+                """.formatted(assetId, assetId));
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(content)));
+    }
+
+    @Test
+    void validate_invalidMediaAssetId_throws() throws Exception {
+        JsonNode content = mapper.readTree("""
+                {
+                  "left": [
+                    {"id":1,"media":{"assetId":"not-a-uuid"},"matchId":10}
+                  ],
+                  "right": [
+                    {"id":10,"text":"Red"}
+                  ]
+                }
+                """);
+        assertThrows(ValidationException.class, () -> handler.validateContent(new FakeReq(content)));
+    }
+
+    @Test
     void validate_missingRightReference_throws() throws Exception {
         JsonNode content = mapper.readTree("""
                 {
@@ -120,5 +153,4 @@ class MatchingHandlerTest {
         public JsonNode getContent() { return content; }
     }
 }
-
 

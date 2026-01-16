@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuestionExportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -22,6 +23,9 @@ import java.time.Instant;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
 @DisplayName("QuizExportAssembler Tests")
@@ -29,11 +33,15 @@ class QuizExportAssemblerTest {
 
     private QuizExportAssembler assembler;
     private ObjectMapper objectMapper;
+    private QuestionMediaResolver questionMediaResolver;
 
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        assembler = new QuizExportAssembler(objectMapper);
+        questionMediaResolver = mock(QuestionMediaResolver.class);
+        when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
+        assembler = new QuizExportAssembler(objectMapper, questionMediaResolver);
     }
 
     @Test

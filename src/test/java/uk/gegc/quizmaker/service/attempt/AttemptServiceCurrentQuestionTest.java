@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
@@ -60,6 +61,9 @@ class AttemptServiceCurrentQuestionTest {
 
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
+
+    @Mock
+    private QuestionMediaResolver questionMediaResolver;
 
     @InjectMocks
     private AttemptServiceImpl attemptService;

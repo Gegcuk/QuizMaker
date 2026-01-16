@@ -190,8 +190,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 request.getLanguage()
         );
         
-        // Get JSON schema for this question type
-        JsonNode schema = schemaRegistry.getSchemaForQuestionType(request.getQuestionType());
+        // Get AI-safe JSON schema for this question type (media stripped)
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(request.getQuestionType());
         
         // Build system message with structured output instructions (schema enforced server-side)
         String systemPrompt = promptTemplateService.buildSystemPrompt();

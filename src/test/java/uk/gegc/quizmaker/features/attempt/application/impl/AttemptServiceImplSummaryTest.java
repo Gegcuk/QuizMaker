@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -80,6 +81,8 @@ class AttemptServiceImplSummaryTest {
     private ScoringService scoringService;
     @Mock
     private SafeQuestionMapper safeQuestionMapper;
+    @Mock
+    private QuestionMediaResolver questionMediaResolver;
     @Mock
     private ShareLinkRepository shareLinkRepository;
     @Mock
@@ -450,4 +453,3 @@ class AttemptServiceImplSummaryTest {
         );
     }
 }
-

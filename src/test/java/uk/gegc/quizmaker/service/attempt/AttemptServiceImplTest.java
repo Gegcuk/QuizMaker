@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
+import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.question.infra.mapping.SafeQuestionMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -69,6 +70,8 @@ class AttemptServiceImplTest {
     ScoringService scoringService;
     @Mock
     SafeQuestionMapper safeQuestionMapper;
+    @Mock
+    QuestionMediaResolver questionMediaResolver;
     @Mock
     AppPermissionEvaluator appPermissionEvaluator;
 
