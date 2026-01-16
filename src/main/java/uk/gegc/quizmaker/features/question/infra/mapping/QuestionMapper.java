@@ -69,6 +69,7 @@ public class QuestionMapper {
         question.setHint(req.getHint());
         question.setExplanation(req.getExplanation());
         question.setAttachmentUrl(req.getAttachmentUrl());
+        question.setAttachmentAssetId(req.getAttachmentAssetId());
         question.setQuizId(quizzes);
         question.setTags(tags);
         return question;
@@ -96,8 +97,16 @@ public class QuestionMapper {
         if (req.getExplanation() != null) {
             question.setExplanation(req.getExplanation());
         }
-        if (req.getAttachmentUrl() != null) {
-            question.setAttachmentUrl(req.getAttachmentUrl());
+        if (Boolean.TRUE.equals(req.getClearAttachment())) {
+            question.setAttachmentAssetId(null);
+            question.setAttachmentUrl(null);
+        } else {
+            if (req.getAttachmentAssetId() != null) {
+                question.setAttachmentAssetId(req.getAttachmentAssetId());
+            }
+            if (req.getAttachmentUrl() != null) {
+                question.setAttachmentUrl(req.getAttachmentUrl());
+            }
         }
         if (quizzes != null) {
             question.getQuizId().clear();

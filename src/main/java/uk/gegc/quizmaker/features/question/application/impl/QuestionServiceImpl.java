@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.question.application.impl;
 
 import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -24,13 +25,16 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.dto.MediaRefDto;
+import uk.gegc.quizmaker.features.media.application.MediaAssetService;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -47,6 +51,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final UserRepository userRepository;
     private final QuestionMediaResolver questionMediaResolver;
+    private final MediaAssetService mediaAssetService;
 
     @Override
     public UUID createQuestion(String username, CreateQuestionRequest questionDto) {
@@ -56,6 +61,9 @@ public class QuestionServiceImpl implements QuestionService {
 
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
         questionHandler.validateContent(questionDto);
+
+        validateAttachmentAsset(questionDto.getAttachmentAssetId(), username);
+        validateMediaInContent(questionDto.getContent(), username);
 
         List<Quiz> quizzes = loadQuizzesByIds(questionDto.getQuizIds());
         
@@ -202,6 +210,11 @@ public class QuestionServiceImpl implements QuestionService {
             }
         }
 
+        if (!Boolean.TRUE.equals(request.getClearAttachment())) {
+            validateAttachmentAsset(request.getAttachmentAssetId(), username);
+        }
+        validateMediaInContent(request.getContent(), username);
+
         List<Quiz> quizzes = (request.getQuizIds() == null)
                 ? null
                 : loadQuizzesByIds(request.getQuizIds());
@@ -329,5 +342,54 @@ public class QuestionServiceImpl implements QuestionService {
         dto.setAttachment(attachment);
         dto.setContent(questionMediaResolver.resolveMediaInContent(dto.getContent()));
         return dto;
+    }
+
+    private void validateAttachmentAsset(UUID assetId, String username) {
+        if (assetId == null) {
+            return;
+        }
+        try {
+            mediaAssetService.getByIdForValidation(assetId, username);
+        } catch (ResourceNotFoundException | ForbiddenException | ValidationException ex) {
+            throw new ValidationException(ex.getMessage());
+        }
+    }
+
+    private void validateMediaInContent(JsonNode content, String username) {
+        if (content == null) {
+            return;
+        }
+        Set<UUID> seen = new HashSet<>();
+        validateMediaNode(content, username, seen);
+    }
+
+    private void validateMediaNode(JsonNode node, String username, Set<UUID> seen) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            JsonNode mediaNode = node.get("media");
+            if (mediaNode != null && mediaNode.isObject()) {
+                JsonNode assetIdNode = mediaNode.get("assetId");
+                if (assetIdNode != null && assetIdNode.isTextual()) {
+                    String raw = assetIdNode.asText();
+                    try {
+                        UUID assetId = UUID.fromString(raw);
+                        if (seen.add(assetId)) {
+                            validateAttachmentAsset(assetId, username);
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        throw new ValidationException("Invalid media assetId: " + raw);
+                    }
+                }
+            }
+            node.fields().forEachRemaining(entry -> validateMediaNode(entry.getValue(), username, seen));
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                validateMediaNode(item, username, seen);
+            }
+        }
     }
 }

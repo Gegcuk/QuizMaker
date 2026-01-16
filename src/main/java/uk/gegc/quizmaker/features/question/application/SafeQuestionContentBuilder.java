@@ -11,6 +11,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 public class SafeQuestionContentBuilder {
@@ -64,7 +65,11 @@ public class SafeQuestionContentBuilder {
         root.get("options").forEach(option -> {
             ObjectNode safeOption = MAPPER.createObjectNode();
             safeOption.put("id", option.get("id").asText());
-            safeOption.put("text", option.get("text").asText());
+            JsonNode textNode = option.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                safeOption.put("text", textNode.asText());
+            }
+            copyMediaAssetId(safeOption, option);
             // 🔒 Deliberately omit "correct" field
             options.add(safeOption);
         });
@@ -106,7 +111,11 @@ public class SafeQuestionContentBuilder {
         root.get("statements").forEach(stmt -> {
             ObjectNode safeStmt = MAPPER.createObjectNode();
             safeStmt.put("id", stmt.get("id").asInt());
-            safeStmt.put("text", stmt.get("text").asText());
+            JsonNode textNode = stmt.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                safeStmt.put("text", textNode.asText());
+            }
+            copyMediaAssetId(safeStmt, stmt);
             // 🔒 Deliberately omit "compliant" field
             statements.add(safeStmt);
         });
@@ -150,7 +159,11 @@ public class SafeQuestionContentBuilder {
         itemList.forEach(item -> {
             ObjectNode safeItem = MAPPER.createObjectNode();
             safeItem.put("id", item.get("id").asInt());
-            safeItem.put("text", item.get("text").asText());
+            JsonNode textNode = item.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                safeItem.put("text", textNode.asText());
+            }
+            copyMediaAssetId(safeItem, item);
             items.add(safeItem);
         });
 
@@ -167,7 +180,11 @@ public class SafeQuestionContentBuilder {
         root.withArray("left").forEach(node -> {
             ObjectNode safeLeft = MAPPER.createObjectNode();
             safeLeft.put("id", node.get("id").asInt());
-            safeLeft.put("text", node.get("text").asText());
+            JsonNode textNode = node.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                safeLeft.put("text", textNode.asText());
+            }
+            copyMediaAssetId(safeLeft, node);
             left.add(safeLeft);
         });
 
@@ -180,7 +197,11 @@ public class SafeQuestionContentBuilder {
         rightList.forEach(node -> {
             ObjectNode safeRight = MAPPER.createObjectNode();
             safeRight.put("id", node.get("id").asInt());
-            safeRight.put("text", node.get("text").asText());
+            JsonNode textNode = node.get("text");
+            if (textNode != null && !textNode.isNull()) {
+                safeRight.put("text", textNode.asText());
+            }
+            copyMediaAssetId(safeRight, node);
             // omit mapping/answer fields
             right.add(safeRight);
         });
@@ -189,4 +210,27 @@ public class SafeQuestionContentBuilder {
         safe.set("right", right);
         return safe;
     }
-} 
+
+    private void copyMediaAssetId(ObjectNode target, JsonNode source) {
+        if (source == null || target == null || !source.isObject()) {
+            return;
+        }
+        JsonNode mediaNode = source.get("media");
+        if (mediaNode == null || !mediaNode.isObject()) {
+            return;
+        }
+        JsonNode assetIdNode = mediaNode.get("assetId");
+        if (assetIdNode == null || !assetIdNode.isTextual()) {
+            return;
+        }
+        String assetIdRaw = assetIdNode.asText();
+        try {
+            UUID.fromString(assetIdRaw);
+        } catch (IllegalArgumentException ex) {
+            return;
+        }
+        ObjectNode safeMedia = MAPPER.createObjectNode();
+        safeMedia.put("assetId", assetIdRaw);
+        target.set("media", safeMedia);
+    }
+}
