@@ -2,6 +2,8 @@ package uk.gegc.quizmaker.features.question.application.impl;
 
 import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
@@ -62,8 +64,9 @@ public class QuestionServiceImpl implements QuestionService {
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
         questionHandler.validateContent(questionDto);
 
+        JsonNode sanitizedContent = sanitizeMediaForStorage(questionDto.getContent());
         validateAttachmentAsset(questionDto.getAttachmentAssetId(), username);
-        validateMediaInContent(questionDto.getContent(), username);
+        validateMediaInContent(sanitizedContent, username);
 
         List<Quiz> quizzes = loadQuizzesByIds(questionDto.getQuizIds());
         
@@ -79,6 +82,9 @@ public class QuestionServiceImpl implements QuestionService {
         List<Tag> tags = loadTagsByIds(questionDto.getTagIds());
 
         Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
+        if (sanitizedContent != null) {
+            question.setContent(sanitizedContent.toString());
+        }
         questionRepository.save(question);
 
         return question.getId();
@@ -210,10 +216,11 @@ public class QuestionServiceImpl implements QuestionService {
             }
         }
 
+        JsonNode sanitizedContent = sanitizeMediaForStorage(request.getContent());
         if (!Boolean.TRUE.equals(request.getClearAttachment())) {
             validateAttachmentAsset(request.getAttachmentAssetId(), username);
         }
-        validateMediaInContent(request.getContent(), username);
+        validateMediaInContent(sanitizedContent, username);
 
         List<Quiz> quizzes = (request.getQuizIds() == null)
                 ? null
@@ -235,6 +242,9 @@ public class QuestionServiceImpl implements QuestionService {
                 : loadTagsByIds(request.getTagIds());
 
         QuestionMapper.updateEntity(question, request, quizzes, tags);
+        if (sanitizedContent != null) {
+            question.setContent(sanitizedContent.toString());
+        }
 
         Question updatedQuestion = questionRepository.saveAndFlush(question);
 
@@ -389,6 +399,46 @@ public class QuestionServiceImpl implements QuestionService {
         if (node.isArray()) {
             for (JsonNode item : node) {
                 validateMediaNode(item, username, seen);
+            }
+        }
+    }
+
+    private JsonNode sanitizeMediaForStorage(JsonNode content) {
+        if (content == null) {
+            return null;
+        }
+        JsonNode copy = content.deepCopy();
+        stripMediaFields(copy);
+        return copy;
+    }
+
+    private void stripMediaFields(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node.isObject()) {
+            ObjectNode obj = (ObjectNode) node;
+            JsonNode mediaNode = obj.get("media");
+            if (mediaNode != null) {
+                if (mediaNode.isObject()) {
+                    JsonNode assetIdNode = mediaNode.get("assetId");
+                    if (assetIdNode != null && assetIdNode.isTextual() && !assetIdNode.asText().isBlank()) {
+                        ObjectNode cleanMedia = JsonNodeFactory.instance.objectNode();
+                        cleanMedia.put("assetId", assetIdNode.asText());
+                        obj.set("media", cleanMedia);
+                    } else {
+                        obj.remove("media");
+                    }
+                } else {
+                    obj.remove("media");
+                }
+            }
+            obj.fields().forEachRemaining(entry -> stripMediaFields(entry.getValue()));
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                stripMediaFields(item);
             }
         }
     }
