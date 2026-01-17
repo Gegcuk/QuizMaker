@@ -1,11 +1,17 @@
 package uk.gegc.quizmaker.features.quiz.application.validation;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import uk.gegc.quizmaker.BaseUnitTest;
+import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
+import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuestionImportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportDto;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizImportOptions;
@@ -14,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.UnsupportedQuestionTypeException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
 
@@ -26,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("QuizImportValidationService")
@@ -33,6 +42,8 @@ class QuizImportValidationServiceImplTest extends BaseUnitTest {
 
     @Mock
     QuestionHandlerFactory questionHandlerFactory;
+    @Mock
+    QuestionHandler questionHandler;
     @Mock
     UserRepository userRepository;
     @Mock
@@ -171,6 +182,179 @@ class QuizImportValidationServiceImplTest extends BaseUnitTest {
         QuizImportDto quiz = quizWithEstimatedTime(1);
 
         assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects null question type")
+    void validateQuestion_nullType_throwsException() {
+        QuestionImportDto question = questionWithType(null);
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question type is required");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects invalid question type")
+    void validateQuestion_invalidType_throwsException() {
+        QuestionImportDto question = questionWithType(QuestionType.MCQ_SINGLE);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE)))
+                .thenThrow(new UnsupportedOperationException("No handler for type MCQ_SINGLE"));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("No handler for type");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects HOTSPOT question type")
+    void validateQuestion_hotspotType_throwsException() {
+        QuestionImportDto question = questionWithType(QuestionType.HOTSPOT);
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(UnsupportedQuestionTypeException.class)
+                .hasMessageContaining("HOTSPOT");
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts valid question type")
+    void validateQuestion_validType_passes() {
+        QuestionImportDto question = questionWithType(QuestionType.MCQ_SINGLE);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects question text that is too short")
+    void validateQuestion_textTooShort_throwsException() {
+        QuestionImportDto question = questionWithText("ab");
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question text must be between");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects question text that is too long")
+    void validateQuestion_textTooLong_throwsException() {
+        QuestionImportDto question = questionWithText("a".repeat(1001));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question text must be between");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects null question text")
+    void validateQuestion_textNull_throwsException() {
+        QuestionImportDto question = questionWithText(null);
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question text is required");
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts valid question text")
+    void validateQuestion_textValid_passes() {
+        QuestionImportDto question = questionWithText("Valid question text");
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects null difficulty")
+    void validateQuestion_nullDifficulty_throwsException() {
+        QuestionImportDto question = questionWithDifficulty(null);
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question difficulty is required");
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts valid difficulty")
+    void validateQuestion_validDifficulty_passes() {
+        QuestionImportDto question = questionWithDifficulty(Difficulty.MEDIUM);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects null content")
+    void validateQuestion_nullContent_throwsException() {
+        QuestionImportDto question = questionWithContent(null);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+        doThrow(new ValidationException("Question content is required"))
+                .when(questionHandler)
+                .validateContent(eq(new EntityQuestionContentRequest(QuestionType.MCQ_SINGLE, null)));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question content is required");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects invalid content")
+    void validateQuestion_invalidContent_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode().put("invalid", true);
+        QuestionImportDto question = questionWithContent(content);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+        doThrow(new ValidationException("Invalid content"))
+                .when(questionHandler)
+                .validateContent(eq(new EntityQuestionContentRequest(QuestionType.MCQ_SINGLE, content)));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Invalid content");
+    }
+
+    @Test
+    @DisplayName("validateQuestion delegates content validation to handler")
+    void validateQuestion_delegatesToHandler() {
+        JsonNode content = JsonNodeFactory.instance.objectNode().put("key", "value");
+        QuestionImportDto question = questionWithContent(content);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        service.validateQuestion(question, "user");
+
+        verify(questionHandler).validateContent(eq(new EntityQuestionContentRequest(QuestionType.MCQ_SINGLE, content)));
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects attachmentUrl with invalid host")
+    void validateQuestion_invalidAttachmentUrlHost_throwsException() {
+        QuestionImportDto question = questionWithAttachmentUrl("https://example.com/file.png");
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must use host");
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts valid attachmentUrl")
+    void validateQuestion_validAttachmentUrl_passes() {
+        QuestionImportDto question = questionWithAttachmentUrl("https://cdn.quizzence.com/file.png");
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion allows null attachmentUrl")
+    void validateQuestion_nullAttachmentUrl_passes() {
+        QuestionImportDto question = questionWithAttachmentUrl(null);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
                 .doesNotThrowAnyException();
     }
 
@@ -475,5 +659,93 @@ class QuizImportValidationServiceImplTest extends BaseUnitTest {
         User user = new User();
         user.setUsername(username);
         return user;
+    }
+
+    private QuestionImportDto minimalQuestion() {
+        return new QuestionImportDto(
+                null,
+                QuestionType.MCQ_SINGLE,
+                Difficulty.EASY,
+                "Valid question text",
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    private QuestionImportDto questionWithType(QuestionType type) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                type,
+                base.difficulty(),
+                base.questionText(),
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                base.attachmentUrl(),
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto questionWithText(String questionText) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                base.difficulty(),
+                questionText,
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                base.attachmentUrl(),
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto questionWithDifficulty(Difficulty difficulty) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                difficulty,
+                base.questionText(),
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                base.attachmentUrl(),
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto questionWithContent(JsonNode content) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                base.difficulty(),
+                base.questionText(),
+                content,
+                base.hint(),
+                base.explanation(),
+                base.attachmentUrl(),
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto questionWithAttachmentUrl(String attachmentUrl) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                base.difficulty(),
+                base.questionText(),
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                attachmentUrl,
+                base.attachment()
+        );
     }
 }
