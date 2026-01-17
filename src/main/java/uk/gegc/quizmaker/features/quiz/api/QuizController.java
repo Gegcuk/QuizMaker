@@ -46,6 +46,7 @@ import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.ImportSummaryDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
+import uk.gegc.quizmaker.features.quiz.config.QuizImportProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
@@ -98,8 +99,7 @@ public class QuizController {
     private final QuizExportService quizExportService;
     private final ExportMediaTypeResolver exportMediaTypeResolver;
     private final QuizImportService quizImportService;
-
-    private static final int DEFAULT_MAX_IMPORT_ITEMS = 1000;
+    private final QuizImportProperties quizImportProperties;
 
     @Operation(
             summary = "Create a new quiz",
@@ -1188,14 +1188,15 @@ public class QuizController {
 
         validateImportFormat(request.format());
 
-        rateLimitService.checkRateLimit("quizzes-import", authentication.getName(), 10);
+        rateLimitService.checkRateLimit("quizzes-import", authentication.getName(),
+                quizImportProperties.getRateLimitPerMinute());
 
         QuizImportOptions options = new QuizImportOptions(
                 request.strategy(),
                 request.dryRun(),
                 request.autoCreateTags(),
                 request.autoCreateCategory(),
-                DEFAULT_MAX_IMPORT_ITEMS
+                quizImportProperties.getMaxItems()
         );
 
         try (var input = request.file().getInputStream()) {
