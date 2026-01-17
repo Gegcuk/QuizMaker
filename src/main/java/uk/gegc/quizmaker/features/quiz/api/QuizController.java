@@ -42,11 +42,16 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.*;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
+import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
+import uk.gegc.quizmaker.features.quiz.api.dto.imports.ImportSummaryDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.export.QuizExportFilter;
+import uk.gegc.quizmaker.features.quiz.domain.model.ExportFormat;
 import uk.gegc.quizmaker.features.quiz.domain.model.export.ExportFile;
 import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizImportOptions;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -59,9 +64,11 @@ import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +97,9 @@ public class QuizController {
     private final UserRepository userRepository;
     private final QuizExportService quizExportService;
     private final ExportMediaTypeResolver exportMediaTypeResolver;
+    private final QuizImportService quizImportService;
+
+    private static final int DEFAULT_MAX_IMPORT_ITEMS = 1000;
 
     @Operation(
             summary = "Create a new quiz",
@@ -1140,5 +1150,68 @@ public class QuizController {
                 .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(request.format())))
                 .header("Content-Disposition", "attachment; filename=\"" + exportFile.filename() + "\"")
                 .body(resource);
+    }
+
+    @Operation(
+            summary = "Import quizzes",
+            description = "Import quizzes from JSON_EDITABLE or XLSX_EDITABLE exports. Requires QUIZ_CREATE permission.",
+            security = @SecurityRequirement(name = "bearerAuth"),
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = "multipart/form-data",
+                            schema = @Schema(implementation = QuizImportRequest.class)
+                    )
+            ),
+            responses = {
+                    @ApiResponse(responseCode = "200", description = "Import completed",
+                            content = @Content(schema = @Schema(implementation = ImportSummaryDto.class))),
+                    @ApiResponse(responseCode = "400", description = "Validation failure",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "401", description = "Unauthenticated",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "403", description = "Forbidden",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+                    @ApiResponse(responseCode = "413", description = "Import file too large",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            }
+    )
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @RequirePermission(PermissionName.QUIZ_CREATE)
+    public ResponseEntity<ImportSummaryDto> importQuizzes(
+            @ModelAttribute @Valid QuizImportRequest request,
+            Authentication authentication
+    ) {
+        if (request.file() == null || request.file().isEmpty()) {
+            throw new ValidationException("Import file is required");
+        }
+
+        validateImportFormat(request.format());
+
+        rateLimitService.checkRateLimit("quizzes-import", authentication.getName(), 10);
+
+        QuizImportOptions options = new QuizImportOptions(
+                request.strategy(),
+                request.dryRun(),
+                request.autoCreateTags(),
+                request.autoCreateCategory(),
+                DEFAULT_MAX_IMPORT_ITEMS
+        );
+
+        try (var input = request.file().getInputStream()) {
+            ImportSummaryDto summary = quizImportService.importQuizzes(input, request.format(), options, authentication);
+            return ResponseEntity.ok(summary);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to read import file", ex);
+        }
+    }
+
+    private void validateImportFormat(ExportFormat format) {
+        if (format == null) {
+            throw new ValidationException("Import format is required");
+        }
+        if (format != ExportFormat.JSON_EDITABLE && format != ExportFormat.XLSX_EDITABLE) {
+            throw new ValidationException("Import format must be JSON_EDITABLE or XLSX_EDITABLE");
+        }
     }
 }
