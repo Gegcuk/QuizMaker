@@ -574,6 +574,365 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsString("title")));
     }
 
+    @Test
+    @DisplayName("importQuizzes: invalid JSON returns 400")
+    void importQuizzes_invalidJson_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "quizzes.json",
+                MediaType.APPLICATION_JSON_VALUE,
+                "invalid json content {".getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid XLSX returns 400")
+    void importQuizzes_invalidXlsx_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "quizzes.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "invalid xlsx content".getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "XLSX_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: missing XLSX sheets returns 400")
+    void importQuizzes_missingSheets_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create workbook without required "Quizzes" sheet
+        Workbook workbook = new XSSFWorkbook();
+        workbook.createSheet("OtherSheet"); // Wrong sheet name
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false);
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid quiz returns summary with errors")
+    void importQuizzes_invalidQuiz_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create invalid quiz - description too long
+        QuizImportDto invalidQuiz = new QuizImportDto(
+                null,
+                null,
+                "Valid Title",
+                "x".repeat(1001), // Description too long (max 1000 characters)
+                Visibility.PRIVATE,
+                Difficulty.EASY,
+                10,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null
+        );
+
+        ResultActions result = performImport(user, invalidQuiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsString("description")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid question returns summary with errors")
+    void importQuizzes_invalidQuestion_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create quiz with invalid question - text too short
+        QuestionImportDto invalidQuestion = new QuestionImportDto(
+                null,
+                uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                Difficulty.EASY,
+                "AB", // Text too short (min 3 characters)
+                objectMapper.readTree("{\"options\":[{\"id\":1,\"text\":\"Option 1\"}]}"),
+                null,
+                null,
+                null,
+                null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Valid Quiz", List.of(invalidQuestion));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("question text")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: multiple errors returns all errors in summary")
+    void importQuizzes_multipleErrors_returnsAllErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create two quizzes - both invalid
+        QuizImportDto invalidQuiz1 = new QuizImportDto(
+                null, null, "AB", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto invalidQuiz2 = new QuizImportDto(
+                null, null, "Valid Title", "x".repeat(1001), Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+
+        String payload = objectMapper.writeValueAsString(List.of(invalidQuiz1, invalidQuiz2));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.failed").value(2))
+                .andExpect(jsonPath("$.errors.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: UPSERT_BY_ID with missing ID returns summary with errors")
+    void importQuizzes_upsertById_missingId_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create quiz with null ID for UPSERT_BY_ID strategy (requires ID)
+        QuizImportDto quizWithoutId = buildQuiz(null, "Quiz Without ID", List.of());
+
+        ResultActions result = performImport(user, quizWithoutId, "UPSERT_BY_ID", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("id")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: partial success creates valid quizzes")
+    void importQuizzes_partialSuccess_createsValidQuizzes() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create mix of valid and invalid quizzes
+        QuizImportDto validQuiz = buildQuiz(null, "Valid Quiz 1", List.of());
+        QuizImportDto invalidQuiz = new QuizImportDto(
+                null, null, "AB", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto validQuiz2 = buildQuiz(null, "Valid Quiz 2", List.of());
+
+        String payload = objectMapper.writeValueAsString(List.of(validQuiz, invalidQuiz, validQuiz2));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.created").value(2))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1));
+
+        // Verify valid quizzes were created
+        List<Quiz> createdQuizzes = quizRepository.findByCreatorId(user.getId());
+        assertThat(createdQuizzes).hasSize(2);
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2");
+    }
+
+    @Test
+    @DisplayName("importQuizzes: partial success reports errors for invalid quizzes")
+    void importQuizzes_partialSuccess_reportsErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create mix of valid and invalid quizzes
+        QuizImportDto validQuiz = buildQuiz(null, "Valid Quiz", List.of());
+        QuizImportDto invalidQuiz1 = new QuizImportDto(
+                null, null, "AB", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto invalidQuiz2 = new QuizImportDto(
+                null, null, "Valid Title", "x".repeat(1001), Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+
+        String payload = objectMapper.writeValueAsString(List.of(validQuiz, invalidQuiz1, invalidQuiz2));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.created").value(1))
+                .andExpect(jsonPath("$.failed").value(2))
+                .andExpect(jsonPath("$.errors.length()").value(2))
+                .andExpect(jsonPath("$.errors[0].index").value(1))
+                .andExpect(jsonPath("$.errors[1].index").value(2));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: all fail returns all errors")
+    void importQuizzes_allFail_returnsAllErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create three quizzes - all invalid with different errors
+        QuizImportDto invalidQuiz1 = new QuizImportDto(
+                null, null, "AB", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto invalidQuiz2 = new QuizImportDto(
+                null, null, "Valid Title", "x".repeat(1001), Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto invalidQuiz3 = new QuizImportDto(
+                null, null, "Another Valid Title", null, Visibility.PRIVATE, Difficulty.EASY, 0, // Invalid estimatedTime
+                null, null, null, List.of(), null, null
+        );
+
+        String payload = objectMapper.writeValueAsString(List.of(invalidQuiz1, invalidQuiz2, invalidQuiz3));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.created").value(0))
+                .andExpect(jsonPath("$.updated").value(0))
+                .andExpect(jsonPath("$.skipped").value(0))
+                .andExpect(jsonPath("$.failed").value(3))
+                .andExpect(jsonPath("$.errors.length()").value(3));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: failure in one item does not affect others")
+    void importQuizzes_failureInOneItem_doesNotAffectOthers() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create one invalid quiz and multiple valid quizzes
+        QuizImportDto invalidQuiz = new QuizImportDto(
+                null, null, "AB", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto validQuiz1 = buildQuiz(null, "Valid Quiz 1", List.of());
+        QuizImportDto validQuiz2 = buildQuiz(null, "Valid Quiz 2", List.of());
+        QuizImportDto validQuiz3 = buildQuiz(null, "Valid Quiz 3", List.of());
+
+        // Put invalid quiz in the middle to ensure processing continues after failure
+        String payload = objectMapper.writeValueAsString(List.of(validQuiz1, invalidQuiz, validQuiz2, validQuiz3));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.created").value(3))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].index").value(1)); // Invalid quiz is at index 1
+
+        // Verify all valid quizzes were created despite the failure
+        List<Quiz> createdQuizzes = quizRepository.findByCreatorId(user.getId());
+        assertThat(createdQuizzes).hasSize(3);
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2", "Valid Quiz 3");
+    }
+
+    @Test
+    @DisplayName("importQuizzes: database error isolates failure per item")
+    void importQuizzes_databaseError_isolatesFailure() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        // Create quiz that will cause a validation error (simulating a processing error)
+        // Using invalid estimatedTime to trigger validation error
+        QuizImportDto invalidQuiz = new QuizImportDto(
+                null, null, "Valid Title", "Description", Visibility.PRIVATE, Difficulty.EASY, 200, // Invalid: > 180
+                null, null, null, List.of(), null, null
+        );
+        QuizImportDto validQuiz1 = buildQuiz(null, "Valid Quiz 1", List.of());
+        QuizImportDto validQuiz2 = buildQuiz(null, "Valid Quiz 2", List.of());
+
+        // Put invalid quiz first
+        String payload = objectMapper.writeValueAsString(List.of(invalidQuiz, validQuiz1, validQuiz2));
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.created").value(2))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].index").value(0))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("estimated time")));
+
+        // Verify valid quizzes were created despite the error
+        List<Quiz> createdQuizzes = quizRepository.findByCreatorId(user.getId());
+        assertThat(createdQuizzes).hasSize(2);
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2");
+    }
+
     private ResultActions performImport(User user, QuizImportDto quiz, String strategy, boolean dryRun) throws Exception {
         String payload = objectMapper.writeValueAsString(List.of(quiz));
         MockMultipartFile file = new MockMultipartFile(
