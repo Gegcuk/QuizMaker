@@ -771,6 +771,10 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
         assertThat(createdQuizzes).hasSize(2);
         assertThat(createdQuizzes).extracting(Quiz::getTitle)
                 .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2");
+        
+        // Verify failed quiz was NOT persisted (transaction isolation)
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .doesNotContain("AB"); // Invalid quiz title
     }
 
     @Test
@@ -889,6 +893,10 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
         assertThat(createdQuizzes).hasSize(3);
         assertThat(createdQuizzes).extracting(Quiz::getTitle)
                 .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2", "Valid Quiz 3");
+        
+        // Verify failed quiz was NOT persisted (transaction isolation)
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .doesNotContain("AB"); // Invalid quiz title
     }
 
     @Test
@@ -931,6 +939,10 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
         assertThat(createdQuizzes).hasSize(2);
         assertThat(createdQuizzes).extracting(Quiz::getTitle)
                 .containsExactlyInAnyOrder("Valid Quiz 1", "Valid Quiz 2");
+        
+        // Verify failed quiz was NOT persisted (transaction isolation)
+        assertThat(createdQuizzes).extracting(Quiz::getTitle)
+                .doesNotContain("Valid Title"); // Invalid quiz title (with invalid estimatedTime)
     }
 
     private ResultActions performImport(User user, QuizImportDto quiz, String strategy, boolean dryRun) throws Exception {

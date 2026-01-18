@@ -253,8 +253,8 @@ class QuizImportPerformanceIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("importQuizzes: concurrent imports isolated")
-    void importQuizzes_concurrentImports_isolated() throws Exception {
+    @DisplayName("importQuizzes: sequential imports isolated")
+    void importQuizzes_sequentialImports_isolated() throws Exception {
         User user1 = createUserWithPermission("import_user_1_" + UUID.randomUUID());
         User user2 = createUserWithPermission("import_user_2_" + UUID.randomUUID());
         
@@ -273,7 +273,7 @@ class QuizImportPerformanceIntegrationTest extends BaseIntegrationTest {
                 payload2.getBytes(StandardCharsets.UTF_8)
         );
 
-        // Perform imports concurrently
+        // Perform imports sequentially (not truly concurrent, but verifies isolation)
         ResultActions result1 = mockMvc.perform(multipart("/api/v1/quizzes/import")
                 .file(file1)
                 .param("format", "JSON_EDITABLE")
@@ -294,11 +294,13 @@ class QuizImportPerformanceIntegrationTest extends BaseIntegrationTest {
         result2.andExpect(status().isOk())
                 .andExpect(jsonPath("$.created").value(1));
 
-        // Verify both quizzes were created
+        // Verify both quizzes were created and isolated per user
         List<uk.gegc.quizmaker.features.quiz.domain.model.Quiz> user1Quizzes = quizRepository.findByCreatorId(user1.getId());
         List<uk.gegc.quizmaker.features.quiz.domain.model.Quiz> user2Quizzes = quizRepository.findByCreatorId(user2.getId());
         assertThat(user1Quizzes).hasSize(1);
         assertThat(user2Quizzes).hasSize(1);
+        assertThat(user1Quizzes.get(0).getTitle()).isEqualTo("User 1 Quiz");
+        assertThat(user2Quizzes.get(0).getTitle()).isEqualTo("User 2 Quiz");
     }
 
     @Test
@@ -353,6 +355,8 @@ class QuizImportPerformanceIntegrationTest extends BaseIntegrationTest {
         
         // Create a file with multiple quizzes to test streaming parsing
         // The parser uses Jackson's streaming API which should handle large files efficiently
+        // Note: This is a smoke test - it verifies the import completes without OOM,
+        // but doesn't measure actual memory usage (which would require JVM instrumentation)
         List<QuizImportDto> quizzes = new ArrayList<>();
         for (int i = 1; i <= 20; i++) {
             quizzes.add(buildQuiz(null, "Quiz " + i, List.of()));
@@ -375,6 +379,10 @@ class QuizImportPerformanceIntegrationTest extends BaseIntegrationTest {
         result.andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(20))
                 .andExpect(jsonPath("$.created").value(20));
+        
+        // Verify all quizzes were persisted
+        List<uk.gegc.quizmaker.features.quiz.domain.model.Quiz> createdQuizzes = quizRepository.findByCreatorId(user.getId());
+        assertThat(createdQuizzes).hasSize(20);
     }
 
     @Test
