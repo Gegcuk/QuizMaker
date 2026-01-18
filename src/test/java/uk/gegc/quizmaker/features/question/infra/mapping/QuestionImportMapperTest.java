@@ -317,6 +317,199 @@ class QuestionImportMapperTest extends BaseUnitTest {
     }
 
     @Test
+    @DisplayName("toEntity handles null hint gracefully")
+    void toEntity_nullHint_handlesGracefully() {
+        QuestionImportDto dto = dtoWithHint(null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getHint()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity handles null explanation gracefully")
+    void toEntity_nullExplanation_handlesGracefully() {
+        QuestionImportDto dto = dtoWithExplanation(null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getExplanation()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity handles null question text gracefully")
+    void toEntity_nullQuestionText_handlesGracefully() {
+        QuestionImportDto dto = dtoWithQuestionText(null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getQuestionText()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity handles empty content object gracefully")
+    void toEntity_emptyContentObject_handlesGracefully() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.MCQ_SINGLE);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getContent()).isNotNull();
+        JsonNode parsed = objectMapper.readTree(question.getContent());
+        assertThat(parsed.size()).isZero();
+    }
+
+    @Test
+    @DisplayName("toEntity strips media from all question types")
+    void toEntity_stripsMediaFromAllQuestionTypes() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        ObjectNode media = content.putObject("media");
+        media.put("assetId", UUID.randomUUID().toString());
+        media.put("cdnUrl", "https://cdn.quizzence.com/media.png");
+        media.put("width", 640);
+        media.put("height", 480);
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.OPEN);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        assertThat(sanitized.get("media").has("cdnUrl")).isFalse();
+        assertThat(sanitized.get("media").has("width")).isFalse();
+        assertThat(sanitized.get("media").has("height")).isFalse();
+        assertThat(sanitized.get("media").has("mimeType")).isFalse();
+    }
+
+    @Test
+    @DisplayName("toEntity strips media from deeply nested structures")
+    void toEntity_stripsMediaFromDeeplyNestedStructures() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        ObjectNode nested = content.putObject("level1").putObject("level2").putObject("level3");
+        ObjectNode media = nested.putObject("media");
+        media.put("assetId", UUID.randomUUID().toString());
+        media.put("cdnUrl", "https://cdn.quizzence.com/nested.png");
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.MCQ_SINGLE);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        JsonNode deepMedia = sanitized.get("level1").get("level2").get("level3").get("media");
+        assertThat(deepMedia.has("cdnUrl")).isFalse();
+    }
+
+    @Test
+    @DisplayName("toEntity preserves media alt and caption")
+    void toEntity_preservesMediaAltAndCaption() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        ObjectNode media = content.putObject("media");
+        media.put("assetId", UUID.randomUUID().toString());
+        media.put("alt", "Alt text");
+        media.put("caption", "Caption text");
+        media.put("cdnUrl", "https://cdn.quizzence.com/media.png");
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.OPEN);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        assertThat(sanitized.get("media").has("alt")).isTrue();
+        assertThat(sanitized.get("media").has("caption")).isTrue();
+    }
+
+    @Test
+    @DisplayName("toEntity handles ORDERING with empty items")
+    void toEntity_orderingWithEmptyItems_handlesGracefully() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        content.putArray("items");
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.ORDERING);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        assertThat(sanitized.get("items").size()).isZero();
+        assertThat(sanitized.get("correctOrder").size()).isZero();
+    }
+
+    @Test
+    @DisplayName("toEntity handles ORDERING with items without IDs")
+    void toEntity_orderingWithItemsNoIds_handlesGracefully() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode items = content.putArray("items");
+        items.addObject().put("text", "Item 1");
+        items.addObject().put("text", "Item 2");
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.ORDERING);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        assertThat(sanitized.get("correctOrder").size()).isZero();
+    }
+
+    @Test
+    @DisplayName("toEntity handles ORDERING with mixed ID types correctly")
+    void toEntity_orderingWithMixedIdTypes_handlesCorrectly() throws Exception {
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode items = content.putArray("items");
+        items.addObject().put("id", "string-id");
+        items.addObject().put("id", 123);
+
+        QuestionImportDto dto = dtoWithContent(content, QuestionType.ORDERING);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+        JsonNode sanitized = objectMapper.readTree(question.getContent());
+
+        assertThat(sanitized.get("correctOrder").size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("toEntity handles attachment with only alt")
+    void toEntity_attachmentWithOnlyAlt_handlesCorrectly() {
+        MediaRefDto attachment = new MediaRefDto(UUID.randomUUID(), null, "Alt text", null, null, null, null);
+        QuestionImportDto dto = dtoWithAttachment(attachment, null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getAttachmentAssetId()).isEqualTo(attachment.assetId());
+        assertThat(question.getAttachmentUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity handles attachment with only caption")
+    void toEntity_attachmentWithOnlyCaption_handlesCorrectly() {
+        MediaRefDto attachment = new MediaRefDto(UUID.randomUUID(), null, null, "Caption text", null, null, null);
+        QuestionImportDto dto = dtoWithAttachment(attachment, null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getAttachmentAssetId()).isEqualTo(attachment.assetId());
+    }
+
+    @Test
+    @DisplayName("toEntity handles null attachment URL gracefully")
+    void toEntity_attachmentNullUrl_handlesGracefully() {
+        QuestionImportDto dto = dtoWithAttachmentUrl(null);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(question.getAttachmentUrl()).isNull();
+        assertThat(question.getAttachmentAssetId()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity ignores ID for SKIP_ON_DUPLICATE strategy")
+    void toEntity_skipOnDuplicate_ignoresId() {
+        UUID questionId = UUID.randomUUID();
+        QuestionImportDto dto = dtoWithId(questionId);
+
+        Question question = mapper.toEntity(dto, UpsertStrategy.SKIP_ON_DUPLICATE);
+
+        assertThat(question.getId()).isNull();
+    }
+
+    @Test
     @DisplayName("toEntity rejects null DTO")
     void toEntity_nullDto_throwsException() {
         assertThatThrownBy(() -> mapper.toEntity(null, UpsertStrategy.CREATE_ONLY))
@@ -463,6 +656,21 @@ class QuestionImportMapperTest extends BaseUnitTest {
                 base.hint(),
                 base.explanation(),
                 base.attachmentUrl(),
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto dtoWithAttachmentUrl(String attachmentUrl) {
+        QuestionImportDto base = baseDto();
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                base.difficulty(),
+                base.questionText(),
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                attachmentUrl,
                 base.attachment()
         );
     }

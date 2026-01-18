@@ -16,6 +16,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -390,6 +391,471 @@ class ContentHashUtilTest extends BaseUnitTest {
             correctOrder.forEach(order::add);
         }
         return content;
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null title")
+    void calculateImportContentHash_nullTitle_handled() {
+        QuizImportDto quiz = quizWithTitle(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null description")
+    void calculateImportContentHash_nullDescription_handled() {
+        QuizImportDto quiz = quizWithDescription(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null difficulty")
+    void calculateImportContentHash_nullDifficulty_handled() {
+        QuizImportDto quiz = quizWithDifficulty(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null category")
+    void calculateImportContentHash_nullCategory_handled() {
+        QuizImportDto quiz = quizWithCategory(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null tags")
+    void calculateImportContentHash_nullTags_handled() {
+        QuizImportDto quiz = quizWithTags(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles empty tags list")
+    void calculateImportContentHash_emptyTagsList_handled() {
+        QuizImportDto quiz = quizWithTags(List.of(), List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null estimated time")
+    void calculateImportContentHash_nullEstimatedTime_handled() {
+        QuizImportDto quiz = quizWithEstimatedTime(null, List.of(baseQuestion()));
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles null questions")
+    void calculateImportContentHash_nullQuestions_handled() {
+        QuizImportDto quiz = baseQuiz(null);
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles empty questions list")
+    void calculateImportContentHash_emptyQuestionsList_handled() {
+        QuizImportDto quiz = baseQuiz(List.of());
+        String hash = util.calculateImportContentHash(quiz);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles null question text")
+    void calculateQuestionHash_nullQuestionText_handled() {
+        QuestionImportDto question = questionWithText(null, null);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles null question type")
+    void calculateQuestionHash_nullQuestionType_handled() {
+        QuestionImportDto question = questionWithType(null);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash normalizes tags case-insensitively")
+    void calculateImportContentHash_tagsNormalization_caseInsensitive() {
+        QuizImportDto quizA = quizWithTags(List.of("TagA", "TagB"), List.of(baseQuestion()));
+        QuizImportDto quizB = quizWithTags(List.of("taga", "tagb"), List.of(baseQuestion()));
+
+        String hashA = util.calculateImportContentHash(quizA);
+        String hashB = util.calculateImportContentHash(quizB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash trims whitespace from tags")
+    void calculateImportContentHash_tagsNormalization_whitespaceTrimmed() {
+        QuizImportDto quizA = quizWithTags(List.of("Tag A", "Tag B"), List.of(baseQuestion()));
+        QuizImportDto quizB = quizWithTags(List.of("  Tag A  ", "  Tag B  "), List.of(baseQuestion()));
+
+        String hashA = util.calculateImportContentHash(quizA);
+        String hashB = util.calculateImportContentHash(quizB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash sorts tags alphabetically")
+    void calculateImportContentHash_tagsNormalization_sorted() {
+        QuizImportDto quizA = quizWithTags(List.of("TagB", "TagA"), List.of(baseQuestion()));
+        QuizImportDto quizB = quizWithTags(List.of("TagA", "TagB"), List.of(baseQuestion()));
+
+        String hashA = util.calculateImportContentHash(quizA);
+        String hashB = util.calculateImportContentHash(quizB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash filters null and blank tags")
+    void calculateImportContentHash_tagsNormalization_filtersNullBlank() {
+        List<String> tagsA = new ArrayList<>();
+        tagsA.add("TagA");
+        tagsA.add("TagB");
+        List<String> tagsB = new ArrayList<>();
+        tagsB.add("TagA");
+        tagsB.add(null);
+        tagsB.add("   ");
+        tagsB.add("TagB");
+        tagsB.add("");
+        QuizImportDto quizA = quizWithTags(tagsA, List.of(baseQuestion()));
+        QuizImportDto quizB = quizWithTags(tagsB, List.of(baseQuestion()));
+
+        String hashA = util.calculateImportContentHash(quizA);
+        String hashB = util.calculateImportContentHash(quizB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash prefers attachment assetId over URL")
+    void calculateQuestionHash_attachmentAssetIdTakesPrecedence() {
+        UUID assetId = UUID.randomUUID();
+        MediaRefDto attachment = new MediaRefDto(assetId, null, null, null, null, null, null);
+        QuestionImportDto questionA = questionWithAttachment(attachment, "https://cdn.quizzence.com/url.png");
+        QuestionImportDto questionB = questionWithAttachment(attachment, "https://cdn.quizzence.com/different.png");
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash includes attachment URL when assetId missing")
+    void calculateQuestionHash_attachmentUrlWhenAssetIdMissing() {
+        QuestionImportDto questionA = questionWithAttachmentUrl("https://cdn.quizzence.com/url1.png");
+        QuestionImportDto questionB = questionWithAttachmentUrl("https://cdn.quizzence.com/url2.png");
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isNotEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash includes attachment alt and caption")
+    void calculateQuestionHash_attachmentAltAndCaption() {
+        MediaRefDto attachment1 = new MediaRefDto(UUID.randomUUID(), null, "Alt 1", "Caption 1", null, null, null);
+        MediaRefDto attachment2 = new MediaRefDto(UUID.randomUUID(), null, "Alt 2", "Caption 2", null, null, null);
+        QuestionImportDto questionA = questionWithAttachment(attachment1, null);
+        QuestionImportDto questionB = questionWithAttachment(attachment2, null);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isNotEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles OPEN question content")
+    void calculateQuestionHash_openQuestionContent() {
+        ObjectNode content = objectMapper.createObjectNode().put("answer", "Sample answer");
+        QuestionImportDto question = questionWithContent(content, QuestionType.OPEN);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles TRUE_FALSE question content")
+    void calculateQuestionHash_trueFalseQuestionContent() {
+        ObjectNode content = objectMapper.createObjectNode().put("answer", true);
+        QuestionImportDto question = questionWithContent(content, QuestionType.TRUE_FALSE);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles FILL_GAP question content")
+    void calculateQuestionHash_fillGapQuestionContent() {
+        ObjectNode content = objectMapper.createObjectNode();
+        content.put("text", "Fill the gap");
+        ArrayNode gaps = content.putArray("gaps");
+        gaps.addObject().put("id", 1).put("answer", "gap1");
+        QuestionImportDto question = questionWithContent(content, QuestionType.FILL_GAP);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles COMPLIANCE question content")
+    void calculateQuestionHash_complianceQuestionContent() {
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode statements = content.putArray("statements");
+        statements.addObject().put("text", "S1").put("compliant", true);
+        QuestionImportDto question = questionWithContent(content, QuestionType.COMPLIANCE);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash sorts options array")
+    void calculateImportContentHash_sortsOptionsArray() {
+        ObjectNode contentA = contentWithOptions("opt2", "opt1", "opt3");
+        ObjectNode contentB = contentWithOptions("opt1", "opt2", "opt3");
+        QuestionImportDto questionA = questionWithContent(contentA, QuestionType.MCQ_SINGLE);
+        QuestionImportDto questionB = questionWithContent(contentB, QuestionType.MCQ_SINGLE);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash sorts statements array")
+    void calculateImportContentHash_sortsStatementsArray() {
+        ObjectNode contentA = objectMapper.createObjectNode();
+        ArrayNode statementsA = contentA.putArray("statements");
+        statementsA.addObject().put("text", "S2");
+        statementsA.addObject().put("text", "S1");
+        ObjectNode contentB = objectMapper.createObjectNode();
+        ArrayNode statementsB = contentB.putArray("statements");
+        statementsB.addObject().put("text", "S1");
+        statementsB.addObject().put("text", "S2");
+        QuestionImportDto questionA = questionWithContent(contentA, QuestionType.COMPLIANCE);
+        QuestionImportDto questionB = questionWithContent(contentB, QuestionType.COMPLIANCE);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash sorts gaps array")
+    void calculateImportContentHash_sortsGapsArray() {
+        ObjectNode contentA = objectMapper.createObjectNode();
+        contentA.put("text", "Text");
+        ArrayNode gapsA = contentA.putArray("gaps");
+        gapsA.addObject().put("id", 2).put("answer", "gap2");
+        gapsA.addObject().put("id", 1).put("answer", "gap1");
+        ObjectNode contentB = objectMapper.createObjectNode();
+        contentB.put("text", "Text");
+        ArrayNode gapsB = contentB.putArray("gaps");
+        gapsB.addObject().put("id", 1).put("answer", "gap1");
+        gapsB.addObject().put("id", 2).put("answer", "gap2");
+        QuestionImportDto questionA = questionWithContent(contentA, QuestionType.FILL_GAP);
+        QuestionImportDto questionB = questionWithContent(contentB, QuestionType.FILL_GAP);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash sorts left and right arrays in MATCHING")
+    void calculateImportContentHash_sortsMatchingArrays() {
+        ObjectNode contentA = objectMapper.createObjectNode();
+        ArrayNode leftA = contentA.putArray("left");
+        leftA.addObject().put("id", "l2");
+        leftA.addObject().put("id", "l1");
+        ArrayNode rightA = contentA.putArray("right");
+        rightA.addObject().put("id", "r2");
+        rightA.addObject().put("id", "r1");
+        ObjectNode contentB = objectMapper.createObjectNode();
+        ArrayNode leftB = contentB.putArray("left");
+        leftB.addObject().put("id", "l1");
+        leftB.addObject().put("id", "l2");
+        ArrayNode rightB = contentB.putArray("right");
+        rightB.addObject().put("id", "r1");
+        rightB.addObject().put("id", "r2");
+        QuestionImportDto questionA = questionWithContent(contentA, QuestionType.MATCHING);
+        QuestionImportDto questionB = questionWithContent(contentB, QuestionType.MATCHING);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash normalizes attachment URL")
+    void calculateQuestionHash_normalizesAttachmentUrl() {
+        QuestionImportDto questionA = questionWithAttachmentUrl("  https://cdn.quizzence.com/url.png  ");
+        QuestionImportDto questionB = questionWithAttachmentUrl("https://cdn.quizzence.com/url.png");
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash handles null attachment URL")
+    void calculateQuestionHash_nullAttachmentUrl_handled() {
+        QuestionImportDto question = questionWithAttachmentUrl(null);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles deeply nested content structures")
+    void calculateImportContentHash_deeplyNestedStructures() {
+        ObjectNode content = objectMapper.createObjectNode();
+        ObjectNode level1 = content.putObject("level1");
+        ObjectNode level2 = level1.putObject("level2");
+        ObjectNode level3 = level2.putObject("level3");
+        level3.put("value", "deep");
+        QuestionImportDto question = questionWithContent(content, QuestionType.MCQ_SINGLE);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash handles nested arrays in content")
+    void calculateImportContentHash_nestedArraysInContent() {
+        ObjectNode content = objectMapper.createObjectNode();
+        ArrayNode outer = content.putArray("outer");
+        ObjectNode inner = outer.addObject();
+        ArrayNode innerArray = inner.putArray("inner");
+        innerArray.add("value1");
+        innerArray.add("value2");
+        QuestionImportDto question = questionWithContent(content, QuestionType.MCQ_SINGLE);
+        String hash = hashForQuestion(question);
+
+        assertThat(hash).matches("[0-9A-F]{64}");
+    }
+
+    @Test
+    @DisplayName("calculateImportContentHash treats empty string and null description the same (both normalized to empty)")
+    void calculateImportContentHash_emptyStringVsNullDescription_different() {
+        // normalizeText converts both null and empty string to ""
+        QuizImportDto quizA = quizWithDescription("", List.of(baseQuestion()));
+        QuizImportDto quizB = quizWithDescription(null, List.of(baseQuestion()));
+
+        String hashA = util.calculateImportContentHash(quizA);
+        String hashB = util.calculateImportContentHash(quizB);
+
+        // Both are normalized to empty string, so hashes are the same
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    @Test
+    @DisplayName("calculateQuestionHash treats empty string and null hint the same (both normalized to empty)")
+    void calculateQuestionHash_emptyStringVsNullHint_different() {
+        // normalizeText converts both null and empty string to ""
+        QuestionImportDto questionA = questionWithHint("");
+        QuestionImportDto questionB = questionWithHint(null);
+
+        String hashA = hashForQuestion(questionA);
+        String hashB = hashForQuestion(questionB);
+
+        // Both are normalized to empty string, so hashes are the same
+        assertThat(hashA).isEqualTo(hashB);
+    }
+
+    private QuizImportDto quizWithDifficulty(Difficulty difficulty, List<QuestionImportDto> questions) {
+        QuizImportDto base = baseQuiz(questions);
+        return new QuizImportDto(
+                base.schemaVersion(), base.id(), base.title(), base.description(),
+                base.visibility(), difficulty, base.estimatedTime(),
+                base.tags(), base.category(), base.creatorId(),
+                base.questions(), base.createdAt(), base.updatedAt()
+        );
+    }
+
+    private QuizImportDto quizWithCategory(String category, List<QuestionImportDto> questions) {
+        QuizImportDto base = baseQuiz(questions);
+        return new QuizImportDto(
+                base.schemaVersion(), base.id(), base.title(), base.description(),
+                base.visibility(), base.difficulty(), base.estimatedTime(),
+                base.tags(), category, base.creatorId(),
+                base.questions(), base.createdAt(), base.updatedAt()
+        );
+    }
+
+    private QuizImportDto quizWithTags(List<String> tags, List<QuestionImportDto> questions) {
+        QuizImportDto base = baseQuiz(questions);
+        return new QuizImportDto(
+                base.schemaVersion(), base.id(), base.title(), base.description(),
+                base.visibility(), base.difficulty(), base.estimatedTime(),
+                tags, base.category(), base.creatorId(),
+                base.questions(), base.createdAt(), base.updatedAt()
+        );
+    }
+
+    private QuizImportDto quizWithEstimatedTime(Integer estimatedTime, List<QuestionImportDto> questions) {
+        QuizImportDto base = baseQuiz(questions);
+        return new QuizImportDto(
+                base.schemaVersion(), base.id(), base.title(), base.description(),
+                base.visibility(), base.difficulty(), estimatedTime,
+                base.tags(), base.category(), base.creatorId(),
+                base.questions(), base.createdAt(), base.updatedAt()
+        );
+    }
+
+    private QuestionImportDto questionWithType(QuestionType type) {
+        QuestionImportDto base = baseQuestion();
+        return questionWithOverrides(base, type, base.difficulty(), base.questionText(),
+                base.hint(), base.explanation(), base.content(), base.attachmentUrl(), base.attachment());
+    }
+
+    private QuestionImportDto questionWithHint(String hint) {
+        QuestionImportDto base = baseQuestion();
+        return questionWithOverrides(base, base.type(), base.difficulty(), base.questionText(),
+                hint, base.explanation(), base.content(), base.attachmentUrl(), base.attachment());
+    }
+
+    private QuestionImportDto questionWithAttachment(MediaRefDto attachment, String attachmentUrl) {
+        QuestionImportDto base = baseQuestion();
+        return questionWithOverrides(base, base.type(), base.difficulty(), base.questionText(),
+                base.hint(), base.explanation(), base.content(), attachmentUrl, attachment);
+    }
+
+    private QuestionImportDto questionWithAttachmentUrl(String attachmentUrl) {
+        QuestionImportDto base = baseQuestion();
+        return questionWithOverrides(base, base.type(), base.difficulty(), base.questionText(),
+                base.hint(), base.explanation(), base.content(), attachmentUrl, base.attachment());
     }
 
 }

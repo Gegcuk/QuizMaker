@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.UnsupportedQuestionTypeException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
@@ -28,12 +29,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -500,6 +503,410 @@ class QuizImportValidationServiceImplTest extends BaseUnitTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    @DisplayName("validateQuiz accepts title exactly at minimum length")
+    void validateQuiz_titleExactlyMinLength_passes() {
+        QuizImportDto quiz = quizWithTitle("abc");
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz accepts title exactly at maximum length")
+    void validateQuiz_titleExactlyMaxLength_passes() {
+        QuizImportDto quiz = quizWithTitle("a".repeat(100));
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz rejects whitespace-only title")
+    void validateQuiz_titleWhitespaceOnly_throwsException() {
+        QuizImportDto quiz = quizWithTitle("   ");
+
+        assertThatThrownBy(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Quiz title is required");
+    }
+
+    @Test
+    @DisplayName("validateQuiz trims leading and trailing whitespace from title")
+    void validateQuiz_titleWithLeadingTrailingWhitespace_trimmed() {
+        QuizImportDto quiz = quizWithTitle("  Valid Title  ");
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz accepts description exactly at maximum length")
+    void validateQuiz_descriptionExactlyMaxLength_passes() {
+        QuizImportDto quiz = quizWithDescription("a".repeat(1000));
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows empty string description")
+    void validateQuiz_descriptionEmptyString_passes() {
+        QuizImportDto quiz = quizWithDescription("");
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz accepts estimated time exactly at minimum")
+    void validateQuiz_estimatedTimeExactlyMin_passes() {
+        QuizImportDto quiz = quizWithEstimatedTime(1);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz accepts estimated time exactly at maximum")
+    void validateQuiz_estimatedTimeExactlyMax_passes() {
+        QuizImportDto quiz = quizWithEstimatedTime(180);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows empty tags list")
+    void validateQuiz_emptyTagsList_passes() {
+        QuizImportDto quiz = quizWithTags(List.of());
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows null visibility")
+    void validateQuiz_nullVisibility_passes() {
+        QuizImportDto quiz = quizWithVisibility(null);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows PUBLIC visibility with QUIZ_ADMIN permission")
+    void validateQuiz_publicVisibilityWithQuizAdmin_passes() {
+        User user = userWithUsername("admin");
+        when(userRepository.findByUsernameWithRolesAndPermissions("admin")).thenReturn(Optional.of(user));
+        when(accessPolicy.hasAny(eq(user), any(), any())).thenReturn(true);
+
+        QuizImportDto quiz = quizWithVisibility(Visibility.PUBLIC);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "admin", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz rejects PUBLIC visibility with null username")
+    void validateQuiz_publicVisibility_nullUsername_throwsException() {
+        QuizImportDto quiz = quizWithVisibility(Visibility.PUBLIC);
+
+        assertThatThrownBy(() -> service.validateQuiz(quiz, null, QuizImportOptions.defaults(10)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Username is required for import validation");
+    }
+
+    @Test
+    @DisplayName("validateQuiz rejects PUBLIC visibility with blank username")
+    void validateQuiz_publicVisibility_blankUsername_throwsException() {
+        QuizImportDto quiz = quizWithVisibility(Visibility.PUBLIC);
+
+        assertThatThrownBy(() -> service.validateQuiz(quiz, "   ", QuizImportOptions.defaults(10)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Username is required for import validation");
+    }
+
+    @Test
+    @DisplayName("validateQuiz rejects PUBLIC visibility when user not found")
+    void validateQuiz_publicVisibility_userNotFound_throwsException() {
+        when(userRepository.findByUsernameWithRolesAndPermissions("unknown")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("unknown")).thenReturn(Optional.empty());
+
+        QuizImportDto quiz = quizWithVisibility(Visibility.PUBLIC);
+
+        assertThatThrownBy(() -> service.validateQuiz(quiz, "unknown", QuizImportOptions.defaults(10)))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User unknown not found");
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows PUBLIC visibility when username resolved by email")
+    void validateQuiz_publicVisibility_usernameResolvedByEmail_passes() {
+        User user = userWithUsername("user");
+        when(userRepository.findByUsernameWithRolesAndPermissions("user@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@example.com")).thenReturn(Optional.of(user));
+        when(accessPolicy.hasAny(eq(user), any(), any())).thenReturn(true);
+
+        QuizImportDto quiz = quizWithVisibility(Visibility.PUBLIC);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user@example.com", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows null questions")
+    void validateQuiz_nullQuestions_passes() {
+        QuizImportDto quiz = quizWithQuestions(null);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz accepts exactly maximum questions")
+    void validateQuiz_exactlyMaxQuestions_passes() {
+        List<QuestionImportDto> questions = Collections.nCopies(50, minimalQuestion());
+        QuizImportDto quiz = quizWithQuestions(questions);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows empty questions list")
+    void validateQuiz_emptyQuestionsList_passes() {
+        QuizImportDto quiz = quizWithQuestions(List.of());
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", QuizImportOptions.defaults(10)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows CREATE_ONLY with null questions")
+    void validateQuiz_createOnlyWithNullQuestions_passes() {
+        QuizImportDto quiz = quizWithQuestions(null);
+        QuizImportOptions options = optionsWithStrategy(UpsertStrategy.CREATE_ONLY);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", options))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows SKIP_ON_DUPLICATE with null questions")
+    void validateQuiz_skipOnDuplicateWithNullQuestions_passes() {
+        QuizImportDto quiz = quizWithQuestions(null);
+        QuizImportOptions options = optionsWithStrategy(UpsertStrategy.SKIP_ON_DUPLICATE);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", options))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuiz allows UPSERT_BY_CONTENT_HASH with null questions")
+    void validateQuiz_upsertByContentHashWithNullQuestions_passes() {
+        QuizImportDto quiz = quizWithQuestions(null);
+        QuizImportOptions options = optionsWithStrategy(UpsertStrategy.UPSERT_BY_CONTENT_HASH);
+
+        assertThatCode(() -> service.validateQuiz(quiz, "user", options))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects HTTP attachment URL")
+    void validateQuestion_attachmentUrlNotHttps_throwsException() {
+        QuestionImportDto question = questionWithAttachmentUrl("http://cdn.quizzence.com/file.png");
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must use https");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects malformed attachment URL")
+    void validateQuestion_attachmentUrlMalformed_throwsException() {
+        QuestionImportDto question = questionWithAttachmentUrl("not a valid url");
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must be a valid URL");
+    }
+
+    @Test
+    @DisplayName("validateQuestion ignores attachment URL when assetId present")
+    void validateQuestion_attachmentUrlWithAssetId_ignoresUrl() {
+        QuestionImportDto question = questionWithAttachmentUrlAndAssetId("https://example.com/bad.png", UUID.randomUUID());
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects OPEN question without answer field")
+    void validateQuestion_openQuestion_missingAnswer_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.OPEN, content);
+        QuestionHandler openHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.OPEN))).thenReturn(openHandler);
+        doThrow(new ValidationException("OPEN question must have a non-empty 'answer' field"))
+                .when(openHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("OPEN question must have a non-empty 'answer' field");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects OPEN question with empty answer")
+    void validateQuestion_openQuestion_emptyAnswer_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode().put("answer", "");
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.OPEN, content);
+        QuestionHandler openHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.OPEN))).thenReturn(openHandler);
+        doThrow(new ValidationException("OPEN question must have a non-empty 'answer' field"))
+                .when(openHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("OPEN question must have a non-empty 'answer' field");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects TRUE_FALSE question without answer field")
+    void validateQuestion_trueFalseQuestion_missingAnswer_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.TRUE_FALSE, content);
+        QuestionHandler tfHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.TRUE_FALSE))).thenReturn(tfHandler);
+        doThrow(new ValidationException("TRUE_FALSE requires an 'answer' boolean field"))
+                .when(tfHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("TRUE_FALSE requires an 'answer' boolean field");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects TRUE_FALSE question with non-boolean answer")
+    void validateQuestion_trueFalseQuestion_nonBooleanAnswer_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode().put("answer", "true");
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.TRUE_FALSE, content);
+        QuestionHandler tfHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.TRUE_FALSE))).thenReturn(tfHandler);
+        doThrow(new ValidationException("TRUE_FALSE requires an 'answer' boolean field"))
+                .when(tfHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("TRUE_FALSE requires an 'answer' boolean field");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects MCQ question without options")
+    void validateQuestion_mcqQuestion_missingOptions_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.MCQ_SINGLE, content);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+        doThrow(new ValidationException("MCQ question must have at least 2 options"))
+                .when(questionHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("MCQ question must have at least 2 options");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects FILL_GAP question with invalid content")
+    void validateQuestion_fillGapQuestion_invalidContent_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.FILL_GAP, content);
+        QuestionHandler fgHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.FILL_GAP))).thenReturn(fgHandler);
+        doThrow(new ValidationException("FILL_GAP requires non-empty 'text' field"))
+                .when(fgHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("FILL_GAP requires non-empty 'text' field");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects ORDERING question with invalid content")
+    void validateQuestion_orderingQuestion_invalidContent_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.ORDERING, content);
+        QuestionHandler orderingHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.ORDERING))).thenReturn(orderingHandler);
+        doThrow(new ValidationException("ORDERING must have at least 2 items"))
+                .when(orderingHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("ORDERING must have at least 2 items");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects COMPLIANCE question with invalid content")
+    void validateQuestion_complianceQuestion_invalidContent_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.COMPLIANCE, content);
+        QuestionHandler complianceHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.COMPLIANCE))).thenReturn(complianceHandler);
+        doThrow(new ValidationException("COMPLIANCE must have at least 2 statements"))
+                .when(complianceHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("COMPLIANCE must have at least 2 statements");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects MATCHING question with invalid content")
+    void validateQuestion_matchingQuestion_invalidContent_throwsException() {
+        JsonNode content = JsonNodeFactory.instance.objectNode();
+        QuestionImportDto question = questionWithTypeAndContent(QuestionType.MATCHING, content);
+        QuestionHandler matchingHandler = mock(QuestionHandler.class);
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MATCHING))).thenReturn(matchingHandler);
+        doThrow(new ValidationException("MATCHING must have at least 2 left-right pairs"))
+                .when(matchingHandler).validateContent(any(EntityQuestionContentRequest.class));
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("MATCHING must have at least 2 left-right pairs");
+    }
+
+    @Test
+    @DisplayName("validateQuestion rejects whitespace-only question text")
+    void validateQuestion_textWhitespaceOnly_throwsException() {
+        QuestionImportDto question = questionWithText("   ");
+
+        assertThatThrownBy(() -> service.validateQuestion(question, "user"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Question text is required");
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts question text exactly at minimum length")
+    void validateQuestion_textExactlyMinLength_passes() {
+        QuestionImportDto question = questionWithText("abc");
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("validateQuestion accepts question text exactly at maximum length")
+    void validateQuestion_textExactlyMaxLength_passes() {
+        QuestionImportDto question = questionWithText("a".repeat(1000));
+        when(questionHandlerFactory.getHandler(eq(QuestionType.MCQ_SINGLE))).thenReturn(questionHandler);
+
+        assertThatCode(() -> service.validateQuestion(question, "user"))
+                .doesNotThrowAnyException();
+    }
+
     private QuizImportDto minimalQuiz() {
         return new QuizImportDto(
                 null,
@@ -745,6 +1152,39 @@ class QuizImportValidationServiceImplTest extends BaseUnitTest {
                 base.hint(),
                 base.explanation(),
                 attachmentUrl,
+                base.attachment()
+        );
+    }
+
+    private QuestionImportDto questionWithAttachmentUrlAndAssetId(String attachmentUrl, UUID assetId) {
+        QuestionImportDto base = minimalQuestion();
+        uk.gegc.quizmaker.shared.dto.MediaRefDto attachment = new uk.gegc.quizmaker.shared.dto.MediaRefDto(
+                assetId, null, null, null, null, null, null
+        );
+        return new QuestionImportDto(
+                base.id(),
+                base.type(),
+                base.difficulty(),
+                base.questionText(),
+                base.content(),
+                base.hint(),
+                base.explanation(),
+                attachmentUrl,
+                attachment
+        );
+    }
+
+    private QuestionImportDto questionWithTypeAndContent(QuestionType type, JsonNode content) {
+        QuestionImportDto base = minimalQuestion();
+        return new QuestionImportDto(
+                base.id(),
+                type,
+                base.difficulty(),
+                base.questionText(),
+                content,
+                base.hint(),
+                base.explanation(),
+                base.attachmentUrl(),
                 base.attachment()
         );
     }

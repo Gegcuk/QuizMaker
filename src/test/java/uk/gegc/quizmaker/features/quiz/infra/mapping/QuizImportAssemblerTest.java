@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -323,6 +324,25 @@ class QuizImportAssemblerTest extends BaseUnitTest {
         );
     }
 
+    private QuizImportDto dtoWithDescription(String description) {
+        QuizImportDto base = baseDto();
+        return new QuizImportDto(
+                base.schemaVersion(),
+                base.id(),
+                base.title(),
+                description,
+                base.visibility(),
+                base.difficulty(),
+                base.estimatedTime(),
+                base.tags(),
+                base.category(),
+                base.creatorId(),
+                base.questions(),
+                base.createdAt(),
+                base.updatedAt()
+        );
+    }
+
     private User userWithId(UUID id) {
         User user = new User();
         user.setId(id);
@@ -344,5 +364,56 @@ class QuizImportAssemblerTest extends BaseUnitTest {
                     return tag;
                 })
                 .collect(Collectors.toSet());
+    }
+
+    @Test
+    @DisplayName("toEntity creates empty set for null tags")
+    void toEntity_nullTags_createsEmptySet() {
+        QuizImportDto dto = baseDto();
+        User creator = userWithId(UUID.randomUUID());
+        Category category = categoryWithName("Category");
+
+        Quiz quiz = assembler.toEntity(dto, creator, category, null, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(quiz.getTags()).isNotNull();
+        assertThat(quiz.getTags()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toEntity creates empty set for empty tags")
+    void toEntity_emptyTags_createsEmptySet() {
+        QuizImportDto dto = baseDto();
+        User creator = userWithId(UUID.randomUUID());
+        Category category = categoryWithName("Category");
+
+        Quiz quiz = assembler.toEntity(dto, creator, category, new HashSet<>(), UpsertStrategy.CREATE_ONLY);
+
+        assertThat(quiz.getTags()).isNotNull();
+        assertThat(quiz.getTags()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toEntity handles null description gracefully")
+    void toEntity_nullDescription_handlesGracefully() {
+        QuizImportDto dto = dtoWithDescription(null);
+        User creator = userWithId(UUID.randomUUID());
+        Category category = categoryWithName("Category");
+
+        Quiz quiz = assembler.toEntity(dto, creator, category, null, UpsertStrategy.CREATE_ONLY);
+
+        assertThat(quiz.getDescription()).isNull();
+    }
+
+    @Test
+    @DisplayName("toEntity ignores ID for SKIP_ON_DUPLICATE strategy")
+    void toEntity_skipOnDuplicate_ignoresId() {
+        UUID quizId = UUID.randomUUID();
+        QuizImportDto dto = dtoWithId(quizId);
+        User creator = userWithId(UUID.randomUUID());
+        Category category = categoryWithName("Category");
+
+        Quiz quiz = assembler.toEntity(dto, creator, category, null, UpsertStrategy.SKIP_ON_DUPLICATE);
+
+        assertThat(quiz.getId()).isNull();
     }
 }

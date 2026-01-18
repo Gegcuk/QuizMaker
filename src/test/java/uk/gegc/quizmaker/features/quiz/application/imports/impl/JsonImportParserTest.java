@@ -573,6 +573,785 @@ class JsonImportParserTest extends BaseUnitTest {
                 .hasMessageContaining("Malformed JSON import payload");
     }
 
+    @Test
+    @DisplayName("parse rejects null options")
+    void parse_nullOptions_throwsException() {
+        String payload = """
+                [
+                  {"title":"Quiz 1","estimatedTime":10}
+                ]
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("QuizImportOptions is required");
+    }
+
+    @Test
+    @DisplayName("parse handles empty input stream")
+    void parse_emptyInputStream_returnsEmptyList() {
+        List<QuizImportDto> result = parser.parse(input(""), options);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parse rejects invalid JSON structure")
+    void parse_invalidJsonStructure_throwsException() {
+        assertThatThrownBy(() -> parser.parse(input("\"string\""), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Import payload must be a JSON array or object wrapper");
+    }
+
+    @Test
+    @DisplayName("parse handles wrapped object without quizzes field")
+    void parse_wrappedObjectWithoutQuizzes_returnsEmptyList() {
+        String payload = """
+                {
+                  "schemaVersion": 2
+                }
+                """;
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parse rejects wrapped object with quizzes as non-array")
+    void parse_wrappedObjectWithQuizzesAsNonArray_throwsException() {
+        String payload = """
+                {
+                  "quizzes": "not an array"
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Expected 'quizzes' to be an array");
+    }
+
+    @Test
+    @DisplayName("parse rejects array with non-object items")
+    void parse_arrayWithNonObjectItems_throwsException() {
+        String payload = """
+                [
+                  {"title":"Quiz 1","estimatedTime":10},
+                  "not an object"
+                ]
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Each quiz item must be a JSON object");
+    }
+
+    @Test
+    @DisplayName("parse handles empty wrapped object")
+    void parse_emptyWrappedObject_returnsEmptyList() {
+        String payload = "{}";
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parse ignores unknown fields in wrapped object")
+    void parse_wrappedObjectWithUnknownFields_ignored() {
+        String payload = """
+                {
+                  "unknownField": "value",
+                  "quizzes": [
+                    {"title":"Quiz 1","estimatedTime":10}
+                  ]
+                }
+                """;
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).title()).isEqualTo("Quiz 1");
+    }
+
+    @Test
+    @DisplayName("parse handles schemaVersion as null")
+    void parse_schemaVersionAsNull_handled() {
+        String payload = """
+                {
+                  "schemaVersion": null,
+                  "quizzes": [
+                    {"title":"Quiz 1","estimatedTime":10}
+                  ]
+                }
+                """;
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).schemaVersion()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("parse rejects schemaVersion as invalid type")
+    void parse_schemaVersionAsInvalidType_throwsException() {
+        String payload = """
+                {
+                  "schemaVersion": {"invalid": true},
+                  "quizzes": [
+                    {"title":"Quiz 1","estimatedTime":10}
+                  ]
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("schemaVersion must be a number");
+    }
+
+    @Test
+    @DisplayName("parse handles schemaVersion precedence - wrapped overrides array item")
+    void parse_schemaVersionPrecedence_wrappedOverridesArrayItem() {
+        String payload = """
+                {
+                  "schemaVersion": 5,
+                  "quizzes": [
+                    {"schemaVersion": 4, "title":"Quiz 1","estimatedTime":10}
+                  ]
+                }
+                """;
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).schemaVersion()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("parse handles schemaVersion as empty string")
+    void parse_schemaVersionAsEmptyString_handled() {
+        String payload = """
+                {
+                  "schemaVersion": "",
+                  "quizzes": [
+                    {"title":"Quiz 1","estimatedTime":10}
+                  ]
+                }
+                """;
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).schemaVersion()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("parse strips media fields from deeply nested structures")
+    void parse_stripsMediaFieldsFromDeeplyNestedStructures() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "options":[
+                            {
+                              "id":"opt1",
+                              "text":"A",
+                              "nested":{
+                                "media":{
+                                  "assetId":"%s",
+                                  "cdnUrl":"https://cdn.quizzence.com/nested.png",
+                                  "width":100,
+                                  "height":200,
+                                  "mimeType":"image/png"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(OPTION_MEDIA_ASSET_ID);
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+        JsonNode nestedMedia = question.content().get("options").get(0).get("nested").get("media");
+
+        assertThat(nestedMedia.has("cdnUrl")).isFalse();
+        assertThat(nestedMedia.has("width")).isFalse();
+        assertThat(nestedMedia.has("height")).isFalse();
+        assertThat(nestedMedia.has("mimeType")).isFalse();
+        assertThat(nestedMedia.get("assetId").asText()).isEqualTo(OPTION_MEDIA_ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("parse strips media fields with only enriched fields")
+    void parse_mediaFieldsWithOnlyEnrichedFields_stripped() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "media":{
+                            "cdnUrl":"https://cdn.quizzence.com/media.png",
+                            "width":640,
+                            "height":480,
+                            "mimeType":"image/png"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+        JsonNode media = question.content().get("media");
+
+        assertThat(media.has("cdnUrl")).isFalse();
+        assertThat(media.has("width")).isFalse();
+        assertThat(media.has("height")).isFalse();
+        assertThat(media.has("mimeType")).isFalse();
+    }
+
+    @Test
+    @DisplayName("parse handles null media fields")
+    void parse_nullMediaFields_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "media":null,
+                          "text":"Q1"
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        JsonNode media = question.content().get("media");
+        assertThat(media).isNotNull();
+        assertThat(media.isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("parse handles media fields that are not objects")
+    void parse_mediaFieldsNotObjects_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "media":"not an object",
+                          "text":"Q1"
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.content().get("media").asText()).isEqualTo("not an object");
+    }
+
+    @Test
+    @DisplayName("parse preserves media alt and caption")
+    void parse_preservesMediaAltAndCaption() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "media":{
+                            "assetId":"%s",
+                            "cdnUrl":"https://cdn.quizzence.com/media.png",
+                            "alt":"Media alt text",
+                            "caption":"Media caption"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(TOP_MEDIA_ASSET_ID);
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+        JsonNode media = question.content().get("media");
+
+        assertThat(media.has("alt")).isTrue();
+        assertThat(media.has("caption")).isTrue();
+        assertThat(media.get("alt").asText()).isEqualTo("Media alt text");
+        assertThat(media.get("caption").asText()).isEqualTo("Media caption");
+    }
+
+    @Test
+    @DisplayName("parse handles attachment with both assetId and URL - assetId takes precedence")
+    void parse_attachmentWithBothAssetIdAndUrl_assetIdTakesPrecedence() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachmentUrl":"https://cdn.quizzence.com/att.png",
+                        "attachment":{
+                          "assetId":"%s",
+                          "cdnUrl":"https://cdn.quizzence.com/att.png"
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(ATTACHMENT_ASSET_ID);
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.attachment()).isNotNull();
+        assertThat(question.attachment().assetId()).isEqualTo(UUID.fromString(ATTACHMENT_ASSET_ID));
+        assertThat(question.attachmentUrl()).isEqualTo("https://cdn.quizzence.com/att.png");
+    }
+
+    @Test
+    @DisplayName("parse handles attachment with only enriched fields")
+    void parse_attachmentWithOnlyEnrichedFields_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachment":{
+                          "cdnUrl":"https://cdn.quizzence.com/att.png",
+                          "width":800,
+                          "height":600,
+                          "mimeType":"image/png"
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.attachment()).isNotNull();
+        assertThat(question.attachment().assetId()).isNull();
+        assertThat(question.attachment().cdnUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("parse allows null attachment")
+    void parse_nullAttachment_allowed() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachment":null
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.attachment()).isNull();
+    }
+
+    @Test
+    @DisplayName("parse rejects HTTP attachment URL")
+    void parse_attachmentUrlNotHttps_throwsException() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachmentUrl":"http://cdn.quizzence.com/att.png"
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must use https");
+    }
+
+    @Test
+    @DisplayName("parse rejects malformed attachment URL")
+    void parse_attachmentUrlMalformed_throwsException() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachmentUrl":"not a valid url"
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must be a valid URL");
+    }
+
+    @Test
+    @DisplayName("parse rejects attachment URL with whitespace")
+    void parse_attachmentUrlWithWhitespace_trimmed() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{"text":"Q1"},
+                        "attachmentUrl":"  https://cdn.quizzence.com/att.png  "
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        assertThatThrownBy(() -> parser.parse(input(payload), options))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("attachmentUrl must be a valid URL");
+    }
+
+    @Test
+    @DisplayName("parse handles null content")
+    void parse_nullContent_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":null
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        // When content is null in JSON, Jackson may deserialize as NullNode or null
+        // sanitizeContent returns null if content is null, otherwise deepCopy
+        JsonNode content = question.content();
+        assertThat(content == null || content.isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("parse strips media fields from arrays containing media")
+    void parse_contentWithArraysContainingMedia_stripped() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "items":[
+                            {
+                              "id":"item1",
+                              "media":{
+                                "assetId":"%s",
+                                "cdnUrl":"https://cdn.quizzence.com/item.png",
+                                "width":100,
+                                "height":200
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(ITEM_MEDIA_ASSET_ID);
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+        JsonNode itemMedia = question.content().get("items").get(0).get("media");
+
+        assertThat(itemMedia.has("cdnUrl")).isFalse();
+        assertThat(itemMedia.has("width")).isFalse();
+        assertThat(itemMedia.has("height")).isFalse();
+        assertThat(itemMedia.get("assetId").asText()).isEqualTo(ITEM_MEDIA_ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("parse strips media fields from deeply nested media")
+    void parse_contentWithDeeplyNestedMedia_stripped() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "level1":{
+                            "level2":{
+                              "level3":{
+                                "media":{
+                                  "assetId":"%s",
+                                  "cdnUrl":"https://cdn.quizzence.com/deep.png",
+                                  "width":100,
+                                  "height":200
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(TOP_MEDIA_ASSET_ID);
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+        JsonNode deepMedia = question.content().get("level1").get("level2").get("level3").get("media");
+
+        assertThat(deepMedia.has("cdnUrl")).isFalse();
+        assertThat(deepMedia.has("width")).isFalse();
+        assertThat(deepMedia.has("height")).isFalse();
+        assertThat(deepMedia.get("assetId").asText()).isEqualTo(TOP_MEDIA_ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("parse strips media fields from all question types")
+    void parse_contentWithMediaInDifferentQuestionTypes_stripped() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"TRUE_FALSE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":{
+                          "answer":true,
+                          "media":{
+                            "assetId":"%s",
+                            "cdnUrl":"https://cdn.quizzence.com/tf.png",
+                            "width":100,
+                            "height":200
+                          }
+                        }
+                      },
+                      {
+                        "type":"OPEN",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q2",
+                        "content":{
+                          "answer":"text",
+                          "media":{
+                            "assetId":"%s",
+                            "cdnUrl":"https://cdn.quizzence.com/open.png",
+                            "width":100,
+                            "height":200
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+                """.formatted(TOP_MEDIA_ASSET_ID, OPTION_MEDIA_ASSET_ID);
+
+        List<QuestionImportDto> questions = parseQuestions(payload);
+
+        assertThat(questions).hasSize(2);
+        JsonNode tfMedia = questions.get(0).content().get("media");
+        JsonNode openMedia = questions.get(1).content().get("media");
+
+        assertThat(tfMedia.has("cdnUrl")).isFalse();
+        assertThat(openMedia.has("cdnUrl")).isFalse();
+    }
+
+    @Test
+    @DisplayName("parse handles quiz with duplicate IDs")
+    void parse_quizWithDuplicateIds_handled() {
+        UUID quizId = UUID.randomUUID();
+        String payload = """
+                [
+                  {"id":"%s","title":"Quiz 1","estimatedTime":10},
+                  {"id":"%s","title":"Quiz 2","estimatedTime":5}
+                ]
+                """.formatted(quizId.toString(), quizId.toString());
+
+        List<QuizImportDto> result = parser.parse(input(payload), options);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).id()).isEqualTo(quizId);
+        assertThat(result.get(1).id()).isEqualTo(quizId);
+    }
+
+    @Test
+    @DisplayName("parse handles question with null content")
+    void parse_questionWithNullContent_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":null
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        // When content is null in JSON, Jackson may deserialize as NullNode or null
+        // sanitizeContent returns null if content is null, otherwise deepCopy
+        JsonNode content = question.content();
+        assertThat(content == null || content.isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("parse handles question with array content")
+    void parse_questionWithArrayContent_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":[1, 2, 3]
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.content()).isNotNull();
+        assertThat(question.content().isArray()).isTrue();
+    }
+
+    @Test
+    @DisplayName("parse handles question with primitive content")
+    void parse_questionWithPrimitiveContent_handled() {
+        String payload = """
+                [
+                  {
+                    "title":"Quiz 1",
+                    "estimatedTime":10,
+                    "questions":[
+                      {
+                        "type":"MCQ_SINGLE",
+                        "difficulty":"MEDIUM",
+                        "questionText":"Q1",
+                        "content":"primitive string"
+                      }
+                    ]
+                  }
+                ]
+                """;
+
+        QuestionImportDto question = parseSingleQuestion(payload);
+
+        assertThat(question.content()).isNotNull();
+        assertThat(question.content().isTextual()).isTrue();
+        assertThat(question.content().asText()).isEqualTo("primitive string");
+    }
+
     private ByteArrayInputStream input(String json) {
         return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
     }

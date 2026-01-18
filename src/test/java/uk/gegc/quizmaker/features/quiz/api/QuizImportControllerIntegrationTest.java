@@ -1025,12 +1025,19 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     private ResultActions performXlsxImport(User user, Workbook workbook, String strategy, boolean dryRun) throws Exception {
+        return performXlsxImport(user, workbook, strategy, dryRun, false, false);
+    }
+
+    private ResultActions performXlsxImport(User user, Workbook workbook, String strategy, boolean dryRun,
+                                           boolean autoCreateTags, boolean autoCreateCategory) throws Exception {
         MockMultipartFile file = createXlsxMultipartFile(workbook);
         return mockMvc.perform(multipart("/api/v1/quizzes/import")
                 .file(file)
                 .param("format", "XLSX_EDITABLE")
                 .param("strategy", strategy)
                 .param("dryRun", String.valueOf(dryRun))
+                .param("autoCreateTags", String.valueOf(autoCreateTags))
+                .param("autoCreateCategory", String.valueOf(autoCreateCategory))
                 .with(user(user.getUsername())));
     }
 
@@ -1118,5 +1125,466 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
         row.createCell(10).setCellValue(""); // Updated At (empty)
         
         return workbook;
+    }
+
+    @Test
+    @DisplayName("importQuizzes XLSX: auto-creates tags when enabled")
+    void importQuizzes_xlsx_autoCreateTags_createsTags() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Workbook workbook = createSimpleXlsxWorkbook("XLSX Auto Tags Quiz");
+        Sheet sheet = workbook.getSheet("Quizzes");
+        Row row = sheet.getRow(1);
+        row.createCell(6).setCellValue("NewTag1,NewTag2"); // Tags column
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false, true, false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(1));
+        
+        List<Quiz> created = quizRepository.findByCreatorId(user.getId());
+        assertThat(created).hasSize(1);
+        Quiz quiz = quizRepository.findByIdWithTags(created.get(0).getId()).orElseThrow();
+        assertThat(quiz.getTags()).extracting(tag -> tag.getName())
+                .containsExactlyInAnyOrder("NewTag1", "NewTag2");
+    }
+
+    @Test
+    @DisplayName("importQuizzes XLSX: auto-creates category when enabled")
+    void importQuizzes_xlsx_autoCreateCategory_createsCategory() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Workbook workbook = createSimpleXlsxWorkbook("XLSX Auto Category Quiz");
+        Sheet sheet = workbook.getSheet("Quizzes");
+        Row row = sheet.getRow(1);
+        row.createCell(7).setCellValue("NewCategory"); // Category column
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false, false, true);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(1));
+        
+        List<Quiz> created = quizRepository.findByCreatorId(user.getId());
+        assertThat(created).hasSize(1);
+        // Use findByIdIn with EntityGraph to eagerly load category
+        Quiz quiz = quizRepository.findByIdIn(List.of(created.get(0).getId())).stream()
+                .findFirst()
+                .orElseThrow();
+        assertThat(quiz.getCategory().getName()).isEqualTo("NewCategory");
+    }
+
+    @Test
+    @DisplayName("importQuizzes: empty input returns 400")
+    void importQuizzes_emptyInput_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "empty.json", MediaType.APPLICATION_JSON_VALUE,
+                "".getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid file format returns 400")
+    void importQuizzes_invalidFileFormat_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "invalid.txt", MediaType.TEXT_PLAIN_VALUE,
+                "not json".getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: malformed JSON structure returns 400")
+    void importQuizzes_malformedJsonStructure_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "malformed.json", MediaType.APPLICATION_JSON_VALUE,
+                "{invalid json}".getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid schema version returns 400")
+    void importQuizzes_invalidSchemaVersion_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        String payload = """
+                {
+                  "schemaVersion": "invalid",
+                  "quizzes": []
+                }
+                """;
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "invalid.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: missing title returns summary with errors")
+    void importQuizzes_missingTitle_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuizImportDto quiz = new QuizImportDto(
+                null, null, null, "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, null, null, List.of(), null, null
+        );
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("title")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: missing estimated time returns summary with errors")
+    void importQuizzes_missingEstimatedTime_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuizImportDto quiz = new QuizImportDto(
+                null, null, "Title", "Description", Visibility.PRIVATE, Difficulty.EASY, null,
+                null, null, null, List.of(), null, null
+        );
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.anyOf(
+                        org.hamcrest.Matchers.containsStringIgnoringCase("estimated time"),
+                        org.hamcrest.Matchers.containsStringIgnoringCase("category")
+                )));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: missing question type returns summary with errors")
+    void importQuizzes_missingQuestionType_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, null, Difficulty.EASY, "Question text", null, null, null, null, null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("question type")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: missing question difficulty returns summary with errors")
+    void importQuizzes_missingQuestionDifficulty_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                null, "Question text", null, null, null, null, null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("difficulty")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid enum value returns summary with errors")
+    void importQuizzes_invalidEnumValue_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        String payload = """
+                [
+                  {
+                    "title": "Quiz",
+                    "estimatedTime": 10,
+                    "visibility": "INVALID_VISIBILITY"
+                  }
+                ]
+                """;
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "invalid.json", MediaType.APPLICATION_JSON_VALUE,
+                payload.getBytes(StandardCharsets.UTF_8)
+        );
+
+        ResultActions result = mockMvc.perform(multipart("/api/v1/quizzes/import")
+                .file(file)
+                .param("format", "JSON_EDITABLE")
+                .param("strategy", "CREATE_ONLY")
+                .param("dryRun", "false")
+                .with(user(user.getUsername())));
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: UPSERT_BY_ID with missing questions returns summary with errors")
+    void importQuizzes_upsertById_missingQuestions_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Quiz existing = createQuiz(user, "Existing Quiz");
+        QuizImportDto quiz = buildQuiz(existing.getId(), "Updated Quiz", null);
+
+        ResultActions result = performImport(user, quiz, "UPSERT_BY_ID", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("questions")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: category not found returns summary with errors")
+    void importQuizzes_categoryNotFound_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuizImportDto quiz = new QuizImportDto(
+                null, null, "Quiz", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                null, "MissingCategory", null, List.of(), null, null
+        );
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("category")));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: tags not found returns summary with errors")
+    void importQuizzes_tagsNotFound_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuizImportDto quiz = new QuizImportDto(
+                null, null, "Quiz", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
+                List.of("MissingTag"), null, null, List.of(), null, null
+        );
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        result.andExpect(status().isOk())
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.anyOf(
+                        org.hamcrest.Matchers.containsStringIgnoringCase("tag"),
+                        org.hamcrest.Matchers.containsStringIgnoringCase("category")
+                )));
+    }
+
+    @Test
+    @DisplayName("importQuizzes: default category missing returns error")
+    void importQuizzes_defaultCategoryMissing_returnsError() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        UUID originalCategoryId = quizDefaultsProperties.getDefaultCategoryId();
+        UUID nonExistentCategoryId = UUID.randomUUID();
+        try {
+            ReflectionTestUtils.setField(quizDefaultsProperties, "defaultCategoryId", nonExistentCategoryId);
+            QuizImportDto quiz = buildQuiz(null, "Quiz", List.of());
+
+            ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("category")));
+        } finally {
+            ReflectionTestUtils.setField(quizDefaultsProperties, "defaultCategoryId", originalCategoryId);
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes: HOTSPOT question returns summary with errors")
+    void importQuizzes_hotspotQuestion_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, uk.gegc.quizmaker.features.question.domain.model.QuestionType.HOTSPOT,
+                Difficulty.EASY, "Question", null, null, null, null, null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        // HOTSPOT rejection happens during parsing, might return 400 or 200 with errors
+        int status = result.andReturn().getResponse().getStatus();
+        if (status == 200) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("HOTSPOT")));
+        } else {
+            result.andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes: MATCHING in XLSX returns 400")
+    void importQuizzes_matchingInXlsx_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Workbook workbook = createSimpleXlsxWorkbook("Quiz");
+        Sheet matchingSheet = workbook.createSheet("MATCHING");
+        Row header = matchingSheet.createRow(0);
+        header.createCell(0).setCellValue("Quiz ID");
+        header.createCell(1).setCellValue("Question Text");
+        Row row = matchingSheet.createRow(1);
+        row.createCell(0).setCellValue(UUID.randomUUID().toString());
+        row.createCell(1).setCellValue("Matching question");
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false);
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes: invalid attachment URL returns summary with errors")
+    void importQuizzes_invalidAttachmentUrl_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                Difficulty.EASY, "Question", null, null, null, "not a valid url", null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        // Validation might happen during parsing (400) or processing (200 with errors)
+        int status = result.andReturn().getResponse().getStatus();
+        if (status == 200) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("attachmentUrl")));
+        } else {
+            result.andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes: attachment URL not HTTPS returns summary with errors")
+    void importQuizzes_attachmentUrlNotHttps_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                Difficulty.EASY, "Question", null, null, null, "http://cdn.quizzence.com/file.png", null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        // Validation happens during parsing, so it might return 400 or 200 with errors
+        // Check if it's 200 with errors or 400
+        if (result.andReturn().getResponse().getStatus() == 200) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("https")));
+        } else {
+            result.andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes: attachment URL wrong host returns summary with errors")
+    void importQuizzes_attachmentUrlWrongHost_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        QuestionImportDto question = new QuestionImportDto(
+                null, uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                Difficulty.EASY, "Question", null, null, null, "https://example.com/file.png", null
+        );
+        QuizImportDto quiz = buildQuiz(null, "Quiz", List.of(question));
+
+        ResultActions result = performImport(user, quiz, "CREATE_ONLY", false);
+
+        // Validation might happen during parsing (400) or processing (200 with errors)
+        int status = result.andReturn().getResponse().getStatus();
+        if (status == 200) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("cdn.quizzence.com")));
+        } else {
+            result.andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes XLSX: missing required column returns 400")
+    void importQuizzes_xlsx_missingRequiredColumn_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Quizzes");
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("Quiz ID");
+        // Missing "Title" column
+        header.createCell(1).setCellValue("Description");
+        Row row = sheet.createRow(1);
+        row.createCell(0).setCellValue("");
+        row.createCell(1).setCellValue("Description");
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false);
+
+        result.andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("importQuizzes XLSX: invalid cell data returns summary with errors")
+    void importQuizzes_xlsx_invalidCellData_returnsSummaryWithErrors() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        Workbook workbook = createSimpleXlsxWorkbook("Quiz");
+        Sheet sheet = workbook.getSheet("Quizzes");
+        Row row = sheet.getRow(1);
+        row.createCell(5).setCellValue("not a number"); // Estimated Time column
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false);
+
+        // XLSX parsing might return 400 for parse errors or 200 with errors for validation
+        int status = result.andReturn().getResponse().getStatus();
+        if (status == 200) {
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.failed").value(1))
+                    .andExpect(jsonPath("$.errors[0].message").value(org.hamcrest.Matchers.containsStringIgnoringCase("numeric")));
+        } else {
+            result.andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    @DisplayName("importQuizzes XLSX: question ID not matching quiz ID returns 400")
+    void importQuizzes_xlsx_questionIdNotMatchingQuizId_returns400() throws Exception {
+        User user = createUserWithPermission("import_user_" + UUID.randomUUID());
+        UUID quizId = UUID.randomUUID();
+        Workbook workbook = createXlsxWorkbookWithId(quizId, "Quiz");
+        Sheet questionSheet = workbook.createSheet("MCQ_SINGLE");
+        Row header = questionSheet.createRow(0);
+        header.createCell(0).setCellValue("Quiz ID");
+        header.createCell(1).setCellValue("Question Text");
+        Row row = questionSheet.createRow(1);
+        row.createCell(0).setCellValue(UUID.randomUUID().toString()); // Different quiz ID
+        row.createCell(1).setCellValue("Question");
+
+        ResultActions result = performXlsxImport(user, workbook, "CREATE_ONLY", false);
+
+        result.andExpect(status().isBadRequest());
     }
 }
