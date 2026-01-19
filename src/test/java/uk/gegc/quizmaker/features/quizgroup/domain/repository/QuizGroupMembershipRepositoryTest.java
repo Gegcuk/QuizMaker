@@ -38,8 +38,8 @@ import static org.assertj.core.api.Assertions.*;
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.jpa.properties.hibernate.hbm2ddl.auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.properties.hibernate.hbm2ddl.auto=update"
 })
 @DisplayName("QuizGroupMembershipRepository Tests")
 class QuizGroupMembershipRepositoryTest {
@@ -71,15 +71,12 @@ class QuizGroupMembershipRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Create or find role
-        Role role = roleRepository.findByRoleName("ROLE_USER")
-                .orElseGet(() -> {
-                    Role r = new Role();
-                    r.setRoleName("ROLE_USER");
-                    r.setDescription("User role");
-                    r.setDefault(true);
-                    return entityManager.persist(r);
-                });
+        // Create role directly - don't query first as schema may not exist yet
+        Role role = new Role();
+        role.setRoleName("ROLE_USER");
+        role.setDescription("User role");
+        role.setDefault(true);
+        role = entityManager.persist(role);
         entityManager.flush();
 
         // Create user
