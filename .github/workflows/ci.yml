@@ -270,6 +270,20 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure database exists and is ready
+        run: |
+          echo "🔍 Ensuring database exists and is ready..."
+          MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+          if [ -n "$MYSQL_CONTAINER" ]; then
+            # Wait a moment for database to be fully initialized
+            sleep 3
+            # Verify database exists
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test;" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test.* TO 'bestuser'@'%';" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "FLUSH PRIVILEGES;" 2>&1 || true
+            echo "✅ Database quizmaker_test is ready!"
+          fi
+
       - name: Flyway migrate (fail fast on schema issues)
         run: |
           ./mvnw -B -V -q -DskipTests=true \
@@ -279,7 +293,10 @@ jobs:
             flyway:migrate | cat
 
       - name: Run tests
-        run: ./mvnw -B -T 1C -DskipTests=false test | cat
+        run: |
+          echo "⏳ Waiting 2 seconds before starting tests to ensure database is fully ready..."
+          sleep 2
+          ./mvnw -B -T 1C -DskipTests=false test | cat
 
       - name: Upload surefire reports on failure
         if: failure()
