@@ -374,6 +374,7 @@
                     <useUnlimitedThreads>true</useUnlimitedThreads>
                     <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
                     <!-- Exclude OpenAI API tests from CI to avoid costs -->
+                    <!-- Exclude Stripe integration tests that require Stripe CLI or real test keys -->
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
                         <exclude>**/AiChatControllerIntegrationTest.java</exclude>
@@ -386,6 +387,12 @@
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
                         <exclude>**/QuizImportTemplateGeneratorTest.java</exclude>
+                        <!-- Stripe integration tests requiring Stripe CLI or real test keys -->
+                        <exclude>**/RealStripeApiIntegrationTest.java</exclude>
+                        <exclude>**/RealStripeCliE2ETest.java</exclude>
+                        <exclude>**/StripeCliE2ETest.java</exclude>
+                        <exclude>**/StripeIntegrationTest.java</exclude>
+                        <exclude>**/ProductionReadinessValidationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
