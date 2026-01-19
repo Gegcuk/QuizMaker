@@ -121,16 +121,18 @@ jobs:
           # Check if mysqladmin is available (might not be installed in runner)
           if command -v mysqladmin >/dev/null 2>&1; then
             echo "✅ MySQL client tools available"
+            echo "ℹ️ Using 127.0.0.1 (TCP/IP) instead of localhost to avoid Unix socket issues"
             MYSQL_READY=0
             for i in {1..60}; do
               # Try to ping MySQL and show error if it fails
-              PING_OUTPUT=$(mysqladmin ping -h localhost -uroot -proot 2>&1)
+              # Use 127.0.0.1 instead of localhost to force TCP/IP connection (not Unix socket)
+              PING_OUTPUT=$(mysqladmin ping -h 127.0.0.1 -uroot -proot 2>&1)
               PING_STATUS=$?
               
               if [ $PING_STATUS -eq 0 ]; then
                 echo "✅ MySQL is ready!"
                 # Verify we can actually connect and query
-                QUERY_OUTPUT=$(mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1)
+                QUERY_OUTPUT=$(mysql -h 127.0.0.1 -uroot -proot -e "SELECT 1;" 2>&1)
                 QUERY_STATUS=$?
                 if [ $QUERY_STATUS -eq 0 ]; then
                   echo "✅ MySQL connection verified!"
@@ -158,7 +160,7 @@ jobs:
                 docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
                 echo ""
                 echo "Testing port connectivity:"
-                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 is accessible" || echo "  ❌ Port 3306 not accessible"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null && echo "  ✅ Port 3306 is accessible" || echo "  ❌ Port 3306 not accessible"
                 echo ""
                 echo "Testing connection from inside container:"
                 MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
@@ -173,7 +175,7 @@ jobs:
             
             # Final verification if we didn't succeed in the loop
             if [ $MYSQL_READY -eq 0 ]; then
-              mysqladmin ping -h localhost -uroot -proot --silent 2>&1
+              mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>&1
               if [ $? -ne 0 ]; then
                 echo "❌ MySQL failed to become ready after 2 minutes"
                 echo ""
@@ -190,13 +192,13 @@ jobs:
                 fi
                 echo ""
                 echo "Testing connection with mysqladmin:"
-                mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
+                mysqladmin ping -h 127.0.0.1 -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
                 echo ""
                 echo "Testing connection with mysql client:"
-                mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
+                mysql -h 127.0.0.1 -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
                 echo ""
                 echo "Port connectivity:"
-                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
                 echo ""
                 echo "Trying to connect from inside the container:"
                 docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ Container exec failed"
@@ -209,7 +211,7 @@ jobs:
             echo "⚠️ MySQL client tools not found - using TCP connection test"
             MYSQL_READY=0
             for i in {1..60}; do
-              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null
               if [ $? -eq 0 ]; then
                 echo "✅ MySQL port 3306 is accessible!"
                 MYSQL_READY=1
@@ -228,7 +230,7 @@ jobs:
             
             # Final verification if we didn't succeed in the loop
             if [ $MYSQL_READY -eq 0 ]; then
-              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null
               if [ $? -ne 0 ]; then
                 echo "❌ MySQL port 3306 not accessible after 2 minutes"
                 echo ""
