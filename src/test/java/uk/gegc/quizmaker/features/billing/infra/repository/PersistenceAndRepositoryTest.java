@@ -29,8 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update",
-        "spring.jpa.properties.hibernate.hbm2ddl.auto=update"
+        "spring.jpa.hibernate.ddl-auto=update"
 })
 @DisplayName("Persistence & Repository Tests")
 class PersistenceAndRepositoryTest {
