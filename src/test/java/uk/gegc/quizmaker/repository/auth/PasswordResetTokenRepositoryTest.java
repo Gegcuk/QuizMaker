@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+    "spring.jpa.hibernate.ddl-auto=update"
 })
 @DisplayName("PasswordResetTokenRepository Tests")
 class PasswordResetTokenRepositoryTest {

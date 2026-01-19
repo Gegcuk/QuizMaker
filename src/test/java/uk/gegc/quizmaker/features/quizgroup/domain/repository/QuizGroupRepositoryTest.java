@@ -76,12 +76,14 @@ class QuizGroupRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Create role directly - don't query first as schema may not exist yet
-        Role role = new Role();
-        role.setRoleName("ROLE_USER");
-        role.setDescription("User role");
-        role.setDefault(true);
-        role = entityManager.persist(role);
+        // Get or create role - check if exists first to avoid duplicate key violation
+        Role role = roleRepository.findByRoleName("ROLE_USER").orElseGet(() -> {
+            Role newRole = new Role();
+            newRole.setRoleName("ROLE_USER");
+            newRole.setDescription("User role");
+            newRole.setDefault(true);
+            return entityManager.persist(newRole);
+        });
         entityManager.flush();
 
         // Create users
