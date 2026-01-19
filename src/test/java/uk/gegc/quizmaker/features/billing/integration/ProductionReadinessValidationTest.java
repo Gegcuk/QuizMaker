@@ -62,8 +62,10 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create",
-    "quizmaker.features.billing=true"
+    "quizmaker.features.billing=true",
+    "stripe.webhook-secret=whsec_test_secret_for_validation"
     // Note: Uses real Stripe configuration from environment variables (.env file)
+    // The webhook-secret above is just for startup validation; actual tests use env vars
 })
 @DisplayName("Production Readiness Validation Tests")
 class ProductionReadinessValidationTest {

@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
@@ -83,7 +84,7 @@ class ShareLinkServiceImplTest {
             return sl;
         });
 
-        CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, Instant.parse("2025-12-31T00:00:00Z"), true);
+        CreateShareLinkRequest req = new CreateShareLinkRequest(ShareLinkScope.QUIZ_VIEW, Instant.now().plus(Duration.ofDays(1)), true);
         CreateShareLinkResponse resp = service.createShareLink(quizId, userId, req);
         ShareLinkDto dto = resp.link();
 

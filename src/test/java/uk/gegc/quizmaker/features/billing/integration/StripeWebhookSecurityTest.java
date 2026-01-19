@@ -33,7 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
     "spring.jpa.hibernate.ddl-auto=create",
-    "quizmaker.features.billing=true"
+    "quizmaker.features.billing=true",
+    "stripe.webhook-secret=whsec_test_secret_for_validation"
     // Note: Uses real Stripe configuration from environment variables (.env file)
 })
 @DisplayName("Stripe Webhook Security Tests")

@@ -36,7 +36,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.properties.hibernate.hbm2ddl.auto=create-drop"
 })
 @DisplayName("QuizGenerationJobRepository Atomic Task Progress Tests")
 class QuizGenerationJobRepositoryTaskProgressTest {

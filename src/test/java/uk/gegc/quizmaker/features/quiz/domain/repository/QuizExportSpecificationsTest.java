@@ -34,7 +34,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+    "spring.jpa.hibernate.ddl-auto=create-drop",
+    "spring.jpa.properties.hibernate.hbm2ddl.auto=create-drop"
 })
 @Execution(ExecutionMode.SAME_THREAD)
 @DisplayName("QuizExportSpecifications Tests")
