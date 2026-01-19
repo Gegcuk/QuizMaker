@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create"
+    "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 @Execution(ExecutionMode.SAME_THREAD)
 @DisplayName("QuizExportSpecifications Tests")
@@ -51,6 +51,13 @@ class QuizExportSpecificationsTest {
 
     @BeforeEach
     void setUp() {
+        // Clear data - needed even with create-drop to ensure clean state between tests
+        // create-drop only drops tables when context closes, not between test methods
+        entityManager.getEntityManager().createQuery("DELETE FROM Quiz").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM User").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM Category").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM Tag").executeUpdate();
+        
         // Create test user
         testUser = new User();
         testUser.setUsername("testuser");

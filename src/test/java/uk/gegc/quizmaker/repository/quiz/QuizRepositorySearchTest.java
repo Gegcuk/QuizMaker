@@ -46,6 +46,14 @@ class QuizRepositorySearchTest {
 
     @BeforeEach
     void setUp() {
+        // Clear data to ensure clean state between tests
+        // @DataJpaTest with @Transactional should roll back, but explicit cleanup ensures isolation
+        em.getEntityManager().createQuery("DELETE FROM Quiz").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM User").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM Category").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM Tag").executeUpdate();
+        em.flush();
+        
         alice = new User();
         alice.setUsername("alice");
         alice.setEmail("alice@example.com");
