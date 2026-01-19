@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update"
+    "spring.flyway.enabled=false",
+    "spring.jpa.hibernate.ddl-auto=create"
 })
 @DisplayName("QuizGenerationJobRepository Atomic Task Progress Tests")
 class QuizGenerationJobRepositoryTaskProgressTest {

@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update"
+        "spring.jpa.hibernate.ddl-auto=create"
 })
 class QuizRepositoryExistsByCreatorIdAndTitleTest {
 

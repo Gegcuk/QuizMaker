@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update"
+        "spring.jpa.hibernate.ddl-auto=create"
 })
 @DisplayName("AttemptRepository Review Query Tests")
 class AttemptRepositoryReviewTest {
