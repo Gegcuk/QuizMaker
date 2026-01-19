@@ -76,8 +76,18 @@ class QuizGroupRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Force schema creation by accessing EntityManagerFactory metadata
-        entityManagerFactory.getMetamodel();
+        // Force schema creation by querying an entity table
+        // This ensures Hibernate creates all tables before we try to use them
+        // In CI with parallel execution, this is critical to avoid "Table doesn't exist" errors
+        jakarta.persistence.EntityManager em = entityManager.getEntityManager();
+        try {
+            // Query an entity to force Hibernate to create the schema
+            // This is more reliable than native queries which don't trigger schema creation
+            em.createQuery("SELECT COUNT(u) FROM User u", Long.class).getSingleResult();
+        } catch (Exception e) {
+            // If query fails, schema will be created on first entity access
+            // This is fine - the try-catch prevents blocking if schema already exists
+        }
         
         // Create or find role
         Role role = roleRepository.findByRoleName("ROLE_USER")
