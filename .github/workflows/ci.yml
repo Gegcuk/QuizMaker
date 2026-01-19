@@ -17,8 +17,8 @@ jobs:
       JWT_SECRET:     ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
       TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
       SPRING_PROFILES_ACTIVE: test
-      # Point Spring to the service hostname, not localhost
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      # Service containers with port mapping are accessible via localhost on the runner
+      SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       SPRING_DATASOURCE_USERNAME: bestuser
       SPRING_DATASOURCE_PASSWORD: bestuser
       
@@ -50,6 +50,8 @@ jobs:
     services:
       mysql:
         image: mysql:8.4  # LTS line
+        ports:
+          - 3306:3306
         env:
           MYSQL_DATABASE: quizmaker_test
           MYSQL_USER: bestuser
@@ -69,66 +71,144 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Wait for MySQL to be healthy
-        id: mysql-wait
+      - name: Check MySQL container status
         run: |
-          echo "Waiting for MySQL service to be ready..."
+          echo "🔍 Checking MySQL service container status..."
+          echo ""
+          echo "Docker containers:"
+          docker ps -a | grep -i mysql || echo "  ⚠️ No MySQL containers found"
+          echo ""
+          echo "Docker network:"
+          docker network ls | grep -E "bridge|github" || echo "  ⚠️ No relevant networks found"
+          echo ""
+          echo "Checking for MySQL service container..."
+          # Try to get service container info
+          MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+          if [ -n "$MYSQL_CONTAINER" ]; then
+            echo "✅ Found MySQL container: $MYSQL_CONTAINER"
+            echo ""
+            echo "Container status:"
+            docker ps -a --filter "id=$MYSQL_CONTAINER" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Ports}}"
+            echo ""
+            echo "MySQL container logs (last 30 lines):"
+            docker logs --tail=30 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read container logs"
+          else
+            echo "⚠️ MySQL container not found yet (this is normal if it's still starting)"
+          fi
+          echo ""
+          echo "Checking if port 3306 is listening on localhost:"
+          netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not listening yet"
+
+      - name: Wait for MySQL to be healthy
+        run: |
+          echo "Waiting for MySQL service to be ready (accessible via localhost:3306)..."
+          echo ""
           
-          mysql_available=false
-          mysql_host=""
+          # Function to show MySQL container logs
+          show_mysql_logs() {
+            MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+            if [ -n "$MYSQL_CONTAINER" ]; then
+              echo "📋 MySQL container logs (last 10 lines):"
+              docker logs --tail=10 "$MYSQL_CONTAINER" 2>&1 | sed 's/^/  /' || true
+            fi
+          }
           
-          for i in {1..120}; do
-            # Try hostname first (preferred for GitHub Actions service containers)
-            if mysqladmin ping -h mysql -uroot -proot --silent 2>/dev/null; then
-              echo "✅ MySQL ping successful via hostname 'mysql'!"
-              if mysql -h mysql -uroot -proot -e "SELECT 1;" 2>/dev/null; then
-                echo "✅ MySQL connection and query verified via hostname!"
-                mysql_available=true
-                mysql_host="mysql"
+          # Check if mysqladmin is available (might not be installed in runner)
+          if command -v mysqladmin >/dev/null 2>&1; then
+            echo "✅ MySQL client tools available"
+            for i in {1..60}; do
+              if mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
+                echo "✅ MySQL is ready!"
+                # Verify we can actually connect and query
+                if mysql -h localhost -uroot -proot -e "SELECT 1;" 2>/dev/null; then
+                  echo "✅ MySQL connection verified!"
+                  break
+                fi
+              fi
+              
+              # Show logs periodically
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "Still waiting for MySQL... (attempt $i/60)"
+                show_mysql_logs
+                echo ""
+                echo "Checking container status:"
+                docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
+                echo ""
+              fi
+              
+              sleep 2
+            done
+            
+            # Final verification
+            if ! mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
+              echo "❌ MySQL failed to become ready after 2 minutes"
+              echo ""
+              echo "Diagnostics:"
+              echo "MySQL container status:"
+              docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+              echo ""
+              echo "MySQL container logs (last 50 lines):"
+              MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+              if [ -n "$MYSQL_CONTAINER" ]; then
+                docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+              else
+                echo "  ⚠️ Container not found"
+              fi
+              echo ""
+              echo "Testing connection:"
+              mysqladmin ping -h localhost -uroot -proot 2>&1 | head -5 || echo "  ❌ mysqladmin ping failed"
+              echo ""
+              echo "Port connectivity:"
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
+              exit 1
+            fi
+          else
+            echo "⚠️ MySQL client tools not found - using TCP connection test"
+            for i in {1..60}; do
+              if timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null; then
+                echo "✅ MySQL port 3306 is accessible!"
                 break
               fi
-            fi
-            
-            # Fallback to localhost
-            if mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
-              echo "✅ MySQL ping successful via localhost!"
-              if mysql -h localhost -uroot -proot -e "SELECT 1;" 2>/dev/null; then
-                echo "✅ MySQL connection verified via localhost!"
-                mysql_available=true
-                mysql_host="localhost"
-                break
+              
+              # Show logs periodically
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "Still waiting for MySQL... (attempt $i/60)"
+                show_mysql_logs
+                echo ""
               fi
-            fi
+              
+              sleep 2
+            done
             
-            if [ $((i % 10)) -eq 0 ]; then
-              echo "Still waiting for MySQL... (attempt $i/120)"
+            # Final verification
+            if ! timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null; then
+              echo "❌ MySQL port 3306 not accessible after 2 minutes"
+              echo ""
+              echo "Diagnostics:"
+              echo "MySQL container status:"
+              docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+              echo ""
+              echo "MySQL container logs (last 50 lines):"
+              MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+              if [ -n "$MYSQL_CONTAINER" ]; then
+                docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+              else
+                echo "  ⚠️ Container not found"
+              fi
+              echo ""
+              echo "Checking if port is listening:"
+              netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not found"
+              exit 1
             fi
-            sleep 5
-          done
-          
-          if [ "$mysql_available" = false ]; then
-            echo "❌ MySQL failed to become ready after 10 minutes"
-            echo "Diagnostics:"
-            echo "Testing hostname 'mysql':"
-            mysqladmin ping -h mysql -uroot -proot 2>&1 | head -5 || echo "  ❌ Failed"
-            echo "Testing localhost:"
-            mysqladmin ping -h localhost -uroot -proot 2>&1 | head -5 || echo "  ❌ Failed"
-            echo "Checking DNS resolution:"
-            getent hosts mysql || echo "  ⚠️ Cannot resolve mysql hostname"
-            echo "Checking port connectivity:"
-            timeout 2 bash -c 'cat < /dev/null > /dev/tcp/mysql/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible on mysql" || echo "  ❌ Port 3306 not accessible on mysql"
-            timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible on localhost" || echo "  ❌ Port 3306 not accessible on localhost"
-            exit 1
           fi
           
-          echo "✅ MySQL is ready and accessible via $mysql_host!"
-          echo "mysql_host=$mysql_host" >> $GITHUB_ENV
-          
-          # If using localhost, update the datasource URL
-          if [ "$mysql_host" = "localhost" ]; then
-            echo "⚠️ Using localhost instead of hostname 'mysql'"
-            echo "SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> $GITHUB_ENV
-          fi
+          echo "✅ MySQL is ready and accessible!"
+          echo ""
+          echo "Final MySQL container status:"
+          docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
+          echo ""
+          echo "MySQL container logs (last 10 lines):"
+          show_mysql_logs
 
       - name: Flyway migrate (fail fast on schema issues)
         run: |
