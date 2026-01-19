@@ -95,7 +95,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     @Test
     @DisplayName("findBySlug and findBySlugAndStatus return only matching status")
     void findBySlugAndStatusRespectsStatus() {
-        Article published = createArticleWithTag("slug-match", "tag");
+        Article published = createArticleWithTag("slug-match", "tag-slug-match");
         published.setStatus(ArticleStatus.PUBLISHED);
         articleRepository.save(published);
 
@@ -107,7 +107,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     @Test
     @DisplayName("existsBySlug returns true when slug present")
     void existsBySlugWorks() {
-        Article article = createArticleWithTag("exists-slug", "tag");
+        Article article = createArticleWithTag("exists-slug", "tag-exists-slug");
         articleRepository.save(article);
 
         assertThat(articleRepository.existsBySlug("exists-slug")).isTrue();
@@ -142,7 +142,7 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     @Test
     @DisplayName("findSitemapEntries returns projections for status")
     void findSitemapEntriesReturnsProjections() {
-        Article article = createArticleWithTag("sitemap-slug", "tag");
+        Article article = createArticleWithTag("sitemap-slug", "tag-sitemap-slug");
         article.setCanonicalUrl("https://example.com/sitemap-slug");
         article.setStatus(ArticleStatus.PUBLISHED);
         articleRepository.save(article);
@@ -158,10 +158,10 @@ class ArticleRepositoryTest extends BaseIntegrationTest {
     @Test
     @DisplayName("findSitemapEntries excludes noindex articles")
     void findSitemapEntriesExcludesNoindex() {
-        Article visible = createArticleWithTag("sitemap-visible", "tag");
+        Article visible = createArticleWithTag("sitemap-visible", "tag-sitemap-visible");
         visible.setStatus(ArticleStatus.PUBLISHED);
 
-        Article hidden = createArticleWithTag("sitemap-hidden", "tag");
+        Article hidden = createArticleWithTag("sitemap-hidden", "tag-sitemap-hidden");
         hidden.setStatus(ArticleStatus.PUBLISHED);
         hidden.setNoindex(true);
 
