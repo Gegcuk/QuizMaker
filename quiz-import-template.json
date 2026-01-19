@@ -1,0 +1,289 @@
+[
+  {
+    "schemaVersion": 1,
+    "id": null,
+    "title": "Sample Quiz - Multiple Question Types",
+    "description": "This is a comprehensive example quiz demonstrating all supported question types. You can use this as a template for creating your own quizzes.",
+    "visibility": "PRIVATE",
+    "difficulty": "MEDIUM",
+    "estimatedTime": 15,
+    "tags": ["example", "template", "education"],
+    "category": "General Knowledge",
+    "creatorId": null,
+    "createdAt": null,
+    "updatedAt": null,
+    "questions": [
+      {
+        "id": null,
+        "type": "MCQ_SINGLE",
+        "difficulty": "EASY",
+        "questionText": "What is the capital of France?",
+        "content": {
+          "options": [
+            {
+              "id": "a",
+              "text": "London",
+              "correct": false
+            },
+            {
+              "id": "b",
+              "text": "Paris",
+              "correct": true
+            },
+            {
+              "id": "c",
+              "text": "Berlin",
+              "correct": false
+            },
+            {
+              "id": "d",
+              "text": "Madrid",
+              "correct": false
+            }
+          ]
+        },
+        "hint": "It's a city known for the Eiffel Tower.",
+        "explanation": "Paris is the capital and largest city of France.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "MCQ_MULTI",
+        "difficulty": "MEDIUM",
+        "questionText": "Which of the following are programming languages? (Select all that apply)",
+        "content": {
+          "options": [
+            {
+              "id": "a",
+              "text": "Java",
+              "correct": true
+            },
+            {
+              "id": "b",
+              "text": "Python",
+              "correct": true
+            },
+            {
+              "id": "c",
+              "text": "HTML",
+              "correct": false
+            },
+            {
+              "id": "d",
+              "text": "CSS",
+              "correct": false
+            },
+            {
+              "id": "e",
+              "text": "JavaScript",
+              "correct": true
+            }
+          ]
+        },
+        "hint": "HTML and CSS are markup and styling languages, not programming languages.",
+        "explanation": "Java, Python, and JavaScript are all programming languages. HTML and CSS are markup and styling languages respectively.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "TRUE_FALSE",
+        "difficulty": "EASY",
+        "questionText": "The Earth is the third planet from the Sun.",
+        "content": {
+          "answer": true
+        },
+        "hint": "Think about the order of planets in our solar system.",
+        "explanation": "Yes, Earth is the third planet from the Sun, after Mercury and Venus.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "OPEN",
+        "difficulty": "MEDIUM",
+        "questionText": "Explain what photosynthesis is in one sentence.",
+        "content": {
+          "answer": "Photosynthesis is the process by which plants convert light energy into chemical energy to produce glucose and oxygen."
+        },
+        "hint": "Think about what plants do with sunlight.",
+        "explanation": "Photosynthesis is a process used by plants and other organisms to convert light energy into chemical energy that can later be released to fuel the organism's activities.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "FILL_GAP",
+        "difficulty": "MEDIUM",
+        "questionText": "Java is a {1} language and Python is a {2} language.",
+        "content": {
+          "text": "Java is a {1} language and Python is a {2} language.",
+          "gaps": [
+            {
+              "id": 1,
+              "answer": "compiled"
+            },
+            {
+              "id": 2,
+              "answer": "interpreted"
+            }
+          ]
+        },
+        "hint": "Think about how these languages are executed.",
+        "explanation": "Java is a compiled language (compiled to bytecode), while Python is an interpreted language.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "ORDERING",
+        "difficulty": "HARD",
+        "questionText": "Arrange these historical events in chronological order:",
+        "content": {
+          "items": [
+            {
+              "id": 1,
+              "text": "World War I"
+            },
+            {
+              "id": 2,
+              "text": "World War II"
+            },
+            {
+              "id": 3,
+              "text": "Cold War"
+            },
+            {
+              "id": 4,
+              "text": "Fall of Berlin Wall"
+            }
+          ],
+          "correctOrder": [1, 2, 3, 4]
+        },
+        "hint": "World War I happened first, followed by World War II.",
+        "explanation": "The correct chronological order is: World War I (1914-1918), World War II (1939-1945), Cold War (1947-1991), Fall of Berlin Wall (1989).",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "MATCHING",
+        "difficulty": "MEDIUM",
+        "questionText": "Match the countries with their capitals:",
+        "content": {
+          "left": [
+            {
+              "id": 1,
+              "text": "France",
+              "matchId": 2
+            },
+            {
+              "id": 2,
+              "text": "Italy",
+              "matchId": 3
+            },
+            {
+              "id": 3,
+              "text": "Spain",
+              "matchId": 1
+            }
+          ],
+          "right": [
+            {
+              "id": 1,
+              "text": "Madrid"
+            },
+            {
+              "id": 2,
+              "text": "Paris"
+            },
+            {
+              "id": 3,
+              "text": "Rome"
+            }
+          ]
+        },
+        "hint": "Paris is the capital of France, Rome is the capital of Italy, and Madrid is the capital of Spain.",
+        "explanation": "France → Paris, Italy → Rome, Spain → Madrid",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "COMPLIANCE",
+        "difficulty": "HARD",
+        "questionText": "Which statements comply with GDPR requirements?",
+        "content": {
+          "statements": [
+            {
+              "id": 1,
+              "text": "Personal data must be processed lawfully and transparently",
+              "compliant": true
+            },
+            {
+              "id": 2,
+              "text": "Data can be stored indefinitely without user consent",
+              "compliant": false
+            },
+            {
+              "id": 3,
+              "text": "Users have the right to access their personal data",
+              "compliant": true
+            },
+            {
+              "id": 4,
+              "text": "Data can be sold to third parties without notification",
+              "compliant": false
+            }
+          ]
+        },
+        "hint": "GDPR emphasizes user rights and data protection.",
+        "explanation": "GDPR requires lawful processing, transparency, user access rights, and prohibits indefinite storage or unauthorized data sharing.",
+        "attachmentUrl": null,
+        "attachment": null
+      },
+      {
+        "id": null,
+        "type": "MCQ_SINGLE",
+        "difficulty": "EASY",
+        "questionText": "Example question with media attachment",
+        "content": {
+          "options": [
+            {
+              "id": "a",
+              "text": "Option A",
+              "correct": true,
+              "media": {
+                "assetId": "00000000-0000-0000-0000-000000000001"
+              }
+            },
+            {
+              "id": "b",
+              "text": "Option B",
+              "correct": false
+            },
+            {
+              "id": "c",
+              "text": "Option C",
+              "correct": false
+            },
+            {
+              "id": "d",
+              "text": "Option D",
+              "correct": false
+            }
+          ]
+        },
+        "hint": null,
+        "explanation": null,
+        "attachmentUrl": "https://cdn.quizzence.com/example-image.png",
+        "attachment": {
+          "assetId": "00000000-0000-0000-0000-000000000002",
+          "alt": "Example image",
+          "caption": "This is an example attachment"
+        }
+      }
+    ]
+  }
+]

@@ -78,6 +78,9 @@ public class Quiz {
     @Column(name = "presentation_hash", length = 64)
     private String presentationHash;
 
+    @Column(name = "import_content_hash", length = 64)
+    private String importContentHash;
+
     @Column(name = "submitted_for_review_at")
     private Instant submittedForReviewAt;
 
