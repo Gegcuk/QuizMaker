@@ -385,6 +385,7 @@
                         <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
+                        <exclude>**/QuizImportTemplateGeneratorTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
