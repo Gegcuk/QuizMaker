@@ -113,16 +113,34 @@ jobs:
             fi
           }
           
+          # Wait a moment for MySQL to fully initialize after health check passes
+          echo "⏳ Waiting 5 seconds for MySQL to fully initialize..."
+          sleep 5
+          
           # Check if mysqladmin is available (might not be installed in runner)
           if command -v mysqladmin >/dev/null 2>&1; then
             echo "✅ MySQL client tools available"
             for i in {1..60}; do
-              if mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
+              # Try to ping MySQL and show error if it fails
+              PING_OUTPUT=$(mysqladmin ping -h localhost -uroot -proot 2>&1)
+              PING_STATUS=$?
+              
+              if [ $PING_STATUS -eq 0 ]; then
                 echo "✅ MySQL is ready!"
                 # Verify we can actually connect and query
                 if mysql -h localhost -uroot -proot -e "SELECT 1;" 2>/dev/null; then
                   echo "✅ MySQL connection verified!"
                   break
+                else
+                  echo "⚠️ mysqladmin ping succeeded but mysql query failed"
+                  mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 | head -3
+                fi
+              else
+                # Show error on first attempt and every 10th attempt
+                if [ $i -eq 1 ] || [ $((i % 10)) -eq 0 ]; then
+                  echo "⚠️ mysqladmin ping failed (attempt $i/60)"
+                  echo "Error: $PING_OUTPUT"
+                  echo ""
                 fi
               fi
               
@@ -134,13 +152,22 @@ jobs:
                 echo "Checking container status:"
                 docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
                 echo ""
+                echo "Testing port connectivity:"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 is accessible" || echo "  ❌ Port 3306 not accessible"
+                echo ""
+                echo "Testing connection from inside container:"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 && echo "  ✅ Container internal connection works" || echo "  ❌ Container internal connection failed"
+                fi
+                echo ""
               fi
               
               sleep 2
             done
             
             # Final verification
-            if ! mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
+            if ! mysqladmin ping -h localhost -uroot -proot --silent 2>&1; then
               echo "❌ MySQL failed to become ready after 2 minutes"
               echo ""
               echo "Diagnostics:"
@@ -155,11 +182,17 @@ jobs:
                 echo "  ⚠️ Container not found"
               fi
               echo ""
-              echo "Testing connection:"
-              mysqladmin ping -h localhost -uroot -proot 2>&1 | head -5 || echo "  ❌ mysqladmin ping failed"
+              echo "Testing connection with mysqladmin:"
+              mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
+              echo ""
+              echo "Testing connection with mysql client:"
+              mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
               echo ""
               echo "Port connectivity:"
               timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
+              echo ""
+              echo "Trying to connect from inside the container:"
+              docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ Container exec failed"
               exit 1
             fi
           else
