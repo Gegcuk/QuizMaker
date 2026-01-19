@@ -101,6 +101,7 @@ jobs:
 
       - name: Wait for MySQL to be healthy
         run: |
+          set +e  # Disable exit on error since we handle failures explicitly
           echo "Waiting for MySQL service to be ready (accessible via localhost:3306)..."
           echo ""
           
@@ -120,6 +121,7 @@ jobs:
           # Check if mysqladmin is available (might not be installed in runner)
           if command -v mysqladmin >/dev/null 2>&1; then
             echo "✅ MySQL client tools available"
+            MYSQL_READY=0
             for i in {1..60}; do
               # Try to ping MySQL and show error if it fails
               PING_OUTPUT=$(mysqladmin ping -h localhost -uroot -proot 2>&1)
@@ -128,12 +130,15 @@ jobs:
               if [ $PING_STATUS -eq 0 ]; then
                 echo "✅ MySQL is ready!"
                 # Verify we can actually connect and query
-                if mysql -h localhost -uroot -proot -e "SELECT 1;" 2>/dev/null; then
+                QUERY_OUTPUT=$(mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1)
+                QUERY_STATUS=$?
+                if [ $QUERY_STATUS -eq 0 ]; then
                   echo "✅ MySQL connection verified!"
+                  MYSQL_READY=1
                   break
                 else
                   echo "⚠️ mysqladmin ping succeeded but mysql query failed"
-                  mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 | head -3
+                  echo "$QUERY_OUTPUT" | head -3
                 fi
               else
                 # Show error on first attempt and every 10th attempt
@@ -166,40 +171,48 @@ jobs:
               sleep 2
             done
             
-            # Final verification
-            if ! mysqladmin ping -h localhost -uroot -proot --silent 2>&1; then
-              echo "❌ MySQL failed to become ready after 2 minutes"
-              echo ""
-              echo "Diagnostics:"
-              echo "MySQL container status:"
-              docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
-              echo ""
-              echo "MySQL container logs (last 50 lines):"
-              MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
-              if [ -n "$MYSQL_CONTAINER" ]; then
-                docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+            # Final verification if we didn't succeed in the loop
+            if [ $MYSQL_READY -eq 0 ]; then
+              mysqladmin ping -h localhost -uroot -proot --silent 2>&1
+              if [ $? -ne 0 ]; then
+                echo "❌ MySQL failed to become ready after 2 minutes"
+                echo ""
+                echo "Diagnostics:"
+                echo "MySQL container status:"
+                docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+                echo ""
+                echo "MySQL container logs (last 50 lines):"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+                else
+                  echo "  ⚠️ Container not found"
+                fi
+                echo ""
+                echo "Testing connection with mysqladmin:"
+                mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
+                echo ""
+                echo "Testing connection with mysql client:"
+                mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
+                echo ""
+                echo "Port connectivity:"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
+                echo ""
+                echo "Trying to connect from inside the container:"
+                docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ Container exec failed"
+                exit 1
               else
-                echo "  ⚠️ Container not found"
+                MYSQL_READY=1
               fi
-              echo ""
-              echo "Testing connection with mysqladmin:"
-              mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
-              echo ""
-              echo "Testing connection with mysql client:"
-              mysql -h localhost -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
-              echo ""
-              echo "Port connectivity:"
-              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
-              echo ""
-              echo "Trying to connect from inside the container:"
-              docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ Container exec failed"
-              exit 1
             fi
           else
             echo "⚠️ MySQL client tools not found - using TCP connection test"
+            MYSQL_READY=0
             for i in {1..60}; do
-              if timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null; then
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null
+              if [ $? -eq 0 ]; then
                 echo "✅ MySQL port 3306 is accessible!"
+                MYSQL_READY=1
                 break
               fi
               
@@ -213,35 +226,47 @@ jobs:
               sleep 2
             done
             
-            # Final verification
-            if ! timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null; then
-              echo "❌ MySQL port 3306 not accessible after 2 minutes"
-              echo ""
-              echo "Diagnostics:"
-              echo "MySQL container status:"
-              docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
-              echo ""
-              echo "MySQL container logs (last 50 lines):"
-              MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
-              if [ -n "$MYSQL_CONTAINER" ]; then
-                docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+            # Final verification if we didn't succeed in the loop
+            if [ $MYSQL_READY -eq 0 ]; then
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null
+              if [ $? -ne 0 ]; then
+                echo "❌ MySQL port 3306 not accessible after 2 minutes"
+                echo ""
+                echo "Diagnostics:"
+                echo "MySQL container status:"
+                docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+                echo ""
+                echo "MySQL container logs (last 50 lines):"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+                else
+                  echo "  ⚠️ Container not found"
+                fi
+                echo ""
+                echo "Checking if port is listening:"
+                netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not found"
+                exit 1
               else
-                echo "  ⚠️ Container not found"
+                MYSQL_READY=1
               fi
-              echo ""
-              echo "Checking if port is listening:"
-              netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not found"
-              exit 1
             fi
           fi
           
-          echo "✅ MySQL is ready and accessible!"
-          echo ""
-          echo "Final MySQL container status:"
-          docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
-          echo ""
-          echo "MySQL container logs (last 10 lines):"
-          show_mysql_logs
+          # Final success message
+          if [ ${MYSQL_READY:-0} -eq 1 ]; then
+            echo "✅ MySQL is ready and accessible!"
+            echo ""
+            echo "Final MySQL container status:"
+            docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
+            echo ""
+            echo "MySQL container logs (last 10 lines):"
+            show_mysql_logs
+            exit 0
+          else
+            echo "❌ MySQL readiness check failed"
+            exit 1
+          fi
 
       - name: Flyway migrate (fail fast on schema issues)
         run: |
