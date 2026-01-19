@@ -316,8 +316,47 @@ jobs:
         run: |
           echo "⏳ Waiting 2 seconds before starting tests to ensure database is fully ready..."
           sleep 2
+          # Run tests and capture exit code
           ./mvnw -B -T 1C -DskipTests=false test
+          TEST_EXIT_CODE=$?
+          
+          # Always show root cause errors if any tests failed
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo ""
+            echo "🔍 Analyzing test failures..."
+            echo ""
+            echo "=== First ApplicationContext failure (root cause) ==="
+            # Find the first test that actually failed (not threshold exceeded)
+            FIRST_FAILURE=$(find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "Failed to load ApplicationContext" {} \; | head -1)
+            if [ -n "$FIRST_FAILURE" ]; then
+              echo "File: $FIRST_FAILURE"
+              echo ""
+              # Show the actual exception stack trace
+              grep -A 50 "Caused by:" "$FIRST_FAILURE" | head -60 || cat "$FIRST_FAILURE" | head -100
+            else
+              echo "⚠️ Could not find root cause in surefire reports"
+            fi
+          fi
+          
+          exit $TEST_EXIT_CODE
         continue-on-error: false
+
+      - name: Show root cause errors
+        if: failure()
+        run: |
+          echo "🔍 Analyzing test failures to find root causes..."
+          echo ""
+          echo "=== First 10 ApplicationContext failures ==="
+          find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "ApplicationContext" {} \; | head -10 | while read report; do
+            echo ""
+            echo "--- $(basename "$report") ---"
+            # Show the actual exception that caused the context to fail
+            grep -B 5 -A 15 "Caused by:\|Exception\|Error" "$report" | head -25 || head -20 "$report"
+            echo ""
+          done
+          echo ""
+          echo "=== Summary of error types ==="
+          find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -h "Caused by:" {} \; | sort | uniq -c | sort -rn | head -10
 
       - name: Upload surefire reports on failure
         if: failure()
