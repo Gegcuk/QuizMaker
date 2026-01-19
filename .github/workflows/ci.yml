@@ -55,7 +55,6 @@ jobs:
           MYSQL_USER: bestuser
           MYSQL_PASSWORD: bestuser
           MYSQL_ROOT_PASSWORD: root
-        # No port mapping needed; the job can reach the service via hostname "mysql"
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot --silent"
           --health-interval=10s --health-timeout=5s --health-retries=10
@@ -71,30 +70,64 @@ jobs:
           cache: maven
 
       - name: Wait for MySQL to be healthy
+        id: mysql-wait
         run: |
           echo "Waiting for MySQL service to be ready..."
+          
+          mysql_available=false
+          mysql_host=""
+          
           for i in {1..120}; do
+            # Try hostname first (preferred for GitHub Actions service containers)
             if mysqladmin ping -h mysql -uroot -proot --silent 2>/dev/null; then
-              echo "✅ MySQL is ready!"
-              # Verify we can actually connect and query
+              echo "✅ MySQL ping successful via hostname 'mysql'!"
               if mysql -h mysql -uroot -proot -e "SELECT 1;" 2>/dev/null; then
-                echo "✅ MySQL connection verified!"
+                echo "✅ MySQL connection and query verified via hostname!"
+                mysql_available=true
+                mysql_host="mysql"
                 break
               fi
             fi
+            
+            # Fallback to localhost
+            if mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
+              echo "✅ MySQL ping successful via localhost!"
+              if mysql -h localhost -uroot -proot -e "SELECT 1;" 2>/dev/null; then
+                echo "✅ MySQL connection verified via localhost!"
+                mysql_available=true
+                mysql_host="localhost"
+                break
+              fi
+            fi
+            
             if [ $((i % 10)) -eq 0 ]; then
-              echo "Still waiting for MySQL... (attempt $i/60)"
+              echo "Still waiting for MySQL... (attempt $i/120)"
             fi
             sleep 5
           done
           
-          # Final verification
-          if ! mysqladmin ping -h mysql -uroot -proot --silent 2>/dev/null; then
-            echo "❌ MySQL failed to become ready after 2 minutes"
+          if [ "$mysql_available" = false ]; then
+            echo "❌ MySQL failed to become ready after 10 minutes"
             echo "Diagnostics:"
-            ping -c 3 mysql 2>/dev/null || echo "⚠️ Cannot ping mysql hostname"
-            getent hosts mysql || echo "⚠️ Cannot resolve mysql hostname"
+            echo "Testing hostname 'mysql':"
+            mysqladmin ping -h mysql -uroot -proot 2>&1 | head -5 || echo "  ❌ Failed"
+            echo "Testing localhost:"
+            mysqladmin ping -h localhost -uroot -proot 2>&1 | head -5 || echo "  ❌ Failed"
+            echo "Checking DNS resolution:"
+            getent hosts mysql || echo "  ⚠️ Cannot resolve mysql hostname"
+            echo "Checking port connectivity:"
+            timeout 2 bash -c 'cat < /dev/null > /dev/tcp/mysql/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible on mysql" || echo "  ❌ Port 3306 not accessible on mysql"
+            timeout 2 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible on localhost" || echo "  ❌ Port 3306 not accessible on localhost"
             exit 1
+          fi
+          
+          echo "✅ MySQL is ready and accessible via $mysql_host!"
+          echo "mysql_host=$mysql_host" >> $GITHUB_ENV
+          
+          # If using localhost, update the datasource URL
+          if [ "$mysql_host" = "localhost" ]; then
+            echo "⚠️ Using localhost instead of hostname 'mysql'"
+            echo "SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> $GITHUB_ENV
           fi
 
       - name: Flyway migrate (fail fast on schema issues)
