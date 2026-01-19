@@ -56,19 +56,6 @@ class PersistenceAndRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Force schema creation by querying an entity table
-        // This ensures Hibernate creates all tables before nested test classes run
-        // In CI with parallel execution, this is critical to avoid "Table doesn't exist" errors
-        jakarta.persistence.EntityManager em = entityManager.getEntityManager();
-        try {
-            // Query an entity to force Hibernate to create the schema
-            // This is more reliable than native queries which don't trigger schema creation
-            em.createQuery("SELECT COUNT(p) FROM Payment p", Long.class).getSingleResult();
-        } catch (Exception e) {
-            // If query fails, schema will be created on first entity access
-            // This is fine - the try-catch prevents blocking if schema already exists
-        }
-        
         testUserId = UUID.randomUUID();
         testPackId = UUID.randomUUID();
         testSessionId = "cs_test_session_" + System.currentTimeMillis();
