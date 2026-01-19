@@ -47,16 +47,19 @@ class QuizExportSpecificationsTest {
     @Autowired
     private QuizRepository quizRepository;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User testUser;
     private Category testCategory;
 
     @BeforeEach
     void setUp() {
-        // Clear data
-        entityManager.getEntityManager().createQuery("DELETE FROM Quiz").executeUpdate();
-        entityManager.getEntityManager().createQuery("DELETE FROM User").executeUpdate();
-        entityManager.getEntityManager().createQuery("DELETE FROM Category").executeUpdate();
-        entityManager.getEntityManager().createQuery("DELETE FROM Tag").executeUpdate();
+        // Force schema creation by accessing EntityManagerFactory metadata
+        // This ensures all tables exist before we try to use them
+        entityManagerFactory.getMetamodel();
+        
+        // Note: DELETE queries removed - create-drop handles cleanup automatically
         
         // Create test user
         testUser = new User();

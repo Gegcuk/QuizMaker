@@ -59,6 +59,9 @@ class QuizGroupMembershipRepositoryTest {
     @Autowired
     private RoleRepository roleRepository;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User owner;
     private Category category;
     private QuizGroup group;
@@ -68,6 +71,9 @@ class QuizGroupMembershipRepositoryTest {
 
     @BeforeEach
     void setUp() {
+        // Force schema creation by accessing EntityManagerFactory metadata
+        entityManagerFactory.getMetamodel();
+        
         // Create or find role
         Role role = roleRepository.findByRoleName("ROLE_USER")
                 .orElseGet(() -> {

@@ -48,6 +48,9 @@ class AttemptRepositoryReviewTest {
     @Autowired
     private TestEntityManager entityManager;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User testUser;
     private Category testCategory;
     private Quiz testQuiz;
@@ -57,6 +60,9 @@ class AttemptRepositoryReviewTest {
 
     @BeforeEach
     void setUp() {
+        // Force schema creation by accessing EntityManagerFactory metadata
+        entityManagerFactory.getMetamodel();
+        
         // Create user
         testUser = new User();
         testUser.setUsername("testuser_" + System.currentTimeMillis());

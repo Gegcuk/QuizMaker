@@ -51,11 +51,17 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     @Autowired
     private EntityManager entityManager;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User testUser;
     private QuizGenerationJob testJob;
 
     @BeforeEach
     void setUp() {
+        // Force schema creation by accessing EntityManagerFactory metadata
+        entityManagerFactory.getMetamodel();
+        
         // Create test user
         testUser = new User();
         testUser.setUsername("testuser_" + UUID.randomUUID());

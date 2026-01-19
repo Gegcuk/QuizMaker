@@ -39,13 +39,6 @@ class SitemapServiceImplTest {
     void getSitemapXml_includesStaticEntries() {
         // Note: getSitemapXml() only includes static entries, not articles
         // Articles are included in getArticleSitemapXml()
-        SitemapEntryDto entry = new SitemapEntryDto(
-                "/blog/sample-slug",
-                Instant.parse("2025-01-01T00:00:00Z"),
-                "weekly",
-                0.8
-        );
-        when(articleService.getSitemapEntries(ArticleStatus.PUBLISHED)).thenReturn(List.of(entry));
 
         String xml = sitemapService.getSitemapXml();
 

@@ -44,6 +44,9 @@ class PersistenceAndRepositoryTest {
     @Autowired
     private PaymentRepository paymentRepository;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private UUID testUserId;
     private UUID testPackId;
     private String testSessionId;
@@ -53,6 +56,10 @@ class PersistenceAndRepositoryTest {
 
     @BeforeEach
     void setUp() {
+        // Force schema creation by accessing EntityManagerFactory metadata
+        // This ensures all tables exist before nested test classes run
+        entityManagerFactory.getMetamodel();
+        
         testUserId = UUID.randomUUID();
         testPackId = UUID.randomUUID();
         testSessionId = "cs_test_session_" + System.currentTimeMillis();

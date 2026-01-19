@@ -41,12 +41,18 @@ class QuizRepositoryExistsByCreatorIdAndTitleTest {
     @Autowired
     private TestEntityManager entityManager;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User alice;
     private User bob;
     private Category generalCategory;
 
     @BeforeEach
     void setUp() {
+        // Force schema creation by accessing EntityManagerFactory metadata
+        entityManagerFactory.getMetamodel();
+        
         // Create test users
         alice = new User();
         alice.setUsername("alice");
