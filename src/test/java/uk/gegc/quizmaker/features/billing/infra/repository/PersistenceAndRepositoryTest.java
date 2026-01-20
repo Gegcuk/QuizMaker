@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.billing.infra.repository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -29,9 +30,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create"
+        "spring.flyway.enabled=true",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
+@Tag("db-serial") // Uses ExecutorService/CompletableFuture for concurrent DB writes
 @DisplayName("Persistence & Repository Tests")
 class PersistenceAndRepositoryTest {
 

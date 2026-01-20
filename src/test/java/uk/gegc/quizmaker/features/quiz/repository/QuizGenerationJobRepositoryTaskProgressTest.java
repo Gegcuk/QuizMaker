@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.quiz.repository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,9 +36,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-    "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create"
+    "spring.flyway.enabled=true",
+    "spring.jpa.hibernate.ddl-auto=none"
 })
+@Tag("db-serial") // Uses ExecutorService for concurrent DB writes
 @DisplayName("QuizGenerationJobRepository Atomic Task Progress Tests")
 class QuizGenerationJobRepositoryTaskProgressTest {
 

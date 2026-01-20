@@ -26,9 +26,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
-        "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update"
+        "spring.flyway.enabled=true",
+        "spring.jpa.hibernate.ddl-auto=none"
 })
+@org.junit.jupiter.api.Tag("db-serial") // Prevents data pollution from parallel tests
 class QuizRepositorySearchTest {
 
     @Autowired
@@ -48,6 +49,12 @@ class QuizRepositorySearchTest {
     void setUp() {
         // Clear data to ensure clean state between tests
         // @DataJpaTest with @Transactional should roll back, but explicit cleanup ensures isolation
+        // Delete in order to respect foreign key constraints
+        em.getEntityManager().createQuery("DELETE FROM Answer").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM Attempt").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM DocumentChunk").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM Document").executeUpdate();
+        em.getEntityManager().createQuery("DELETE FROM QuizGenerationJob").executeUpdate();
         em.getEntityManager().createQuery("DELETE FROM Quiz").executeUpdate();
         em.getEntityManager().createQuery("DELETE FROM User").executeUpdate();
         em.getEntityManager().createQuery("DELETE FROM Category").executeUpdate();

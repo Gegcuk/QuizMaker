@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.billing.application.impl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
@@ -55,6 +56,7 @@ import static org.mockito.Mockito.lenient;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("Billing Integration Comprehensive Tests")
 @Execution(ExecutionMode.CONCURRENT)
+@Tag("db-serial") // Uses ExecutorService/CompletableFuture for concurrent DB writes
 class BillingIntegrationComprehensiveTest {
 
     @Mock
