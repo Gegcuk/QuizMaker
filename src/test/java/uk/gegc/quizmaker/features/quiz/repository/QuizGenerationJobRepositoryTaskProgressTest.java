@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-    "spring.flyway.enabled=true",
+    "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=none"
 })
 @Tag("db-serial") // Uses ExecutorService for concurrent DB writes

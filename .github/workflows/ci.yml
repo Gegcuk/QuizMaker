@@ -278,25 +278,36 @@ jobs:
 
       - name: Ensure database exists and is ready
         run: |
-          echo "🔍 Ensuring database exists and is ready..."
+          echo "🔍 Ensuring databases exist and are ready..."
           MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
           if [ -n "$MYSQL_CONTAINER" ]; then
             # Wait a moment for database to be fully initialized
             sleep 3
-            # Verify database exists
+            # Create and grant permissions for both test databases
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test;" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test_mysql;" 2>&1 || true
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test.* TO 'bestuser'@'%';" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test_mysql.* TO 'bestuser'@'%';" 2>&1 || true
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "FLUSH PRIVILEGES;" 2>&1 || true
-            echo "✅ Database quizmaker_test is ready!"
+            echo "✅ Databases quizmaker_test and quizmaker_test_mysql are ready!"
           fi
 
       - name: Flyway migrate (fail fast on schema issues)
         run: |
+          # Migrate quizmaker_test (for tests using 'test' profile)
           ./mvnw -B -V -q -DskipTests=true \
             -Dflyway.url="$SPRING_DATASOURCE_URL" \
             -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
             -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
             flyway:migrate
+          # Migrate quizmaker_test_mysql (for tests using 'test-mysql' profile)
+          ./mvnw -B -V -q -DskipTests=true \
+            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test_mysql?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            flyway:migrate
+          # Verify migrations completed successfully
+          echo "✅ Flyway migrations completed for both databases"
 
       - name: Verify test configuration
         run: |

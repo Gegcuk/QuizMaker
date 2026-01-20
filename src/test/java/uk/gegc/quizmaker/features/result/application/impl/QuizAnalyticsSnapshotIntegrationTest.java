@@ -65,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Transactional(propagation = Propagation.NOT_SUPPORTED) // Disable framework transaction
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS) // Isolate from other tests
 @TestPropertySource(properties = {
-    "spring.flyway.enabled=true",
+    "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=update"
 })
 @Tag("db-serial") // Uses ExecutorService for concurrent DB writes

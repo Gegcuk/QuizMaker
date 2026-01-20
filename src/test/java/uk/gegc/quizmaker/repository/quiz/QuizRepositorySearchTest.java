@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
-        "spring.flyway.enabled=true",
+        "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=none"
 })
 @org.junit.jupiter.api.Tag("db-serial") // Prevents data pollution from parallel tests

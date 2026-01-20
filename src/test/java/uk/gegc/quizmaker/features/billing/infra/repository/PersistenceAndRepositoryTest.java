@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.flyway.enabled=true",
+        "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=none"
 })
 @Tag("db-serial") // Uses ExecutorService/CompletableFuture for concurrent DB writes
