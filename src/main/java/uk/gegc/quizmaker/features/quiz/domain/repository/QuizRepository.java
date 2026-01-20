@@ -46,6 +46,16 @@ public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificat
             """)
     Optional<Quiz> findByIdWithTagsAndQuestions(@Param("id") UUID id);
 
+    @Query("""
+              SELECT q
+              FROM Quiz q
+              LEFT JOIN FETCH q.tags
+              LEFT JOIN FETCH q.questions
+              WHERE q.creator.id = :creatorId AND q.importContentHash = :importContentHash AND q.isDeleted = false
+            """)
+    Optional<Quiz> findByCreatorIdAndImportContentHashWithTagsAndQuestions(@Param("creatorId") UUID creatorId,
+                                                                          @Param("importContentHash") String importContentHash);
+
     Page<Quiz> findAllByVisibility(Visibility visibility, Pageable pageable);
 
     Page<Quiz> findAllByVisibilityAndStatus(Visibility visibility, QuizStatus status, Pageable pageable);

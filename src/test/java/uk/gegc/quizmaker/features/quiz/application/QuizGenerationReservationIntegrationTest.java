@@ -22,6 +22,8 @@ import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
+import uk.gegc.quizmaker.features.quiz.config.QuizImportProperties;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
@@ -80,6 +82,12 @@ class QuizGenerationReservationIntegrationTest {
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @MockitoBean
+    private QuizImportService quizImportService;
+
+    @MockitoBean
+    private QuizImportProperties quizImportProperties;
 
     private GenerateQuizFromDocumentRequest testRequest;
     private UUID documentId;

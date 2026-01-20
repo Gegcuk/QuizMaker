@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.*;
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)
 @org.springframework.test.context.TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=create"
 })
 @DisplayName("QuizGroupMembershipRepository Tests")
 class QuizGroupMembershipRepositoryTest {
@@ -58,6 +58,9 @@ class QuizGroupMembershipRepositoryTest {
     @Autowired
     private RoleRepository roleRepository;
 
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
     private User owner;
     private Category category;
     private QuizGroup group;
@@ -67,15 +70,14 @@ class QuizGroupMembershipRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        // Create or find role
-        Role role = roleRepository.findByRoleName("ROLE_USER")
-                .orElseGet(() -> {
-                    Role r = new Role();
-                    r.setRoleName("ROLE_USER");
-                    r.setDescription("User role");
-                    r.setDefault(true);
-                    return entityManager.persist(r);
-                });
+        // Get or create role - check if exists first to avoid duplicate key violation
+        Role role = roleRepository.findByRoleName("ROLE_USER").orElseGet(() -> {
+            Role newRole = new Role();
+            newRole.setRoleName("ROLE_USER");
+            newRole.setDescription("User role");
+            newRole.setDefault(true);
+            return entityManager.persist(newRole);
+        });
         entityManager.flush();
 
         // Create user

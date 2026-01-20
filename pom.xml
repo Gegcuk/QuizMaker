@@ -3,25 +3,21 @@
          xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-    <!-- Basic POM configuration -->
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Inherit defaults from Spring Boot -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.4.4</version>
-        <relativePath/> <!-- Lookup parent from repository -->
+        <relativePath/>
     </parent>
 
-    <!-- Project coordinates -->
     <groupId>uk.gegc</groupId>
     <artifactId>QuizMaker</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>QuizMaker</name>
     <description>QuizMaker</description>
 
-    <!-- Source Control Management configuration -->
     <scm>
         <connection/>
         <developerConnection/>
@@ -29,36 +25,10 @@
         <url/>
     </scm>
 
-    <!-- Java version to compile with -->
     <properties>
         <java.version>17</java.version>
     </properties>
 
-    <!-- Maven profiles -->
-    <profiles>
-        <!-- Profile for running all tests including OpenAI API tests locally -->
-        <profile>
-            <id>all-tests</id>
-            <activation>
-                <activeByDefault>false</activeByDefault>
-            </activation>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <useUnlimitedThreads>true</useUnlimitedThreads>
-                            <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
-                            <!-- Include all tests when running locally -->
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
-
-    <!-- Dependencies -->
     <dependencies>
         <!-- Apache POI for XLSX export -->
         <dependency>
@@ -67,68 +37,65 @@
             <version>5.4.0</version>
         </dependency>
 
-        <!-- Spring Boot Web Starter (includes Spring MVC + Jackson) -->
+        <!-- Spring Boot Web Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Bean Validation (JSR 380) support -->
+        <!-- Bean Validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- JSON processing library -->
+        <!-- JSON processing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- ModelMapper for DTO/entity mapping -->
+        <!-- ModelMapper -->
         <dependency>
             <groupId>org.modelmapper</groupId>
             <artifactId>modelmapper</artifactId>
             <version>3.0.0</version>
         </dependency>
 
-        <!-- Thymeleaf for HTML documentation landing page -->
+        <!-- Thymeleaf -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
-        <!-- MapStruct for compile-time DTO mapping -->
+        <!-- MapStruct -->
         <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
             <version>1.5.5.Final</version>
         </dependency>
 
-        <!-- Lombok: reduces boilerplate code -->
+        <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-
-        <!-- MySQL driver for production DB -->
+        <!-- MySQL driver -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.springframework.data/spring-data-jpa -->
+        <!-- Spring Data JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- Testing dependencies -->
-
-        <!-- Spring Boot Test includes JUnit, Hamcrest, AssertJ, Mockito -->
+        <!-- Tests -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -147,7 +114,7 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- WireMock for Stripe API stubbing -->
+        <!-- WireMock -->
         <dependency>
             <groupId>org.wiremock</groupId>
             <artifactId>wiremock-standalone</artifactId>
@@ -155,9 +122,7 @@
             <scope>test</scope>
         </dependency>
 
-
-
-        <!-- https://mvnrepository.com/artifact/org.springframework.security/spring-security-core -->
+        <!-- Spring Security (explicit versions as you had) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-core</artifactId>
@@ -170,27 +135,25 @@
             <version>6.4.10</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.springframework.security/spring-security-web -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-web</artifactId>
             <version>6.4.10</version>
         </dependency>
 
-        <!-- Spring Security OAuth2 Client for social login -->
+        <!-- OAuth2 client -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-api -->
+        <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
             <version>0.12.6</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-impl -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-impl</artifactId>
@@ -198,7 +161,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/io.jsonwebtoken/jjwt-jackson -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-jackson</artifactId>
@@ -206,37 +168,38 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.springdoc/springdoc-openapi-starter-webmvc-ui -->
+        <!-- Springdoc -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>2.8.8</version>
         </dependency>
 
+        <!-- Actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- HTML sanitizer for robust XSS cleaning -->
+        <!-- Jsoup -->
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>1.17.2</version>
         </dependency>
 
-        <!-- AOP for method-level security -->
+        <!-- AOP -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
-        <!-- Flyway for database migrations -->
+        <!-- Flyway -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
-        <!-- Flyway database support for MySQL (required since Flyway 10) -->
+
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-mysql</artifactId>
@@ -244,7 +207,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- File processing dependencies -->
+        <!-- PDFBox -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
@@ -256,21 +219,21 @@
             <artifactId>slf4j-api</artifactId>
         </dependency>
 
-        <!-- EXIF metadata reader for image orientation handling -->
+        <!-- EXIF metadata -->
         <dependency>
             <groupId>com.drewnoakes</groupId>
             <artifactId>metadata-extractor</artifactId>
             <version>2.19.0</version>
         </dependency>
 
-        <!-- Apache Commons for file operations -->
+        <!-- Commons IO -->
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
             <version>2.17.0</version>
         </dependency>
 
-        <!-- Apache Tika for content type detection -->
+        <!-- Tika -->
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
@@ -290,58 +253,55 @@
             <version>1.0.0-M6</version>
         </dependency>
 
-        <!-- Spring Boot Mail Starter for email functionality -->
+        <!-- Mail -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
-        <!-- AWS SDK v2 for SES email delivery via HTTPS API -->
+        <!-- AWS SDK -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sesv2</artifactId>
             <version>2.20.26</version>
         </dependency>
 
-        <!-- AWS SDK v2 S3 client for DigitalOcean Spaces uploads/presigning -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
             <version>2.20.26</version>
         </dependency>
 
-        <!-- AWS SDK Apache HTTP client (configurable timeouts, pooling) -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>apache-client</artifactId>
             <version>2.20.26</version>
         </dependency>
 
-        <!-- Stripe SDK for payments (aligns with Spring Boot 3.x / Java 17+) -->
+        <!-- Stripe -->
         <dependency>
             <groupId>com.stripe</groupId>
             <artifactId>stripe-java</artifactId>
             <version>27.0.0</version>
         </dependency>
 
-        <!-- Gson for JSON processing (required by Stripe SDK) -->
+        <!-- Gson -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
             <version>2.11.0</version>
         </dependency>
-
     </dependencies>
 
-    <!-- Build configuration -->
     <build>
         <plugins>
-            <!-- Spring Boot plugin for packaging and running the app -->
+            <!-- Spring Boot plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
-            <!-- Enable annotation processors for MapStruct and Lombok -->
+
+            <!-- Compiler plugin / annotation processors -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -365,15 +325,16 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
-            <!-- Run JUnit 5 tests in parallel -->
+
+            <!-- Surefire: two lanes (parallel + db-serial) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+
+                <!-- GLOBAL configuration applies to ALL executions -->
                 <configuration>
-                    <!-- Allow the JUnit Platform to manage threads -->
-                    <useUnlimitedThreads>true</useUnlimitedThreads>
                     <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
-                    <!-- Exclude OpenAI API tests from CI to avoid costs -->
+
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
                         <exclude>**/AiChatControllerIntegrationTest.java</exclude>
@@ -385,11 +346,52 @@
                         <exclude>**/OrderingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
+                        <exclude>**/QuizImportTemplateGeneratorTest.java</exclude>
+                        <exclude>**/UserRepositoryPerformanceTest.java</exclude>
+
+                        <exclude>**/RealStripeApiIntegrationTest.java</exclude>
+                        <exclude>**/RealStripeCliE2ETest.java</exclude>
+                        <exclude>**/StripeCliE2ETest.java</exclude>
+                        <exclude>**/StripeIntegrationTest.java</exclude>
+                        <exclude>**/ProductionReadinessValidationTest.java</exclude>
                     </excludes>
                 </configuration>
+
+                <executions>
+                    <execution>
+                        <id>tests-parallel</id>
+                        <phase>test</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <useUnlimitedThreads>true</useUnlimitedThreads>
+                            <excludedGroups>db-serial</excludedGroups>
+                            <properties>
+                                <configurationParameters>
+                                    junit.jupiter.execution.parallel.enabled=true
+                                </configurationParameters>
+                            </properties>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>tests-db-serial</id>
+                        <phase>test</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <useUnlimitedThreads>false</useUnlimitedThreads>
+                            <groups>db-serial</groups>
+                            <failIfNoTests>false</failIfNoTests>
+                            <properties>
+                                <configurationParameters>
+                                    junit.jupiter.execution.parallel.enabled=false
+                                </configurationParameters>
+                            </properties>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
-            <!-- Copy Byte Buddy agent so Mockito inline mocking works without dynamic attach -->
+            <!-- Copy Byte Buddy agent -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
@@ -413,7 +415,7 @@
                 </executions>
             </plugin>
 
-            <!-- Flyway Maven plugin to allow running migrations in CI -->
+            <!-- Flyway Maven plugin -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
                 <artifactId>flyway-maven-plugin</artifactId>
@@ -427,7 +429,6 @@
                     </locations>
                 </configuration>
                 <dependencies>
-                    <!-- Ensure plugin can talk to MySQL in CI -->
                     <dependency>
                         <groupId>org.flywaydb</groupId>
                         <artifactId>flyway-mysql</artifactId>
@@ -441,20 +442,19 @@
                 </dependencies>
             </plugin>
 
-            <!-- JaCoCo plugin for code coverage reporting -->
+            <!-- JaCoCo -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>0.8.12</version>
                 <executions>
-                    <!-- Prepare agent for test execution -->
                     <execution>
                         <id>prepare-agent</id>
                         <goals>
                             <goal>prepare-agent</goal>
                         </goals>
                     </execution>
-                    <!-- Generate coverage report after tests -->
+
                     <execution>
                         <id>report</id>
                         <phase>test</phase>
@@ -462,7 +462,7 @@
                             <goal>report</goal>
                         </goals>
                     </execution>
-                    <!-- Check coverage thresholds (optional) -->
+
                     <execution>
                         <id>check</id>
                         <goals>

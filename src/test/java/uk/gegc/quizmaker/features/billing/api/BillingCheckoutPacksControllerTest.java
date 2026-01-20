@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
+import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
@@ -67,6 +68,9 @@ class BillingCheckoutPacksControllerTest {
 
     @MockitoBean
     private AppPermissionEvaluator appPermissionEvaluator;
+
+    @MockitoBean
+    private ProductPackRepository productPackRepository;
 
     @Test
     @DisplayName("GET /api/v1/billing/packs returns packs filtered by currency when billing enabled")

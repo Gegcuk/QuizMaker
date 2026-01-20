@@ -38,7 +38,7 @@ import static org.mockito.Mockito.*;
  */
 @SpringBootTest(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+    "spring.jpa.hibernate.ddl-auto=update"
 })
 @ActiveProfiles("test-mysql")
 @DisplayName("Task Progress Integration Tests")

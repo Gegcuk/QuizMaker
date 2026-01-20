@@ -55,6 +55,10 @@ spring.flyway.enabled=true
 # Default quiz category used when clients omit or send invalid category IDs
 quiz.default-category-id=${QUIZ_DEFAULT_CATEGORY_ID:00000000-0000-0000-0000-000000000001}
 
+# Quiz import defaults
+quiz.import.max-items=${QUIZ_IMPORT_MAX_ITEMS:1000}
+quiz.import.rate-limit-per-minute=${QUIZ_IMPORT_RATE_LIMIT_PER_MINUTE:10}
+
 # Feature flags (off by default in prod unless explicitly enabled)
 quizmaker.features.share-links=false
 quizmaker.features.organizations=false

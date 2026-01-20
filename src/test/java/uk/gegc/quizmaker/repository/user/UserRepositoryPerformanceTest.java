@@ -9,8 +9,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.user.domain.model.Permission;
+import uk.gegc.quizmaker.shared.config.DataInitializer;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository;
@@ -29,6 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 @Transactional
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@TestPropertySource(properties = {
+    "spring.flyway.enabled=false",
+    "spring.jpa.hibernate.ddl-auto=none"
+})
 class UserRepositoryPerformanceTest {
 
     private static final Logger log = LoggerFactory.getLogger(UserRepositoryPerformanceTest.class);
@@ -44,6 +51,9 @@ class UserRepositoryPerformanceTest {
 
     @Autowired
     private PermissionRepository permissionRepository;
+
+    @MockitoBean
+    private DataInitializer dataInitializer;
 
     private User testUser;
     private Role userRole;

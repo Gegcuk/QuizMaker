@@ -55,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
     "spring.datasource.password=bestuser",
     "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
     "spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect",
-    "spring.jpa.hibernate.ddl-auto=create"
+    "spring.jpa.hibernate.ddl-auto=update"
 })
 @ActiveProfiles("test-mysql")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

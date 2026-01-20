@@ -5,12 +5,14 @@ import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +64,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test-mysql")
 @Transactional(propagation = Propagation.NOT_SUPPORTED) // Disable framework transaction
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS) // Isolate from other tests
+@TestPropertySource(properties = {
+    "spring.flyway.enabled=false",
+    "spring.jpa.hibernate.ddl-auto=update"
+})
+@Tag("db-serial") // Uses ExecutorService for concurrent DB writes
 @DisplayName("Quiz Analytics Snapshot Integration Test - REQUIRES_NEW")
 public class QuizAnalyticsSnapshotIntegrationTest {
 

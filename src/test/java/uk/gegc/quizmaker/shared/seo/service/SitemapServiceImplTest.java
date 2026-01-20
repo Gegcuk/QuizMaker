@@ -35,21 +35,16 @@ class SitemapServiceImplTest {
     }
 
     @Test
-    @DisplayName("getSitemapXml includes static entries and article URLs")
-    void getSitemapXml_includesStaticAndArticleUrls() {
-        SitemapEntryDto entry = new SitemapEntryDto(
-                "/blog/sample-slug",
-                Instant.parse("2025-01-01T00:00:00Z"),
-                "weekly",
-                0.8
-        );
-        when(articleService.getSitemapEntries(ArticleStatus.PUBLISHED)).thenReturn(List.of(entry));
+    @DisplayName("getSitemapXml includes only static entries")
+    void getSitemapXml_includesStaticEntries() {
+        // Note: getSitemapXml() only includes static entries, not articles
+        // Articles are included in getArticleSitemapXml()
 
         String xml = sitemapService.getSitemapXml();
 
         assertThat(xml).contains("<loc>https://www.quizzence.com/</loc>");
-        assertThat(xml).contains("<loc>https://www.quizzence.com/blog/sample-slug</loc>");
-        assertThat(xml).contains("<lastmod>2025-01-01T00:00:00Z</lastmod>");
+        // Articles should NOT be in getSitemapXml() - they're in getArticleSitemapXml()
+        assertThat(xml).doesNotContain("<loc>https://www.quizzence.com/blog/sample-slug</loc>");
     }
 
     @Test

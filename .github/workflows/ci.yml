@@ -17,10 +17,18 @@ jobs:
       JWT_SECRET:     ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
       TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
       SPRING_PROFILES_ACTIVE: test
-      # Point Spring to the service hostname, not localhost
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      # Service containers with port mapping are accessible via localhost on the runner
+      # Note: Don't set SPRING_DATASOURCE_URL here - let profile-specific properties files handle it
+      # Tests with @ActiveProfiles("test-mysql") use quizmaker_test_mysql from application-test-mysql.properties
+      # Tests with @ActiveProfiles("test") use quizmaker_test from application-test.properties
       SPRING_DATASOURCE_USERNAME: bestuser
       SPRING_DATASOURCE_PASSWORD: bestuser
+      # Connection pool settings (environment variables override properties files)
+      # Reduced pool size to avoid "Too many connections" errors with parallel test execution
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 10
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 2
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: 30000
+      SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT: 5000
       
       # OAuth2 Configuration (tests use mocks, these are placeholders)
       OAUTH2_REDIRECT_URI: ${{ secrets.OAUTH2_REDIRECT_URI || 'http://localhost:3000/oauth2/redirect' }}
@@ -50,12 +58,13 @@ jobs:
     services:
       mysql:
         image: mysql:8.4  # LTS line
+        ports:
+          - 3306:3306
         env:
           MYSQL_DATABASE: quizmaker_test
           MYSQL_USER: bestuser
           MYSQL_PASSWORD: bestuser
           MYSQL_ROOT_PASSWORD: root
-        # No port mapping needed; the job can reach the service via hostname "mysql"
         options: >-
           --health-cmd="mysqladmin ping -h 127.0.0.1 -proot --silent"
           --health-interval=10s --health-timeout=5s --health-retries=10
@@ -70,23 +79,299 @@ jobs:
           java-version: '17'
           cache: maven
 
+      - name: Check MySQL container status
+        run: |
+          echo "🔍 Checking MySQL service container status..."
+          echo ""
+          echo "Docker containers:"
+          docker ps -a | grep -i mysql || echo "  ⚠️ No MySQL containers found"
+          echo ""
+          echo "Docker network:"
+          docker network ls | grep -E "bridge|github" || echo "  ⚠️ No relevant networks found"
+          echo ""
+          echo "Checking for MySQL service container..."
+          # Try to get service container info
+          MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+          if [ -n "$MYSQL_CONTAINER" ]; then
+            echo "✅ Found MySQL container: $MYSQL_CONTAINER"
+            echo ""
+            echo "Container status:"
+            docker ps -a --filter "id=$MYSQL_CONTAINER" --format "table {{.ID}}\t{{.Status}}\t{{.Names}}\t{{.Ports}}"
+            echo ""
+            echo "MySQL container logs (last 30 lines):"
+            docker logs --tail=30 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read container logs"
+          else
+            echo "⚠️ MySQL container not found yet (this is normal if it's still starting)"
+          fi
+          echo ""
+          echo "Checking if port 3306 is listening on localhost:"
+          netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not listening yet"
+
       - name: Wait for MySQL to be healthy
         run: |
-          for i in {1..60}; do
-            mysqladmin ping -h mysql -uroot -proot --silent && echo "MySQL OK" && break
-            echo "Waiting for MySQL..."; sleep 2
-          done
+          set +e  # Disable exit on error since we handle failures explicitly
+          echo "Waiting for MySQL service to be ready (accessible via localhost:3306)..."
+          echo ""
+          
+          # Function to show MySQL container logs
+          show_mysql_logs() {
+            MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+            if [ -n "$MYSQL_CONTAINER" ]; then
+              echo "📋 MySQL container logs (last 10 lines):"
+              docker logs --tail=10 "$MYSQL_CONTAINER" 2>&1 | sed 's/^/  /' || true
+            fi
+          }
+          
+          # Wait a moment for MySQL to fully initialize after health check passes
+          echo "⏳ Waiting 5 seconds for MySQL to fully initialize..."
+          sleep 5
+          
+          # Check if mysqladmin is available (might not be installed in runner)
+          if command -v mysqladmin >/dev/null 2>&1; then
+            echo "✅ MySQL client tools available"
+            echo "ℹ️ Using 127.0.0.1 (TCP/IP) instead of localhost to avoid Unix socket issues"
+            MYSQL_READY=0
+            for i in {1..60}; do
+              # Try to ping MySQL and show error if it fails
+              # Use 127.0.0.1 instead of localhost to force TCP/IP connection (not Unix socket)
+              PING_OUTPUT=$(mysqladmin ping -h 127.0.0.1 -uroot -proot 2>&1)
+              PING_STATUS=$?
+              
+              if [ $PING_STATUS -eq 0 ]; then
+                echo "✅ MySQL is ready!"
+                # Verify we can actually connect and query
+                QUERY_OUTPUT=$(mysql -h 127.0.0.1 -uroot -proot -e "SELECT 1;" 2>&1)
+                QUERY_STATUS=$?
+                if [ $QUERY_STATUS -eq 0 ]; then
+                  echo "✅ MySQL connection verified!"
+                  MYSQL_READY=1
+                  break
+                else
+                  echo "⚠️ mysqladmin ping succeeded but mysql query failed"
+                  echo "$QUERY_OUTPUT" | head -3
+                fi
+              else
+                # Show error on first attempt and every 10th attempt
+                if [ $i -eq 1 ] || [ $((i % 10)) -eq 0 ]; then
+                  echo "⚠️ mysqladmin ping failed (attempt $i/60)"
+                  echo "Error: $PING_OUTPUT"
+                  echo ""
+                fi
+              fi
+              
+              # Show logs periodically
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "Still waiting for MySQL... (attempt $i/60)"
+                show_mysql_logs
+                echo ""
+                echo "Checking container status:"
+                docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
+                echo ""
+                echo "Testing port connectivity:"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null && echo "  ✅ Port 3306 is accessible" || echo "  ❌ Port 3306 not accessible"
+                echo ""
+                echo "Testing connection from inside container:"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 && echo "  ✅ Container internal connection works" || echo "  ❌ Container internal connection failed"
+                fi
+                echo ""
+              fi
+              
+              sleep 2
+            done
+            
+            # Final verification if we didn't succeed in the loop
+            if [ $MYSQL_READY -eq 0 ]; then
+              mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>&1
+              if [ $? -ne 0 ]; then
+                echo "❌ MySQL failed to become ready after 2 minutes"
+                echo ""
+                echo "Diagnostics:"
+                echo "MySQL container status:"
+                docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+                echo ""
+                echo "MySQL container logs (last 50 lines):"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+                else
+                  echo "  ⚠️ Container not found"
+                fi
+                echo ""
+                echo "Testing connection with mysqladmin:"
+                mysqladmin ping -h 127.0.0.1 -uroot -proot 2>&1 || echo "  ❌ mysqladmin ping failed"
+                echo ""
+                echo "Testing connection with mysql client:"
+                mysql -h 127.0.0.1 -uroot -proot -e "SELECT 1;" 2>&1 || echo "  ❌ mysql query failed"
+                echo ""
+                echo "Port connectivity:"
+                timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null && echo "  ✅ Port 3306 accessible" || echo "  ❌ Port 3306 not accessible"
+                echo ""
+                echo "Trying to connect from inside the container:"
+                docker exec "$MYSQL_CONTAINER" mysqladmin ping -h localhost -uroot -proot 2>&1 || echo "  ❌ Container exec failed"
+                exit 1
+              else
+                MYSQL_READY=1
+              fi
+            fi
+          else
+            echo "⚠️ MySQL client tools not found - using TCP connection test"
+            MYSQL_READY=0
+            for i in {1..60}; do
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null
+              if [ $? -eq 0 ]; then
+                echo "✅ MySQL port 3306 is accessible!"
+                MYSQL_READY=1
+                break
+              fi
+              
+              # Show logs periodically
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "Still waiting for MySQL... (attempt $i/60)"
+                show_mysql_logs
+                echo ""
+              fi
+              
+              sleep 2
+            done
+            
+            # Final verification if we didn't succeed in the loop
+            if [ $MYSQL_READY -eq 0 ]; then
+              timeout 2 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3306' 2>/dev/null
+              if [ $? -ne 0 ]; then
+                echo "❌ MySQL port 3306 not accessible after 2 minutes"
+                echo ""
+                echo "Diagnostics:"
+                echo "MySQL container status:"
+                docker ps -a | grep -i mysql || echo "  ⚠️ Container not found"
+                echo ""
+                echo "MySQL container logs (last 50 lines):"
+                MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+                if [ -n "$MYSQL_CONTAINER" ]; then
+                  docker logs --tail=50 "$MYSQL_CONTAINER" 2>&1 || echo "  ⚠️ Cannot read logs"
+                else
+                  echo "  ⚠️ Container not found"
+                fi
+                echo ""
+                echo "Checking if port is listening:"
+                netstat -an | grep 3306 || ss -an | grep 3306 || echo "  ⚠️ Port 3306 not found"
+                exit 1
+              else
+                MYSQL_READY=1
+              fi
+            fi
+          fi
+          
+          # Final success message
+          if [ ${MYSQL_READY:-0} -eq 1 ]; then
+            echo "✅ MySQL is ready and accessible!"
+            echo ""
+            echo "Final MySQL container status:"
+            docker ps -a | grep -i mysql | head -1 || echo "  Container not found"
+            echo ""
+            echo "MySQL container logs (last 10 lines):"
+            show_mysql_logs
+            exit 0
+          else
+            echo "❌ MySQL readiness check failed"
+            exit 1
+          fi
+
+      - name: Ensure database exists and is ready
+        run: |
+          echo "🔍 Ensuring databases exist and are ready..."
+          MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+          if [ -n "$MYSQL_CONTAINER" ]; then
+            # Wait a moment for database to be fully initialized
+            sleep 3
+            # Create and grant permissions for both test databases
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test;" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test_mysql;" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test.* TO 'bestuser'@'%';" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test_mysql.* TO 'bestuser'@'%';" 2>&1 || true
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "FLUSH PRIVILEGES;" 2>&1 || true
+            echo "✅ Databases quizmaker_test and quizmaker_test_mysql are ready!"
+          fi
 
       - name: Flyway migrate (fail fast on schema issues)
         run: |
-          ./mvnw -B -V -q -DskipTests \
-            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+          # Migrate quizmaker_test (for tests using 'test' profile)
+          ./mvnw -B -V -q -DskipTests=true \
+            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
             -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
             -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
-            flyway:migrate | cat
+            flyway:migrate
+          # Migrate quizmaker_test_mysql (for tests using 'test-mysql' profile)
+          ./mvnw -B -V -q -DskipTests=true \
+            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test_mysql?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
+            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            flyway:migrate
+          # Verify migrations completed successfully
+          echo "✅ Flyway migrations completed for both databases"
+
+      - name: Verify test configuration
+        run: |
+          echo "🔍 Verifying test configuration..."
+          echo "Active profile: $SPRING_PROFILES_ACTIVE"
+          echo "Datasource URLs:"
+          echo "  - quizmaker_test (for 'test' profile)"
+          echo "  - quizmaker_test_mysql (for 'test-mysql' profile)"
+          echo "HikariCP max pool size: $SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE"
+          echo "HikariCP connection timeout: $SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT"
+          echo ""
+          echo "Checking if application-test.properties exists:"
+          ls -la src/test/resources/application-test.properties || echo "⚠️ application-test.properties not found"
+          echo ""
+          echo "Checking if application-test-mysql.properties exists:"
+          ls -la src/test/resources/application-test-mysql.properties || echo "⚠️ application-test-mysql.properties not found"
 
       - name: Run tests
-        run: ./mvnw -B -T 1C test | cat
+        run: |
+          echo "⏳ Waiting 2 seconds before starting tests to ensure database is fully ready..."
+          sleep 2
+          # Run tests and capture exit code
+          ./mvnw -B -T 1C -DskipTests=false test
+          TEST_EXIT_CODE=$?
+          
+          # Always show root cause errors if any tests failed
+          if [ $TEST_EXIT_CODE -ne 0 ]; then
+            echo ""
+            echo "🔍 Analyzing test failures..."
+            echo ""
+            echo "=== First ApplicationContext failure (root cause) ==="
+            # Find the first test that actually failed (not threshold exceeded)
+            FIRST_FAILURE=$(find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "Failed to load ApplicationContext" {} \; | head -1)
+            if [ -n "$FIRST_FAILURE" ]; then
+              echo "File: $FIRST_FAILURE"
+              echo ""
+              # Show the actual exception stack trace
+              grep -A 50 "Caused by:" "$FIRST_FAILURE" | head -60 || cat "$FIRST_FAILURE" | head -100
+            else
+              echo "⚠️ Could not find root cause in surefire reports"
+            fi
+          fi
+          
+          exit $TEST_EXIT_CODE
+        continue-on-error: false
+
+      - name: Show root cause errors
+        if: failure()
+        run: |
+          echo "🔍 Analyzing test failures to find root causes..."
+          echo ""
+          echo "=== First 10 ApplicationContext failures ==="
+          find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "ApplicationContext" {} \; | head -10 | while read report; do
+            echo ""
+            echo "--- $(basename "$report") ---"
+            # Show the actual exception that caused the context to fail
+            grep -B 5 -A 15 "Caused by:\|Exception\|Error" "$report" | head -25 || head -20 "$report"
+            echo ""
+          done
+          echo ""
+          echo "=== Summary of error types ==="
+          find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -h "Caused by:" {} \; | sort | uniq -c | sort -rn | head -10
 
       - name: Upload surefire reports on failure
         if: failure()

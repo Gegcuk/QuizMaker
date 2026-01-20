@@ -34,9 +34,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=create-drop"
+    "spring.jpa.hibernate.ddl-auto=none"
 })
 @Execution(ExecutionMode.SAME_THREAD)
+@org.junit.jupiter.api.Tag("db-serial") // Prevents data pollution from parallel tests
 @DisplayName("QuizExportSpecifications Tests")
 class QuizExportSpecificationsTest {
 
@@ -51,7 +52,14 @@ class QuizExportSpecificationsTest {
 
     @BeforeEach
     void setUp() {
-        // Clear data
+        // Clear data - needed even with create-drop to ensure clean state between tests
+        // create-drop only drops tables when context closes, not between test methods
+        // Delete in order to respect foreign key constraints
+        entityManager.getEntityManager().createQuery("DELETE FROM Answer").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM Attempt").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM DocumentChunk").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM Document").executeUpdate();
+        entityManager.getEntityManager().createQuery("DELETE FROM QuizGenerationJob").executeUpdate();
         entityManager.getEntityManager().createQuery("DELETE FROM Quiz").executeUpdate();
         entityManager.getEntityManager().createQuery("DELETE FROM User").executeUpdate();
         entityManager.getEntityManager().createQuery("DELETE FROM Category").executeUpdate();
