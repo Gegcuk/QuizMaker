@@ -18,7 +18,9 @@ jobs:
       TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
       SPRING_PROFILES_ACTIVE: test
       # Service containers with port mapping are accessible via localhost on the runner
-      SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      # Note: Don't set SPRING_DATASOURCE_URL here - let profile-specific properties files handle it
+      # Tests with @ActiveProfiles("test-mysql") use quizmaker_test_mysql from application-test-mysql.properties
+      # Tests with @ActiveProfiles("test") use quizmaker_test from application-test.properties
       SPRING_DATASOURCE_USERNAME: bestuser
       SPRING_DATASOURCE_PASSWORD: bestuser
       # Connection pool settings (environment variables override properties files)
@@ -296,7 +298,7 @@ jobs:
         run: |
           # Migrate quizmaker_test (for tests using 'test' profile)
           ./mvnw -B -V -q -DskipTests=true \
-            -Dflyway.url="$SPRING_DATASOURCE_URL" \
+            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
             -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
             -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
             flyway:migrate
@@ -313,7 +315,9 @@ jobs:
         run: |
           echo "🔍 Verifying test configuration..."
           echo "Active profile: $SPRING_PROFILES_ACTIVE"
-          echo "Datasource URL: $SPRING_DATASOURCE_URL"
+          echo "Datasource URLs:"
+          echo "  - quizmaker_test (for 'test' profile)"
+          echo "  - quizmaker_test_mysql (for 'test-mysql' profile)"
           echo "HikariCP max pool size: $SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE"
           echo "HikariCP connection timeout: $SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT"
           echo ""
