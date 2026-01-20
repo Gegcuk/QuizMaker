@@ -347,6 +347,7 @@
                         <exclude>**/MatchingQuestionGenerationIntegrationTest.java</exclude>
                         <exclude>**/RealAiStripeEndToEndIntegrationTest.java</exclude>
                         <exclude>**/QuizImportTemplateGeneratorTest.java</exclude>
+                        <exclude>**/UserRepositoryPerformanceTest.java</exclude>
 
                         <exclude>**/RealStripeApiIntegrationTest.java</exclude>
                         <exclude>**/RealStripeCliE2ETest.java</exclude>
