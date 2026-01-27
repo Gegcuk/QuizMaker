@@ -1,8 +1,12 @@
 package uk.gegc.quizmaker.features.repetition.domain.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
@@ -40,4 +44,25 @@ public class SpacedRepetitionEntry {
     @Column(name = "ease_factor", nullable = false)
     private Double easeFactor;
 
+    @Column(name = "last_reviewed_at")
+    private Instant lastReviewedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_grade", length = 10)
+    private RepetitionEntryGrade lastGrade;
+
+    @Column(name = "reminder_enabled", nullable = false)
+    private Boolean reminderEnabled = Boolean.TRUE;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 }
