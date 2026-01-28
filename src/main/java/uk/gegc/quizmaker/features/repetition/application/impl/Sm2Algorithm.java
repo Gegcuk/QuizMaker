@@ -1,11 +1,13 @@
 package uk.gegc.quizmaker.features.repetition.application.impl;
 
+import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.repetition.application.SrsAlgorithm;
 import uk.gegc.quizmaker.features.repetition.domain.model.RepetitionEntryGrade;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
+@Service
 public class Sm2Algorithm implements SrsAlgorithm {
 
     private static final double MIN_EASE_FACTOR = 1.3;
