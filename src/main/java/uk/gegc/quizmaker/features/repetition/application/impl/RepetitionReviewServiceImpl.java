@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.repetition.application.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.repetition.application.RepetitionReviewService;
 import uk.gegc.quizmaker.features.repetition.application.SrsAlgorithm;
@@ -26,7 +27,6 @@ public class RepetitionReviewServiceImpl implements RepetitionReviewService {
     private final SrsAlgorithm srsAlgorithm;
 
     @Override
-    @Transactional
     public SpacedRepetitionEntry reviewEntry(UUID entryId, UUID userId, RepetitionEntryGrade grade, UUID idempotencyKey) {
         SpacedRepetitionEntry entry = entryRepository.findByIdAndUser_Id(entryId, userId).orElseThrow(
                 () -> new ResourceNotFoundException("Entry " + entryId + " not found for user " + userId));
@@ -53,6 +53,31 @@ public class RepetitionReviewServiceImpl implements RepetitionReviewService {
             }
             throw e;
         }
+        return entry;
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public SpacedRepetitionEntry reviewEntryTx(UUID entryId, UUID userId, RepetitionEntryGrade grade, UUID idempotencyKey) {
+        SpacedRepetitionEntry entry = entryRepository.findByIdAndUser_Id(entryId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Entry " + entryId + " not found for user " + userId));
+
+        Instant reviewedAt = Instant.now(clock);
+
+        SrsAlgorithm.SchedulingResult result = srsAlgorithm.applyReview(
+                entry.getRepetitionCount(),
+                entry.getIntervalDays(),
+                entry.getEaseFactor(),
+                grade,
+                reviewedAt
+        );
+
+        applyResults(entry, result);
+        entryRepository.save(entry);
+
+        RepetitionReviewLog log = buildLog(entry, result, RepetitionReviewSourceType.MANUAL_REVIEW, idempotencyKey);
+        repetitionReviewLogRepository.save(log);
+
         return entry;
     }
 

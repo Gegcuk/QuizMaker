@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface RepetitionReviewService {
     SpacedRepetitionEntry reviewEntry(UUID entryId, UUID userId, RepetitionEntryGrade grade, UUID idempotencyKey);
+    SpacedRepetitionEntry reviewEntryTx(UUID entryId, UUID userId, RepetitionEntryGrade grade, UUID idempotencyKey);
 }
