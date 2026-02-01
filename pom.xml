@@ -332,7 +332,10 @@
                 </configuration>
             </plugin>
 
-            <!-- Surefire: two lanes (parallel + db-serial) -->
+            <!-- Surefire: two lanes (parallel + db-serial).
+                 Execution 1: run all tests EXCEPT @Tag("db-serial") in parallel.
+                 Execution 2: run ONLY @Tag("db-serial") tests serially (same DB, no parallel).
+                 BaseIntegrationTest is @Tag("db-serial"); other db-serial tests add the tag explicitly. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -370,10 +373,10 @@
                         <goals><goal>test</goal></goals>
                         <configuration>
                             <useUnlimitedThreads>true</useUnlimitedThreads>
-                            <excludedGroups>db-serial</excludedGroups>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=true
+                                    junit.jupiter.tags.exclude=db-serial
                                 </configurationParameters>
                             </properties>
                         </configuration>
@@ -385,11 +388,11 @@
                         <goals><goal>test</goal></goals>
                         <configuration>
                             <useUnlimitedThreads>false</useUnlimitedThreads>
-                            <groups>db-serial</groups>
                             <failIfNoTests>false</failIfNoTests>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=false
+                                    junit.jupiter.tags.include=db-serial
                                 </configurationParameters>
                             </properties>
                         </configuration>
