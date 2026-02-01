@@ -32,8 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=update",
-        "spring.jpa.hibernate.hbm2ddl.auto=update"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false"
 })
 class ArticleE2ETest extends BaseIntegrationTest {
 
