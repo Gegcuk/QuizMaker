@@ -25,7 +25,7 @@ public interface SpacedRepetitionEntryRepository extends JpaRepository<SpacedRep
             AND e.reminderEnabled = true
             AND e.nextReviewAt <= :now
             AND q.id IS NOT NULL
-        ORDER BY e.nextReviewAt ASC
+        ORDER BY e.nextReviewAt ASC, e.id ASC
         """)
     Page<SpacedRepetitionEntry> findDueEntries(
             @Param("userId") UUID userId,
@@ -40,7 +40,7 @@ public interface SpacedRepetitionEntryRepository extends JpaRepository<SpacedRep
         WHERE e.user.id = :userId
             AND e.reminderEnabled = true
             AND q.id IS NOT NULL
-        ORDER BY e.nextReviewAt ASC
+        ORDER BY e.nextReviewAt ASC, e.id ASC
 """)
     Page<SpacedRepetitionEntry> findPriorityQueue(
             @Param("userId") UUID userId,

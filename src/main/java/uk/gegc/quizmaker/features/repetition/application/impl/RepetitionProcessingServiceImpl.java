@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.repetition.application.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -19,10 +21,13 @@ import uk.gegc.quizmaker.features.repetition.domain.repository.RepetitionReviewL
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 @Service
 public class RepetitionProcessingServiceImpl implements RepetitionProcessingService {
+
+    private static final Logger log = LoggerFactory.getLogger(RepetitionProcessingServiceImpl.class);
 
     private final AttemptRepository attemptRepository;
     private final RepetitionReviewLogRepository logRepository;
@@ -58,7 +63,29 @@ public class RepetitionProcessingServiceImpl implements RepetitionProcessingServ
     public void processAttempt(java.util.UUID attemptId) {
         Attempt attempt = loadAttempt(attemptId);
         if (!isRepetitionEnabled(attempt)) return;
-        attempt.getAnswers().forEach(this::processAnswerWithRetry);
+        AtomicInteger scheduledCount = new AtomicInteger();
+        AtomicInteger dedupedCount = new AtomicInteger();
+        AtomicInteger optimisticLockConflicts = new AtomicInteger();
+
+        attempt.getAnswers().forEach(answer -> {
+            RetryOutcome outcome = withRetry(
+                    () -> self.processAnswerTx(answer),
+                    attempt.getId(),
+                    answer.getId(),
+                    optimisticLockConflicts
+            );
+            if (outcome == RetryOutcome.SUCCESS) {
+                scheduledCount.incrementAndGet();
+            } else {
+                dedupedCount.incrementAndGet();
+            }
+        });
+
+        log.info("Repetition attempt processed: attemptId={}, scheduledCount={}, dedupedCount={}, optimisticLockConflicts={}",
+                attempt.getId(),
+                scheduledCount.get(),
+                dedupedCount.get(),
+                optimisticLockConflicts.get());
     }
 
     private Attempt loadAttempt(java.util.UUID attemptId) {
@@ -69,10 +96,6 @@ public class RepetitionProcessingServiceImpl implements RepetitionProcessingServ
 
     private boolean isRepetitionEnabled(Attempt attempt) {
         return Boolean.TRUE.equals(attempt.getQuiz().getIsRepetitionEnabled());
-    }
-
-    private void processAnswerWithRetry(Answer answer) {
-        withRetry(() -> self.processAnswerTx(answer));
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -120,21 +143,33 @@ public class RepetitionProcessingServiceImpl implements RepetitionProcessingServ
         );
     }
 
-    private void withRetry(Runnable action) {
+    private RetryOutcome withRetry(
+            Runnable action,
+            java.util.UUID attemptId,
+            java.util.UUID answerId,
+            AtomicInteger optimisticLockConflicts
+    ) {
         int maxRetries = 3;
         for (int attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 action.run();
-                return;
+                return RetryOutcome.SUCCESS;
             } catch (DataIntegrityViolationException e) {
-                if (isDuplicateKey(e)) return;
+                if (isDuplicateKey(e)) {
+                    log.info("Repetition deduped attempt answer: attemptId={}, answerId={}", attemptId, answerId);
+                    return RetryOutcome.DEDUPED;
+                }
                 if (attempt == maxRetries - 1) throw e;
                 sleepBackoff(attempt + 1);
             } catch (OptimisticLockingFailureException e) {
+                optimisticLockConflicts.incrementAndGet();
+                log.warn("Repetition optimistic lock conflict: attemptId={}, answerId={}, attempt={}",
+                        attemptId, answerId, attempt + 1);
                 if (attempt == maxRetries - 1) throw e;
                 sleepBackoff(attempt + 1);
             }
         }
+        return RetryOutcome.DEDUPED;
     }
 
     private void sleepBackoff(int attempt) {
@@ -147,5 +182,10 @@ public class RepetitionProcessingServiceImpl implements RepetitionProcessingServ
 
     private boolean isDuplicateKey(DataIntegrityViolationException e) {
         return e.getMessage() != null && e.getMessage().contains("Duplicate");
+    }
+
+    private enum RetryOutcome {
+        SUCCESS,
+        DEDUPED
     }
 }

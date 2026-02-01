@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
@@ -46,7 +45,6 @@ public class RepetitionReviewLog {
     @Column(name = "grade", nullable = false, length = 10)
     private RepetitionEntryGrade grade;
 
-    @CreationTimestamp
     @Column(name = "reviewed_at", nullable = false, updatable = false)
     private Instant reviewedAt;
 
@@ -68,4 +66,11 @@ public class RepetitionReviewLog {
 
     @Column(name = "attempt_id")
     private UUID attemptId;
+
+    @PrePersist
+    private void prePersist() {
+        if (reviewedAt == null) {
+            reviewedAt = Instant.now();
+        }
+    }
 }
