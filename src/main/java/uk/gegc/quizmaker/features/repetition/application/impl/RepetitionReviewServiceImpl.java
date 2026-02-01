@@ -21,16 +21,25 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 @Service
-@RequiredArgsConstructor
 public class RepetitionReviewServiceImpl implements RepetitionReviewService {
 
     private final Clock clock;
     private final SpacedRepetitionEntryRepository entryRepository;
     private final RepetitionReviewLogRepository repetitionReviewLogRepository;
     private final SrsAlgorithm srsAlgorithm;
-
-    @Lazy
     private final RepetitionReviewService self;
+
+    public RepetitionReviewServiceImpl(Clock clock,
+                                       SpacedRepetitionEntryRepository entryRepository,
+                                       RepetitionReviewLogRepository repetitionReviewLogRepository,
+                                       SrsAlgorithm srsAlgorithm,
+                                       @Lazy RepetitionReviewService self) {
+        this.clock = clock;
+        this.entryRepository = entryRepository;
+        this.repetitionReviewLogRepository = repetitionReviewLogRepository;
+        this.srsAlgorithm = srsAlgorithm;
+        this.self = self;
+    }
 
     @Override
     public SpacedRepetitionEntry reviewEntry(UUID entryId, UUID userId, RepetitionEntryGrade grade, UUID idempotencyKey) {
