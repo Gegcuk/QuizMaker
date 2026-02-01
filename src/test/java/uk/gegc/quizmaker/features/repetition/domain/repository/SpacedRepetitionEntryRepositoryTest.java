@@ -83,8 +83,15 @@ public class SpacedRepetitionEntryRepositoryTest {
     }
 
     @Test
-    @DisplayName("dueQuery excludes remainder enabled = false")
+    @DisplayName("dueQuery excludes reminder enabled = false")
     void dueQueryExcludesRemainderEnabledFalse(){
+        Question reminderDisabledQuestion = persistQuestion(false);
+        SpacedRepetitionEntry reminderDisabledEntry =
+                persistEntry(userA, reminderDisabledQuestion, Instant.now().minusSeconds(60), false);
+
+        entityManager.flush();
+        entityManager.clear();
+
         Page<SpacedRepetitionEntry> page = spacedRepetitionEntryRepository.findDueEntries(
                 userA.getId(),
                 Instant.now(),
@@ -92,6 +99,8 @@ public class SpacedRepetitionEntryRepositoryTest {
         );
 
         assertThat(page.getContent()).hasSize(2);
+        assertThat(page.getContent())
+                .noneMatch(entry -> entry.getId().equals(reminderDisabledEntry.getId()));
     }
 
 
