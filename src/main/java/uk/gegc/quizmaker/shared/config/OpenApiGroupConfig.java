@@ -57,6 +57,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi repetitionGroup() {
+        return GroupedOpenApi.builder()
+                .group("repetition")
+                .displayName("Repetition")
+                .pathsToMatch("/api/v1/repetition/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi documentsGroup() {
         return GroupedOpenApi.builder()
                 .group("documents")
