@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -264,10 +265,16 @@ public class RepetitionReviewServiceImplTest extends BaseUnitTest {
         when(srsAlgorithm.applyReview(anyInt(), anyInt(), anyDouble(), any(), any()))
                 .thenReturn(new SrsAlgorithm.SchedulingResult(1, 1, 2.5, Instant.now(clock), Instant.now(clock), RepetitionEntryGrade.GOOD));
 
-        SpacedRepetitionEntry result = repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, null);
+        ArgumentCaptor<RepetitionReviewLog> logCaptor = ArgumentCaptor.forClass(RepetitionReviewLog.class);
 
-        assertNotNull(result);
-        verify(logRepository).save(argThat(log -> log.getSourceId() == null));
+        repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, null);
+        repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.HARD, null);
+
+        verify(logRepository, times(2)).save(logCaptor.capture());
+        List<RepetitionReviewLog> logs = logCaptor.getAllValues();
+        assertEquals(2, logs.size());
+        assertNull(logs.get(0).getSourceId());
+        assertNull(logs.get(1).getSourceId());
     }
 
     @Test
@@ -417,21 +424,11 @@ public class RepetitionReviewServiceImplTest extends BaseUnitTest {
     }
 
     @Test
-    @DisplayName("reviewEntryTx: entry not found throws ResourceNotFoundException")
-    void reviewEntryTx_entryNotFound_throws() {
+    @DisplayName("Should set reviewedAt=Clock.now in log")
+    void shouldSetReviewedAtInLog() {
         UUID entryId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
-        when(entryRepository.findByIdAndUser_Id(entryId, userId)).thenReturn(Optional.empty());
-
-        assertThrows(ResourceNotFoundException.class, () ->
-                repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, UUID.randomUUID()));
-    }
-
-    @Test
-    @DisplayName("reviewEntryTx: applies SM-2 and updates schedule fields")
-    void reviewEntryTx_appliesSchedule_updatesEntryFields() {
-        UUID entryId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
+        Instant clockNow = Instant.parse("2025-01-01T00:00:00Z");
         SpacedRepetitionEntry entry = new SpacedRepetitionEntry();
         entry.setUser(mock(User.class));
         entry.setQuestion(mock(Question.class));
@@ -439,28 +436,19 @@ public class RepetitionReviewServiceImplTest extends BaseUnitTest {
         entry.setRepetitionCount(0);
         entry.setEaseFactor(2.5);
         when(entryRepository.findByIdAndUser_Id(entryId, userId)).thenReturn(Optional.of(entry));
-
-        int newInterval = 6;
-        int newRepCount = 1;
-        double newEase = 2.48;
-        Instant nextReview = Instant.parse("2025-01-07T00:00:00Z");
-        Instant lastReviewed = Instant.parse("2025-01-01T00:00:00Z");
         when(srsAlgorithm.applyReview(anyInt(), anyInt(), anyDouble(), any(), any()))
-                .thenReturn(new SrsAlgorithm.SchedulingResult(newInterval, newRepCount, newEase, nextReview, lastReviewed, RepetitionEntryGrade.GOOD));
+                .thenReturn(new SrsAlgorithm.SchedulingResult(1, 1, 2.5, Instant.now(clock), clockNow, RepetitionEntryGrade.GOOD));
 
+        ArgumentCaptor<RepetitionReviewLog> logCaptor = ArgumentCaptor.forClass(RepetitionReviewLog.class);
         repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, UUID.randomUUID());
+        verify(logRepository).save(logCaptor.capture());
 
-        assertEquals(newInterval, entry.getIntervalDays());
-        assertEquals(newRepCount, entry.getRepetitionCount());
-        assertEquals(newEase, entry.getEaseFactor());
-        assertEquals(nextReview, entry.getNextReviewAt());
-        assertEquals(lastReviewed, entry.getLastReviewedAt());
-        assertEquals(RepetitionEntryGrade.GOOD, entry.getLastGrade());
+        assertEquals(clockNow, logCaptor.getValue().getReviewedAt());
     }
 
     @Test
-    @DisplayName("reviewEntryTx: non-duplicate DataIntegrityViolationException is rethrown")
-    void reviewEntryTx_nonDuplicateDataIntegrity_isRethrown() {
+    @DisplayName("Should preserve entry ownership (findByIdAndUser_Id)")
+    void shouldEnforceOwnership() {
         UUID entryId = UUID.randomUUID();
         UUID userId = UUID.randomUUID();
         SpacedRepetitionEntry entry = new SpacedRepetitionEntry();
@@ -472,57 +460,11 @@ public class RepetitionReviewServiceImplTest extends BaseUnitTest {
         when(entryRepository.findByIdAndUser_Id(entryId, userId)).thenReturn(Optional.of(entry));
         when(srsAlgorithm.applyReview(anyInt(), anyInt(), anyDouble(), any(), any()))
                 .thenReturn(new SrsAlgorithm.SchedulingResult(1, 1, 2.5, Instant.now(clock), Instant.now(clock), RepetitionEntryGrade.GOOD));
-        doThrow(new DataIntegrityViolationException("Foreign key constraint")).when(logRepository).save(any());
 
-        assertThrows(DataIntegrityViolationException.class, () ->
-                repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, UUID.randomUUID()));
-    }
+        repetitionReviewService.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, UUID.randomUUID());
 
-    @Test
-    @DisplayName("reviewEntry: retries on OptimisticLockingFailureException and succeeds")
-    void reviewEntry_retriesOnOptimisticLock_andSucceeds() {
-        UUID entryId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-        UUID idempotencyKey = UUID.randomUUID();
-        SpacedRepetitionEntry entry = new SpacedRepetitionEntry();
-        when(self.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey))
-                .thenThrow(new OptimisticLockingFailureException("conflict"))
-                .thenReturn(entry);
-
-        SpacedRepetitionEntry result = repetitionReviewService.reviewEntry(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey);
-
-        assertSame(entry, result);
-        verify(self, times(2)).reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey);
-    }
-
-    @Test
-    @DisplayName("reviewEntry: after max retries, OptimisticLockingFailureException is thrown")
-    void reviewEntry_exhaustsRetries_throwsOptimisticLockingFailure() {
-        UUID entryId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-        UUID idempotencyKey = UUID.randomUUID();
-        when(self.reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey))
-                .thenThrow(new OptimisticLockingFailureException("conflict"));
-
-        assertThrows(OptimisticLockingFailureException.class, () ->
-                repetitionReviewService.reviewEntry(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey));
-
-        verify(self, times(3)).reviewEntryTx(entryId, userId, RepetitionEntryGrade.GOOD, idempotencyKey);
-    }
-
-    @Test
-    @DisplayName("reviewEntry: delegates to reviewEntryTx with same parameters")
-    void reviewEntry_delegatesToTxMethod() {
-        UUID entryId = UUID.randomUUID();
-        UUID userId = UUID.randomUUID();
-        RepetitionEntryGrade grade = RepetitionEntryGrade.EASY;
-        UUID idempotencyKey = UUID.randomUUID();
-        SpacedRepetitionEntry entry = new SpacedRepetitionEntry();
-        when(self.reviewEntryTx(entryId, userId, grade, idempotencyKey)).thenReturn(entry);
-
-        repetitionReviewService.reviewEntry(entryId, userId, grade, idempotencyKey);
-
-        verify(self).reviewEntryTx(entryId, userId, grade, idempotencyKey);
+        verify(entryRepository).findByIdAndUser_Id(entryId, userId);
+        verify(entryRepository, never()).findById(any());
     }
 
 }

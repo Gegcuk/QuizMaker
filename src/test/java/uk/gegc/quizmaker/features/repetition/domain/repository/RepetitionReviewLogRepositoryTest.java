@@ -95,10 +95,40 @@ class RepetitionReviewLogRepositoryTest {
         assertThat(page.getContent().get(0).getEntry().getId()).isEqualTo(entry.getId());
     }
 
-    // TODO (pseudocode):
-    // - verify pagination works (page size 1, total elements 2)
-    // - verify history queries don’t return other users’ logs
-    // - verify source_type/source_id uniqueness handled at service layer
+    @Test
+    @DisplayName("findByUser_IdOrderByReviewedAtDesc respects pagination")
+    void historyByUser_pagination() {
+        persistLog(user, entry, question, RepetitionEntryGrade.GOOD);
+        persistLog(user, entry, question, RepetitionEntryGrade.EASY);
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<RepetitionReviewLog> page = repository.findByUser_IdOrderByReviewedAtDesc(
+                user.getId(), PageRequest.of(0, 1)
+        );
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getTotalElements()).isEqualTo(2);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("findByUser_IdOrderByReviewedAtDesc returns only that user's logs")
+    void historyByUser_excludesOtherUsers() {
+        User otherUser = persistUser("other");
+        SpacedRepetitionEntry otherEntry = persistEntry(otherUser, persistQuestion());
+        persistLog(user, entry, question, RepetitionEntryGrade.GOOD);
+        persistLog(otherUser, otherEntry, otherEntry.getQuestion(), RepetitionEntryGrade.EASY);
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<RepetitionReviewLog> page = repository.findByUser_IdOrderByReviewedAtDesc(
+                user.getId(), PageRequest.of(0, 10)
+        );
+
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().get(0).getUser().getId()).isEqualTo(user.getId());
+    }
 
     private User persistUser(String name) {
         User u = new User();
