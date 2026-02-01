@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.repetition.application.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -8,6 +9,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.repetition.application.RepetitionReviewService;
 import uk.gegc.quizmaker.features.repetition.application.SrsAlgorithm;
+import uk.gegc.quizmaker.features.repetition.application.exception.RepetitionAlreadyProcessedException;
 import uk.gegc.quizmaker.features.repetition.domain.model.*;
 import uk.gegc.quizmaker.features.repetition.domain.repository.RepetitionReviewLogRepository;
 import uk.gegc.quizmaker.features.repetition.domain.repository.SpacedRepetitionEntryRepository;
@@ -26,6 +28,8 @@ public class RepetitionReviewServiceImpl implements RepetitionReviewService {
     private final SpacedRepetitionEntryRepository entryRepository;
     private final RepetitionReviewLogRepository repetitionReviewLogRepository;
     private final SrsAlgorithm srsAlgorithm;
+
+    @Lazy
     private final RepetitionReviewService self;
 
     @Override
@@ -54,7 +58,14 @@ public class RepetitionReviewServiceImpl implements RepetitionReviewService {
         entryRepository.save(entry);
 
         RepetitionReviewLog log = buildLog(entry, result, RepetitionReviewSourceType.MANUAL_REVIEW, idempotencyKey);
-        repetitionReviewLogRepository.save(log);
+        try{
+            repetitionReviewLogRepository.save(log);
+        } catch (DataIntegrityViolationException e) {
+            if(idempotencyKey != null && isDuplicateKey(e)) {
+                throw new RepetitionAlreadyProcessedException("Manual review already processed for key " + idempotencyKey);
+            }
+            throw e;
+        }
 
         return entry;
     }
