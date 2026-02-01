@@ -103,6 +103,26 @@ public class SpacedRepetitionEntryRepositoryTest {
                 .noneMatch(entry -> entry.getId().equals(reminderDisabledEntry.getId()));
     }
 
+    @Test
+    @DisplayName("findDueEntries excludes entries with future nextReviewAt")
+    void findDueEntries_excludesFutureNextReviewAt() {
+        Question futureQuestion = persistQuestion(false);
+        SpacedRepetitionEntry futureEntry =
+                persistEntry(userA, futureQuestion, Instant.now().plusSeconds(3600), true);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        Page<SpacedRepetitionEntry> page = spacedRepetitionEntryRepository.findDueEntries(
+                userA.getId(),
+                Instant.now(),
+                PageRequest.of(0, 10)
+        );
+
+        assertThat(page.getContent()).hasSize(2);
+        assertThat(page.getContent())
+                .noneMatch(entry -> entry.getId().equals(futureEntry.getId()));
+    }
 
     private SpacedRepetitionEntry persistEntry(User user, Question question, Instant nextReviewAt, Boolean remainder) {
         SpacedRepetitionEntry entry = new SpacedRepetitionEntry();

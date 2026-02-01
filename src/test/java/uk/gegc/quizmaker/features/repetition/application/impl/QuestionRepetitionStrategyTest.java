@@ -54,6 +54,12 @@ class QuestionRepetitionStrategyTest extends BaseUnitTest {
     }
 
     @Test
+    @DisplayName("supportedType returns QUESTION")
+    void supportedTypeReturnsQuestion() {
+        assertEquals(RepetitionContentType.QUESTION, strategy.supportedType());
+    }
+
+    @Test
     @DisplayName("Should return existing entry when present")
     void shouldReturnExistingEntry() {
         SpacedRepetitionEntry existing = new SpacedRepetitionEntry();
