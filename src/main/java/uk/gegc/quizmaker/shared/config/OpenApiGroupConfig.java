@@ -93,15 +93,6 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
-    public GroupedOpenApi aiGroup() {
-        return GroupedOpenApi.builder()
-                .group("ai")
-                .displayName("AI Features")
-                .pathsToMatch("/api/ai/**", "/api/v1/ai-analysis/**")
-                .build();
-    }
-
-    @Bean
     public GroupedOpenApi bugReportsGroup() {
         return GroupedOpenApi.builder()
                 .group("bug-reports")

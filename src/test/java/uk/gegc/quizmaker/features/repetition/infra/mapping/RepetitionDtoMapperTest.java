@@ -56,7 +56,7 @@ class RepetitionDtoMapperTest extends BaseUnitTest {
         assertEquals(6, dto.intervalDays());
         assertEquals(2, dto.repetitionCount());
         assertEquals(2.48, dto.easeFactor());
-        assertEquals(true, dto.reviewEnabled());
+        assertEquals(true, dto.reminderEnabled());
         assertEquals(priorityScore, dto.priorityScore());
     }
 

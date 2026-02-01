@@ -80,7 +80,7 @@ class RepetitionPriorityCalculatorTest extends BaseUnitTest {
 
     @Test
     @DisplayName("Should treat null grade weight as 0 (base score still applies)")
-    void shouldReturnZeroWhenGradeNull() {
+    void shouldTreatNullGradeWeightAsZero() {
         Instant now = Instant.parse("2025-01-10T12:00:00Z");
         Instant dueNow = Instant.parse("2025-01-10T12:00:00Z");
         SpacedRepetitionEntry entry = entry(dueNow, null);

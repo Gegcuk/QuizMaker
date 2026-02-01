@@ -15,6 +15,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -1106,7 +1108,7 @@ public class QuizController {
             description = "Export quizzes in various formats. Public scope available anonymously; scope=me requires QUIZ_READ; scope=all requires QUIZ_MODERATE or QUIZ_ADMIN."
     )
     @GetMapping(value = "/export")
-    public ResponseEntity<org.springframework.core.io.Resource> exportQuizzes(
+    public ResponseEntity<Resource> exportQuizzes(
             @ParameterObject @ModelAttribute @Valid QuizExportRequest request,
             Authentication authentication,
             HttpServletRequest httpRequest
@@ -1144,7 +1146,7 @@ public class QuizController {
         rateLimitService.checkRateLimit("quizzes-export", key, 30);
 
         ExportFile exportFile = quizExportService.export(filter, request.format(), request.toPrintOptions(), authentication);
-        org.springframework.core.io.InputStreamResource resource = new org.springframework.core.io.InputStreamResource(exportFile.contentSupplier().get());
+        InputStreamResource resource = new InputStreamResource(exportFile.contentSupplier().get());
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(exportMediaTypeResolver.contentTypeFor(request.format())))
