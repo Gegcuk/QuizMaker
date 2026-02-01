@@ -39,6 +39,7 @@ public interface SpacedRepetitionEntryRepository extends JpaRepository<SpacedRep
         JOIN e.question q
         WHERE e.user.id = :userId
             AND e.reminderEnabled = true
+            AND q.id IS NOT NULL
         ORDER BY e.nextReviewAt ASC
 """)
     Page<SpacedRepetitionEntry> findPriorityQueue(
