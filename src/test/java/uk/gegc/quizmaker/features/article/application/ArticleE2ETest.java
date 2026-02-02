@@ -31,10 +31,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=update",
-        "spring.jpa.hibernate.hbm2ddl.auto=update"
-})
 class ArticleE2ETest extends BaseIntegrationTest {
 
     @Autowired

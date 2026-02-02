@@ -520,6 +520,9 @@ public class BillingCheckoutController {
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }
     private java.util.Optional<UUID> safeParseUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return java.util.Optional.empty();
+        }
         try {
             return java.util.Optional.of(UUID.fromString(value));
         } catch (IllegalArgumentException e) {
