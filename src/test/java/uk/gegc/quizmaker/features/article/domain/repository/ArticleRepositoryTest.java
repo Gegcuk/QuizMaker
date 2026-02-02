@@ -25,10 +25,6 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=update",
-        "spring.jpa.hibernate.hbm2ddl.auto=update"
-})
 class ArticleRepositoryTest extends BaseIntegrationTest {
 
     @Autowired

@@ -57,6 +57,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi repetitionGroup() {
+        return GroupedOpenApi.builder()
+                .group("repetition")
+                .displayName("Repetition")
+                .pathsToMatch("/api/v1/repetition/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi documentsGroup() {
         return GroupedOpenApi.builder()
                 .group("documents")
@@ -89,15 +98,6 @@ public class OpenApiGroupConfig {
                 .group("seo")
                 .displayName("SEO & Sitemaps")
                 .pathsToMatch("/sitemap.xml", "/sitemap_articles.xml", "/robots.txt")
-                .build();
-    }
-
-    @Bean
-    public GroupedOpenApi aiGroup() {
-        return GroupedOpenApi.builder()
-                .group("ai")
-                .displayName("AI Features")
-                .pathsToMatch("/api/ai/**", "/api/v1/ai-analysis/**")
                 .build();
     }
 

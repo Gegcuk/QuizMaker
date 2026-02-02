@@ -510,6 +510,9 @@ public class ShareLinkController {
      * Safely parses a UUID string, returning Optional.empty() if invalid.
      */
     private Optional<UUID> safeParseUuid(String uuidString) {
+        if (uuidString == null || uuidString.isBlank()) {
+            return Optional.empty();
+        }
         try {
             return Optional.of(UUID.fromString(uuidString));
         } catch (IllegalArgumentException e) {

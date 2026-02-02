@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
+import uk.gegc.quizmaker.features.repetition.application.exception.RepetitionAlreadyProcessedException;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.exception.*;
@@ -184,6 +185,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 request
         );
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(problem);
+    }
+
+    @ExceptionHandler(RepetitionAlreadyProcessedException.class)
+    public ResponseEntity<ProblemDetail> handleRepetitionAlreadyProcessed(RepetitionAlreadyProcessedException ex, HttpServletRequest request){
+        ProblemDetail problemDetail = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.IDEMPOTENCY_CONFLICT,
+                "Idempotency conflict",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problemDetail);
     }
 
     @ExceptionHandler(AttemptNotCompletedException.class)
