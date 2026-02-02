@@ -76,7 +76,8 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     @EntityGraph(attributePaths = {
             "answers",
             "answers.question",
-            "quiz"
+            "quiz",
+            "user"
             // quiz.questions intentionally OMITTED to avoid cartesian product
     })
     @Query("SELECT a FROM Attempt a WHERE a.id = :id")

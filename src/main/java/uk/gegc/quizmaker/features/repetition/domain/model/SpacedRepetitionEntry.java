@@ -16,7 +16,15 @@ import java.util.UUID;
 @Entity
 @Getter
 @Setter
-@Table(name = "spaced_repetition_entry")
+@Table(
+        name = "spaced_repetition_entry",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uq_spaced_repetition_user_question",
+                        columnNames = {"user_id", "question_id"}
+                )
+        }
+)
 public class SpacedRepetitionEntry {
 
     @Id

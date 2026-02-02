@@ -51,6 +51,8 @@ class RepetitionControllerQueryIntegrationTest extends BaseIntegrationTest {
     private User user;
     private User otherUser;
     private Question activeQuestion;
+    private Question futureQuestion;
+    private Question reminderDisabledQuestion;
     private Question deletedQuestion;
     private SpacedRepetitionEntry dueEntry;
     private SpacedRepetitionEntry futureEntry;
@@ -64,11 +66,13 @@ class RepetitionControllerQueryIntegrationTest extends BaseIntegrationTest {
         otherUser = persistUser("rep_other");
 
         activeQuestion = persistQuestion(false);
+        futureQuestion = persistQuestion(false);
+        reminderDisabledQuestion = persistQuestion(false);
         deletedQuestion = persistQuestion(true);
 
         dueEntry = persistEntry(user, activeQuestion, Instant.now().minusSeconds(120), true, RepetitionEntryGrade.GOOD);
-        futureEntry = persistEntry(user, activeQuestion, Instant.now().plusSeconds(3600), true, RepetitionEntryGrade.GOOD);
-        reminderDisabledEntry = persistEntry(user, activeQuestion, Instant.now().minusSeconds(60), false, RepetitionEntryGrade.AGAIN);
+        futureEntry = persistEntry(user, futureQuestion, Instant.now().plusSeconds(3600), true, RepetitionEntryGrade.GOOD);
+        reminderDisabledEntry = persistEntry(user, reminderDisabledQuestion, Instant.now().minusSeconds(60), false, RepetitionEntryGrade.AGAIN);
 
         historyLog1 = persistLog(user, dueEntry, Instant.now().minusSeconds(300));
         historyLog2 = persistLog(user, dueEntry, Instant.now().minusSeconds(60));
