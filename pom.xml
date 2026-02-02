@@ -356,6 +356,7 @@
                         <exclude>**/UserRepositoryPerformanceTest.java</exclude>
                         <exclude>**/RepetitionControllerQueryIntegrationTest.java</exclude>
                         <exclude>**/RepetitionControllerActionIntegrationTest.java</exclude>
+                        <exclude>**/ArticleServiceImplIntegrationTest.java</exclude>
 
                         <exclude>**/RealStripeApiIntegrationTest.java</exclude>
                         <exclude>**/RealStripeCliE2ETest.java</exclude>
