@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.question.application.FillGapContentValidator.ValidationMode;
+import uk.gegc.quizmaker.features.question.application.FillGapContentValidator.ValidationResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FillGapContentValidatorTest {
@@ -322,6 +325,196 @@ class FillGapContentValidatorTest {
         FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(content);
         
         assertTrue(result.valid());
+    }
+
+    // --- Options validation (ValidationMode) - from fill-gap-drag-options-improvement-plan Recipe 1 ---
+
+    @Test
+    @DisplayName("Lenient mode: options absent passes (backward compatibility)")
+    void validate_lenientMode_optionsAbsent_passes() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Strict AI mode: options absent fails")
+    void validate_strictAiMode_optionsAbsent_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("AI-generated FILL_GAP must include 'options' array");
+    }
+
+    @Test
+    @DisplayName("Options present, all valid, strict AI passes")
+    void validate_optionsPresent_allValid_passes() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "Germany", "Berlin", "London", "Madrid", "Rome", "Italy"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Options missing a gap answer fails")
+    void validate_optionsMissingGapAnswer_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["Germany", "Berlin", "London", "Madrid", "Rome", "Italy", "Spain", "Lisbon"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("Missing");
+        assertThat(result.errorMessage()).matches(".*(France|Paris).*");
+    }
+
+    @Test
+    @DisplayName("Duplicate options (exact) fails")
+    void validate_duplicateOptions_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "Germany", "Berlin", "France", "London", "Madrid", "Rome"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("must be unique").contains("France");
+    }
+
+    @Test
+    @DisplayName("Duplicate options (case-insensitive) fails")
+    void validate_duplicateOptionsCaseInsensitive_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "FRANCE", "Berlin", "London", "Madrid", "Rome", "Italy"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("case-insensitive");
+        assertThat(result.errorMessage()).matches(".*(France|FRANCE).*");
+    }
+
+    @Test
+    @DisplayName("Too few options fails")
+    void validate_tooFewOptions_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "Germany", "Berlin", "London"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("should have 8-9 items").contains("found 5");
+    }
+
+    @Test
+    @DisplayName("Too many options fails")
+    void validate_tooManyOptions_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "Germany", "Berlin", "London", "Madrid", "Rome", "Italy", "Spain", "Lisbon", "Athens", "Greece"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("should have 8-9 items").contains("found 12");
+    }
+
+    @Test
+    @DisplayName("Duplicate gap answers when options present fails")
+    void validate_duplicateGapAnswers_whenOptionsPresent_fails() throws Exception {
+        String json = """
+            {
+              "text": "Both {1} and {2} are examples.",
+              "gaps": [
+                {"id": 1, "answer": "example"},
+                {"id": 2, "answer": "example"}
+              ],
+              "options": ["example", "test", "demo", "sample", "instance", "case", "model", "prototype"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("gap answers must be unique").contains("example");
+    }
+
+    @Test
+    @DisplayName("Blank option fails")
+    void validate_blankOption_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "", "Berlin", "London", "Madrid", "Rome", "Italy"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("cannot be blank");
     }
 }
 

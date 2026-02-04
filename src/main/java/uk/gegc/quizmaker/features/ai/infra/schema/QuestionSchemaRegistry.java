@@ -378,8 +378,10 @@ public class QuestionSchemaRegistry {
     
     /**
      * Schema for FILL_GAP content
-     * Parser expects: content.text (string with {N} markers) and content.gaps [{id: int, answer: string}]
-     * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}]}
+     * Parser expects: content.text (string with {N} markers),
+     * content.gaps [{id: int, answer: string}],
+     * and content.options (array of strings: correct answers + 6-7 distractors)
+     * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}], "options": ["programming", "..."]}
      */
     private ObjectNode createFillGapContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
@@ -389,6 +391,7 @@ public class QuestionSchemaRegistry {
         ArrayNode required = objectMapper.createArrayNode();
         required.add("text");
         required.add("gaps");
+        required.add("options");
         content.set("required", required);
         
         ObjectNode properties = objectMapper.createObjectNode();
@@ -429,8 +432,23 @@ public class QuestionSchemaRegistry {
         
         gapItem.set("properties", gapProps);
         gaps.set("items", gapItem);
-        
         properties.set("gaps", gaps);
+
+        ObjectNode options = objectMapper.createObjectNode();
+        options.put("type", "array");
+        options.put("description",
+                "Array of options including all correct answers plus 6-7 plausible distractors. " +
+                        "Total size should be gaps.length + 6-7. Options must be unique (case-insensitive)");
+        options.put("minItems", 7);
+        options.put("maxItems", 10);
+
+        ObjectNode optionItem = objectMapper.createObjectNode();
+        optionItem.put("type", "string");
+        optionItem.put("description", "A possible answer (correct or distractor)");
+        options.set("items", optionItem);
+
+        properties.set("options", options);
+
         content.set("properties", properties);
         return content;
     }

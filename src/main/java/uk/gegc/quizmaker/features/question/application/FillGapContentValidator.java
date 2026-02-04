@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.features.question.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
-
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -127,5 +126,130 @@ public class FillGapContentValidator {
         
         return ValidationResult.success();
     }
-}
 
+    public static ValidationResult validate(JsonNode contentNode, ValidationMode mode){
+        ValidationResult baseResult = validate(contentNode);
+        if(!baseResult.valid()){
+            return baseResult;
+        }
+
+        JsonNode optionsNode = contentNode.get("options");
+        if (optionsNode != null && !optionsNode.isArray()) {
+            return ValidationResult.error("If present, 'options' must be an array");
+        }
+
+        boolean hasOptions = optionsNode != null;
+        if(mode == ValidationMode.STRICT_AI && !hasOptions){
+            return ValidationResult.error(
+                    "AI-generated FILL_GAP must include 'options' array with correct answers + 6-7 distractors");
+        }
+
+        if(!hasOptions){
+            return ValidationResult.success();
+        }
+
+        if (optionsNode.isEmpty()){
+            return ValidationResult.error("Options array cannot be empty");
+        }
+
+        JsonNode gaps = contentNode.get("gaps");
+        List<String> gapAnswers = new ArrayList<>();
+        Set<String> gapAnswersNormalized = new HashSet<>();
+
+        for(JsonNode gap : gaps){
+            String answer = gap.get("answer").asText().trim();
+            gapAnswers.add(answer);
+            gapAnswersNormalized.add(answer.toLowerCase());
+        }
+
+        if(gapAnswersNormalized.size() < gapAnswers.size()){
+            return ValidationResult.error(
+                    "When options are provided, gap answers must be unique (case-insensitive). " +
+                            "Found duplicates: " + findDuplicates(gapAnswers)
+            );
+        }
+
+        List<String> options = new ArrayList<>();
+        Set<String> optionsNormalized = new HashSet<>();
+
+        for (JsonNode optionNode : optionsNode) {
+            if (!optionNode.isTextual()) {
+                return ValidationResult.error(
+                        "All options must be strings, found: " + optionNode.getNodeType());
+            }
+
+            String option = optionNode.asText().trim();
+
+            if (option.isBlank()) {
+                return ValidationResult.error("Options cannot be blank");
+            }
+
+            String normalized = option.toLowerCase();
+            if (!optionsNormalized.add(normalized)) {
+                return ValidationResult.error(
+                        "Options must be unique (case-insensitive). Duplicate: " + option);
+            }
+
+            options.add(option);
+        }
+
+        for(String gapAnswer : gapAnswers){
+            if (!optionsNormalized.contains(gapAnswer.toLowerCase())) {
+                return ValidationResult.error(
+                        "Options must include all correct answers for drag-and-drop pool. " +
+                                "Missing: '" + gapAnswer + "'. " +
+                                "Add this to options array along with 6-7 distractors."
+                );
+            }
+        }
+
+        int numCorrectAnswers = gaps.size();
+        int expectedMin = numCorrectAnswers + 6;
+        int expectedMax = numCorrectAnswers + 7;
+        int actualSize = options.size();
+
+        if(actualSize < expectedMin || actualSize > expectedMax){
+            return ValidationResult.error(
+                    String.format(
+                            "Options array should have %d-%d items (correct answers=%d + distractors=6-7), found %d. " +
+                                    "Include all gap answers in options plus 6-7 additional distractors.",
+                            expectedMin, expectedMax, numCorrectAnswers, actualSize
+                    )
+            );
+        }
+
+        int distractorCount = actualSize - numCorrectAnswers;
+        if (distractorCount < 6) {
+            return ValidationResult.error(
+                    String.format(
+                            "Not enough distractors. Found %d distractor(s), need 6-7. " +
+                                    "Options currently has %d items (%d correct + %d distractors).",
+                            distractorCount, actualSize, numCorrectAnswers, distractorCount
+                    )
+            );
+        }
+
+        return ValidationResult.success();
+
+    }
+
+    private static String findDuplicates(List<String> answers) {
+        Map<String, List<String>> normalized = new HashMap<>();
+
+        for (String answer : answers) {
+            String key = answer.toLowerCase();
+            normalized.computeIfAbsent(key, k -> new ArrayList<>()).add(answer);
+        }
+
+        return normalized.values().stream()
+                .filter(strings -> strings.size() > 1)
+                .map(strings -> String.join(", ", strings))
+                .findFirst()
+                .orElse("");
+    }
+
+    public enum ValidationMode{
+        LENIENT,
+        STRICT_AI
+    }
+}
