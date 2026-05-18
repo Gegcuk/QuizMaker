@@ -46,7 +46,7 @@ public class SafeQuestionContentBuilder {
             return switch (type) {
                 case MCQ_SINGLE, MCQ_MULTI -> buildSafeMcqContent(root);
                 case TRUE_FALSE -> buildSafeTrueFalseContent();
-                case FILL_GAP -> buildSafeFillGapContent(root);
+                case FILL_GAP -> buildSafeFillGapContent(root, deterministic);
                 case OPEN -> buildSafeOpenContent();
                 case COMPLIANCE -> buildSafeComplianceContent(root);
                 case HOTSPOT -> buildSafeHotspotContent(root);
@@ -83,7 +83,7 @@ public class SafeQuestionContentBuilder {
         return MAPPER.createObjectNode();
     }
 
-    private JsonNode buildSafeFillGapContent(JsonNode root) {
+    private JsonNode buildSafeFillGapContent(JsonNode root, boolean deterministic) {
         ObjectNode safe = MAPPER.createObjectNode();
         safe.put("text", root.get("text").asText());
 
@@ -96,6 +96,21 @@ public class SafeQuestionContentBuilder {
         });
 
         safe.set("gaps", gaps);
+
+        JsonNode optionsNode = root.get("options");
+        if (optionsNode != null && optionsNode.isArray()) {
+            List<String> optionsList = new ArrayList<>();
+            optionsNode.forEach(option -> optionsList.add(option.asText()));
+
+            if (!deterministic) {
+                Collections.shuffle(optionsList);
+            }
+
+            ArrayNode safeOptions = MAPPER.createArrayNode();
+            optionsList.forEach(safeOptions::add);
+            safe.set("options", safeOptions);
+        }
+
         return safe;
     }
 

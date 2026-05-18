@@ -49,6 +49,32 @@ class FillGapHandlerTest {
     }
 
     @Test
+    void validContentWithOptions_doesNotThrow() throws Exception {
+        JsonNode payload = mapper.readTree("""
+                {
+                  "text":"The {1} is blue",
+                  "gaps":[{"id":1,"answer":"sky"}],
+                  "options":["sky","ocean","grass","cloud","stone","river","flower"]
+                }
+                """);
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(payload)));
+    }
+
+    @Test
+    void invalidOptionsWhenPresent_throws() throws Exception {
+        JsonNode payload = mapper.readTree("""
+                {
+                  "text":"The {1} is blue",
+                  "gaps":[{"id":1,"answer":"sky"}],
+                  "options":["ocean","grass","cloud","stone","river","flower","lake"]
+                }
+                """);
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> handler.validateContent(new FakeReq(payload)));
+        assertTrue(ex.getMessage().contains("Missing: 'sky'"));
+    }
+
+    @Test
     void missingText_throws() throws Exception {
         JsonNode p = mapper.readTree("""
                 {"gaps":[{"id":1,"answer":"sky"}]}

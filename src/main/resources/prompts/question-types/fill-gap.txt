@@ -11,6 +11,12 @@ REQUIREMENTS:
 - Base questions directly on the provided content
 - Ensure gaps test important concepts or key terms
 - Make sure there is only one correct answer per gap
+- CRITICAL: Include an "options" array with all correct answers plus 6-7 plausible distractors
+- The options array is the complete drag-and-drop pool:
+  * Every value from gaps[].answer must appear in options
+  * Add 6-7 additional plausible but incorrect distractors
+  * Total options = number of gaps + 6-7
+  * All options must be unique after trimming and case-insensitive comparison
 
 CREATING EFFECTIVE GAPS:
 - Place gaps on key terms, important concepts, or critical values
@@ -23,6 +29,16 @@ CREATING EFFECTIVE GAPS:
 - AVOID interchangeable gaps like "{1} and {2}" where answers could be swapped
 - Each gap should have a unique, specific answer based on context
 - If using multiple gaps, ensure they test different concepts, not similar terms
+
+CREATING EFFECTIVE OPTIONS FOR DRAG-AND-DROP:
+- Include all correct answers in the options array, but do not mark which options are correct
+- Distractors should be from the same domain/category as the correct answers
+- Distractors should be grammatically compatible with the sentence
+- Distractors must be plausible enough to challenge thinking, but clearly wrong when applying the source content
+- Do not include synonyms or alternate correct answers
+- Do not include matched distractor pairs that create another fully correct completion
+- For multi-gap relational facts, avoid distractors that can form a different valid relationship
+- Prefer single-gap questions when the topic naturally creates paired answers, such as country/capital or term/definition pairs
 
 DIFFICULTY GUIDELINES:
 - EASY: Key terms, names, basic facts (1-2 gaps)
@@ -38,17 +54,29 @@ QUALITY STANDARDS:
 - The complete sentence (with gaps filled) should flow naturally
 
 EXAMPLES OF GOOD GAPS:
-✓ "The process of {1} converts light energy into chemical energy in plants." 
-   gaps: [{"id": 1, "answer": "photosynthesis"}]
+✓ {
+  "text": "The process of {1} converts light energy into chemical energy in plants.",
+  "gaps": [{"id": 1, "answer": "photosynthesis"}],
+  "options": ["photosynthesis", "respiration", "fermentation", "transpiration", "glycolysis", "osmosis", "diffusion"]
+}
 
-✓ "In 1776, the {1} was signed, declaring independence from Britain." 
-   gaps: [{"id": 1, "answer": "Declaration of Independence"}]
+✓ {
+  "text": "In 1776, the {1} was signed, declaring independence from Britain.",
+  "gaps": [{"id": 1, "answer": "Declaration of Independence"}],
+  "options": ["Declaration of Independence", "Constitution", "Bill of Rights", "Articles of Confederation", "Magna Carta", "Treaty of Paris", "Federalist Papers", "Mayflower Compact"]
+}
 
-✓ "The {1} is located in the nucleus and contains genetic information." 
-   gaps: [{"id": 1, "answer": "DNA"}]
+✓ {
+  "text": "Cellular respiration occurs in the {1} and produces {2}.",
+  "gaps": [{"id": 1, "answer": "mitochondria"}, {"id": 2, "answer": "ATP"}],
+  "options": ["mitochondria", "ATP", "chloroplast", "NADH", "ribosome", "glucose", "nucleus", "oxygen"]
+}
 
-✓ "Spring Framework provides {1} and {2} for Java applications."
-   gaps: [{"id": 1, "answer": "dependency injection"}, {"id": 2, "answer": "inversion of control"}]
+✓ {
+  "text": "Spring Framework provides {1} and {2} for Java applications.",
+  "gaps": [{"id": 1, "answer": "dependency injection"}, {"id": 2, "answer": "inversion of control"}],
+  "options": ["dependency injection", "inversion of control", "aspect-oriented programming", "transaction management", "bean lifecycle", "auto-configuration", "component scanning", "data binding", "event publishing"]
+}
 
 ✗ Avoid: "The {1} is {2}." (too vague, multiple answers possible)
 ✗ Avoid: "{1} occurs in {2}." (lacks context)

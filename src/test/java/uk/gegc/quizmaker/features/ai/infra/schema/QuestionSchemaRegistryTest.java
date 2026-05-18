@@ -65,6 +65,15 @@ class QuestionSchemaRegistryTest {
         JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.FILL_GAP);
         
         // Then
+        JsonNode contentSchema = schema
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content");
+        assertThat(contentSchema.get("required").toString()).contains("text", "gaps");
+        assertThat(contentSchema.get("required").toString()).doesNotContain("options");
+
         JsonNode content = extractContentSchema(schema);
         
         // Verify text field
@@ -83,6 +92,29 @@ class QuestionSchemaRegistryTest {
         assertThat(gapProps.get("id").get("type").asText()).isEqualTo("integer");
         assertThat(gapProps.has("answer")).isTrue();
         assertThat(gapProps.get("answer").get("type").asText()).isEqualTo("string");
+
+        // Verify options array
+        assertThat(content.has("options")).isTrue();
+        JsonNode options = content.get("options");
+        assertThat(options.get("type").asText()).isEqualTo("array");
+        assertThat(options.get("minItems").asInt()).isEqualTo(7);
+        assertThat(options.get("maxItems").asInt()).isEqualTo(10);
+        assertThat(options.get("items").get("type").asText()).isEqualTo("string");
+    }
+
+    @Test
+    void shouldGenerateAiFillGapSchemaWithRequiredOptions() {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(QuestionType.FILL_GAP);
+
+        JsonNode contentSchema = schema
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content");
+
+        assertThat(contentSchema.get("required").toString()).contains("text", "gaps", "options");
+        assertThat(contentSchema.get("properties").has("options")).isTrue();
     }
     
     @Test

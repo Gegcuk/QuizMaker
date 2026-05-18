@@ -59,7 +59,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "gaps": [
                       {"id": 1, "answer": "object-oriented"},
                       {"id": 2, "answer": "WORA"}
-                    ]
+                    ],
+                    "options": ["object-oriented", "WORA", "procedural", "functional", "compiled", "interpreted", "dynamic", "scripting"]
                   },
                   "hint": "Think about Java's main characteristics and its famous slogan",
                   "explanation": "Java is an object-oriented programming language that follows the WORA (Write Once, Run Anywhere) principle"
@@ -73,7 +74,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "gaps": [
                       {"id": 1, "answer": "dependency injection"},
                       {"id": 2, "answer": "inversion of control"}
-                    ]
+                    ],
+                    "options": ["dependency injection", "inversion of control", "aspect-oriented programming", "transaction management", "bean lifecycle", "component scanning", "data binding", "auto-configuration"]
                   },
                   "hint": "Consider the core features that Spring Framework is known for",
                   "explanation": "Spring Framework provides dependency injection and inversion of control for Java applications"
@@ -106,6 +108,8 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals("object-oriented", content1.get("gaps").get(0).get("answer").asText());
         assertEquals(2, content1.get("gaps").get(1).get("id").asInt());
         assertEquals("WORA", content1.get("gaps").get(1).get("answer").asText());
+        assertTrue(content1.has("options"));
+        assertEquals(8, content1.get("options").size());
 
         // Verify second question
         Question question2 = questions.get(1);
@@ -118,6 +122,8 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals(2, content2.get("gaps").size());
         assertEquals("dependency injection", content2.get("gaps").get(0).get("answer").asText());
         assertEquals("inversion of control", content2.get("gaps").get(1).get("answer").asText());
+        assertTrue(content2.has("options"));
+        assertEquals(8, content2.get("options").size());
     }
 
     @Test
@@ -134,7 +140,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "text": "REST stands for {1} State Transfer",
                     "gaps": [
                       {"id": 1, "answer": "Representational"}
-                    ]
+                    ],
+                    "options": ["Representational", "Relational", "Remote", "Resource", "Reactive", "Reliable", "Runtime"]
                   },
                   "hint": "Think about the full name of REST",
                   "explanation": "REST stands for Representational State Transfer"
@@ -158,6 +165,8 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals("REST stands for {1} State Transfer", content.get("text").asText());
         assertEquals(1, content.get("gaps").size());
         assertEquals("Representational", content.get("gaps").get(0).get("answer").asText());
+        assertTrue(content.has("options"));
+        assertEquals(7, content.get("options").size());
     }
 
     @Test
@@ -175,7 +184,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "gaps": [
                       {"id": 1, "answer": "high-level"},
                       {"id": 2, "answer": "few"}
-                    ]
+                    ],
+                    "options": ["high-level", "few", "low-level", "many", "object-oriented", "platform-independent", "compiled", "interpreted"]
                   },
                   "hint": "Consider Java's design philosophy and level of abstraction",
                   "explanation": "Java is a high-level programming language that is designed to have few implementation dependencies as possible"
@@ -203,6 +213,8 @@ class FillGapQuestionGenerationIntegrationTest {
         assertEquals("high-level", content.get("gaps").get(0).get("answer").asText());
         assertEquals(2, content.get("gaps").get(1).get("id").asInt());
         assertEquals("few", content.get("gaps").get(1).get("answer").asText());
+        assertTrue(content.has("options"));
+        assertEquals(8, content.get("options").size());
     }
 
     @Test
@@ -219,7 +231,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "text": "Spring Framework is an {1} framework for Java",
                     "gaps": [
                       {"id": 1, "answer": "application"}
-                    ]
+                    ],
+                    "options": ["application", "testing", "database", "security", "messaging", "template", "logging"]
                   }
                 }
               ]
@@ -252,7 +265,8 @@ class FillGapQuestionGenerationIntegrationTest {
                     "text": "Java follows the {1} principle",
                     "gaps": [
                       {"id": 1, "answer": "WORA"}
-                    ]
+                    ],
+                    "options": ["WORA", "SOLID", "DRY", "KISS", "YAGNI", "REST", "ACID"]
                   }
                 }
               ]
@@ -314,4 +328,4 @@ class FillGapQuestionGenerationIntegrationTest {
         // Then
         assertTrue(questions.isEmpty());
     }
-} 
+}

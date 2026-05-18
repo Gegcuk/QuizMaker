@@ -60,6 +60,9 @@ public class QuestionSchemaRegistry {
     public JsonNode getSchemaForQuestionTypeAi(QuestionType questionType) {
         JsonNode requestSchema = getSchemaForQuestionType(questionType);
         ObjectNode aiSchema = toAiSchema(requestSchema);
+        if (questionType == QuestionType.FILL_GAP) {
+            requireFillGapOptions(aiSchema);
+        }
         log.debug("Generated AI schema for question type: {}", questionType);
         return aiSchema;
     }
@@ -380,7 +383,7 @@ public class QuestionSchemaRegistry {
      * Schema for FILL_GAP content
      * Parser expects: content.text (string with {N} markers),
      * content.gaps [{id: int, answer: string}],
-     * and content.options (array of strings: correct answers + 6-7 distractors)
+     * and optional content.options (array of strings: correct answers + 6-7 distractors)
      * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}], "options": ["programming", "..."]}
      */
     private ObjectNode createFillGapContentSchema() {
@@ -391,7 +394,6 @@ public class QuestionSchemaRegistry {
         ArrayNode required = objectMapper.createArrayNode();
         required.add("text");
         required.add("gaps");
-        required.add("options");
         content.set("required", required);
         
         ObjectNode properties = objectMapper.createObjectNode();
@@ -451,6 +453,36 @@ public class QuestionSchemaRegistry {
 
         content.set("properties", properties);
         return content;
+    }
+
+    private void requireFillGapOptions(ObjectNode schema) {
+        JsonNode contentNode = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties")
+                .path("content");
+
+        if (!(contentNode instanceof ObjectNode content)) {
+            return;
+        }
+
+        ArrayNode required;
+        JsonNode requiredNode = content.get("required");
+        if (requiredNode instanceof ArrayNode existingRequired) {
+            required = existingRequired;
+        } else {
+            required = objectMapper.createArrayNode();
+            content.set("required", required);
+        }
+
+        for (JsonNode req : required) {
+            if ("options".equals(req.asText())) {
+                return;
+            }
+        }
+
+        required.add("options");
     }
 
     private ObjectNode toAiSchema(JsonNode requestSchema) {

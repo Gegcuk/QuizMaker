@@ -383,6 +383,25 @@ class FillGapContentValidatorTest {
     }
 
     @Test
+    @DisplayName("Lenient mode: options present still validates options")
+    void validate_lenientMode_optionsPresentInvalid_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", "France", "Berlin", "London", "Madrid", "Rome", "Italy"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("Options must be unique");
+    }
+
+    @Test
     @DisplayName("Options missing a gap answer fails")
     void validate_optionsMissingGapAnswer_fails() throws Exception {
         String json = """
@@ -516,5 +535,61 @@ class FillGapContentValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.errorMessage()).contains("cannot be blank");
     }
-}
 
+    @Test
+    @DisplayName("Options not array fails")
+    void validate_optionsNotArray_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": "France, Paris"
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("'options' must be an array");
+    }
+
+    @Test
+    @DisplayName("Empty options array fails")
+    void validate_emptyOptions_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": []
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("Options array cannot be empty");
+    }
+
+    @Test
+    @DisplayName("Non-string option fails")
+    void validate_nonStringOption_fails() throws Exception {
+        String json = """
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": ["France", "Paris", 123, "Berlin", "London", "Madrid", "Rome", "Italy"]
+            }
+            """;
+        JsonNode content = objectMapper.readTree(json);
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).contains("All options must be strings");
+    }
+}

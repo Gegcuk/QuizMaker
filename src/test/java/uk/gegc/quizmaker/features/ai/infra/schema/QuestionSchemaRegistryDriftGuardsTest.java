@@ -67,6 +67,9 @@ class QuestionSchemaRegistryDriftGuardsTest {
         assertThat(contentProps.has("gaps"))
                 .as("FILL_GAP schema must have 'gaps' field")
                 .isTrue();
+        assertThat(contentProps.has("options"))
+                .as("FILL_GAP schema must have 'options' field for AI-generated drag-and-drop pools")
+                .isTrue();
         
         // And gaps is an array of objects with id and answer
         JsonNode gaps = contentProps.get("gaps");
@@ -75,6 +78,20 @@ class QuestionSchemaRegistryDriftGuardsTest {
         JsonNode gapProps = gapItem.get("properties");
         assertThat(gapProps.has("id")).isTrue();
         assertThat(gapProps.has("answer")).isTrue();
+
+        JsonNode options = contentProps.get("options");
+        assertThat(options.get("type").asText()).isEqualTo("array");
+        assertThat(options.get("items").get("type").asText()).isEqualTo("string");
+
+        JsonNode contentSchema = schema
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content");
+        assertThat(contentSchema.get("required").toString())
+                .as("Public/user schema must keep options optional for old and manually-created fill-gap questions")
+                .doesNotContain("options");
     }
     
     @Test

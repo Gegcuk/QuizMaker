@@ -8,7 +8,9 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -107,5 +109,103 @@ class SafeQuestionContentBuilderTest {
 
         JsonNode option = safe.get("options").get(0);
         assertFalse(option.has("media"));
+    }
+
+    @Test
+    void buildSafeContent_fillGapWithoutOptions_omitsAnswersAndKeepsTypingMode() throws Exception {
+        String raw = """
+                {
+                  "text": "The capital of {1} is {2}.",
+                  "gaps": [
+                    {"id":1,"answer":"France"},
+                    {"id":2,"answer":"Paris"}
+                  ]
+                }
+                """;
+
+        JsonNode safe = builder.buildSafeContent(QuestionType.FILL_GAP, raw);
+
+        assertEquals("The capital of {1} is {2}.", safe.get("text").asText());
+        assertTrue(safe.has("gaps"));
+        assertFalse(safe.has("options"));
+        for (JsonNode gap : safe.get("gaps")) {
+            assertTrue(gap.has("id"));
+            assertFalse(gap.has("answer"));
+        }
+    }
+
+    @Test
+    void buildSafeContent_fillGapWithOptions_includesOptionsWithoutAnswers() throws Exception {
+        String raw = """
+                {
+                  "text": "Cellular respiration occurs in the {1} and produces {2}.",
+                  "gaps": [
+                    {"id":1,"answer":"mitochondria"},
+                    {"id":2,"answer":"ATP"}
+                  ],
+                  "options": ["mitochondria","ATP","chloroplast","NADH","ribosome","glucose","nucleus","oxygen"]
+                }
+                """;
+
+        JsonNode safe = builder.buildSafeContent(QuestionType.FILL_GAP, raw, true);
+
+        assertTrue(safe.has("options"));
+        assertEquals(8, safe.get("options").size());
+        assertFalse(safe.get("gaps").get(0).has("answer"));
+        assertFalse(safe.get("gaps").get(1).has("answer"));
+
+        List<String> options = new ArrayList<>();
+        safe.get("options").forEach(option -> options.add(option.asText()));
+        assertTrue(options.contains("mitochondria"));
+        assertTrue(options.contains("ATP"));
+        assertTrue(options.contains("chloroplast"));
+    }
+
+    @Test
+    void buildSafeContent_fillGapWithOptions_deterministicKeepsOrder() throws Exception {
+        String raw = """
+                {
+                  "text": "The capital of {1} is {2}.",
+                  "gaps": [
+                    {"id":1,"answer":"France"},
+                    {"id":2,"answer":"Paris"}
+                  ],
+                  "options": ["France","Paris","Germany","Berlin","London","Madrid","Rome","Italy"]
+                }
+                """;
+
+        JsonNode safe1 = builder.buildSafeContent(QuestionType.FILL_GAP, raw, true);
+        JsonNode safe2 = builder.buildSafeContent(QuestionType.FILL_GAP, raw, true);
+
+        assertEquals(safe1.get("options"), safe2.get("options"));
+        assertEquals("France", safe1.get("options").get(0).asText());
+        assertEquals("Paris", safe1.get("options").get(1).asText());
+    }
+
+    @Test
+    void buildSafeContent_fillGapWithOptions_nonDeterministicShuffles() throws Exception {
+        String raw = """
+                {
+                  "text": "The capital of {1} is {2}.",
+                  "gaps": [
+                    {"id":1,"answer":"France"},
+                    {"id":2,"answer":"Paris"}
+                  ],
+                  "options": ["A","B","C","D","E","F","G","H"]
+                }
+                """;
+
+        JsonNode baseline = builder.buildSafeContent(QuestionType.FILL_GAP, raw, true);
+        boolean foundDifferentOrder = false;
+
+        for (int i = 0; i < 20; i++) {
+            JsonNode shuffled = builder.buildSafeContent(QuestionType.FILL_GAP, raw, false);
+            if (!baseline.get("options").equals(shuffled.get("options"))) {
+                foundDifferentOrder = true;
+                break;
+            }
+        }
+
+        assertTrue(foundDifferentOrder);
     }
 }

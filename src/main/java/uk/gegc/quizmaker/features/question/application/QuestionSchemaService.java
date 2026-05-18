@@ -148,12 +148,23 @@ public class QuestionSchemaService {
             case OPEN -> objectMapper.createObjectNode()
                     .put("answer", "Sample answer text here");
             
-            case FILL_GAP -> objectMapper.createObjectNode()
-                    .put("text", "The capital of France is {1}.")
-                    .set("gaps", objectMapper.createArrayNode()
-                            .add(objectMapper.createObjectNode()
-                                    .put("id", 1)
-                                    .put("answer", "Paris")));
+            case FILL_GAP -> {
+                var fillGapContent = objectMapper.createObjectNode();
+                fillGapContent.put("text", "The capital of France is {1}.");
+                fillGapContent.set("gaps", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("answer", "Paris")));
+                fillGapContent.set("options", objectMapper.createArrayNode()
+                        .add("Paris")
+                        .add("London")
+                        .add("Berlin")
+                        .add("Madrid")
+                        .add("Rome")
+                        .add("Lisbon")
+                        .add("Vienna"));
+                yield fillGapContent;
+            }
             
             case ORDERING -> objectMapper.createObjectNode()
                     .set("items", objectMapper.createArrayNode()
@@ -288,4 +299,3 @@ public class QuestionSchemaService {
         };
     }
 }
-
