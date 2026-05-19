@@ -209,7 +209,8 @@ class SpringAiStructuredClientParsingTest {
                 "text": "The capital of {1} is Paris",
                 "gaps": [
                   {"id": 1, "answer": "France"}
-                ]
+                ],
+                "options": ["France", "Germany", "Italy", "Spain", "Portugal", "Austria", "Belgium"]
               },
               "hint": "Think about European countries",
               "explanation": "France is a country in Europe with Paris as its capital",
@@ -227,7 +228,9 @@ class SpringAiStructuredClientParsingTest {
         JsonNode content = objectMapper.readTree(question.getContent());
         assertThat(content.has("text")).isTrue();
         assertThat(content.has("gaps")).isTrue();
+        assertThat(content.has("options")).isTrue();
         assertThat(content.get("gaps").isArray()).isTrue();
+        assertThat(content.get("options").isArray()).isTrue();
     }
     
     @Test

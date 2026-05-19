@@ -60,6 +60,9 @@ public class QuestionSchemaRegistry {
     public JsonNode getSchemaForQuestionTypeAi(QuestionType questionType) {
         JsonNode requestSchema = getSchemaForQuestionType(questionType);
         ObjectNode aiSchema = toAiSchema(requestSchema);
+        if (questionType == QuestionType.FILL_GAP) {
+            requireFillGapOptions(aiSchema);
+        }
         log.debug("Generated AI schema for question type: {}", questionType);
         return aiSchema;
     }
@@ -378,12 +381,18 @@ public class QuestionSchemaRegistry {
     
     /**
      * Schema for FILL_GAP content
-     * Parser expects: content.text (string with {N} markers) and content.gaps [{id: int, answer: string}]
-     * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}]}
+     * Parser expects: content.text (string with {N} markers),
+     * content.gaps [{id: int, answer: string}],
+     * and optional content.options (array of strings: correct answers + 6-7 distractors)
+     * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}], "options": ["programming", "..."]}
      */
     private ObjectNode createFillGapContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("description",
+                "Fill-gap content supports both legacy/manual typed-answer questions and drag-and-drop questions. " +
+                        "'options' is optional for manually created and legacy fill-gap questions. " +
+                        "If omitted, render blanks for typed answers. If present, render the values as drag-and-drop options.");
         content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
@@ -429,10 +438,58 @@ public class QuestionSchemaRegistry {
         
         gapItem.set("properties", gapProps);
         gaps.set("items", gapItem);
-        
         properties.set("gaps", gaps);
+
+        ObjectNode options = objectMapper.createObjectNode();
+        options.put("type", "array");
+        options.put("description",
+                "Optional drag-and-drop answer pool. If provided, it must include every gaps[].answer value " +
+                        "plus 6-7 plausible but incorrect distractors from the same domain/category as the correct answers. " +
+                        "Distractors should be grammatically compatible with the sentence, clearly wrong for the source content, " +
+                        "and must not be synonyms or alternate correct answers. " +
+                        "Total size should be gaps.length + 6-7. Options must be unique after trimming and case-insensitive comparison.");
+        options.put("minItems", 7);
+        options.put("maxItems", 10);
+
+        ObjectNode optionItem = objectMapper.createObjectNode();
+        optionItem.put("type", "string");
+        optionItem.put("description", "A possible answer (correct or distractor)");
+        options.set("items", optionItem);
+
+        properties.set("options", options);
+
         content.set("properties", properties);
         return content;
+    }
+
+    private void requireFillGapOptions(ObjectNode schema) {
+        JsonNode contentNode = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties")
+                .path("content");
+
+        if (!(contentNode instanceof ObjectNode content)) {
+            return;
+        }
+
+        ArrayNode required;
+        JsonNode requiredNode = content.get("required");
+        if (requiredNode instanceof ArrayNode existingRequired) {
+            required = existingRequired;
+        } else {
+            required = objectMapper.createArrayNode();
+            content.set("required", required);
+        }
+
+        for (JsonNode req : required) {
+            if ("options".equals(req.asText())) {
+                return;
+            }
+        }
+
+        required.add("options");
     }
 
     private ObjectNode toAiSchema(JsonNode requestSchema) {

@@ -148,12 +148,23 @@ public class QuestionSchemaService {
             case OPEN -> objectMapper.createObjectNode()
                     .put("answer", "Sample answer text here");
             
-            case FILL_GAP -> objectMapper.createObjectNode()
-                    .put("text", "The capital of France is {1}.")
-                    .set("gaps", objectMapper.createArrayNode()
-                            .add(objectMapper.createObjectNode()
-                                    .put("id", 1)
-                                    .put("answer", "Paris")));
+            case FILL_GAP -> {
+                var fillGapContent = objectMapper.createObjectNode();
+                fillGapContent.put("text", "The capital of France is {1}.");
+                fillGapContent.set("gaps", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("answer", "Paris")));
+                fillGapContent.set("options", objectMapper.createArrayNode()
+                        .add("Paris")
+                        .add("London")
+                        .add("Berlin")
+                        .add("Madrid")
+                        .add("Rome")
+                        .add("Lisbon")
+                        .add("Vienna"));
+                yield fillGapContent;
+            }
             
             case ORDERING -> objectMapper.createObjectNode()
                     .set("items", objectMapper.createArrayNode()
@@ -280,7 +291,8 @@ public class QuestionSchemaService {
             case MCQ_MULTI -> "Multiple choice question with 4-6 options and multiple correct answers";
             case TRUE_FALSE -> "True or False question with boolean answer";
             case OPEN -> "Open-ended question with text answer";
-            case FILL_GAP -> "Fill in the blank question with one or more gaps in a template";
+            case FILL_GAP -> "Fill in the blank question with one or more gaps in a template. " +
+                    "The optional options array enables drag-and-drop mode; without options, clients should render typed blanks.";
             case ORDERING -> "Ordering question where items must be arranged in correct sequence";
             case MATCHING -> "Matching question with pairs of related items";
             case HOTSPOT -> "Image-based question where user clicks correct area(s)";
@@ -288,4 +300,3 @@ public class QuestionSchemaService {
         };
     }
 }
-

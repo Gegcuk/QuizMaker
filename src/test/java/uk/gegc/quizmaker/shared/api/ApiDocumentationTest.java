@@ -384,6 +384,18 @@ class ApiDocumentationTest {
         assertThat(content.has("text")).isTrue();
         assertThat(content.has("gaps")).isTrue();
         assertThat(content.get("gaps").isArray()).isTrue();
+        assertThat(content.has("options")).isTrue();
+        assertThat(content.get("options").isArray()).isTrue();
+        assertThat(content.get("options").size()).isGreaterThanOrEqualTo(7);
+
+        JsonNode contentSchema = json.get("schema")
+                .get("properties")
+                .get("questions")
+                .get("items")
+                .get("properties")
+                .get("content");
+        assertThat(contentSchema.get("properties").has("options")).isTrue();
+        assertThat(contentSchema.get("required").toString()).doesNotContain("options");
     }
 
     @Test

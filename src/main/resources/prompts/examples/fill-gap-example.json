@@ -15,6 +15,16 @@
             "id": 2,
             "answer": "ATP"
           }
+        ],
+        "options": [
+          "mitochondria",
+          "ATP",
+          "chloroplast",
+          "ribosome",
+          "nucleus",
+          "glucose",
+          "NADH",
+          "oxygen"
         ]
       },
       "hint": "Think about the organelle known as the powerhouse of the cell and the energy currency molecule",
@@ -22,4 +32,3 @@
     }
   ]
 }
-

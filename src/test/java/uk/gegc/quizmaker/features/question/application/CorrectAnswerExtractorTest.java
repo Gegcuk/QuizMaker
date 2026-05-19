@@ -216,6 +216,29 @@ class CorrectAnswerExtractorTest {
     }
 
     @Test
+    @DisplayName("extractCorrectAnswer: FILL_GAP ignores options and returns gap answers")
+    void extractFillGap_withOptions_returnsOnlyGapAnswers() {
+        String content = """
+                {
+                    "text": "Cellular respiration occurs in the {1} and produces {2}.",
+                    "gaps": [
+                        {"id": 1, "answer": "mitochondria"},
+                        {"id": 2, "answer": "ATP"}
+                    ],
+                    "options": ["mitochondria", "ATP", "chloroplast", "ribosome", "nucleus", "glucose", "NADH", "oxygen"]
+                }
+                """;
+        Question question = createQuestion(QuestionType.FILL_GAP, content);
+
+        JsonNode result = extractor.extractCorrectAnswer(question);
+
+        assertThat(result.has("options")).isFalse();
+        assertThat(result.get("answers")).hasSize(2);
+        assertThat(result.get("answers").get(0).get("text").asText()).isEqualTo("mitochondria");
+        assertThat(result.get("answers").get(1).get("text").asText()).isEqualTo("ATP");
+    }
+
+    @Test
     @DisplayName("extractCorrectAnswer: FILL_GAP throws when gaps missing")
     void extractFillGap_throwsWhenGapsMissing() {
         // Given

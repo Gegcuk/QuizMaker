@@ -265,13 +265,33 @@ class SpringAiStructuredClientValidationTest {
               "text": "The capital is {1}",
               "gaps": [
                 {"id": 1, "answer": "Paris"}
-              ]
+              ],
+              "options": ["Paris", "London", "Berlin", "Madrid", "Rome", "Lisbon", "Vienna"]
             }
             """;
         JsonNode contentNode = objectMapper.readTree(validContent);
         
         // When/Then - should not throw
         invokeValidateContentStructure(contentNode, QuestionType.FILL_GAP);
+    }
+
+    @Test
+    @DisplayName("FILL_GAP AI validation should require options")
+    void fillGapValidationShouldRequireOptionsForAi() throws Exception {
+        String content = """
+            {
+              "text": "The capital is {1}",
+              "gaps": [
+                {"id": 1, "answer": "Paris"}
+              ]
+            }
+            """;
+        JsonNode node = objectMapper.readTree(content);
+
+        assertThatThrownBy(() -> invokeValidateContentStructure(node, QuestionType.FILL_GAP))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("AI-generated FILL_GAP validation failed")
+                .hasMessageContaining("must include 'options' array");
     }
     
     @Test

@@ -56,10 +56,12 @@ public class FillGapQuestionParser {
 
         JsonNode contentNode = questionNode.get("content");
         
-        // Use centralized validator
-        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(contentNode);
+        // AI-generated fill-gap questions should include drag-and-drop options.
+        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(
+                contentNode,
+                FillGapContentValidator.ValidationMode.STRICT_AI);
         if (!result.valid()) {
-            throw new AIResponseParseException(result.errorMessage());
+            throw new AIResponseParseException("AI-generated FILL_GAP validation failed: " + result.errorMessage());
         }
     }
 

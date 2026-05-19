@@ -25,7 +25,9 @@ public class FillGapHandler extends QuestionHandler {
     @Override
     public void validateContent(QuestionContentRequest request) throws ValidationException {
         FillGapContentValidator.ValidationResult result = 
-            FillGapContentValidator.validate(request.getContent());
+            FillGapContentValidator.validate(
+                    request.getContent(),
+                    FillGapContentValidator.ValidationMode.LENIENT);
         
         if (!result.valid()) {
             throw new ValidationException(result.errorMessage());

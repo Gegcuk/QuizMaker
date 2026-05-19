@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.service.ai;
 
 import ch.qos.logback.classic.Logger;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Nested;
@@ -69,6 +71,7 @@ class AiQuizGenerationServiceFallbackTest {
     private Question mockQuestion2;
     private Question mockQuestion3;
     private DocumentChunk testChunk;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
@@ -100,6 +103,40 @@ class AiQuizGenerationServiceFallbackTest {
         // Mock QuestionContentShuffler to return content as-is (no actual shuffling in tests)
         lenient().when(questionContentShuffler.shuffleContent(any(), any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0)); // Return content unchanged
+    }
+
+    @Test
+    void convertStructuredQuestions_fillGapWithOptions_preservesOptionsInDomainContent() throws Exception {
+        StructuredQuestion fillGapQuestion = StructuredQuestion.builder()
+                .questionText("Complete the cellular respiration sentence.")
+                .type(QuestionType.FILL_GAP)
+                .difficulty(Difficulty.MEDIUM)
+                .content("""
+                        {
+                          "text": "Cellular respiration occurs in the {1} and produces {2}.",
+                          "gaps": [
+                            {"id": 1, "answer": "mitochondria"},
+                            {"id": 2, "answer": "ATP"}
+                          ],
+                          "options": ["mitochondria", "ATP", "chloroplast", "ribosome", "nucleus", "glucose", "NADH", "oxygen"]
+                        }
+                        """)
+                .hint("Think about the powerhouse of the cell.")
+                .explanation("Cellular respiration happens in mitochondria and produces ATP.")
+                .build();
+
+        List<Question> questions = aiQuizGenerationService.convertStructuredQuestions(List.of(fillGapQuestion));
+
+        assertEquals(1, questions.size());
+        Question question = questions.get(0);
+        assertEquals(QuestionType.FILL_GAP, question.getType());
+
+        JsonNode content = objectMapper.readTree(question.getContent());
+        assertTrue(content.has("options"));
+        assertEquals(8, content.get("options").size());
+        assertEquals("mitochondria", content.get("gaps").get(0).get("answer").asText());
+        assertEquals("ATP", content.get("gaps").get(1).get("answer").asText());
+        verify(questionContentShuffler).shuffleContent(anyString(), eq(QuestionType.FILL_GAP), any());
     }
 
     private void setupRateLimitConfig() {
@@ -567,4 +604,4 @@ class AiQuizGenerationServiceFallbackTest {
         when(generation.getOutput()).thenReturn(assistantMessage);
         when(assistantMessage.getText()).thenReturn("Mock AI response");
     }
-}  
+}

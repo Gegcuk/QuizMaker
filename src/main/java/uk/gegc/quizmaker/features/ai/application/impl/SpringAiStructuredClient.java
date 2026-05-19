@@ -475,9 +475,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     }
     
     private void validateFillGapContent(JsonNode contentNode) {
-        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(contentNode);
+        FillGapContentValidator.ValidationResult result = FillGapContentValidator.validate(
+                contentNode,
+                FillGapContentValidator.ValidationMode.STRICT_AI);
         if (!result.valid()) {
-            throw new AIResponseParseException(result.errorMessage());
+            throw new AIResponseParseException("AI-generated FILL_GAP validation failed: " + result.errorMessage());
         }
     }
     

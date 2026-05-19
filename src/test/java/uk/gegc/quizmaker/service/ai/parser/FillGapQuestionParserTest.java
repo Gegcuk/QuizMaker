@@ -42,7 +42,8 @@ class FillGapQuestionParserTest {
                     "text": "Java is a {1} programming language",
                     "gaps": [
                       {"id": 1, "answer": "object-oriented"}
-                    ]
+                    ],
+                    "options": ["object-oriented", "procedural", "functional", "compiled", "interpreted", "dynamic", "scripting"]
                   },
                   "hint": "Think about Java's main paradigm",
                   "explanation": "Java is primarily an object-oriented programming language"
@@ -72,6 +73,36 @@ class FillGapQuestionParserTest {
         assertEquals(1, content.get("gaps").size());
         assertEquals(1, content.get("gaps").get(0).get("id").asInt());
         assertEquals("object-oriented", content.get("gaps").get(0).get("answer").asText());
+        assertTrue(content.has("options"));
+        assertEquals(7, content.get("options").size());
+    }
+
+    @Test
+    void shouldThrowExceptionForMissingOptions() {
+        String jsonContent = """
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the sentence",
+                  "difficulty": "MEDIUM",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "Java is a {1} language",
+                    "gaps": [
+                      {"id": 1, "answer": "programming"}
+                    ]
+                  }
+                }
+              ]
+            }
+            """;
+
+        AIResponseParseException ex = assertThrows(AIResponseParseException.class, () -> {
+            JsonNode contentNode = objectMapper.readTree(jsonContent);
+            parser.parseFillGapQuestions(contentNode);
+        });
+        assertTrue(ex.getMessage().contains("AI-generated FILL_GAP validation failed"));
+        assertTrue(ex.getMessage().contains("must include 'options' array"));
     }
 
     @Test
@@ -89,7 +120,8 @@ class FillGapQuestionParserTest {
                     "gaps": [
                       {"id": 1, "answer": "dependency injection"},
                       {"id": 2, "answer": "inversion of control"}
-                    ]
+                    ],
+                    "options": ["dependency injection", "inversion of control", "aspect-oriented programming", "transaction management", "bean lifecycle", "component scanning", "data binding", "auto-configuration"]
                   }
                 },
                 {
@@ -100,7 +132,8 @@ class FillGapQuestionParserTest {
                     "text": "REST stands for {1} State Transfer",
                     "gaps": [
                       {"id": 1, "answer": "Representational"}
-                    ]
+                    ],
+                    "options": ["Representational", "Relational", "Remote", "Resource", "Reactive", "Reliable", "Runtime"]
                   }
                 }
               ]
@@ -145,7 +178,8 @@ class FillGapQuestionParserTest {
                     "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1, "answer": "programming"}
-                    ]
+                    ],
+                    "options": ["programming", "markup", "query", "scripting", "configuration", "template", "styling"]
                   }
                 }
               ]
@@ -176,7 +210,8 @@ class FillGapQuestionParserTest {
                     "text": "Java is a {1} language",
                     "gaps": [
                       {"id": 1, "answer": "programming"}
-                    ]
+                    ],
+                    "options": ["programming", "markup", "query", "scripting", "configuration", "template", "styling"]
                   }
                 }
               ]
