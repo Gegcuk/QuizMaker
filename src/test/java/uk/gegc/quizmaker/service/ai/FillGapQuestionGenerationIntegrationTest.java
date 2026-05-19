@@ -6,10 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
 import uk.gegc.quizmaker.features.ai.infra.parser.FillGapQuestionParser;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
@@ -19,29 +15,17 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
-@ActiveProfiles("test-mysql")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Execution(ExecutionMode.SAME_THREAD)
 class FillGapQuestionGenerationIntegrationTest {
 
-    @Autowired
     private FillGapQuestionParser fillGapQuestionParser;
 
-    @Autowired
     private ObjectMapper objectMapper;
-
-    private String testChunkContent;
 
     @BeforeEach
     void setUp() {
-        testChunkContent = """
-            Java is a high-level, class-based, object-oriented programming language that is designed to have as few implementation dependencies as possible. It is a general-purpose programming language intended to let programmers write once, run anywhere (WORA), meaning that compiled Java code can run on all platforms that support Java without the need to recompile.
-            
-            Spring Framework is an application framework and inversion of control container for the Java platform. The framework's core features can be used by any Java application, but there are extensions for building web applications on top of the Java EE (Enterprise Edition) platform.
-            
-            REST (Representational State Transfer) is an architectural style that defines a set of constraints to be used for creating web services. Web services that conform to the REST architectural style, called RESTful web services, provide interoperability between computer systems on the internet.
-            """;
+        fillGapQuestionParser = new FillGapQuestionParser();
+        objectMapper = new ObjectMapper();
     }
 
     @Test

@@ -196,6 +196,23 @@ class FillGapHandlerTest {
     }
 
     @Test
+    void doHandle_contentWithOptions_usesGapsForScoringAndIgnoresOptions() throws Exception {
+        JsonNode content = mapper.readTree("""
+                {
+                  "text":"The {1} is blue",
+                  "gaps":[{"id":1,"answer":"sky"}],
+                  "options":["ocean","grass","sky","cloud","stone","river","flower"]
+                }
+                """);
+        JsonNode response = mapper.readTree("{\"answers\":[{\"gapId\":1,\"answer\":\"sky\"}]}");
+
+        Answer answer = handler.doHandle(testAttempt, testQuestion, content, response);
+
+        assertTrue(answer.getIsCorrect());
+        assertEquals(1.0, answer.getScore());
+    }
+
+    @Test
     void doHandle_incorrectAnswer_returnsIncorrect() throws Exception {
         // Given
         JsonNode content = mapper.readTree("""
