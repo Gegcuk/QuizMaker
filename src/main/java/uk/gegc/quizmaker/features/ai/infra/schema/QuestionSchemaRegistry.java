@@ -389,6 +389,10 @@ public class QuestionSchemaRegistry {
     private ObjectNode createFillGapContentSchema() {
         ObjectNode content = objectMapper.createObjectNode();
         content.put("type", "object");
+        content.put("description",
+                "Fill-gap content supports both legacy/manual typed-answer questions and drag-and-drop questions. " +
+                        "'options' is optional for manually created and legacy fill-gap questions. " +
+                        "If omitted, render blanks for typed answers. If present, render the values as drag-and-drop options.");
         content.put("additionalProperties", false);
         
         ArrayNode required = objectMapper.createArrayNode();
@@ -439,8 +443,11 @@ public class QuestionSchemaRegistry {
         ObjectNode options = objectMapper.createObjectNode();
         options.put("type", "array");
         options.put("description",
-                "Array of options including all correct answers plus 6-7 plausible distractors. " +
-                        "Total size should be gaps.length + 6-7. Options must be unique (case-insensitive)");
+                "Optional drag-and-drop answer pool. If provided, it must include every gaps[].answer value " +
+                        "plus 6-7 plausible but incorrect distractors from the same domain/category as the correct answers. " +
+                        "Distractors should be grammatically compatible with the sentence, clearly wrong for the source content, " +
+                        "and must not be synonyms or alternate correct answers. " +
+                        "Total size should be gaps.length + 6-7. Options must be unique after trimming and case-insensitive comparison.");
         options.put("minItems", 7);
         options.put("maxItems", 10);
 

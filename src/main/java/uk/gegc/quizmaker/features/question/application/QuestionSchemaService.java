@@ -291,7 +291,8 @@ public class QuestionSchemaService {
             case MCQ_MULTI -> "Multiple choice question with 4-6 options and multiple correct answers";
             case TRUE_FALSE -> "True or False question with boolean answer";
             case OPEN -> "Open-ended question with text answer";
-            case FILL_GAP -> "Fill in the blank question with one or more gaps in a template";
+            case FILL_GAP -> "Fill in the blank question with one or more gaps in a template. " +
+                    "The optional options array enables drag-and-drop mode; without options, clients should render typed blanks.";
             case ORDERING -> "Ordering question where items must be arranged in correct sequence";
             case MATCHING -> "Matching question with pairs of related items";
             case HOTSPOT -> "Image-based question where user clicks correct area(s)";

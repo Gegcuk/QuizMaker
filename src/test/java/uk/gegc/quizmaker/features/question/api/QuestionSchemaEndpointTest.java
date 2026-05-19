@@ -39,6 +39,10 @@ class QuestionSchemaEndpointTest {
                 .getContentAsString();
 
         JsonNode json = objectMapper.readTree(response);
+        assertThat(json.get("description").asText())
+                .contains("optional options array enables drag-and-drop mode")
+                .contains("without options, clients should render typed blanks");
+
         JsonNode content = json.get("example").get("content");
         assertThat(content.has("options")).isTrue();
         assertThat(content.get("options").isArray()).isTrue();
@@ -52,5 +56,14 @@ class QuestionSchemaEndpointTest {
                 .get("content");
         assertThat(contentSchema.get("properties").has("options")).isTrue();
         assertThat(contentSchema.get("required").toString()).doesNotContain("options");
+        assertThat(contentSchema.get("description").asText())
+                .contains("'options' is optional")
+                .contains("If omitted, render blanks for typed answers")
+                .contains("If present, render the values as drag-and-drop options");
+        assertThat(contentSchema.get("properties").get("options").get("description").asText())
+                .contains("include every gaps[].answer value")
+                .contains("6-7 plausible but incorrect distractors")
+                .contains("same domain/category")
+                .contains("must not be synonyms or alternate correct answers");
     }
 }

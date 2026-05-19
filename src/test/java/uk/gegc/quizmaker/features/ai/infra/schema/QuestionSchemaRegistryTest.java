@@ -75,6 +75,11 @@ class QuestionSchemaRegistryTest {
         assertThat(contentSchema.get("required").toString()).doesNotContain("options");
 
         JsonNode content = extractContentSchema(schema);
+        assertThat(contentSchema.get("description").asText())
+                .contains("supports both legacy/manual typed-answer questions and drag-and-drop questions")
+                .contains("'options' is optional")
+                .contains("If omitted, render blanks for typed answers")
+                .contains("If present, render the values as drag-and-drop options");
         
         // Verify text field
         assertThat(content.has("text")).isTrue();
@@ -100,6 +105,12 @@ class QuestionSchemaRegistryTest {
         assertThat(options.get("minItems").asInt()).isEqualTo(7);
         assertThat(options.get("maxItems").asInt()).isEqualTo(10);
         assertThat(options.get("items").get("type").asText()).isEqualTo("string");
+        assertThat(options.get("description").asText())
+                .contains("include every gaps[].answer value")
+                .contains("6-7 plausible but incorrect distractors")
+                .contains("same domain/category")
+                .contains("must not be synonyms or alternate correct answers")
+                .contains("unique after trimming and case-insensitive comparison");
     }
 
     @Test
