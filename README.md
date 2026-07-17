@@ -91,6 +91,21 @@ java -jar target/QuizMaker-0.0.1-SNAPSHOT.jar
 
 Tests use the `test` profile and expect a MySQL test database (e.g. `quizmaker_test`). See [src/test/resources/application-test.properties](src/test/resources/application-test.properties). CI runs the full suite with a MySQL service container (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
+## Contributing and issue planning
+
+Human contributors and AI agents use the same local-first workflow:
+
+- [Contribution and local Git rules](CONTRIBUTING.md)
+- [GitHub issue format](docs/github-issue-guide.md)
+- [Open-issue implementation roadmap](docs/open-issue-roadmap.md)
+- [Developer workflow](docs/developer-workflow.md)
+- [Detailed architecture and quality rules](docs/agents.md)
+- [Testing guide](docs/testing-guide.md)
+- [Annotation study guide](docs/annotations/README.md)
+- [Article authoring guide](docs/article-authoring-guide.md)
+
+Implementation agents must not push, open or merge pull requests, release, or deploy. The repository owner controls all remote actions.
+
 ## Project structure
 
 - **`src/main/java/uk/gegc/quizmaker/`**

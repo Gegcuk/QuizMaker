@@ -245,3 +245,57 @@ Ask before:
   - happy path,
   - at least one important edge/error path.
 - Keep changes small and reviewable.
+
+## Service contracts and loose coupling
+
+- Every application service used by a controller or another feature must expose an interface in the feature's `application` package and keep its Spring implementation in `application/impl`.
+- Controllers, schedulers, listeners, and other features depend on the service interface, never `*ServiceImpl`.
+- Use constructor injection only.
+- External systems (AI providers, email, payments, object storage, transcription, URL fetching) must sit behind a project-owned port/interface so tests can use a fake or stub.
+- Keep interfaces cohesive and use-case oriented. Do not create an interface for a value object, DTO, mapper helper, or stateless utility when no boundary or variation exists.
+- Prefer domain/application events for cross-feature reactions when direct calls would create circular or high coupling.
+
+## SOLID, KISS, and design patterns
+
+- Apply SOLID to keep responsibilities and dependencies clear, but keep the simplest design that satisfies current requirements.
+- Introduce a pattern only for a real source of variation or complexity. Examples already appropriate in this codebase include Strategy for question handlers/converters, Factory for handler/parser selection, Adapter for external providers, and domain/application events for decoupled reactions.
+- Do not add speculative layers, generic base services, or interfaces with only a hypothetical future use.
+- Prefer explicit domain names and small cohesive methods over clever reuse.
+
+## Roles, permissions, ownership, and visibility
+
+- Roles are collections of permissions; authorization decisions must use the existing permission model and feature conventions.
+- Permission checks do not replace ownership, organization membership, resource visibility, or tenant-boundary checks. Enforce each applicable rule server-side.
+- Default to deny when identity, membership, ownership, or permission context is missing or ambiguous.
+- Add negative tests for unauthenticated, insufficient-permission, wrong-owner, wrong-organization, and private-resource cases as applicable.
+- Never trust a client-supplied user, owner, organization, role, or permission identifier without resolving it against the authenticated principal.
+
+## OpenAPI and Swagger quality gates
+
+- Every public endpoint belongs to exactly one logical `GroupedOpenApi` group in `shared/config/OpenApiGroupConfig` and must be discoverable through `/api/v1/api-summary`.
+- Use named request/response DTOs and typed page/list envelopes. Do not publish generic `object`, untyped maps, raw `Page`, or ambiguous array-versus-wrapper responses.
+- Document authentication, required permissions, ownership/visibility semantics, validation, pagination/filtering/sorting, units, enum values, nullability, idempotency, and partial-failure behavior where relevant.
+- Document RFC 7807 `ProblemDetail` responses for expected error statuses.
+- Include representative examples that validate against the schema.
+- Add OpenAPI/contract tests for new or changed endpoints and keep existing clients backward compatible unless a breaking change is explicitly approved.
+
+## Test correctness and coverage
+
+- Tests must assert business and contract behavior, not mirror implementation details or mock impossible collaborator output.
+- Use plain unit tests for pure business logic, `@WebMvcTest`/standalone MockMvc for HTTP boundaries, `@DataJpaTest` for custom persistence behavior, and integration tests only for real cross-layer concerns.
+- External systems must use fakes/stubs or provider test doubles. Automated tests must never call real OpenAI, Stripe, email, storage, transcription, or other paid/remote services.
+- Cover happy paths, validation boundaries, failure semantics, authorization/ownership negatives, compatibility, and transaction/idempotency behavior in proportion to risk.
+- Run scoped tests first, then `./mvnw verify` before handoff when practical.
+
+## Git and delivery safety
+
+- Work is local only. AI agents must never run `git push`, create or merge pull requests, publish releases, or trigger deployments.
+- Create local commits only when the user explicitly requests a commit.
+- Keep commits focused and exclude unrelated working-tree changes.
+- A human repository owner decides whether and when local commits are pushed.
+
+## Issue readiness
+
+- Read `docs/github-issue-guide.md` before creating or refining issues.
+- Check `docs/open-issue-roadmap.md` for dependency order and stale/duplicate candidates.
+- Prefer vertical, independently verifiable outcomes over horizontal class-by-class tasks.
