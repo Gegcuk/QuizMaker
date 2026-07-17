@@ -125,32 +125,42 @@ Use `@Validated` on service classes to enforce method-level constraints.
 
 ### Rules
 
+- Define a use-case-oriented service interface in `application` and place the Spring implementation in `application/impl`.
+- Controllers, schedulers, listeners, and other features depend on the interface, never the implementation class.
 - Business rules live here. Place `@Transactional` on methods (readOnly for queries).
 - Method security belongs here (`@PreAuthorize`) for sensitive operations.
 - Publish application/domain events for cross-feature reactions; keep payloads small and immutable.
+- Use constructor injection. Hide external providers behind project-owned ports/interfaces and test them with fakes or stubs.
 
 ### Template
 
 ```java
+public interface QuizService {
+  QuizDto create(CreateQuizRequest req);
+  QuizDto get(UUID id);
+}
+
 @Service
 @Validated
 @RequiredArgsConstructor
-class QuizService {
+class QuizServiceImpl implements QuizService {
   private final QuizRepository repo;
   private final QuizMapper mapper;
   private final ApplicationEventPublisher events;
 
+  @Override
   @Transactional
-  @PreAuthorize("hasAuthority('quiz:write')")
-  QuizDto create(@Valid CreateQuizRequest req) {
+  @PreAuthorize("hasAuthority('QUIZ_CREATE')")
+  public QuizDto create(@Valid CreateQuizRequest req) {
     var saved = repo.save(mapper.toEntity(req));
     events.publishEvent(new QuizCreated(saved.getId()));
     return mapper.toDto(saved);
   }
 
+  @Override
   @Transactional(readOnly = true)
-  @PreAuthorize("hasAuthority('quiz:read')")
-  QuizDto get(UUID id) {
+  @PreAuthorize("hasAuthority('QUIZ_READ')")
+  public QuizDto get(UUID id) {
     var e = repo.findById(id)
       .orElseThrow(() -> new EntityNotFoundException("Quiz %s".formatted(id)));
     return mapper.toDto(e);
@@ -286,9 +296,21 @@ Strip dangerous HTML with JSoup; validate MIME via Tika before parsing. (Impleme
 
 ## 8) Security in Code
 
-Use method security (`@PreAuthorize`) at service boundary with authorities like `quiz:write`, `quiz:read`.
+Use method security (`@PreAuthorize`) at service boundaries with existing `PermissionName` authority values such as `QUIZ_CREATE` and `QUIZ_READ`, or the feature's established `@RequirePermission` convention at the endpoint boundary.
+
+Roles group permissions; permissions authorize actions. A permission check does not replace ownership, visibility, organization membership, or tenant-boundary checks. Resolve all of those from the authenticated principal and default to deny when context is missing.
+
+Add negative tests for unauthenticated callers, insufficient permissions, wrong owners, wrong organizations, and private resources whenever those cases apply.
 
 For JWT parsing/signing, encapsulate token logic behind one component; validate audiences/expiry; never log tokens or secrets (OWASP logging).
+
+### Authentication And Recovery Flows
+
+- Resolve client IP addresses through the trusted-proxy utility; never trust a forwarding header directly.
+- Rate-limit keys must resist attacker-controlled rotation while avoiding unnecessary blocking of unrelated users. Consider both the operation and a stable subject such as IP, account, or email.
+- Password resets, password changes, email verification, refresh, and logout must have explicit token/session invalidation semantics. Do not document a token as revoked unless the backend enforces it.
+- Use the same injected `Clock` for token creation, validation, expiry cleanup, and tests.
+- For rate-limit responses, document and test the RFC 7807 body and retry guidance such as `Retry-After` when supplied by the rate-limit implementation.
 
 ## 9) Validation (DTO & method)
 
@@ -322,6 +344,8 @@ Use projections for list endpoints to reduce columns and JSON size.
 Choose Slice when counts are unnecessary (cheaper than Page).
 
 Stream long responses via ResponseBodyEmitter/SseEmitter.
+
+Before merging a new list or aggregate query, inspect SQL or write a repository test for N+1 behaviour, correct indexes, bounded result size, stable ordering, and the query plan where the data volume warrants it. Cache only read-mostly values with a clear invalidation rule.
 
 ## 11) Logging (code snippets)
 
@@ -376,8 +400,21 @@ class QuizAuditService {
   - Use AssertJ for fluent assertions; avoid hamcrest/junit mix.
   - Verify negative paths (validation, authorization) alongside happy paths.
   - Keep tests independent and order‑agnostic; no reliance on execution order.
+  - Assert business and API behavior rather than implementation details.
+  - Do not mock impossible collaborator output simply to reach a defensive branch.
+  - Use fakes/stubs for AI, billing, email, storage, transcription, and other external systems; never call real providers from automated tests.
 
-## 13) Per-Layer Checklists (agent must self-verify)
+## 13) OpenAPI And Swagger Contracts
+
+- Discover existing contracts from `/api/v1/api-summary` and the relevant `/v3/api-docs/<group>` document. For question creation or AI generation, treat `/api/v1/questions/schemas/{type}` as the content-shape source of truth.
+- Put each public endpoint in exactly one logical `GroupedOpenApi` group in `shared/config/OpenApiGroupConfig`.
+- Keep every group discoverable through `GET /api/v1/api-summary`.
+- Publish named request and response DTOs. Avoid generic `object`, raw `Page`, untyped maps, and ambiguous array/wrapper alternatives.
+- Document authentication, permissions, ownership/visibility, validation, pagination, filters, sorting, units, enum values, nullability, idempotency, and partial failures where relevant.
+- Document RFC 7807 `ProblemDetail` for expected errors and provide representative examples that validate against the schema.
+- Add contract tests for group membership, typed schemas, examples, and backward compatibility.
+
+## 14) Per-Layer Checklists (agent must self-verify)
 
 ### Controller
 
@@ -387,6 +424,7 @@ class QuizAuditService {
 
 ### Service
 
+- [ ] Public use cases are defined by an application-service interface; callers do not depend on `*ServiceImpl`.
 - [ ] Business rules only; `@Transactional` granularity correct.
 - [ ] `@PreAuthorize` on sensitive operations.
 - [ ] Events published for cross-feature actions where coupling would be high.
@@ -408,8 +446,10 @@ class QuizAuditService {
 - [ ] No PII in logs; parameterized logging.
 - [ ] No Optional in fields/params (return types only).
 - [ ] Code does not rely on OSIV behavior.
+- [ ] OpenAPI group, typed schemas, valid examples, and ProblemDetail responses are accurate.
+- [ ] Authorization includes applicable permission, ownership, visibility, and organization checks.
 
-## 14) Time & Clock (consistency rules)
+## 15) Time & Clock (consistency rules)
 
 - Always inject and use `java.time.Clock` in services/components that read the current time.
   - Do not call `LocalDateTime.now()`, `Instant.now()`, etc. directly in business code.
@@ -422,7 +462,7 @@ class QuizAuditService {
   - Use `Clock` for calculating TTLs/expirations; avoid embedding durations in `now()` calls.
   - When calculating windows/cutoffs, prefer `Instant` math and convert at the boundary.
 
-## 15) Consistency & Best Practices (project‑wide)
+## 16) Consistency & Best Practices (project‑wide)
 
 - Naming & packaging
   - Feature‑first package layout (`features/<feature>/{api,application,domain,infra}`) and `shared/*` for cross‑cutting.
@@ -446,7 +486,12 @@ class QuizAuditService {
 - Reviews & CI
   - Enforce these consistency rules in PR reviews; prefer small, focused changes with tests.
 
-## 14) Feature-Specific Guidance
+- SOLID, KISS, and patterns
+  - Keep responsibilities cohesive and dependencies directed toward interfaces at real boundaries.
+  - Use Strategy, Factory, Adapter, events, and similar patterns only when they model actual variation or reduce meaningful coupling.
+  - Do not add speculative abstractions, generic base services, or pattern-heavy code where a direct implementation is clearer.
+
+## 17) Feature-Specific Guidance
 
 ### A) Document Processing
 
@@ -470,7 +515,20 @@ Model scoring in domain with deterministic, reversible rules; no I/O in domain c
 
 Expose summaries via projections for tables; page aggressively.
 
-## 15) Anti-Patterns (hard NOs)
+## 18) Git And Delivery Safety
+
+- AI agents work locally only.
+- Never run `git push`, create or merge pull requests, publish releases, or trigger deployments.
+- Create a local commit only when explicitly requested by the repository owner.
+- Never include unrelated working-tree changes in a commit.
+
+## 19) Issue Readiness
+
+- Follow `docs/github-issue-guide.md` for issue structure and labels.
+- Check `docs/open-issue-roadmap.md` before starting implementation.
+- Prefer a vertical, testable outcome over separate controller/service/repository tickets.
+
+## 20) Anti-Patterns (hard NOs)
 
 - Field injection; use constructor injection.
 - Business logic in controllers or repositories.
