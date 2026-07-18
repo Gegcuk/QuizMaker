@@ -140,6 +140,24 @@ class ApiDocumentationTest {
         assertThat(json.has("paths")).isTrue();
     }
 
+    @Test
+    @DisplayName("GET /v3/api-docs/media: media group exposes typed search and single-asset contracts")
+    void mediaGroupSpec_exposesTypedContracts() throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs/media", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode json = objectMapper.readTree(response.getBody());
+        assertThat(json.path("paths").has("/api/v1/media")).isTrue();
+        assertThat(json.path("paths").has("/api/v1/media/{assetId}")).isTrue();
+        assertThat(json.at("/paths/~1api~1v1~1media/get/responses/200/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/MediaAssetPageResponse");
+        assertThat(json.path("components").path("schemas").has("MediaAssetPageResponse")).isTrue();
+        assertThat(json.at("/paths/~1api~1v1~1media~1{assetId}/get/responses/404/content/application~1problem+json/examples/Deleted asset/value/status").asInt())
+                .isEqualTo(404);
+        assertThat(json.at("/paths/~1api~1v1~1media~1uploads/post/responses/429").isMissingNode()).isFalse();
+    }
+
     // ============================================================================
     // Phase 3: API Discovery Controller
     // ============================================================================
@@ -157,7 +175,7 @@ class ApiDocumentationTest {
         assertThat(json.get("fullSpecUrl").asText()).isEqualTo("/v3/api-docs");
         assertThat(json.get("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
         assertThat(json.get("groups").isArray()).isTrue();
-        assertThat(json.get("groups").size()).isEqualTo(10);
+        assertThat(json.get("groups").size()).isEqualTo(11);
     }
 
     @Test
@@ -190,6 +208,7 @@ class ApiDocumentationTest {
                 .contains("\"group\":\"documents\"")
                 .contains("\"group\":\"billing\"")
                 .contains("\"group\":\"articles\"")
+                .contains("\"group\":\"media\"")
                 .contains("\"group\":\"seo\"")
                 .contains("\"group\":\"ai\"")
                 .contains("\"group\":\"admin\"");
@@ -247,6 +266,7 @@ class ApiDocumentationTest {
                 .contains("📄") // documents icon
                 .contains("💳") // billing icon
                 .contains("📰") // articles icon
+                .contains("🖼️") // media icon
                 .contains("🤖") // ai icon
                 .contains("⚙️"); // admin icon
     }

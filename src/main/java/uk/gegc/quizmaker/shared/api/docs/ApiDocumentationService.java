@@ -69,6 +69,13 @@ public class ApiDocumentationService {
                     42
             ),
             ApiGroupSummary.of(
+                    "media",
+                    "Media Library",
+                    "Create upload intents and manage image and document media assets",
+                    "🖼️",
+                    9
+            ),
+            ApiGroupSummary.of(
                     "seo",
                     "SEO & Sitemaps",
                     "Public sitemaps and robots.txt for search engine discovery",

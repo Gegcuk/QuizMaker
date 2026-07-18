@@ -17,7 +17,7 @@ public record MediaUploadResponse(
         MediaAssetStatus status,
         @Schema(description = "Object key in Spaces", example = "articles/a6f0e7d2/.../8b5b6c1a.png")
         String key,
-        @Schema(description = "Public CDN URL", example = "https://cdn.quizzence.com/articles/.../8b5b6c1a.png")
+        @Schema(description = "Future CDN URL. It becomes publicly readable only when an image reaches READY status.", example = "https://cdn.quizzence.com/articles/.../8b5b6c1a.png")
         String cdnUrl,
         @Schema(description = "Mime type", example = "image/png")
         String mimeType,

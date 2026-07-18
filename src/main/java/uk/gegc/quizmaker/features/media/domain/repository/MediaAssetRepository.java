@@ -21,14 +21,15 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, UUID> {
         WHERE (:type IS NULL OR m.type = :type)
           AND (:status IS NULL OR m.status = :status)
           AND m.status <> uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.DELETED
+          AND (:createdBy IS NULL OR m.createdBy = :createdBy)
           AND (:query IS NULL OR LOWER(m.originalFilename) LIKE LOWER(CONCAT('%', :query, '%'))
                OR LOWER(m.key) LIKE LOWER(CONCAT('%', :query, '%')))
-        ORDER BY m.createdAt DESC
     """)
     Page<MediaAsset> search(
             @Param("type") MediaAssetType type,
             @Param("status") MediaAssetStatus status,
             @Param("query") String query,
+            @Param("createdBy") String createdBy,
             Pageable pageable
     );
 

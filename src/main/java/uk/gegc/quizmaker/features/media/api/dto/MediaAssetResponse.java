@@ -7,7 +7,7 @@ import uk.gegc.quizmaker.features.media.domain.model.MediaAssetType;
 import java.time.Instant;
 import java.util.UUID;
 
-@Schema(description = "Media asset metadata and public URL")
+@Schema(description = "Media asset metadata. READY images are publicly available through cdnUrl; document assets remain subject to storage access rules.")
 public record MediaAssetResponse(
         @Schema(description = "Asset identifier", example = "8b5b6c1a-....")
         UUID assetId,
@@ -17,7 +17,7 @@ public record MediaAssetResponse(
         MediaAssetStatus status,
         @Schema(description = "Object key in Spaces", example = "articles/a6f0e7d2/.../8b5b6c1a.png")
         String key,
-        @Schema(description = "Public CDN URL", example = "https://cdn.quizzence.com/articles/.../8b5b6c1a.png")
+        @Schema(description = "CDN URL. READY images are public; clients must not assume document assets are anonymously readable.", example = "https://cdn.quizzence.com/articles/.../8b5b6c1a.png")
         String cdnUrl,
         @Schema(description = "Mime type", example = "image/png")
         String mimeType,

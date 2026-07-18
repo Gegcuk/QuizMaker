@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -20,6 +21,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import uk.gegc.quizmaker.features.media.api.dto.MediaAssetResponse;
+import uk.gegc.quizmaker.features.media.api.dto.MediaAssetSort;
 import uk.gegc.quizmaker.features.media.api.dto.MediaUploadCompleteRequest;
 import uk.gegc.quizmaker.features.media.api.dto.MediaUploadRequest;
 import uk.gegc.quizmaker.features.media.api.dto.MediaUploadResponse;
@@ -125,12 +127,16 @@ public class MediaAssetServiceImpl implements MediaAssetService {
 
     @Override
     @Transactional(readOnly = true)
+    public MediaAssetResponse getById(UUID assetId, String username) {
+        MediaAsset asset = findActiveAsset(assetId);
+        assertReadAccess(asset, username);
+        return mediaAssetMapper.toResponse(asset);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public MediaAssetResponse getByIdForValidation(UUID assetId, String username) {
-        if (assetId == null) {
-            throw new ValidationException("Media asset id is required");
-        }
-        MediaAsset asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
-                .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
+        MediaAsset asset = findActiveAsset(assetId);
         if (asset.getStatus() != MediaAssetStatus.READY) {
             throw new ValidationException("Media asset %s is not ready".formatted(assetId));
         }
@@ -166,11 +172,26 @@ public class MediaAssetServiceImpl implements MediaAssetService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<MediaAssetResponse> search(MediaAssetType type, String query, int page, int size) {
+    public Page<MediaAssetResponse> search(
+            MediaAssetType type,
+            String query,
+            int page,
+            int size,
+            MediaAssetSort sort,
+            Sort.Direction direction,
+            String username
+    ) {
         int safeSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
-        PageRequest pageable = PageRequest.of(Math.max(page, 0), safeSize);
+        MediaAssetSort safeSort = sort != null ? sort : MediaAssetSort.CREATED_AT;
+        Sort.Direction safeDirection = direction != null ? direction : Sort.Direction.DESC;
+        PageRequest pageable = PageRequest.of(
+                Math.max(page, 0),
+                safeSize,
+                Sort.by(safeDirection, safeSort.property())
+        );
         String normalizedQuery = StringUtils.hasText(query) ? query.trim() : null;
-        return mediaAssetRepository.search(type, MediaAssetStatus.READY, normalizedQuery, pageable)
+        String ownerFilter = hasMediaAdminPermission() ? null : normalizeUsername(username);
+        return mediaAssetRepository.search(type, MediaAssetStatus.READY, normalizedQuery, ownerFilter, pageable)
                 .map(mediaAssetMapper::toResponse);
     }
 
@@ -301,20 +322,44 @@ public class MediaAssetServiceImpl implements MediaAssetService {
         }
     }
 
-    private void assertOwnership(MediaAsset asset, String username) {
-        boolean isOwner = StringUtils.hasText(username)
-                && asset.getCreatedBy() != null
-                && asset.getCreatedBy().equals(username);
-        if (isOwner) {
-            return;
+    private MediaAsset findActiveAsset(UUID assetId) {
+        if (assetId == null) {
+            throw new ValidationException("Media asset id is required");
         }
-        boolean isAdmin = permissionEvaluator.hasAnyPermission(
+        return mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
+                .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
+    }
+
+    private String normalizeUsername(String username) {
+        return StringUtils.hasText(username) ? username : "system";
+    }
+
+    private boolean hasMediaAdminPermission() {
+        return permissionEvaluator.hasAnyPermission(
                 PermissionName.MEDIA_ADMIN,
                 PermissionName.ARTICLE_ADMIN,
                 PermissionName.SYSTEM_ADMIN
         );
-        if (!isAdmin) {
+    }
+
+    private void assertReadAccess(MediaAsset asset, String username) {
+        if (!isOwner(asset, username) && !hasMediaAdminPermission()) {
+            throw new ForbiddenException("You cannot access this media asset");
+        }
+    }
+
+    private void assertOwnership(MediaAsset asset, String username) {
+        if (isOwner(asset, username)) {
+            return;
+        }
+        if (!hasMediaAdminPermission()) {
             throw new ForbiddenException("You cannot modify this media asset");
         }
+    }
+
+    private boolean isOwner(MediaAsset asset, String username) {
+        return StringUtils.hasText(username)
+                && asset.getCreatedBy() != null
+                && asset.getCreatedBy().equals(username);
     }
 }
