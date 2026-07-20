@@ -158,6 +158,24 @@ class ApiDocumentationTest {
         assertThat(json.at("/paths/~1api~1v1~1media~1uploads/post/responses/429").isMissingNode()).isFalse();
     }
 
+    @Test
+    @DisplayName("GET /v3/api-docs/bug-reports: exposes public submission and typed admin contracts")
+    void bugReportsGroupSpec_exposesTypedContracts() throws Exception {
+        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs/bug-reports", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        JsonNode json = objectMapper.readTree(response.getBody());
+        assertThat(json.path("paths").has("/api/v1/bug-reports")).isTrue();
+        assertThat(json.path("paths").has("/api/v1/admin/bug-reports")).isTrue();
+        assertThat(json.at("/paths/~1api~1v1~1bug-reports/post/responses/201/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/BugReportSubmissionResponse");
+        assertThat(json.at("/paths/~1api~1v1~1admin~1bug-reports/get/responses/200/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/BugReportPageResponse");
+        assertThat(json.path("components").path("schemas").has("BugReportSubmissionResponse")).isTrue();
+        assertThat(json.path("components").path("schemas").has("BugReportPageResponse")).isTrue();
+    }
+
     // ============================================================================
     // Phase 3: API Discovery Controller
     // ============================================================================
@@ -175,7 +193,7 @@ class ApiDocumentationTest {
         assertThat(json.get("fullSpecUrl").asText()).isEqualTo("/v3/api-docs");
         assertThat(json.get("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
         assertThat(json.get("groups").isArray()).isTrue();
-        assertThat(json.get("groups").size()).isEqualTo(11);
+        assertThat(json.get("groups").size()).isEqualTo(12);
     }
 
     @Test
@@ -209,6 +227,7 @@ class ApiDocumentationTest {
                 .contains("\"group\":\"billing\"")
                 .contains("\"group\":\"articles\"")
                 .contains("\"group\":\"media\"")
+                .contains("\"group\":\"bug-reports\"")
                 .contains("\"group\":\"seo\"")
                 .contains("\"group\":\"ai\"")
                 .contains("\"group\":\"admin\"");
@@ -267,6 +286,7 @@ class ApiDocumentationTest {
                 .contains("💳") // billing icon
                 .contains("📰") // articles icon
                 .contains("🖼️") // media icon
+                .contains("⚠️") // bug reports icon
                 .contains("🤖") // ai icon
                 .contains("⚙️"); // admin icon
     }

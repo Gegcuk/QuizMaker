@@ -7,7 +7,7 @@ import uk.gegc.quizmaker.features.bugreport.domain.model.BugReportStatus;
 import java.time.Instant;
 import java.util.UUID;
 
-@Schema(description = "Bug report details")
+@Schema(description = "Administrative bug report details. This payload can contain reporter contact information, the captured client IP address, and internal notes; it is returned only by SYSTEM_ADMIN endpoints.")
 public record BugReportDto(
         @Schema(description = "Unique identifier of the bug report", example = "d2719d51-2c24-4c06-a3de-9db1f0b8e8b9")
         UUID id,

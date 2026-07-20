@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import uk.gegc.quizmaker.features.bugreport.api.dto.BugReportDto;
+import uk.gegc.quizmaker.features.bugreport.api.dto.BugReportPageResponse;
 import uk.gegc.quizmaker.features.bugreport.api.dto.CreateBugReportRequest;
 import uk.gegc.quizmaker.features.bugreport.api.dto.UpdateBugReportRequest;
 import uk.gegc.quizmaker.features.bugreport.application.BugReportService;
@@ -49,6 +51,10 @@ import java.util.UUID;
 @SecurityRequirement(name = "bearerAuth")
 public class BugReportAdminController {
 
+    private static final String BUG_REPORT_EXAMPLE = "{\"id\":\"d2719d51-2c24-4c06-a3de-9db1f0b8e8b9\",\"message\":\"Saving a quiz fails after adding an image\",\"reporterName\":\"Jane Doe\",\"reporterEmail\":\"jane@example.com\",\"pageUrl\":\"https://app.quizzence.com/quizzes/123/edit\",\"stepsToReproduce\":\"1. Add an image 2. Save the quiz\",\"clientVersion\":\"web 1.2.3 (Chrome 124)\",\"clientIp\":\"203.0.113.42\",\"severity\":\"HIGH\",\"status\":\"OPEN\",\"internalNote\":\"Reproduced in staging\",\"createdAt\":\"2026-07-20T10:15:30Z\",\"updatedAt\":\"2026-07-20T10:15:30Z\"}";
+    private static final String PAGE_EXAMPLE = "{\"content\":[{\"id\":\"d2719d51-2c24-4c06-a3de-9db1f0b8e8b9\",\"message\":\"Saving a quiz fails after adding an image\",\"reporterName\":\"Jane Doe\",\"reporterEmail\":\"jane@example.com\",\"pageUrl\":\"https://app.quizzence.com/quizzes/123/edit\",\"stepsToReproduce\":\"1. Add an image 2. Save the quiz\",\"clientVersion\":\"web 1.2.3 (Chrome 124)\",\"clientIp\":\"203.0.113.42\",\"severity\":\"HIGH\",\"status\":\"OPEN\",\"internalNote\":\"Reproduced in staging\",\"createdAt\":\"2026-07-20T10:15:30Z\",\"updatedAt\":\"2026-07-20T10:15:30Z\"}],\"totalPages\":1,\"totalElements\":1,\"size\":20,\"number\":0,\"sort\":{\"sorted\":true,\"unsorted\":false,\"empty\":false},\"first\":true,\"last\":true,\"numberOfElements\":1,\"empty\":false,\"pageable\":{\"pageNumber\":0,\"pageSize\":20,\"offset\":0,\"sort\":{\"sorted\":true,\"unsorted\":false,\"empty\":false},\"paged\":true,\"unpaged\":false}}";
+    private static final String NOT_FOUND_EXAMPLE = "{\"type\":\"https://quizzence.com/docs/errors/resource-not-found\",\"title\":\"Resource Not Found\",\"status\":404,\"detail\":\"Bug report d2719d51-2c24-4c06-a3de-9db1f0b8e8b9 not found\",\"instance\":\"/api/v1/admin/bug-reports/d2719d51-2c24-4c06-a3de-9db1f0b8e8b9\"}";
+
     private final BugReportService bugReportService;
 
     @Operation(
@@ -57,8 +63,16 @@ public class BugReportAdminController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Bug report created",
-                    content = @Content(schema = @Schema(implementation = BugReportDto.class))),
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BugReportDto.class),
+                            examples = @ExampleObject(name = "Created report", value = BUG_REPORT_EXAMPLE)
+                    )),
             @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping
@@ -72,10 +86,23 @@ public class BugReportAdminController {
 
     @Operation(
             summary = "List bug reports",
-            description = "Returns a paginated list of bug reports with optional status and severity filters."
+            description = "Returns a paginated list of bug reports with optional status and severity filters. " +
+                    "Only SYSTEM_ADMIN callers can access reporter contact details, captured client IP addresses, and internal notes. " +
+                    "Pages are zero-based and default to 20 results ordered by createdAt descending."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Page of bug reports returned")
+            @ApiResponse(responseCode = "200", description = "Page of bug reports returned",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BugReportPageResponse.class),
+                            examples = @ExampleObject(name = "Open reports", value = PAGE_EXAMPLE)
+                    )),
+            @ApiResponse(responseCode = "400", description = "Invalid status, severity, page, size, or sort parameter",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping
     @RequirePermission(PermissionName.SYSTEM_ADMIN)
@@ -96,9 +123,21 @@ public class BugReportAdminController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Bug report returned",
-                    content = @Content(schema = @Schema(implementation = BugReportDto.class))),
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BugReportDto.class),
+                            examples = @ExampleObject(name = "Bug report", value = BUG_REPORT_EXAMPLE)
+                    )),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Bug report not found",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                    content = @Content(
+                            mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ProblemDetail.class),
+                            examples = @ExampleObject(name = "Missing report", value = NOT_FOUND_EXAMPLE)
+                    ))
     })
     @GetMapping("/{id}")
     @RequirePermission(PermissionName.SYSTEM_ADMIN)
@@ -114,8 +153,16 @@ public class BugReportAdminController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Bug report updated",
-                    content = @Content(schema = @Schema(implementation = BugReportDto.class))),
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BugReportDto.class),
+                            examples = @ExampleObject(name = "Updated report", value = BUG_REPORT_EXAMPLE)
+                    )),
             @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Bug report not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -135,6 +182,10 @@ public class BugReportAdminController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Bug report deleted"),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Bug report not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -149,11 +200,16 @@ public class BugReportAdminController {
 
     @Operation(
             summary = "Delete multiple bug reports",
-            description = "Bulk deletes the provided bug reports."
+            description = "Bulk deletes the provided bug-report IDs. The request body is a JSON array of UUIDs; " +
+                    "an empty array is accepted and returns 204. The endpoint does not return per-ID outcomes."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Bug reports deleted"),
             @ApiResponse(responseCode = "400", description = "Validation error",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing SYSTEM_ADMIN permission",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/bulk-delete")
@@ -163,7 +219,14 @@ public class BugReportAdminController {
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "IDs of bug reports to delete",
                     required = true,
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = UUID.class)))
+                    content = @Content(
+                            mediaType = "application/json",
+                            array = @ArraySchema(schema = @Schema(implementation = UUID.class)),
+                            examples = @ExampleObject(
+                                    name = "Report IDs",
+                                    value = "[\"d2719d51-2c24-4c06-a3de-9db1f0b8e8b9\",\"642bd5cf-22d2-4d42-b70f-3cce734cdf25\"]"
+                            )
+                    )
             )
             @RequestBody List<UUID> ids
     ) {

@@ -76,6 +76,13 @@ public class ApiDocumentationService {
                     9
             ),
             ApiGroupSummary.of(
+                    "bug-reports",
+                    "Bug Reports",
+                    "Submit public bug reports and manage report triage as a system administrator",
+                    "⚠️",
+                    6
+            ),
+            ApiGroupSummary.of(
                     "seo",
                     "SEO & Sitemaps",
                     "Public sitemaps and robots.txt for search engine discovery",
