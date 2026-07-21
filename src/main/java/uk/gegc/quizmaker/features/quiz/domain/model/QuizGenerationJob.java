@@ -6,6 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -17,6 +19,10 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 public class QuizGenerationJob {
+
+    private static final double MIN_PROGRESS_PERCENTAGE = 0.0;
+    private static final double MAX_PROGRESS_PERCENTAGE = 100.0;
+    private static final int PROGRESS_SCALE = 2;
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -149,6 +155,7 @@ public class QuizGenerationJob {
         if (completedTasks == null) {
             completedTasks = 0;
         }
+        progressPercentage = normalizeProgressPercentage(progressPercentage);
     }
 
     @PreUpdate
@@ -162,12 +169,7 @@ public class QuizGenerationJob {
             }
         }
 
-        // Update progress percentage - prefer task counters when available
-        if (totalTasks != null && totalTasks > 0) {
-            progressPercentage = (double) completedTasks / totalTasks * 100.0;
-        } else if (totalChunks != null && totalChunks > 0) {
-            progressPercentage = (double) processedChunks / totalChunks * 100.0;
-        }
+        recalculateProgressPercentage();
     }
 
     /**
@@ -177,12 +179,7 @@ public class QuizGenerationJob {
         this.processedChunks = processedChunks;
         this.currentChunk = currentChunk;
 
-        // Compute progress percentage using task counters when available
-        if (totalTasks != null && totalTasks > 0) {
-            this.progressPercentage = (double) completedTasks / totalTasks * 100.0;
-        } else if (totalChunks != null && totalChunks > 0) {
-            this.progressPercentage = (double) processedChunks / totalChunks * 100.0;
-        }
+        recalculateProgressPercentage();
     }
 
     /**
@@ -194,10 +191,7 @@ public class QuizGenerationJob {
         this.completedTasks = (this.completedTasks != null ? this.completedTasks : 0) + completedDelta;
         this.currentChunk = statusMessage;
 
-        // Compute progress percentage using task counters
-        if (totalTasks != null && totalTasks > 0) {
-            this.progressPercentage = (double) completedTasks / totalTasks * 100.0;
-        }
+        recalculateProgressPercentage();
     }
 
     /**
@@ -253,12 +247,13 @@ public class QuizGenerationJob {
      * Get estimated time remaining in seconds
      */
     public Long getEstimatedTimeRemainingSeconds() {
-        if (status.isTerminal() || progressPercentage == null || progressPercentage <= 0) {
+        double normalizedProgress = getProgressPercentage();
+        if ((status != null && status.isTerminal()) || normalizedProgress <= 0) {
             return 0L;
         }
 
         Long elapsedSeconds = getDurationSeconds();
-        double progress = progressPercentage / 100.0;
+        double progress = normalizedProgress / 100.0;
 
         if (progress <= 0) {
             return 0L;
@@ -266,6 +261,47 @@ public class QuizGenerationJob {
 
         long totalEstimatedSeconds = (long) (elapsedSeconds / progress);
         return totalEstimatedSeconds - elapsedSeconds;
+    }
+
+    public Double getProgressPercentage() {
+        return normalizeProgressPercentage(progressPercentage);
+    }
+
+    public void setProgressPercentage(Double progressPercentage) {
+        this.progressPercentage = normalizeProgressPercentage(progressPercentage);
+    }
+
+    public static double calculateProgressPercentage(Integer completed, Integer total) {
+        if (total == null || total <= 0) {
+            return MIN_PROGRESS_PERCENTAGE;
+        }
+
+        int completedCount = completed != null ? completed : 0;
+        return normalizeProgressPercentage(completedCount * MAX_PROGRESS_PERCENTAGE / total);
+    }
+
+    public static double normalizeProgressPercentage(Double progressPercentage) {
+        if (progressPercentage == null || !Double.isFinite(progressPercentage)) {
+            return MIN_PROGRESS_PERCENTAGE;
+        }
+
+        double boundedPercentage = Math.max(
+                MIN_PROGRESS_PERCENTAGE,
+                Math.min(MAX_PROGRESS_PERCENTAGE, progressPercentage)
+        );
+        return BigDecimal.valueOf(boundedPercentage)
+                .setScale(PROGRESS_SCALE, RoundingMode.HALF_UP)
+                .doubleValue();
+    }
+
+    private void recalculateProgressPercentage() {
+        if (totalTasks != null && totalTasks > 0) {
+            progressPercentage = calculateProgressPercentage(completedTasks, totalTasks);
+        } else if (totalChunks != null && totalChunks > 0) {
+            progressPercentage = calculateProgressPercentage(processedChunks, totalChunks);
+        } else {
+            progressPercentage = normalizeProgressPercentage(progressPercentage);
+        }
     }
 
     /**
@@ -354,4 +390,4 @@ public class QuizGenerationJob {
             return null;
         }
     }
-} 
+}

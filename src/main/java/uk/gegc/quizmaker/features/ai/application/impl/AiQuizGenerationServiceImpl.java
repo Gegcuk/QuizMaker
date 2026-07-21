@@ -183,7 +183,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     
                     processedChunks++;
 
-                    // Update chunk progress atomically (doesn't touch task-based progressPercentage)
+                    // Update chunk progress atomically. Task counters remain authoritative for the percentage.
                     updateJobChunkProgressSafely(jobId, processedChunks, 
                         String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
 
@@ -1084,8 +1084,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      }
 
      /**
-      * Update chunk-level progress atomically without touching task-based percentage.
-      * Prevents stale entity saves from overwriting atomic task increments.
+     * Update chunk-level progress atomically. When task counters exist, they remain authoritative
+     * for the percentage, preventing stale entity saves from overwriting atomic task increments.
       * Uses TransactionTemplate to avoid self-invocation issues.
       */
      public void updateJobChunkProgressSafely(UUID jobId, int processedChunks, String statusMessage) {
@@ -1214,11 +1214,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         public double getProgressPercentage() {
             // Prefer task counters when available
             if (totalTasks > 0) {
-                return (double) completedTasks.get() / totalTasks * 100.0;
+                return QuizGenerationJob.calculateProgressPercentage(completedTasks.get(), totalTasks);
             }
             // Fall back to chunk counters
-            if (totalChunks == 0) return 0.0;
-            return (double) processedChunks.get() / totalChunks * 100.0;
+            return QuizGenerationJob.calculateProgressPercentage(processedChunks.get(), totalChunks);
         }
 
         public Duration getElapsedTime() {

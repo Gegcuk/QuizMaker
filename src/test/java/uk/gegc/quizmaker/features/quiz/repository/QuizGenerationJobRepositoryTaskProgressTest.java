@@ -115,6 +115,48 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     }
 
     @Test
+    @DisplayName("incrementCompletedTasks stores bounded and rounded task progress")
+    void incrementCompletedTasks_storesBoundedAndRoundedProgress() {
+        testJob.setTotalTasks(7);
+        testJob.setCompletedTasks(2);
+        testJob = jobRepository.save(testJob);
+        entityManager.flush();
+        entityManager.clear();
+
+        jobRepository.incrementCompletedTasks(testJob.getId(), 1, "Three of seven tasks done");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob rounded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(42.86, rounded.getProgressPercentage());
+
+        jobRepository.incrementCompletedTasks(testJob.getId(), 10, "Tasks exceeded");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob capped = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(100.0, capped.getProgressPercentage());
+    }
+
+    @Test
+    @DisplayName("atomic progress updates never persist a negative percentage")
+    void incrementCompletedTasks_neverPersistsNegativePercentage() {
+        testJob.setTotalTasks(7);
+        testJob.setCompletedTasks(-2);
+        testJob = jobRepository.save(testJob);
+        entityManager.flush();
+        entityManager.clear();
+
+        jobRepository.incrementCompletedTasks(testJob.getId(), 1, "Recovering counters");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(-1, reloaded.getCompletedTasks());
+        assertEquals(0.0, reloaded.getProgressPercentage());
+    }
+
+    @Test
     @DisplayName("incrementCompletedTasks bumps version for optimistic locking")
     void incrementCompletedTasks_bumpsVersion() {
         // Given: reload to get initial version
@@ -166,8 +208,8 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     }
 
     @Test
-    @DisplayName("updateProcessedChunksAndStatus updates only chunk fields")
-    void updateProcessedChunksAndStatus_updatesOnlyChunkFields() {
+    @DisplayName("updateProcessedChunksAndStatus preserves task-based progress when task counters exist")
+    void updateProcessedChunksAndStatus_preservesTaskBasedProgress_whenTaskCountersExist() {
         // Given: set initial task progress
         jobRepository.incrementCompletedTasks(testJob.getId(), 5, "Initial task status");
         entityManager.flush();
@@ -181,7 +223,7 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         entityManager.flush();
         entityManager.clear();
 
-        // Then: only chunk fields updated, progress percentage unchanged
+        // Then: chunk fields update while task counters remain authoritative for progress.
         assertEquals(1, updated);
         
         QuizGenerationJob after = jobRepository.findById(testJob.getId()).orElseThrow();
@@ -227,6 +269,23 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     }
 
     @Test
+    @DisplayName("updateProcessedChunksAndStatus stores bounded chunk progress when tasks are unavailable")
+    void updateProcessedChunksAndStatus_storesBoundedChunkProgress_whenTasksUnavailable() {
+        testJob.setTotalTasks(null);
+        testJob = jobRepository.save(testJob);
+        entityManager.flush();
+        entityManager.clear();
+
+        jobRepository.updateProcessedChunksAndStatus(testJob.getId(), 7, "More chunks than planned");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(7, reloaded.getProcessedChunks());
+        assertEquals(100.0, reloaded.getProgressPercentage());
+    }
+
+    @Test
     @DisplayName("incrementCompletedTasks handles null completedTasks gracefully")
     void incrementCompletedTasks_handlesNullCompletedTasks() {
         // Given: job with null completedTasks (need to use native SQL to bypass entity field default)
@@ -263,4 +322,3 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         assertTrue(reloaded.getProgressPercentage() > 0);
     }
 }
-
