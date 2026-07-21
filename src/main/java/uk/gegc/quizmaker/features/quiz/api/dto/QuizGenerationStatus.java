@@ -20,7 +20,7 @@ public record QuizGenerationStatus(
         @Schema(description = "Number of chunks processed so far", example = "5")
         Integer processedChunks,
 
-        @Schema(description = "Progress percentage (0-100). Computed from task counters when available, otherwise from chunk counters.", example = "50.0")
+        @Schema(description = "Progress percentage from 0 to 100, rounded to at most two decimal places. Computed from task counters when available, otherwise from chunk counters.", example = "50.0", minimum = "0", maximum = "100")
         Double progressPercentage,
 
         @Schema(description = "Currently processing chunk or status message", example = "Chunk 2/5 · MCQ_SINGLE · done")
@@ -149,4 +149,4 @@ public record QuizGenerationStatus(
     public boolean isActive() {
         return status != null && status.isActive();
     }
-} 
+}

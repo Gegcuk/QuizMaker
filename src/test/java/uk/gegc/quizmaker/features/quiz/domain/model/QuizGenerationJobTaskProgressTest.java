@@ -141,6 +141,37 @@ class QuizGenerationJobTaskProgressTest {
     }
 
     @Test
+    @DisplayName("Progress percentage is rounded and bounded for task counters")
+    void progressPercentage_isRoundedAndBounded_forTaskCounters() {
+        job.setTotalTasks(7);
+
+        job.setCompletedTasks(3);
+        job.updateProgress(0, "Three tasks done");
+        assertEquals(42.86, job.getProgressPercentage());
+
+        job.setCompletedTasks(-1);
+        job.updateProgress(0, "Invalid negative count");
+        assertEquals(0.0, job.getProgressPercentage());
+
+        job.setCompletedTasks(8);
+        job.updateProgress(0, "More tasks than planned");
+        assertEquals(100.0, job.getProgressPercentage());
+    }
+
+    @Test
+    @DisplayName("Explicit progress values are normalized for legacy data and API output")
+    void setProgressPercentage_normalizesLegacyValues() {
+        job.setProgressPercentage(42.812831723);
+        assertEquals(42.81, job.getProgressPercentage());
+
+        job.setProgressPercentage(-1.124);
+        assertEquals(0.0, job.getProgressPercentage());
+
+        job.setProgressPercentage(Double.NaN);
+        assertEquals(0.0, job.getProgressPercentage());
+    }
+
+    @Test
     @DisplayName("markCompleted sets completedTasks = totalTasks when available")
     void markCompleted_alignsTaskCounters() {
         // Given
@@ -205,4 +236,3 @@ class QuizGenerationJobTaskProgressTest {
         assertEquals(0, newJob.getCompletedTasks());
     }
 }
-

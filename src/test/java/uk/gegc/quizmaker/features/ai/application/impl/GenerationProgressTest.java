@@ -145,5 +145,16 @@ class GenerationProgressTest {
         // Then: uses task percentage (2/6 ≈ 33.33%), not chunk percentage (1/2 = 50%)
         assertEquals(33.33, percentage, 0.01);
     }
-}
 
+    @Test
+    @DisplayName("Progress percentage is capped when task completion exceeds the planned total")
+    void progressPercentage_isCapped_whenCompletedTasksExceedTotal() {
+        progress.setTotalTasks(3);
+
+        for (int i = 0; i < 4; i++) {
+            progress.incrementCompletedTasks();
+        }
+
+        assertEquals(100.0, progress.getProgressPercentage());
+    }
+}
