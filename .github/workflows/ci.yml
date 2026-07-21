@@ -24,7 +24,7 @@ jobs:
       SPRING_DATASOURCE_USERNAME: bestuser
       SPRING_DATASOURCE_PASSWORD: bestuser
       # Connection pool settings (environment variables override properties files)
-      # Reduced pool size to avoid "Too many connections" errors with parallel test execution
+      # Keep integration-test connection usage bounded.
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 10
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 2
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: 30000
@@ -310,6 +310,25 @@ jobs:
             flyway:migrate
           # Verify migrations completed successfully
           echo "✅ Flyway migrations completed for both databases"
+
+      - name: Verify migrated test schemas
+        run: |
+          set -euo pipefail
+          MYSQL_CONTAINER=$(docker ps -a --filter "name=mysql" --format "{{.ID}}" | head -1)
+          if [ -z "$MYSQL_CONTAINER" ]; then
+            echo "MySQL service container was not found" >&2
+            exit 1
+          fi
+
+          for schema in quizmaker_test quizmaker_test_mysql; do
+            table_count=$(docker exec -e MYSQL_PWD="$SPRING_DATASOURCE_PASSWORD" "$MYSQL_CONTAINER" \
+              mysql -u"$SPRING_DATASOURCE_USERNAME" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${schema}' AND table_name IN ('answers', 'share_link_analytics');")
+            if [ "$table_count" -ne 2 ]; then
+              echo "Required tables are missing from ${schema}" >&2
+              exit 1
+            fi
+          done
+          echo "Required tables exist in both migrated test schemas"
 
       - name: Verify test configuration
         run: |
