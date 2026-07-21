@@ -25,7 +25,7 @@ USER quizmaker
 EXPOSE 8080
 
 # Health check (use minimal startup group to avoid external dependencies)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=10s --start-period=6m --retries=4 \
     CMD curl -f http://localhost:8080/actuator/health/startup || exit 1
 
 # Run the application
