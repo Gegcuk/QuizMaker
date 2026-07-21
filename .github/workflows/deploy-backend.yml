@@ -1,139 +1,92 @@
 name: Deploy Backend to Production
 
 on:
-  push:
-    branches: [ master, main ]
-    paths:
-      - 'src/**'
-      - 'pom.xml'
-      - 'server/backend/**'
-      - '.github/workflows/deploy-backend.yml'
-  workflow_dispatch:  # Allow manual trigger from GitHub UI
+  workflow_run:
+    workflows: ["CI"]
+    branches: [master]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-backend
+  cancel-in-progress: false
 
 jobs:
   deploy-backend:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master'
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout
+      - name: Checkout the CI-verified commit
         uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: maven
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
 
-      - name: Build application
-        run: |
-          ./mvnw clean package -DskipTests -B
-          echo "✅ Application built successfully"
+      - name: Download CI-tested backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: quizmaker-backend-jar
+          path: deployment-artifact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
 
       - name: Prepare deployment bundle
         run: |
-          rm -rf deployment && mkdir -p deployment
-          
-          # Copy backend deployment files
-          cp -r server/backend/* deployment/
-          
-          # Copy application files (target/ not needed as Dockerfile rebuilds from source)
-          cp pom.xml deployment/
-          cp -r src deployment/
-          
-          # Create production properties
-          cp server/backend/application-prod.properties deployment/src/main/resources/
-          
-          echo "🔍 Debug: Checking deployment bundle contents:"
-          ls -la deployment/ || echo "Deployment directory not found"
-          echo "🔍 Debug: Checking if mysql-init directory was copied:"
-          ls -la deployment/mysql-init/ || echo "mysql-init directory not found in deployment"
-          
-          echo "✅ Deployment bundle prepared"
+          rm -rf deployment
+          mkdir -p deployment
+          cp -r server/backend/. deployment/
+          cp deployment-artifact/QuizMaker-*.jar deployment/
 
-      - name: Stop old backend (ignore if first run)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            set -e
-            mkdir -p /var/www/quizmaker-backend
-            cd /var/www/quizmaker-backend
-            
-            # Load environment variables if .env exists
-            if [ -f .env ]; then
-              echo "🔍 Attempting to load existing environment variables (non-fatal if parsing fails)..."
-              set -a
-              if ! source .env 2>/dev/null; then
-                echo "⚠️ Warning: Failed to parse existing .env file. Continuing without exporting variables."
-              fi
-              set +a
-            fi
-            
-            # Stop existing containers
-            docker compose down || true
-            
-            # Clean up old images to save space
-            docker image prune -f || true
-            
-            echo "✅ Old backend stopped"
-
-      - name: Copy deployment files
+      - name: Copy deployment bundle
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "deployment/*"
-          target: "/var/www/quizmaker-backend/"
+          source: deployment/*
+          target: /var/www/quizmaker-backend/
           strip_components: 1
           overwrite: true
 
-      - name: Create environment file and deploy
+      - name: Roll out CI-verified backend
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: RELEASE_SHA
           script: |
-            set -e
+            set -Eeuo pipefail
             cd /var/www/quizmaker-backend
-            
-            # Create .env file from secrets
+
             cat > .env <<'EOF'
-            # Database Configuration
+            BACKEND_IMAGE="quizmaker-backend:__RELEASE_SHA__"
             DB_USERNAME="${{ secrets.DB_PROD_USERNAME || 'quizmaker_user' }}"
             DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
             DB_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
             MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
-            # Debug: show full secrets from init script (set to 0 after debugging)
-            MYSQL_INIT_SHOW_SECRETS="1"
-            
-            # JWT Configuration
+            MYSQL_INIT_SHOW_SECRETS="0"
             JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            
-            # Security Peppers
             TOKEN_PEPPER_SECRET="${{ secrets.TOKEN_PEPPER_SECRET }}"
             RESET_TOKEN_PEPPER="${{ secrets.RESET_TOKEN_PEPPER }}"
             VERIFICATION_TOKEN_PEPPER="${{ secrets.VERIFICATION_TOKEN_PEPPER }}"
-            
-            # OpenAI Configuration
             OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             OPENAI_MODEL="${{ secrets.OPENAI_MODEL }}"
-            
-            # OAuth2 Configuration
             OAUTH2_REDIRECT_URI="${{ secrets.OAUTH2_REDIRECT_URI }}"
             OAUTH2_TOKEN_SECRET="${{ secrets.OAUTH2_TOKEN_SECRET }}"
-            
-            # OAuth2 Providers
             GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
             GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
             OAUTH_GITHUB_CLIENT_ID="${{ secrets.OAUTH_GITHUB_CLIENT_ID }}"
             OAUTH_GITHUB_CLIENT_SECRET="${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}"
-            
-            # Stripe Configuration
             STRIPE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY }}"
             STRIPE_WEBHOOK_SECRET="${{ secrets.STRIPE_WEBHOOK_SECRET }}"
             STRIPE_PUBLISHABLE_KEY="${{ secrets.STRIPE_PUBLISHABLE_KEY }}"
@@ -143,14 +96,10 @@ jobs:
             STRIPE_PRICE_SUBSCRIPTION="${{ secrets.STRIPE_PRICE_SUBSCRIPTION }}"
             STRIPE_SUCCESS_URL="${{ secrets.STRIPE_SUCCESS_URL }}"
             STRIPE_CANCEL_URL="${{ secrets.STRIPE_CANCEL_URL }}"
-            
-            # Email Configuration
             SMTP_HOST="${{ secrets.SMTP_HOST }}"
             SMTP_PORT="${{ secrets.SMTP_PORT }}"
             SMTP_USERNAME="${{ secrets.SMTP_USERNAME }}"
             SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}"
-            
-            # AWS SES Email Configuration
             APP_EMAIL_PROVIDER="${{ secrets.APP_EMAIL_PROVIDER }}"
             APP_EMAIL_FROM="${{ secrets.APP_EMAIL_FROM }}"
             APP_EMAIL_REGION="${{ secrets.APP_EMAIL_REGION }}"
@@ -158,8 +107,6 @@ jobs:
             AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
             AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
             AWS_REGION="${{ secrets.AWS_REGION }}"
-
-            # DigitalOcean Spaces / CDN
             MEDIA_BUCKET="${{ secrets.MEDIA_BUCKET || 'quizzence' }}"
             MEDIA_REGION="${{ secrets.MEDIA_REGION || 'lon1' }}"
             MEDIA_ENDPOINT="${{ secrets.MEDIA_ENDPOINT || 'https://lon1.digitaloceanspaces.com' }}"
@@ -172,475 +119,105 @@ jobs:
             MEDIA_DELETE_REMOTE="${{ secrets.MEDIA_DELETE_REMOTE || 'false' }}"
             MEDIA_ARTICLE_PREFIX="${{ secrets.MEDIA_ARTICLE_PREFIX || 'articles' }}"
             MEDIA_LIBRARY_PREFIX="${{ secrets.MEDIA_LIBRARY_PREFIX || 'library' }}"
-            
-            # Frontend Configuration
             FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"
-            
-            # Billing Configuration (optional)
             BILLING_TOKEN_TO_LLM_RATIO="${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1.0' }}"
             BILLING_RESERVATION_TTL_MINUTES="${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}"
             BILLING_SAFETY_FACTOR="${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}"
             BILLING_CURRENCY="${{ secrets.BILLING_CURRENCY || 'USD' }}"
             EOF
-            
-            # Verify .env file was created successfully
-            if [ ! -f .env ]; then
-              echo "❌ Failed to create .env file!"
-              exit 1
-            fi
-            
-            # Set proper permissions
+            sed -i "s/__RELEASE_SHA__/${RELEASE_SHA}/" .env
             chmod 600 .env
-            
-            # Verify .env file is readable and has content
-            if [ ! -s .env ]; then
-              echo "❌ .env file is empty!"
-              exit 1
-            fi
-            
-            # Make MySQL init scripts executable
-            chmod +x mysql-init/*.sh 2>/dev/null || true
-            
-            echo "🔍 Debug: MySQL init scripts status:"
-            ls -la mysql-init/ || echo "mysql-init directory not found"
-            echo "🔍 Debug: Checking if init scripts are executable:"
-            find mysql-init/ -name "*.sh" -exec ls -la {} \; || echo "No .sh files found"
-            echo "🔍 Debug: Checking all files in mysql-init directory:"
-            find mysql-init/ -type f -exec ls -la {} \; 2>/dev/null || echo "mysql-init directory not accessible"
-            
-            echo "✅ Environment file created"
-            echo "📋 Environment file structure (without sensitive values):"
-            grep -E "^[A-Z_]+=.*" .env | sed 's/=.*/=[HIDDEN]/' || true
-            
-            echo "🔍 Debug: Checking specific variables:"
-            db_username_length=$(printf '%s' "${DB_USERNAME:-}" | wc -c)
-            db_password_length=$(printf '%s' "${DB_PASSWORD:-}" | wc -c)
-            db_root_password_length=$(printf '%s' "${DB_ROOT_PASSWORD:-}" | wc -c)
-            echo "DB_USERNAME length: ${db_username_length}"
-            echo "DB_PASSWORD length: ${db_password_length}"
-            echo "DB_ROOT_PASSWORD length: ${db_root_password_length}"
-            echo "DB_USERNAME value: '$DB_USERNAME'"
-            echo "DB_PASSWORD first 3 chars: '$(echo "$DB_PASSWORD" | cut -c1-3)...'"
-            echo "DB_ROOT_PASSWORD first 3 chars: '$(echo "$DB_ROOT_PASSWORD" | cut -c1-3)...'"
-            
-            echo "🔍 Debug: Environment file contents (sanitized):"
-            cat .env | sed 's/=.*/=[REDACTED]/' | head -10
-            
-            echo "🔍 Debug: Checking if .env file exists and is readable:"
-            ls -la .env || echo "❌ .env file not found!"
-            
-            echo "🔍 Debug: First 5 lines of .env file:"
-            head -5 .env || echo "❌ Cannot read .env file!"
-            
-            echo "🔍 Debug: Loading .env file and checking variables:"
-            set -a
-            if ! source .env 2>/dev/null; then
-              echo "⚠️ Warning: Failed to load .env file for debugging output."
-            fi
-            set +a
-            echo "After loading .env:"
-            echo "DB_USERNAME: '${DB_USERNAME:-NOT_SET}'"
-            db_password_length=$(printf '%s' "${DB_PASSWORD:-}" | wc -c)
-            db_root_password_length=$(printf '%s' "${DB_ROOT_PASSWORD:-}" | wc -c)
-            echo "DB_PASSWORD length: ${db_password_length}"
-            echo "DB_ROOT_PASSWORD length: ${db_root_password_length}"
+            docker compose --env-file .env config --quiet
 
-      - name: Build and start backend
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            set -e
-            cd /var/www/quizmaker-backend
-            
-            # Check if .env file exists first
-            echo "🔍 Checking if .env file exists..."
-            if [ ! -f .env ]; then
-              echo "❌ .env file does not exist! Cannot proceed."
-              echo "📋 Current directory contents:"
-              ls -la
-              exit 1
-            fi
-            
-            echo "✅ .env file exists. Checking its contents..."
-            echo "📋 .env file size: $(wc -c < .env) bytes"
-            echo "📋 .env file line count: $(wc -l < .env) lines"
-            echo "📋 First 10 lines of .env file:"
-            head -10 .env || echo "Cannot read .env file"
-            
-            # Load environment variables from .env file
-            echo "🔍 Loading environment variables from .env file..."
-            sed -i 's/\r$//' .env
+            wait_for_health() {
+              local container="$1"
+              local label="$2"
 
-            # Try to load with verbose error output first
-            echo "🔍 Attempting to source .env file with verbose output:"
-            if ! source .env; then
-              echo "❌ Failed to source .env file. Checking for specific issues..."
-              
-              # Check for problematic characters
-              echo "📋 Checking for non-printable characters:"
-              hexdump -C .env | head -10
-              
-              # Check for specific problematic patterns
-              echo "📋 Checking for problematic patterns:"
-              grep -n '[[:space:]]$' .env || echo "No trailing whitespace found"
-              grep -n '^[[:space:]]' .env || echo "No leading whitespace found"
-              grep -n '=' .env | head -5 || echo "No equals signs found"
-              
-              # Try loading line by line to find the problematic line
-              echo "📋 Testing .env file line by line:"
-              line_num=0
-              while IFS= read -r line; do
-                line_num=$((line_num + 1))
-                if [[ "$line" =~ ^[[:space:]]*# ]] || [[ -z "$line" ]]; then
-                  echo "Line $line_num: OK (comment/empty): $line"
-                elif [[ "$line" =~ ^[A-Z_]+= ]]; then
-                  echo "Line $line_num: OK (variable): ${line%%=*}=[HIDDEN]"
-                else
-                  echo "Line $line_num: PROBLEMATIC: '$line'"
-                  break
+              for attempt in $(seq 1 60); do
+                local status
+                status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")
+                if [ "$status" = "healthy" ]; then
+                  echo "${label} is healthy"
+                  return 0
                 fi
-              done < .env
-              
+                if [ "$status" = "unhealthy" ] || [ "$status" = "exited" ]; then
+                  echo "${label} failed with status ${status}" >&2
+                  docker logs --tail=200 "$container" || true
+                  return 1
+                fi
+                sleep 5
+              done
+
+              echo "${label} did not become healthy" >&2
+              docker logs --tail=200 "$container" || true
+              return 1
+            }
+
+            mysql_container=$(docker compose --env-file .env ps -q mysql || true)
+            if [ -z "$mysql_container" ]; then
+              docker compose --env-file .env up -d mysql
+              mysql_container=$(docker compose --env-file .env ps -q mysql)
+              wait_for_health "$mysql_container" "MySQL"
+            fi
+
+            previous_container=$(docker compose --env-file .env ps -q quizmaker-backend || true)
+            rollback_image=""
+            if [ -n "$previous_container" ]; then
+              rollback_image="quizmaker-backend:rollback-${RELEASE_SHA:0:12}"
+              docker tag "$(docker inspect --format '{{.Image}}' "$previous_container")" "$rollback_image"
+            fi
+
+            docker compose --env-file .env build quizmaker-backend
+
+            candidate="quizmaker-backend-candidate-${RELEASE_SHA:0:12}"
+            docker rm -f "$candidate" >/dev/null 2>&1 || true
+            docker compose --env-file .env run -d --name "$candidate" --no-deps quizmaker-backend
+
+            if ! wait_for_health "$candidate" "Candidate backend"; then
+              docker rm -f "$candidate" || true
+              exit 1
+            fi
+            docker rm -f "$candidate"
+
+            rollback_needed=false
+            rollback() {
+              trap - ERR
+              docker compose --env-file .env stop quizmaker-backend || true
+              docker compose --env-file .env rm -f quizmaker-backend || true
+              if [ -n "$rollback_image" ]; then
+                BACKEND_IMAGE="$rollback_image" docker compose --env-file .env up -d --no-deps quizmaker-backend
+                restored_container=$(docker compose --env-file .env ps -q quizmaker-backend)
+                wait_for_health "$restored_container" "Restored backend" || true
+              fi
+            }
+
+            on_handoff_error() {
+              if [ "$rollback_needed" = true ]; then
+                rollback
+              fi
+            }
+            trap on_handoff_error ERR
+
+            if [ -n "$previous_container" ]; then
+              rollback_needed=true
+              docker compose --env-file .env stop quizmaker-backend
+              docker compose --env-file .env rm -f quizmaker-backend
+            fi
+
+            docker compose --env-file .env up -d --no-deps quizmaker-backend
+            active_container=$(docker compose --env-file .env ps -q quizmaker-backend)
+            if ! wait_for_health "$active_container" "Replacement backend"; then
+              rollback
               exit 1
             fi
 
-            echo "✅ Successfully loaded .env file"
-            
-            if [ -z "${MYSQL_ROOT_PASSWORD:-}" ] && [ -n "${DB_ROOT_PASSWORD:-}" ]; then
-              export MYSQL_ROOT_PASSWORD="${DB_ROOT_PASSWORD}"
-              echo "ℹ️  MYSQL_ROOT_PASSWORD not provided. Falling back to DB_ROOT_PASSWORD."
-            fi
-
-            if [ -z "${MYSQL_ROOT_PASSWORD:-}" ]; then
-              echo "❌ MYSQL_ROOT_PASSWORD is required but not set."
+            if ! curl --fail --silent --show-error --max-time 15 https://quizzence.com/actuator/health >/dev/null; then
+              echo "External backend health check failed; restoring the previous release" >&2
+              rollback
               exit 1
             fi
 
-            echo "🔍 Environment variables loaded:"
-            echo "DB_USERNAME: '${DB_USERNAME:-NOT_SET}'"
-            db_password_length=$(printf '%s' "${DB_PASSWORD:-}" | wc -c)
-            db_root_password_length=$(printf '%s' "${DB_ROOT_PASSWORD:-}" | wc -c)
-            mysql_root_password_length=$(printf '%s' "${MYSQL_ROOT_PASSWORD:-}" | wc -c)
-            echo "DB_PASSWORD length: ${db_password_length}"
-            echo "DB_ROOT_PASSWORD length: ${db_root_password_length}"
-            echo "MYSQL_ROOT_PASSWORD length: ${mysql_root_password_length}"
-            
-            # Verify docker-compose.yml syntax
-            echo "🔍 Verifying Docker Compose configuration..."
-            docker compose config --quiet
-            
-            # Build and start services
-            echo "🔨 Building backend container..."
-            docker compose build --no-cache
-            
-            echo "🧹 PHASE 2: Preparing for Flyway migration (preserving data)..."
-            # Note: We're NOT dropping volumes to preserve user data
-            # Only stop backend containers, leave frontend running
-            echo "🛑 Stopping backend containers only (preserving frontend and data)..."
-            docker compose stop quizmaker-backend mysql || true
-            
-            echo "🚀 Starting MySQL first..."
-            docker compose up -d mysql
-            
-            echo "[STEP 1] ⏳ Waiting for MySQL to be ready before starting backend..."
-            # Wait for MySQL to be healthy before starting backend
-            for i in {1..60}; do
-              if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysqladmin ping -h localhost -u root --silent 2>/dev/null; then
-                echo "[STEP 2] ✅ MySQL is ready!"
-                
-                # Extra: wait for transition from temporary (port: 0) to final server
-                echo "[STEP 2A] 🔎 Waiting for MySQL to switch from temporary to final server..."
-                seen_temp=0
-                for k in {1..60}; do
-                  logs=$(docker compose logs --no-color --tail=200 mysql 2>/dev/null || true)
-                  if printf "%s" "$logs" | grep -qE "\\[Entrypoint\\]: Temporary server started"; then
-                    seen_temp=1
-                  fi
-                  # Final server usually logs ready with non-zero port OR init process done
-                  if printf "%s" "$logs" | grep -qE "ready for connections.*port: [1-9][0-9]*" || \
-                     printf "%s" "$logs" | grep -qE "\\[Entrypoint\\]: MySQL init process done\\. Ready for start up\.|\\[Entrypoint\\]: Starting MySQL"; then
-                    echo "[STEP 2A] ✅ Final server readiness detected"
-                    break
-                  fi
-                  if [ $k -eq 60 ]; then
-                    echo "[STEP 2A] ⚠️ Did not conclusively detect final switch; continuing"
-                    break
-                  fi
-                  sleep 2
-                done
-                
-                # Check if init scripts were copied and are executable
-                echo "[STEP 3] 🔍 Checking MySQL init scripts in container..."
-                docker compose exec mysql ls -la /docker-entrypoint-initdb.d/ || echo "Cannot access init directory"
-                
-                # Check MySQL initialization logs
-                echo "[STEP 4] 🔍 Checking MySQL initialization logs..."
-                docker compose logs mysql | grep -Ei "\[mysql-init\]|DEBUG:|ERROR:|initdb|Entrypoint" || echo "No init logs found"
-                
-                # Check MySQL container environment variables
-                echo "[STEP 5] 🔍 Checking MySQL container environment variables..."
-                docker compose exec mysql env | grep MYSQL || echo "No MYSQL environment variables found"
-                
-                echo "[STEP 6] 🔍 Verifying MySQL root connectivity and initialization..."
-                echo "[STEP 6] Credentials preview (unmasked as requested):"
-                echo "  DB_USERNAME='$DB_USERNAME'"
-                echo "  DB_PASSWORD='$DB_PASSWORD'"
-                echo "  DB_ROOT_PASSWORD='$DB_ROOT_PASSWORD'"
-                echo "  MYSQL_ROOT_PASSWORD='$MYSQL_ROOT_PASSWORD'"
-                # Try a few times in case entrypoint is switching from temp to final server
-                root_ok=0; for j in 1 2 3 4 5; do
-                  if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT 1;" >/dev/null 2>&1; then root_ok=1; break; fi
-                  echo "[STEP 6] Root connection not ready yet (attempt $j/5), sleeping 2s..."; sleep 2; done
-                if [ "$root_ok" -ne 1 ]; then
-                  echo "❌ Could not connect as root with provided password. Aborting to avoid racing entrypoint."
-                  docker compose logs --tail=50 mysql || true
-                  exit 1
-                fi
-                echo "[STEP 6] ✅ Root connection verified"
-                
-                # Check MySQL users after initialization
-                echo "[STEP 7] 🔍 Checking MySQL users after initialization..."
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "SELECT User, Host FROM mysql.user WHERE User NOT IN ('mysql.session', 'mysql.sys', 'mysql.infoschema', '');" 2>/dev/null || echo "Could not check users"
-                
-                # Verify application user exists with % host
-                app_user_check=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tr -d '\r' || echo "0")
-                
-                if [ "$app_user_check" = "0" ]; then
-                  echo "[STEP 8] ⚠️ Application user '$DB_USERNAME' not found with % host access!"
-                  echo "[STEP 8] 🔧 Creating application user manually..."
-                  docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
-                    CREATE DATABASE IF NOT EXISTS \`quizmakerdb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-                    CREATE USER IF NOT EXISTS '$DB_USERNAME'@'%' IDENTIFIED BY '$DB_PASSWORD';
-                    GRANT ALL PRIVILEGES ON \`quizmakerdb\`.* TO '$DB_USERNAME'@'%';
-                    FLUSH PRIVILEGES;
-                  " || echo "Manual user creation failed"
-                  
-                  # Verify again
-                  app_user_check=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE User='$DB_USERNAME' AND Host='%';" 2>/dev/null | tr -d '\r' || echo "0")
-                  if [ "$app_user_check" = "0" ]; then
-                    echo "❌ Failed to create application user. Aborting deployment."
-                    exit 1
-                  else
-                    echo "✅ Application user created successfully!"
-                  fi
-                else
-                  echo "[STEP 8] ✅ Application user '$DB_USERNAME' found with % host access!"
-                fi
-                
-                 # Check if database exists and ensure it's ready for Flyway
-                 echo "[STEP 9] 🔍 Checking database state for Flyway migration..."
-                 
-                 # Check if the database exists
-                 echo "[STEP 9A] 🔍 Checking if quizmakerdb exists..."
-                 db_exists=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'quizmakerdb';" 2>/dev/null | tr -d '\r' || echo "0")
-                 
-                 if [ "$db_exists" = "0" ]; then
-                   echo "[STEP 9B] 🏗️ Creating quizmakerdb database..."
-                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "CREATE DATABASE quizmakerdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || echo "Cannot create database"
-                 else
-                   echo "[STEP 9B] ✅ Database quizmakerdb already exists"
-                 fi
-                 
-                 echo "[STEP 9] ✅ Database ready for Flyway migration"
-                 
-                 # Fix Flyway schema history - remove failed migrations completely
-                 echo "[STEP 9C] 🔧 Checking Flyway schema history..."
-                 
-                 # Check if flyway_schema_history table exists
-                 table_exists=$(docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "
-                 SELECT COUNT(*) FROM information_schema.tables 
-                 WHERE table_schema = 'quizmakerdb' 
-                 AND table_name = 'flyway_schema_history';" 2>/dev/null | tr -d '\r' || echo "0")
-                 
-                 if [ "$table_exists" = "1" ]; then
-                   echo "[STEP 9D] 🔍 Flyway schema history table exists. Checking for issues..."
-                   
-                   # Show current migration status
-                   echo "[STEP 9D.1] Current migrations:"
-                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
-                   SELECT installed_rank, version, description, success 
-                   FROM quizmakerdb.flyway_schema_history 
-                   ORDER BY installed_rank;" 2>/dev/null || echo "Cannot list migrations"
-                   
-                   # Delete failed migrations (versions 16 and 20 specifically)
-                   echo "[STEP 9D.2] 🧹 Removing failed migrations from history..."
-                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
-                   DELETE FROM quizmakerdb.flyway_schema_history 
-                   WHERE success = 0 OR version IN ('16', '20');" 2>/dev/null || echo "No failed migrations to remove"
-                   
-                   # Resequence the installed_rank to fix gaps
-                   echo "[STEP 9D.3] 🔧 Resequencing migration ranks..."
-                   docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -e "
-                   SET @rank = 0;
-                   UPDATE quizmakerdb.flyway_schema_history 
-                   SET installed_rank = (@rank := @rank + 1) 
-                   ORDER BY installed_rank;" 2>/dev/null || echo "Cannot resequence ranks"
-                   
-                   echo "[STEP 9D.4] ✅ Flyway schema history cleaned"
-                 else
-                   echo "[STEP 9D] ℹ️ No Flyway schema history table found - clean start"
-                 fi
-                
-                break
-              fi
-              
-              # Show MySQL logs every 10 attempts
-              if [ $((i % 10)) -eq 0 ]; then
-                echo "📋 MySQL status (attempt $i/60):"
-                docker compose ps mysql
-                echo "📋 Recent MySQL logs:"
-                docker compose logs --tail=10 mysql
-              fi
-              
-              if [ $i -eq 60 ]; then
-                echo "❌ MySQL failed to start after 2 minutes"
-                echo "📋 Final MySQL logs:"
-                docker compose logs mysql
-                echo "📋 MySQL environment variables:"
-                docker compose exec mysql env | grep MYSQL || true
-                exit 1
-              fi
-              echo "⏳ MySQL not ready yet, waiting... ($i/60)"
-              sleep 2
-            done
-            
-            echo "[STEP 10] 🚀 Starting backend service with Flyway repair..."
-            docker compose up -d quizmaker-backend
-            
-            # If backend fails due to Flyway issues, try to repair
-            echo "[STEP 11] 🔧 Checking if Flyway repair is needed..."
-            sleep 5  # Give backend time to start and potentially fail
-            
-            if ! docker compose ps quizmaker-backend | grep -q "Up.*healthy"; then
-              echo "⚠️ Backend not healthy. Skipping Flyway CLI repair (not available)."
-              echo "📋 Backend logs (last 200 lines):"
-              docker compose logs --tail=200 quizmaker-backend || true
-              echo "📋 MySQL logs (last 200 lines):"
-              docker compose logs --tail=200 mysql || true
-              echo "📋 Inspecting Flyway schema history for error details..."
-              if docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "SELECT 1 FROM information_schema.tables WHERE table_schema='quizmakerdb' AND table_name='flyway_schema_history';" | grep -q 1; then
-                docker compose exec -e MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql mysql -uroot -N -B -e "\
-                  SELECT installed_rank, version, description, type, script, checksum, installed_by, success \
-                  FROM quizmakerdb.flyway_schema_history ORDER BY installed_rank;" || true
-              else
-                echo "(No flyway_schema_history table found in quizmakerdb)"
-              fi
-              echo "🔄 Restarting backend once to retry..."
-              docker compose restart quizmaker-backend || true
-            else
-              echo "✅ Backend is healthy, no repair needed"
-            fi
-            
-            echo "📋 Initial container status:"
-            docker compose ps
-            
-            echo "📋 Environment variables check:"
-            echo "DB_USERNAME: '${DB_USERNAME}'"
-            db_password_length=$(printf '%s' "${DB_PASSWORD:-}" | wc -c)
-            db_root_password_length=$(printf '%s' "${DB_ROOT_PASSWORD:-}" | wc -c)
-            mysql_root_password_length=$(printf '%s' "${MYSQL_ROOT_PASSWORD:-}" | wc -c)
-            echo "DB_PASSWORD: [HIDDEN - length: ${db_password_length}]"
-            echo "DB_ROOT_PASSWORD: [HIDDEN - length: ${db_root_password_length}]"
-            echo "MYSQL_ROOT_PASSWORD: [HIDDEN - length: ${mysql_root_password_length}]"
-            
-            echo "🔍 Debug: Docker Compose environment variable resolution:"
-            docker compose config | grep -A 20 -B 5 "SPRING_DATASOURCE_USERNAME\|MYSQL_USER" || true
-            
-            echo "⏳ Waiting for backend to be ready..."
-            # Wait for backend to be healthy
-            for i in {1..30}; do
-              if curl -f http://localhost:8080/actuator/health/startup > /dev/null 2>&1; then
-                echo "✅ Backend is ready!"
-                break
-              fi
-              
-              if [ $i -eq 30 ]; then
-                echo "❌ Backend failed to start"
-                echo "📋 Container status:"
-                docker compose ps
-                echo "📋 Backend logs:"
-                docker compose logs --tail=50 quizmaker-backend
-                exit 1
-              fi
-              echo "⏳ Backend not ready yet, waiting... ($i/30)"
-              sleep 5
-            done
-            
-            echo "✅ Backend containers started"
-
-      - name: Wait for backend to be healthy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            set -e
-            cd /var/www/quizmaker-backend
-            
-            # Load environment variables from .env file
-            set -a
-            if ! source .env 2>/dev/null; then
-              echo "⚠️ Warning: Failed to load .env file for health check step."
-            fi
-            set +a
-            
-            echo "⏳ Waiting for backend to be healthy..."
-            
-            # Wait up to 5 minutes for the backend to be healthy
-            for i in {1..60}; do
-              if curl -f http://localhost:8080/actuator/health/startup > /dev/null 2>&1; then
-                echo "✅ Backend is healthy!"
-                break
-              fi
-              
-              if [ $i -eq 60 ]; then
-                echo "❌ Backend health check timeout"
-                echo "📋 Container status:"
-                docker compose ps
-                echo "📋 Backend logs:"
-                docker compose logs --tail=50 quizmaker-backend
-                echo "📋 MySQL logs:"
-                docker compose logs --tail=50 mysql
-                exit 1
-              fi
-              
-              echo "⏳ Attempt $i/60: Backend not ready yet, waiting..."
-              sleep 5
-            done
-            
-            echo "🎉 Backend deployment completed successfully!"
-            
-            # Show final status
-            echo "📊 Final container status:"
-            docker compose ps
-            
-            echo "🌐 Backend should be available at:"
-            echo "   - Health: https://quizzence.com/actuator/health"
-            echo "   - API Docs: https://quizzence.com/api/v1/docs/swagger-ui.html"
-
-      - name: Cleanup deployment files
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            cd /var/www/quizmaker-backend
-            
-            # Load environment variables if .env exists
-            if [ -f .env ]; then
-              echo "🔍 Attempting to load existing environment variables during cleanup (non-fatal if parsing fails)..."
-              set -a
-              if ! source .env 2>/dev/null; then
-                echo "⚠️ Warning: Failed to parse existing .env file during cleanup."
-              fi
-              set +a
-            fi
-            
-            # Clean up old Docker images to save space
-            docker image prune -f || true
-            echo "✅ Cleanup completed"
+            rollback_needed=false
+            trap - ERR
+            docker image prune -f
+            echo "Deployed CI-verified release ${RELEASE_SHA}"
