@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -86,6 +87,78 @@ import java.util.UUID;
 @Validated
 @Slf4j
 public class QuizController {
+
+    private static final String BULK_QUIZ_UPDATE_REQUEST_EXAMPLE = """
+            {
+              "quizIds": [
+                "d290f1ee-6c54-4b01-90e6-d701748f0851",
+                "f3e2d1c0-b9a8-4765-8432-10fedcba9876"
+              ],
+              "update": {
+                "visibility": "PRIVATE",
+                "timerEnabled": false
+              }
+            }
+            """;
+
+    private static final String BULK_QUIZ_UPDATE_RESULT_EXAMPLE = """
+            {
+              "successfulIds": ["d290f1ee-6c54-4b01-90e6-d701748f0851"],
+              "failures": {
+                "f3e2d1c0-b9a8-4765-8432-10fedcba9876": "Quiz not found"
+              }
+            }
+            """;
+
+    private static final String GENERATION_JOBS_PAGE_EXAMPLE = """
+            {
+              "content": [
+                {
+                  "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+                  "status": "PROCESSING",
+                  "totalChunks": 5,
+                  "processedChunks": 2,
+                  "progressPercentage": 40.0,
+                  "currentChunk": "Processing chunk 2/5",
+                  "totalTasks": 10,
+                  "completedTasks": 4,
+                  "lastCompletedType": null,
+                  "estimatedCompletion": "2026-07-21T23:20:00",
+                  "errorMessage": null,
+                  "totalQuestionsGenerated": 8,
+                  "elapsedTimeSeconds": 120,
+                  "estimatedTimeRemainingSeconds": 180,
+                  "generatedQuizId": null,
+                  "startedAt": "2026-07-21T23:15:00",
+                  "completedAt": null,
+                  "billingReservationId": null,
+                  "reservationExpiresAt": null,
+                  "billingEstimatedTokens": null,
+                  "billingCommittedTokens": null,
+                  "billingState": null,
+                  "inputPromptTokens": null,
+                  "estimationVersion": null
+                }
+              ],
+              "totalPages": 1,
+              "totalElements": 1,
+              "size": 20,
+              "number": 0,
+              "sort": {"sorted": true, "unsorted": false, "empty": false},
+              "first": true,
+              "last": true,
+              "numberOfElements": 1,
+              "empty": false,
+              "pageable": {
+                "pageNumber": 0,
+                "pageSize": 20,
+                "offset": 0,
+                "sort": {"sorted": true, "unsorted": false, "empty": false},
+                "paged": true,
+                "unpaged": false
+              }
+            }
+            """;
 
     private final QuizService quizService;
     private final AttemptService attemptService;
@@ -197,13 +270,38 @@ public class QuizController {
 
     @Operation(
             summary = "Bulk update quizzes",
-            description = "Update multiple quizzes in one request. Requires QUIZ_UPDATE permission and ownership or moderation permissions for each quiz."
+            description = """
+                    Update multiple quizzes in one request. Requires QUIZ_UPDATE permission and ownership or moderation permissions for each quiz.
+
+                    Each quiz ID is processed independently. A valid request returns 200 even when one or more quiz IDs cannot be updated: `successfulIds` contains the IDs that changed and `failures` maps each unsuccessful quiz UUID to its reason. Successful updates are not rolled back because another ID failed. Retry only the returned failures after correcting their cause; this operation has no idempotency key.
+                    """,
+            security = @SecurityRequirement(name = "bearerAuth")
     )
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             description = "Bulk update payload",
             required = true,
-            content = @Content(schema = @Schema(implementation = BulkQuizUpdateRequest.class))
+            content = @Content(
+                    schema = @Schema(implementation = BulkQuizUpdateRequest.class),
+                    examples = @ExampleObject(name = "Update quiz visibility and timer", value = BULK_QUIZ_UPDATE_REQUEST_EXAMPLE)
+            )
     )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Every requested quiz was updated or its individual result is listed in failures",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = BulkQuizUpdateOperationResultDto.class),
+                            examples = @ExampleObject(name = "Partial success", value = BULK_QUIZ_UPDATE_RESULT_EXAMPLE)
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid bulk request or update fields",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "QUIZ_UPDATE permission is required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     @PatchMapping("/bulk-update")
     @RequirePermission(PermissionName.QUIZ_UPDATE)
     public ResponseEntity<BulkQuizUpdateOperationResultDto> bulkUpdateQuizzes(
@@ -873,7 +971,7 @@ public class QuizController {
 
     @Operation(
             summary = "List user's quiz generation jobs",
-            description = "Get a paginated list of all quiz generation jobs for the authenticated user, ordered by creation time (newest first).",
+            description = "Get a zero-based, paginated list of generation jobs owned by the authenticated user. Results default to 20 items ordered by startedAt descending. Each job status exposes its lifecycle state, including CANCELLED when cancellation succeeds, and timing/progress information available for that job.",
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(
@@ -881,7 +979,8 @@ public class QuizController {
                             description = "Generation jobs retrieved successfully",
                             content = @Content(
                                     mediaType = "application/json",
-                                    schema = @Schema(implementation = Page.class)
+                                    schema = @Schema(implementation = QuizGenerationJobPageResponse.class),
+                                    examples = @ExampleObject(name = "Processing generation job", value = GENERATION_JOBS_PAGE_EXAMPLE)
                             )
                     ),
                     @ApiResponse(
