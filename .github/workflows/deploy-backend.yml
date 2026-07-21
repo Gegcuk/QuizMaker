@@ -40,9 +40,19 @@ jobs:
       - name: Prepare deployment bundle
         run: |
           rm -rf deployment
-          mkdir -p deployment
-          cp -r server/backend/. deployment/
-          cp deployment-artifact/QuizMaker-*.jar deployment/
+          mkdir -p deployment/mysql-init image-build
+          cp server/backend/docker-compose.yml deployment/
+          cp -r server/backend/mysql-init/. deployment/mysql-init/
+          cp server/backend/Dockerfile image-build/
+          cp server/backend/application-prod.properties image-build/
+          cp deployment-artifact/QuizMaker-*.jar image-build/
+
+      - name: Build CI-tested release image
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          docker build --tag "quizmaker-backend:${RELEASE_SHA}" image-build
+          docker save --output deployment/quizmaker-backend.tar "quizmaker-backend:${RELEASE_SHA}"
 
       - name: Copy deployment bundle
         uses: appleboy/scp-action@v0.1.7
@@ -64,6 +74,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           envs: RELEASE_SHA
+          command_timeout: 25m
           script: |
             set -Eeuo pipefail
             cd /var/www/quizmaker-backend
@@ -75,6 +86,7 @@ jobs:
             DB_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
             MYSQL_ROOT_PASSWORD="${{ secrets.DB_ROOT_PASSWORD }}"
             MYSQL_INIT_SHOW_SECRETS="0"
+            CANDIDATE_MIN_AVAILABLE_MEMORY_MB="${{ vars.CANDIDATE_MIN_AVAILABLE_MEMORY_MB || '768' }}"
             JWT_SECRET="${{ secrets.JWT_SECRET }}"
             TOKEN_PEPPER_SECRET="${{ secrets.TOKEN_PEPPER_SECRET }}"
             RESET_TOKEN_PEPPER="${{ secrets.RESET_TOKEN_PEPPER }}"
@@ -127,15 +139,20 @@ jobs:
             EOF
             sed -i "s/__RELEASE_SHA__/${RELEASE_SHA}/" .env
             chmod 600 .env
+            release_image="quizmaker-backend:${RELEASE_SHA}"
+            docker load --input quizmaker-backend.tar
+            rm -f quizmaker-backend.tar
+            docker image inspect "$release_image" >/dev/null
             docker compose --env-file .env config --quiet
 
             wait_for_health() {
               local container="$1"
               local label="$2"
+              local max_attempts="$3"
 
-              for attempt in $(seq 1 60); do
+              for attempt in $(seq 1 "$max_attempts"); do
                 local status
-                status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")
+                status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)
                 if [ "$status" = "healthy" ]; then
                   echo "${label} is healthy"
                   return 0
@@ -153,11 +170,39 @@ jobs:
               return 1
             }
 
+            is_container_healthy() {
+              local container="$1"
+              [ -n "$container" ] && [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)" = "healthy" ]
+            }
+
+            ensure_candidate_capacity() {
+              local available_kb
+              local available_mb
+              local required_mb="${CANDIDATE_MIN_AVAILABLE_MEMORY_MB:-768}"
+
+              available_kb=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo)
+              case "$required_mb" in
+                ''|*[!0-9]*)
+                  echo "CANDIDATE_MIN_AVAILABLE_MEMORY_MB must be a positive integer" >&2
+                  exit 1
+                  ;;
+              esac
+              if [ -z "$available_kb" ]; then
+                echo "Cannot determine available host memory; refusing candidate startup" >&2
+                exit 1
+              fi
+              available_mb=$((available_kb / 1024))
+              if [ "$available_mb" -lt "$required_mb" ]; then
+                echo "Refusing candidate startup: ${available_mb}MiB available, ${required_mb}MiB required while the live backend remains running" >&2
+                exit 1
+              fi
+            }
+
             mysql_container=$(docker compose --env-file .env ps -q mysql || true)
             if [ -z "$mysql_container" ]; then
               docker compose --env-file .env up -d mysql
               mysql_container=$(docker compose --env-file .env ps -q mysql)
-              wait_for_health "$mysql_container" "MySQL"
+              wait_for_health "$mysql_container" "MySQL" 60
             fi
 
             previous_container=$(docker compose --env-file .env ps -q quizmaker-backend || true)
@@ -167,14 +212,37 @@ jobs:
               docker tag "$(docker inspect --format '{{.Image}}' "$previous_container")" "$rollback_image"
             fi
 
-            docker compose --env-file .env build quizmaker-backend
+            restore_previous_backend() {
+              local force_restore="${1:-false}"
+              local current_backend
+
+              if [ -z "$rollback_image" ]; then
+                return 0
+              fi
+
+              current_backend=$(docker compose --env-file .env ps -q quizmaker-backend || true)
+              if [ "$force_restore" != true ] && is_container_healthy "$current_backend"; then
+                echo "Existing backend remains healthy"
+                return 0
+              fi
+
+              echo "Restoring the previous backend image"
+              docker compose --env-file .env stop quizmaker-backend || true
+              docker compose --env-file .env rm -f quizmaker-backend || true
+              BACKEND_IMAGE="$rollback_image" docker compose --env-file .env up -d --no-deps quizmaker-backend
+              restored_container=$(docker compose --env-file .env ps -q quizmaker-backend)
+              wait_for_health "$restored_container" "Restored backend" 108
+            }
+
+            ensure_candidate_capacity
 
             candidate="quizmaker-backend-candidate-${RELEASE_SHA:0:12}"
             docker rm -f "$candidate" >/dev/null 2>&1 || true
             docker compose --env-file .env run -d --name "$candidate" --no-deps quizmaker-backend
 
-            if ! wait_for_health "$candidate" "Candidate backend"; then
+            if ! wait_for_health "$candidate" "Candidate backend" 108; then
               docker rm -f "$candidate" || true
+              restore_previous_backend || true
               exit 1
             fi
             docker rm -f "$candidate"
@@ -182,13 +250,7 @@ jobs:
             rollback_needed=false
             rollback() {
               trap - ERR
-              docker compose --env-file .env stop quizmaker-backend || true
-              docker compose --env-file .env rm -f quizmaker-backend || true
-              if [ -n "$rollback_image" ]; then
-                BACKEND_IMAGE="$rollback_image" docker compose --env-file .env up -d --no-deps quizmaker-backend
-                restored_container=$(docker compose --env-file .env ps -q quizmaker-backend)
-                wait_for_health "$restored_container" "Restored backend" || true
-              fi
+              restore_previous_backend true || true
             }
 
             on_handoff_error() {
@@ -206,7 +268,7 @@ jobs:
 
             docker compose --env-file .env up -d --no-deps quizmaker-backend
             active_container=$(docker compose --env-file .env ps -q quizmaker-backend)
-            if ! wait_for_health "$active_container" "Replacement backend"; then
+            if ! wait_for_health "$active_container" "Replacement backend" 108; then
               rollback
               exit 1
             fi
