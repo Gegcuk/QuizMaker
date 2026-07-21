@@ -1,22 +1,3 @@
-# Multi-stage build for QuizMaker Backend
-FROM maven:3.9.6-eclipse-temurin-17 AS builder
-
-# Set working directory
-WORKDIR /app
-
-# Copy pom.xml first for better layer caching
-COPY pom.xml .
-
-# Download dependencies (this layer will be cached if pom.xml doesn't change)
-RUN mvn dependency:go-offline -B
-
-# Copy source code
-COPY src ./src
-
-# Build the application (skip tests for production build)
-RUN mvn clean package -DskipTests -B
-
-# Runtime stage
 FROM eclipse-temurin:17-jre-alpine
 
 # Install curl for health checks
@@ -29,8 +10,9 @@ RUN addgroup -g 1001 -S quizmaker && \
 # Set working directory
 WORKDIR /app
 
-# Copy the built JAR from builder stage
-COPY --from=builder /app/target/QuizMaker-*.jar app.jar
+# The JAR is packaged by the successful CI run and placed in this build context.
+COPY QuizMaker-*.jar app.jar
+COPY application-prod.properties /app/config/application-prod.properties
 
 # Create uploads directory and set permissions
 RUN mkdir -p /app/uploads/documents && \
@@ -47,4 +29,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/actuator/health/startup || exit 1
 
 # Run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar", "--spring.config.additional-location=file:/app/config/"]
