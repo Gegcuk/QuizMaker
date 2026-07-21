@@ -23,7 +23,7 @@ public class DocumentDto {
     @Schema(description = "File size in bytes", example = "1048576")
     private Long fileSize;
     
-    @Schema(description = "Processing status", example = "COMPLETED")
+    @Schema(description = "Processing status", example = "PROCESSED")
     private Document.DocumentStatus status;
     
     @Schema(description = "Upload timestamp")
@@ -49,4 +49,4 @@ public class DocumentDto {
     
     @Schema(description = "List of document chunks")
     private List<DocumentChunkDto> chunks;
-} 
+}
