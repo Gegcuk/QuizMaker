@@ -53,6 +53,8 @@ jobs:
         run: |
           docker build --tag "quizmaker-backend:${RELEASE_SHA}" image-build
           docker save --output deployment/quizmaker-backend.tar "quizmaker-backend:${RELEASE_SHA}"
+          # The Docker-based SCP action reads this file through the runner workspace mount.
+          chmod 0644 deployment/quizmaker-backend.tar
 
       - name: Copy deployment bundle
         uses: appleboy/scp-action@v0.1.7
