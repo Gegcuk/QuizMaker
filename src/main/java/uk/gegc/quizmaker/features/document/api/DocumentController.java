@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -23,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentConfigDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
+import uk.gegc.quizmaker.features.document.api.dto.DocumentPageResponse;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
@@ -42,6 +44,42 @@ import java.util.UUID;
 @Tag(name = "Documents", description = "Document upload, chunking, and retrieval (legacy API)")
 @SecurityRequirement(name = "Bearer Authentication")
 public class DocumentController {
+
+    private static final String DOCUMENT_PAGE_EXAMPLE = """
+            {
+              "content": [{
+                "id": "0e1aa6df-1f30-4d4c-8393-3c7d804a1a10",
+                "originalFilename": "java-basics.pdf",
+                "contentType": "application/pdf",
+                "fileSize": 1048576,
+                "status": "PROCESSED",
+                "uploadedAt": "2026-07-20T10:15:30",
+                "processedAt": "2026-07-20T10:16:02",
+                "title": "Java Basics",
+                "author": "Quizzence",
+                "totalPages": 12,
+                "totalChunks": 4,
+                "chunks": []
+              }],
+              "totalPages": 1,
+              "totalElements": 1,
+              "size": 10,
+              "number": 0,
+              "sort": { "sorted": false, "unsorted": true, "empty": true },
+              "first": true,
+              "last": true,
+              "numberOfElements": 1,
+              "empty": false,
+              "pageable": {
+                "pageNumber": 0,
+                "pageSize": 10,
+                "offset": 0,
+                "sort": { "sorted": false, "unsorted": true, "empty": true },
+                "paged": true,
+                "unpaged": false
+              }
+            }
+            """;
 
     private final DocumentProcessingService documentProcessingService;
     private final DocumentValidationService documentValidationService;
@@ -147,13 +185,17 @@ public class DocumentController {
 
     @Operation(
             summary = "Get user documents",
-            description = "Retrieves all documents for the authenticated user with pagination"
+            description = "Retrieves documents owned by the authenticated user with zero-based pagination"
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
                     description = "Documents retrieved",
-                    content = @Content(schema = @Schema(implementation = Page.class))
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = DocumentPageResponse.class),
+                            examples = @ExampleObject(name = "Processed documents", value = DOCUMENT_PAGE_EXAMPLE)
+                    )
             ),
             @ApiResponse(responseCode = "500", description = "Failed to retrieve documents",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -408,4 +450,4 @@ public class DocumentController {
         );
         return ResponseEntity.ok(config);
     }
-} 
+}

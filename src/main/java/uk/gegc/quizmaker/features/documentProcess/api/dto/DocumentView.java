@@ -20,7 +20,7 @@ public record DocumentView(
     @Schema(description = "MIME type", example = "application/pdf")
     String mime,
     
-    @Schema(description = "Document source type", example = "FILE")
+    @Schema(description = "Document source type", example = "UPLOAD")
     NormalizedDocument.DocumentSource source,
     
     @Schema(description = "Character count of normalized text", example = "15000")

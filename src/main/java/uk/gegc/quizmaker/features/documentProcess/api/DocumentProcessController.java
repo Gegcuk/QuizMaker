@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.documentProcess.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -47,6 +48,86 @@ import java.util.UUID;
 @Tag(name = "Document Processing", description = "Document ingestion, normalization, and structure extraction")
 @SecurityRequirement(name = "Bearer Authentication")
 public class DocumentProcessController {
+
+    private static final String DOCUMENT_METADATA_EXAMPLE = """
+            {
+              "id": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+              "originalName": "learning-notes.txt",
+              "mime": "text/plain",
+              "source": "TEXT",
+              "charCount": 15320,
+              "language": "en",
+              "status": "STRUCTURED",
+              "createdAt": "2026-07-20T10:15:30Z",
+              "updatedAt": "2026-07-20T10:16:02Z"
+            }
+            """;
+
+    private static final String TREE_STRUCTURE_EXAMPLE = """
+            {
+              "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+              "rootNodes": [{
+                "id": "f4bd0a47-4905-4d7e-aecb-e4f7e70b6a76",
+                "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+                "parentId": null,
+                "idx": 0,
+                "type": "CHAPTER",
+                "title": "Chapter 1: Introduction",
+                "startOffset": 0,
+                "endOffset": 3200,
+                "depth": 0,
+                "aiConfidence": 0.97,
+                "metaJson": null,
+                "children": [{
+                  "id": "1d4181e7-6968-4d34-bb99-8443be696dbe",
+                  "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+                  "parentId": "f4bd0a47-4905-4d7e-aecb-e4f7e70b6a76",
+                  "idx": 0,
+                  "type": "SECTION",
+                  "title": "What you will learn",
+                  "startOffset": 0,
+                  "endOffset": 800,
+                  "depth": 1,
+                  "aiConfidence": 0.94,
+                  "metaJson": null,
+                  "children": []
+                }]
+              }],
+              "totalNodes": 2
+            }
+            """;
+
+    private static final String FLAT_STRUCTURE_EXAMPLE = """
+            {
+              "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+              "nodes": [{
+                "id": "f4bd0a47-4905-4d7e-aecb-e4f7e70b6a76",
+                "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+                "parentId": null,
+                "idx": 0,
+                "type": "CHAPTER",
+                "title": "Chapter 1: Introduction",
+                "startOffset": 0,
+                "endOffset": 3200,
+                "depth": 0,
+                "aiConfidence": 0.97,
+                "metaJson": null
+              }, {
+                "id": "1d4181e7-6968-4d34-bb99-8443be696dbe",
+                "documentId": "14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a",
+                "parentId": "f4bd0a47-4905-4d7e-aecb-e4f7e70b6a76",
+                "idx": 0,
+                "type": "SECTION",
+                "title": "What you will learn",
+                "startOffset": 0,
+                "endOffset": 800,
+                "depth": 1,
+                "aiConfidence": 0.94,
+                "metaJson": null
+              }],
+              "totalNodes": 2
+            }
+            """;
 
     private final DocumentIngestionService ingestionService;
     private final DocumentQueryService queryService;
@@ -130,7 +211,11 @@ public class DocumentProcessController {
             @ApiResponse(
                     responseCode = "200",
                     description = "Document metadata retrieved",
-                    content = @Content(schema = @Schema(implementation = DocumentView.class))
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = DocumentView.class),
+                            examples = @ExampleObject(name = "Structured text document", value = DOCUMENT_METADATA_EXAMPLE)
+                    )
             ),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -151,7 +236,11 @@ public class DocumentProcessController {
             @ApiResponse(
                     responseCode = "200",
                     description = "Document metadata retrieved",
-                    content = @Content(schema = @Schema(implementation = DocumentView.class))
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = DocumentView.class),
+                            examples = @ExampleObject(name = "Structured text document", value = DOCUMENT_METADATA_EXAMPLE)
+                    )
             ),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -198,12 +287,20 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Get document structure",
-            description = "Retrieves the hierarchical structure of the document (chapters, sections, etc.) in tree or flat format"
+            description = "Retrieves the document structure. format=tree returns StructureTreeResponse with recursively nested children; format=flat returns StructureFlatResponse in document order."
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Structure retrieved (format depends on 'format' parameter)"
+                    description = "Structure retrieved. The response is StructureTreeResponse for format=tree and StructureFlatResponse for format=flat.",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(oneOf = {StructureTreeResponse.class, StructureFlatResponse.class}),
+                            examples = {
+                                    @ExampleObject(name = "Tree structure (format=tree)", value = TREE_STRUCTURE_EXAMPLE),
+                                    @ExampleObject(name = "Flat structure (format=flat)", value = FLAT_STRUCTURE_EXAMPLE)
+                            }
+                    )
             ),
             @ApiResponse(responseCode = "400", description = "Invalid format parameter (use 'tree' or 'flat')",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
@@ -213,7 +310,11 @@ public class DocumentProcessController {
     @GetMapping("/{id}/structure")
     public ResponseEntity<?> getStructure(
             @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
-            @Parameter(description = "Format: 'tree' (hierarchical) or 'flat' (linear)", example = "tree") @RequestParam(value = "format", defaultValue = "tree") String format) {
+            @Parameter(
+                    description = "Response format: tree returns nested children; flat returns nodes in document order",
+                    schema = @Schema(allowableValues = {"tree", "flat"}, defaultValue = "tree"),
+                    example = "tree"
+            ) @RequestParam(value = "format", defaultValue = "tree") String format) {
 
         return switch (format.toLowerCase()) {
             case "tree" -> {
