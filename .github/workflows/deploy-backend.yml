@@ -176,25 +176,31 @@ jobs:
             }
 
             ensure_candidate_capacity() {
+              local live_backend="$1"
               local available_kb
               local available_mb
               local required_mb="${CANDIDATE_MIN_AVAILABLE_MEMORY_MB:-768}"
+
+              if ! is_container_healthy "$live_backend"; then
+                echo "No healthy backend is running; candidate startup may use the full host"
+                return 0
+              fi
 
               available_kb=$(awk '/MemAvailable:/ { print $2 }' /proc/meminfo)
               case "$required_mb" in
                 ''|*[!0-9]*)
                   echo "CANDIDATE_MIN_AVAILABLE_MEMORY_MB must be a positive integer" >&2
-                  exit 1
+                  return 1
                   ;;
               esac
               if [ -z "$available_kb" ]; then
                 echo "Cannot determine available host memory; refusing candidate startup" >&2
-                exit 1
+                return 1
               fi
               available_mb=$((available_kb / 1024))
               if [ "$available_mb" -lt "$required_mb" ]; then
                 echo "Refusing candidate startup: ${available_mb}MiB available, ${required_mb}MiB required while the live backend remains running" >&2
-                exit 1
+                return 1
               fi
             }
 
@@ -206,6 +212,9 @@ jobs:
             fi
 
             previous_container=$(docker compose --env-file .env ps -q quizmaker-backend || true)
+            if [ -z "$previous_container" ]; then
+              previous_container=$(docker compose --env-file .env ps -aq quizmaker-backend | head -n 1 || true)
+            fi
             rollback_image=""
             if [ -n "$previous_container" ]; then
               rollback_image="quizmaker-backend:rollback-${RELEASE_SHA:0:12}"
@@ -234,7 +243,9 @@ jobs:
               wait_for_health "$restored_container" "Restored backend" 108
             }
 
-            ensure_candidate_capacity
+            if ! ensure_candidate_capacity "$previous_container"; then
+              exit 1
+            fi
 
             candidate="quizmaker-backend-candidate-${RELEASE_SHA:0:12}"
             docker rm -f "$candidate" >/dev/null 2>&1 || true
