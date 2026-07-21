@@ -24,7 +24,7 @@ jobs:
       SPRING_DATASOURCE_USERNAME: bestuser
       SPRING_DATASOURCE_PASSWORD: bestuser
       # Connection pool settings (environment variables override properties files)
-      # Reduced pool size to avoid "Too many connections" errors with parallel test execution
+      # Keep integration-test connection usage bounded.
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 10
       SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 2
       SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: 30000
@@ -355,6 +355,17 @@ jobs:
           
           exit $TEST_EXIT_CODE
         continue-on-error: false
+
+      - name: Package tested application
+        run: ./mvnw -B -DskipTests package
+
+      - name: Upload tested backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quizmaker-backend-jar
+          path: target/QuizMaker-*.jar
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Show root cause errors
         if: failure()

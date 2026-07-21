@@ -1,5 +1,6 @@
 services:
   quizmaker-backend:
+    image: ${BACKEND_IMAGE:-quizmaker-backend:local}
     build:
       context: .
       dockerfile: Dockerfile
