@@ -63,58 +63,20 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(
-                                "/api/v1/auth/register",
-                                "/api/v1/auth/login",
-                                "/api/v1/auth/refresh",
-                                "/api/v1/auth/forgot-password",
-                                "/api/v1/auth/reset-password",
-                                "/api/v1/auth/2fa/setup",
-                                "/api/v1/auth/2fa/verify",
-                                "/oauth2/**",
-                                "/login/oauth2/**"
-                        ).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/bug-reports").permitAll()
-                        // Stripe webhook must be callable by Stripe without authentication
-                        .requestMatchers(HttpMethod.POST, "/api/v1/billing/stripe/webhook").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/billing/webhooks").permitAll()
-                        // Billing config endpoint should be public for frontend integration
-                        .requestMatchers(HttpMethod.GET, "/api/v1/billing/config").permitAll()
+                        .requestMatchers(PublicApiRoutes.anyMethodPatterns()).permitAll()
+                        .requestMatchers(HttpMethod.GET, PublicApiRoutes.patternsFor(HttpMethod.GET)).permitAll()
+                        .requestMatchers(HttpMethod.POST, PublicApiRoutes.patternsFor(HttpMethod.POST)).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, PublicApiRoutes.patternsFor(HttpMethod.HEAD)).permitAll()
                         // Billing endpoints require authentication and billing permissions (handled by @PreAuthorize)
                         .requestMatchers("/api/v1/billing/balance").authenticated()
                         .requestMatchers("/api/v1/billing/transactions").authenticated()
                         .requestMatchers("/api/v1/billing/estimate/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
-                        // Article public endpoints
-                        .requestMatchers(HttpMethod.GET, "/api/v1/articles/public/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/articles/sitemap").permitAll()
                         // Quiz endpoints - tighten permissions
-                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/export").permitAll() // Public scope export
-                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/public/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/quizzes/shared/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/quizzes/shared/**").permitAll()
                         .requestMatchers("/api/v1/quizzes/**").authenticated()
-                        // Tag and category endpoints
-                        .requestMatchers(HttpMethod.GET, "/api/v1/tags/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
-                        // Question schemas - allow public access for documentation
-                        .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/questions/schemas").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/sitemap.xml", "/sitemap_articles.xml", "/robots.txt").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/sitemap.xml", "/sitemap_articles.xml", "/robots.txt").permitAll()
                         // Question endpoints - require authentication for general access
                         .requestMatchers("/api/v1/questions/**").authenticated()
-                        // API Documentation - allow public access
-                        .requestMatchers(HttpMethod.GET, "/v3/api-docs/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/swagger-ui/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/docs/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/api-docs/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/api-summary").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/diagnostic/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/health").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/actuator/health/**").permitAll()
                         .requestMatchers("/api/documents/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(
