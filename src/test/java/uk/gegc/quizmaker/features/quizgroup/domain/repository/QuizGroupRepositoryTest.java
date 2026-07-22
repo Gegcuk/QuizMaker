@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.quizgroup.domain.repository;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ import static org.assertj.core.api.Assertions.*;
  * - Soft delete filtering
  * - Document linkage queries
  */
+@Tag("db-serial")
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)

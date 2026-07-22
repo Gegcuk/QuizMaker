@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.document.infra.converter;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @TestPropertySource(properties = {

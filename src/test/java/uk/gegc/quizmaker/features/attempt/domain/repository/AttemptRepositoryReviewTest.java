@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.domain.repository;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests verify that queries used by the review feature properly eager-fetch
  * relationships to prevent N+1 queries.
  */
+@Tag("db-serial")
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)

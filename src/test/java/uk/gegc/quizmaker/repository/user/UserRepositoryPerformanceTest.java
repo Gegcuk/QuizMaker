@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.repository.user;
 
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional

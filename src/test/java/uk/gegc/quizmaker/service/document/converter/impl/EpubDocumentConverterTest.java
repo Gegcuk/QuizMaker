@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.document.converter.impl;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -19,6 +20,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @Execution(ExecutionMode.CONCURRENT)
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 class EpubDocumentConverterTest {

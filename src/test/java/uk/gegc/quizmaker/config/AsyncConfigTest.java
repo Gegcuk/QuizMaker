@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.config;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -13,6 +14,7 @@ import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test-mysql")
 @Execution(ExecutionMode.SAME_THREAD)

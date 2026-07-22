@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.config;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ class AwsSesConfigTest {
      * the config successfully builds a SES client using static credentials.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -95,6 +97,7 @@ class AwsSesConfigTest {
      * which is expected behavior.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -141,6 +144,7 @@ class AwsSesConfigTest {
      * builds successfully without exceptions.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -202,6 +206,7 @@ class AwsSesConfigTest {
      * invalid AWS SDK configurations.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -243,6 +248,7 @@ class AwsSesConfigTest {
      * builds successfully for each.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -289,6 +295,7 @@ class AwsSesConfigTest {
      * the system uses sensible defaults.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

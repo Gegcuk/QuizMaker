@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.quiz.domain.repository;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests the database query that checks if a quiz with the same title
  * already exists for a specific creator.
  */
+@Tag("db-serial")
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace.NONE)

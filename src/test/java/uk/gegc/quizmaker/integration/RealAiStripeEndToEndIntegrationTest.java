@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.integration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,6 +96,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Comprehensive end-to-end test that exercises a full user journey using real Stripe and real OpenAI calls.
  */
+@Tag("db-serial")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles(value = {"test", "real-ai"}, inheritProfiles = false)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

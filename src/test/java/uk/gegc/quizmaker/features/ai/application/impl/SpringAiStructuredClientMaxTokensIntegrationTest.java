@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 
  * Tests run with @ActiveProfiles("test") to use application-test.properties configuration.
  */
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @DisplayName("SpringAiStructuredClient - Max Tokens Configuration Integration")

@@ -3,6 +3,8 @@ package uk.gegc.quizmaker.features.quiz.api;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -51,6 +53,20 @@ import java.util.regex.Pattern;
 public class ShareLinkController {
 
     private static final Pattern TOKEN_RE = Pattern.compile("^[A-Za-z0-9_-]{43}$");
+    private static final String SHARE_LINKS_EXAMPLE = """
+            [
+              {
+                "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+                "quizId": "f3e2d1c0-b9a8-4765-8432-10fedcba9876",
+                "createdBy": "c0ffee00-0000-4000-8000-000000000001",
+                "scope": "QUIZ_VIEW",
+                "expiresAt": "2026-08-21T23:15:00Z",
+                "oneTime": false,
+                "revokedAt": null,
+                "createdAt": "2026-07-21T23:15:00Z"
+              }
+            ]
+            """;
 
     private final ShareLinkService shareLinkService;
     private final ShareLinkCookieManager cookieManager;
@@ -225,11 +241,15 @@ public class ShareLinkController {
     @GetMapping("/share-links")
     @Operation(
         summary = "Get user's share links",
-        description = "Retrieves all share links created by the authenticated user, ordered by creation date."
+        description = "Retrieves the complete, unpaginated array of share links created by the authenticated user, ordered by creation time descending. Raw share tokens are never returned."
     )
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Share links retrieved successfully",
-            content = @Content(schema = @Schema(implementation = ShareLinkDto.class))),
+            content = @Content(
+                    mediaType = "application/json",
+                    array = @ArraySchema(schema = @Schema(implementation = ShareLinkDto.class)),
+                    examples = @ExampleObject(name = "User share links", value = SHARE_LINKS_EXAMPLE)
+            )),
         @ApiResponse(responseCode = "401", description = "Unauthorized",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })

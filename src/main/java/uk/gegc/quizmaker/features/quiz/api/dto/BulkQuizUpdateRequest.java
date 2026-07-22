@@ -10,12 +10,20 @@ import java.util.UUID;
 
 @Schema(name = "BulkQuizUpdateRequest", description = "Request payload for updating multiple quizzes")
 public record BulkQuizUpdateRequest(
-        @Schema(description = "List of quiz IDs to update", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(
+                description = "Quiz UUIDs to update. At least one ID is required; each ID is processed independently.",
+                example = "[\"d290f1ee-6c54-4b01-90e6-d701748f0851\"]",
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
         @NotNull
         @Size(min = 1, message = "At least one quizId must be provided")
         List<UUID> quizIds,
 
-        @Schema(description = "Fields to update for all specified quizzes", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(
+                description = "Allowed update fields applied to every requested quiz ID. Omitted fields are unchanged.",
+                implementation = UpdateQuizRequest.class,
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
         @NotNull
         @Valid
         UpdateQuizRequest update

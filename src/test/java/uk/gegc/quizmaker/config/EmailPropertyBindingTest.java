@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.config;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class EmailPropertyBindingTest {
      * SES client configuration.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -136,6 +138,7 @@ class EmailPropertyBindingTest {
      * the system uses sensible defaults.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -193,6 +196,7 @@ class EmailPropertyBindingTest {
      * correctly resolves and loads the template resources.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -287,6 +291,7 @@ class EmailPropertyBindingTest {
      * binds correctly and defaults to null when not set.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -320,6 +325,7 @@ class EmailPropertyBindingTest {
      * Tests for optional configuration set with default null value.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -356,6 +362,7 @@ class EmailPropertyBindingTest {
      * Verifies that the base URL used in email links binds correctly.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -391,6 +398,7 @@ class EmailPropertyBindingTest {
      * Verifies that email subject properties bind correctly.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -432,6 +440,7 @@ class EmailPropertyBindingTest {
      * to calculate expiration times in email content.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

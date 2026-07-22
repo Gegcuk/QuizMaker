@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -71,6 +72,7 @@ class EmailServiceEdgeCasesTest {
      * SES will reject emails from unverified sender addresses with a 400 error.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -199,6 +201,7 @@ class EmailServiceEdgeCasesTest {
      * Verifies that SDK or service layer handles these gracefully.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -315,6 +318,7 @@ class EmailServiceEdgeCasesTest {
      * Verifies that email content is generated correctly regardless of TTL values.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -398,6 +402,7 @@ class EmailServiceEdgeCasesTest {
      * Verifies that email content is still generated regardless of URL format.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -470,6 +475,7 @@ class EmailServiceEdgeCasesTest {
      * Tests for base URL with trailing slash.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -532,6 +538,7 @@ class EmailServiceEdgeCasesTest {
      * SES returns 400 when configuration set doesn't exist.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -659,6 +666,7 @@ class EmailServiceEdgeCasesTest {
      * Verifies URL encoding works correctly.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -752,6 +760,7 @@ class EmailServiceEdgeCasesTest {
      * Tests for empty or whitespace-only tokens.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

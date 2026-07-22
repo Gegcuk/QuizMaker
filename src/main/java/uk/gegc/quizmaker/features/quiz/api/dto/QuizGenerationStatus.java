@@ -125,6 +125,7 @@ public record QuizGenerationStatus(
     /**
      * Check if the job is in a terminal state
      */
+    @Schema(description = "Whether the job is no longer active because it completed, failed, or was cancelled", accessMode = Schema.AccessMode.READ_ONLY)
     public boolean isTerminal() {
         return status != null && status.isTerminal();
     }
@@ -132,6 +133,7 @@ public record QuizGenerationStatus(
     /**
      * Check if the job completed successfully
      */
+    @Schema(description = "Whether the job completed successfully", accessMode = Schema.AccessMode.READ_ONLY)
     public boolean isCompleted() {
         return GenerationStatus.COMPLETED.equals(status);
     }
@@ -139,6 +141,7 @@ public record QuizGenerationStatus(
     /**
      * Check if the job failed
      */
+    @Schema(description = "Whether the job failed or was cancelled", accessMode = Schema.AccessMode.READ_ONLY)
     public boolean isFailed() {
         return GenerationStatus.FAILED.equals(status) || GenerationStatus.CANCELLED.equals(status);
     }
@@ -146,6 +149,7 @@ public record QuizGenerationStatus(
     /**
      * Check if the job is still active
      */
+    @Schema(description = "Whether the job is pending or processing", accessMode = Schema.AccessMode.READ_ONLY)
     public boolean isActive() {
         return status != null && status.isActive();
     }

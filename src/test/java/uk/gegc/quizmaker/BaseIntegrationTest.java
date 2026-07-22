@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker;
 
+import org.junit.jupiter.api.Tag;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +23,7 @@ import jakarta.persistence.EntityManager;
  * - Common autowired dependencies (MockMvc, EntityManager, JdbcTemplate)
  * - Consistent test profile configuration
  */
+@Tag("db-serial")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
