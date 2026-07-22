@@ -1,11 +1,8 @@
 package uk.gegc.quizmaker.shared.config;
 
-import io.swagger.v3.oas.models.security.SecurityRequirement;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.List;
 
 /**
  * Configuration for API documentation groups.
@@ -110,12 +107,6 @@ public class OpenApiGroupConfig {
                 .group("bug-reports")
                 .displayName("Bug Reports")
                 .pathsToMatch("/api/v1/bug-reports/**", "/api/v1/admin/bug-reports/**")
-                .addOpenApiCustomizer(openApi -> {
-                    var publicSubmissionPath = openApi.getPaths().get("/api/v1/bug-reports");
-                    if (publicSubmissionPath != null && publicSubmissionPath.getPost() != null) {
-                        publicSubmissionPath.getPost().setSecurity(List.of(new SecurityRequirement()));
-                    }
-                })
                 .build();
     }
 
