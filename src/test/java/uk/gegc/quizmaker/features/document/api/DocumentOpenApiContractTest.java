@@ -14,6 +14,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.ProblemDetail;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -125,6 +126,18 @@ class DocumentOpenApiContractTest {
         assertThat(parameterNamed(specification.at("/paths/~1api~1v1~1documentProcess~1documents~1{id}~1structure/get/parameters"), "format")
                 .path("schema").path("enum").toString())
                 .contains("tree", "flat");
+
+        JsonNode invalidFormatResponse = specification.at("/paths/~1api~1v1~1documentProcess~1documents~1{id}~1structure/get/responses/400");
+        assertThat(invalidFormatResponse.at("/content/application~1problem+json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/ProblemDetail");
+        JsonNode invalidFormatExample = invalidFormatResponse
+                .at("/content/application~1problem+json/examples/Invalid structure format/value");
+        ProblemDetail invalidFormatProblem = strictObjectMapper().treeToValue(invalidFormatExample, ProblemDetail.class);
+        assertThat(invalidFormatProblem.getStatus()).isEqualTo(400);
+        assertThat(invalidFormatProblem.getType().toString())
+                .isEqualTo("https://quizzence.com/docs/errors/invalid-argument");
+        assertThat(invalidFormatProblem.getTitle()).isEqualTo("Invalid Argument");
+        assertThat(invalidFormatProblem.getDetail()).isEqualTo("Invalid format. Use 'tree' or 'flat'");
 
         JsonNode treeExample = specification.at("/paths/~1api~1v1~1documentProcess~1documents~1{id}~1structure/get/responses/200/content/application~1json/examples/Tree structure (format=tree)/value");
         StructureTreeResponse tree = strictObjectMapper().treeToValue(treeExample, StructureTreeResponse.class);
