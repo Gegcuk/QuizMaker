@@ -20,6 +20,15 @@ The full test suite uses the `test` profile and a MySQL test database. CI starts
 
 Use `BaseIntegrationTest` only when the test genuinely needs the full Spring context. Keep unit and MVC tests independent of application startup.
 
+### Shared MySQL Schema Isolation
+
+The `test` and `test-mysql` profiles share CI MySQL schemas. Some existing Spring tests deliberately use Hibernate `create` or `create-drop`, so the full lifecycle of every Spring TestContext is serialized by `SharedMySqlSchemaLockTestExecutionListener`, registered in `src/test/resources/META-INF/spring.factories`. This prevents one context from dropping tables while another context is starting or executing.
+
+- Plain JUnit and Mockito tests remain eligible for parallel execution. Do not disable JUnit parallelism globally to address a database failure.
+- Do not bypass the global listener with `@TestExecutionListeners(mergeMode = REPLACE_DEFAULTS)`. If such replacement is unavoidable, include the shared-schema listener explicitly and document why.
+- Use `db-serial` only for tests that require the dedicated serial Surefire lane for their own behavior. Database schema lifecycle isolation is automatic; do not add the tag merely because a Spring test uses MySQL.
+- Preserve the existing `@DirtiesContext`, transaction, and cleanup conventions in the test being changed. The listener protects schema lifecycle, not test data that a scenario intentionally commits.
+
 ## Unit Tests
 
 Use real input values and narrow collaborator doubles. A unit test should describe a rule in observable terms, for example:
