@@ -129,6 +129,16 @@ public class DocumentProcessController {
             }
             """;
 
+    private static final String INVALID_STRUCTURE_FORMAT_PROBLEM_EXAMPLE = """
+            {
+              "type": "https://quizzence.com/docs/errors/invalid-argument",
+              "title": "Invalid Argument",
+              "status": 400,
+              "detail": "Invalid format. Use 'tree' or 'flat'",
+              "instance": "/api/v1/documentProcess/documents/14f3c7e4-7a74-47d1-88e6-caa9adbb2b8a/structure"
+            }
+            """;
+
     private final DocumentIngestionService ingestionService;
     private final DocumentQueryService queryService;
     private final StructureService structureService;
@@ -302,8 +312,18 @@ public class DocumentProcessController {
                             }
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid format parameter (use 'tree' or 'flat')",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid format parameter (use 'tree' or 'flat')",
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                            schema = @Schema(implementation = ProblemDetail.class),
+                            examples = @ExampleObject(
+                                    name = "Invalid structure format",
+                                    value = INVALID_STRUCTURE_FORMAT_PROBLEM_EXAMPLE
+                            )
+                    )
+            ),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -327,8 +347,7 @@ public class DocumentProcessController {
             }
             default -> {
                 log.warn("Invalid structure format requested: {}", format);
-                yield ResponseEntity.badRequest()
-                    .body("Invalid format. Use 'tree' or 'flat'");
+                throw new IllegalArgumentException("Invalid format. Use 'tree' or 'flat'");
             }
         };
     }

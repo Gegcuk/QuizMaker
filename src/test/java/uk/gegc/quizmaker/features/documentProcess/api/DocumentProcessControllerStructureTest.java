@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryServi
 import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.math.BigDecimal;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -102,15 +104,23 @@ class DocumentProcessControllerStructureTest {
     }
 
     @Test
-    @DisplayName("getStructure_invalidFormat_400")
+    @DisplayName("getStructure_invalidFormat_returnsProblemDetail400")
     @WithMockUser
-    void getStructure_invalidFormat_400() throws Exception {
+    void getStructure_invalidFormat_returnsProblemDetail400() throws Exception {
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId)
                         .param("format", "invalid")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string("Invalid format. Use 'tree' or 'flat'"));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ErrorTypes.INVALID_ARGUMENT.toString()))
+                .andExpect(jsonPath("$.title").value("Invalid Argument"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Invalid format. Use 'tree' or 'flat'"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/documentProcess/documents/" + documentId + "/structure"))
+                .andExpect(jsonPath("$.timestamp").exists());
+
+        verifyNoInteractions(structureService);
     }
 
     @Test
