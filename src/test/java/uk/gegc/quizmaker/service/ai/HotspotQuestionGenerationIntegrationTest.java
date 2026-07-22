@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.service.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -19,6 +20,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @Execution(ExecutionMode.CONCURRENT)

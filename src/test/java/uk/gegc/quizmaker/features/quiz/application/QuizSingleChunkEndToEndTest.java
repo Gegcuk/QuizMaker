@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * verifying that single-chunk documents generate only one consolidated quiz.
  */
 @ExtendWith(SpringExtension.class)
+@Tag("db-serial")
 @SpringBootTest(properties = {
     "spring.datasource.url=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true",
     "spring.datasource.username=bestuser",

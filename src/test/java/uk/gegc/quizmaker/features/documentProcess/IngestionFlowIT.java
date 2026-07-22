@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.documentProcess;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@Tag("db-serial")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

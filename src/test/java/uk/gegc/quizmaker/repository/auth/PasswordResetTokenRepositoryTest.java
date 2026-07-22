@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.repository.auth;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("db-serial")
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

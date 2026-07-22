@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.ai.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * This test simulates the AI returning items in CORRECT chronological order and verifies
  * that the correctOrder field captures this order correctly.
  */
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional

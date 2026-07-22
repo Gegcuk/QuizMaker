@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.quiz.application;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests the existsByCreatorIdAndTitle method behavior in realistic scenarios
  * with actual database persistence.
  */
+@Tag("db-serial")
 @DataJpaTest
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.config;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,7 @@ class EmailProviderConfigTest {
      * - Provide SesV2Client bean (required dependency)
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -116,6 +118,7 @@ class EmailProviderConfigTest {
      * - NOT require SesV2Client bean (SES config should not activate)
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -192,6 +195,7 @@ class EmailProviderConfigTest {
      * - Use Spring Mail SMTP configuration
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -258,6 +262,7 @@ class EmailProviderConfigTest {
      * the EmailServiceImpl should handle gracefully (skip sending).
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,7 @@ import static org.mockito.Mockito.*;
  * Integration tests for task-level progress tracking as specified in the plan.
  * Tests actual generation flow scenarios without real LLM calls.
  */
+@Tag("db-serial")
 @SpringBootTest(properties = {
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=update"

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.model.question;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional

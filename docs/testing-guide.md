@@ -22,12 +22,13 @@ Use `BaseIntegrationTest` only when the test genuinely needs the full Spring con
 
 ### Shared MySQL Schema Isolation
 
-The `test` and `test-mysql` profiles share CI MySQL schemas. Some existing Spring tests deliberately use Hibernate `create` or `create-drop`, so the full lifecycle of every Spring TestContext is serialized by `SharedMySqlSchemaLockTestExecutionListener`, registered in `src/test/resources/META-INF/spring.factories`. It acquires the lock before dependency injection can start an application context and releases it after Spring's class teardown. This prevents one context from dropping tables while another context is starting or executing.
+The `test` and `test-mysql` profiles share CI MySQL schemas. A Spring Boot or JPA test that uses either schema must be marked `@Tag("db-serial")`. Maven Surefire runs these tests in the dedicated `tests-db-serial` lane with JUnit parallel execution disabled; all other tests stay in the parallel lane. This is required because several legacy integration tests use Hibernate `create` or `create-drop`, which changes the complete shared schema.
 
 - Plain JUnit and Mockito tests remain eligible for parallel execution. Do not disable JUnit parallelism globally to address a database failure.
-- Do not bypass the global listener with `@TestExecutionListeners(mergeMode = REPLACE_DEFAULTS)`. If such replacement is unavoidable, include the shared-schema listener explicitly and document why.
-- Use `db-serial` only for tests that require the dedicated serial Surefire lane for their own behavior. Database schema lifecycle isolation is automatic; do not add the tag merely because a Spring test uses MySQL.
-- Preserve the existing `@DirtiesContext`, transaction, and cleanup conventions in the test being changed. The listener protects schema lifecycle, not test data that a scenario intentionally commits.
+- Add the tag to tests using `@SpringBootTest` or `@DataJpaTest`; `@WebMvcTest` normally does not create a database context and should remain in the parallel lane unless it deliberately connects to MySQL.
+- Do not use `@Execution(CONCURRENT)` on a `db-serial` test. Data cleanup, transactions, and `@DirtiesContext` keep one serial test independent from the next; the tag prevents destructive schema lifecycles from overlapping.
+- `DatabaseTestExecutionTagTest` enforces this policy against compiled test classes, including nested Spring contexts.
+- Preserve the existing `@DirtiesContext`, transaction, and cleanup conventions in the test being changed. The serial lane protects schema lifecycle, not test data that a scenario intentionally commits.
 
 ## Unit Tests
 

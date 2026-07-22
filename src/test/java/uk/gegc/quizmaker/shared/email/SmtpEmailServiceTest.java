@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -53,6 +54,7 @@ class SmtpEmailServiceTest {
      * Verifies that the service logs warnings and skips sending when not configured.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -175,6 +177,7 @@ class SmtpEmailServiceTest {
      * Verifies that emails are sent with correct content and subjects.
      */
     @Nested
+    @Tag("db-serial")
     @SpringBootTest
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

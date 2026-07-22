@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -51,6 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>{@link uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidatorTest} - Validator tests</li>
  * </ul>
  */
+@Tag("db-serial")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

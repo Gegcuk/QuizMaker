@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.integration;
 
 import com.stripe.net.Webhook;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+@Tag("db-serial")
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.question.factory;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
