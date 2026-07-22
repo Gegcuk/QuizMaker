@@ -1,5 +1,9 @@
 package uk.gegc.quizmaker.shared.testing;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.core.Ordered;
@@ -18,6 +22,8 @@ public final class SharedMySqlSchemaLockTestExecutionListener
         extends AbstractTestExecutionListener {
 
     private static final ReentrantLock SHARED_SCHEMA_LOCK = new ReentrantLock(true);
+    private static final ConcurrentMap<Class<?>, ContextLifecycleLock> CONTEXT_LOCKS =
+            new ConcurrentHashMap<>();
 
     @Override
     public int getOrder() {
@@ -25,12 +31,47 @@ public final class SharedMySqlSchemaLockTestExecutionListener
     }
 
     @Override
-    public void beforeTestClass(TestContext testContext) {
-        SHARED_SCHEMA_LOCK.lock();
+    public void prepareTestInstance(TestContext testContext) {
+        ContextLifecycleLock lifecycleLock = CONTEXT_LOCKS.computeIfAbsent(
+                testContext.getTestClass(), ignored -> new ContextLifecycleLock());
+
+        if (lifecycleLock.claimOwnership()) {
+            SHARED_SCHEMA_LOCK.lock();
+            lifecycleLock.signalAcquired();
+            return;
+        }
+
+        lifecycleLock.awaitAcquired();
     }
 
     @Override
     public void afterTestClass(TestContext testContext) {
-        SHARED_SCHEMA_LOCK.unlock();
+        if (CONTEXT_LOCKS.remove(testContext.getTestClass()) != null) {
+            SHARED_SCHEMA_LOCK.unlock();
+        }
+    }
+
+    private static final class ContextLifecycleLock {
+
+        private final AtomicBoolean ownerClaimed = new AtomicBoolean();
+        private final CountDownLatch acquired = new CountDownLatch(1);
+
+        private boolean claimOwnership() {
+            return ownerClaimed.compareAndSet(false, true);
+        }
+
+        private void signalAcquired() {
+            acquired.countDown();
+        }
+
+        private void awaitAcquired() {
+            try {
+                acquired.await();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted while waiting for the shared MySQL schema lock", exception);
+            }
+        }
     }
 }

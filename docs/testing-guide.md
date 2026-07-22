@@ -22,7 +22,7 @@ Use `BaseIntegrationTest` only when the test genuinely needs the full Spring con
 
 ### Shared MySQL Schema Isolation
 
-The `test` and `test-mysql` profiles share CI MySQL schemas. Some existing Spring tests deliberately use Hibernate `create` or `create-drop`, so the full lifecycle of every Spring TestContext is serialized by `SharedMySqlSchemaLockTestExecutionListener`, registered in `src/test/resources/META-INF/spring.factories`. This prevents one context from dropping tables while another context is starting or executing.
+The `test` and `test-mysql` profiles share CI MySQL schemas. Some existing Spring tests deliberately use Hibernate `create` or `create-drop`, so the full lifecycle of every Spring TestContext is serialized by `SharedMySqlSchemaLockTestExecutionListener`, registered in `src/test/resources/META-INF/spring.factories`. It acquires the lock before dependency injection can start an application context and releases it after Spring's class teardown. This prevents one context from dropping tables while another context is starting or executing.
 
 - Plain JUnit and Mockito tests remain eligible for parallel execution. Do not disable JUnit parallelism globally to address a database failure.
 - Do not bypass the global listener with `@TestExecutionListeners(mergeMode = REPLACE_DEFAULTS)`. If such replacement is unavoidable, include the shared-schema listener explicitly and document why.

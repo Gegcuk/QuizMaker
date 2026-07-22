@@ -1,11 +1,10 @@
 package uk.gegc.quizmaker.shared.testing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.support.SpringFactoriesLoader;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.TestExecutionListener;
 
@@ -24,33 +24,31 @@ class SharedMySqlSchemaLockTestExecutionListenerTest {
             new SharedMySqlSchemaLockTestExecutionListener();
 
     @Test
-    void isRegisteredForEverySpringTestContext() throws IOException {
-        Properties springFactories = new Properties();
-        try (InputStream inputStream = getClass().getClassLoader()
-                .getResourceAsStream("META-INF/spring.factories")) {
-            assertThat(inputStream).isNotNull();
-            springFactories.load(inputStream);
-        }
+    void isRegisteredForEverySpringTestContext() {
+        List<TestExecutionListener> listeners = SpringFactoriesLoader.loadFactories(
+                TestExecutionListener.class, getClass().getClassLoader());
 
-        assertThat(springFactories.getProperty(TestExecutionListener.class.getName()))
-                .contains(SharedMySqlSchemaLockTestExecutionListener.class.getName());
+        assertThat(listeners)
+                .extracting(TestExecutionListener::getClass)
+                .contains(SharedMySqlSchemaLockTestExecutionListener.class);
     }
 
     @Test
     void blocksAnotherSpringContextUntilTheCurrentLifecycleCompletes() throws Exception {
-        TestContext firstContext = mock(TestContext.class);
-        TestContext secondContext = mock(TestContext.class);
+        TestContext firstContext = testContext(FirstContextTest.class);
+        TestContext secondContext = testContext(SecondContextTest.class);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         CountDownLatch secondContextAcquiredLock = new CountDownLatch(1);
         CountDownLatch releaseSecondContext = new CountDownLatch(1);
 
         boolean firstContextLockHeld = false;
         try {
-            listener.beforeTestClass(firstContext);
+            listener.prepareTestInstance(firstContext);
+            listener.prepareTestInstance(firstContext);
             firstContextLockHeld = true;
 
             Future<?> secondLifecycle = executor.submit(() -> {
-                listener.beforeTestClass(secondContext);
+                listener.prepareTestInstance(secondContext);
                 try {
                     secondContextAcquiredLock.countDown();
                     try {
@@ -80,5 +78,17 @@ class SharedMySqlSchemaLockTestExecutionListenerTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private TestContext testContext(Class<?> testClass) {
+        TestContext testContext = mock(TestContext.class);
+        doReturn(testClass).when(testContext).getTestClass();
+        return testContext;
+    }
+
+    private static final class FirstContextTest {
+    }
+
+    private static final class SecondContextTest {
     }
 }
