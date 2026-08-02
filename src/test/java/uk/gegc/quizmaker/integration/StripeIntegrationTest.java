@@ -114,7 +114,7 @@ class StripeIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("6.1 Token purchase flow credits tokens and records payment")
     void tokenPurchaseFlow_shouldCreditTokensAndPersistPayment() throws Exception {
-        var response = stripeService.createCheckoutSession(testUser.getId(), primaryPack.getStripePriceId(), primaryPack.getId());
+        var response = stripeService.createCheckoutSession(testUser.getId(), primaryPack);
         String sessionId = response.sessionId();
 
         String payload = buildCheckoutSessionEventPayload(sessionId);

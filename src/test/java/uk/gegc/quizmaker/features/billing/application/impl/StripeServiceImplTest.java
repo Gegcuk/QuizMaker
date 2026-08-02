@@ -14,11 +14,13 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.api.dto.CheckoutSessionResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.CustomerResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.SubscriptionResponse;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 
 import java.util.Collections;
 import java.util.List;
@@ -92,12 +94,18 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, packId);
+            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(packId, priceId));
 
             // Then
             assertThat(result.sessionId()).isEqualTo("cs_test_123");
             assertThat(result.url()).isEqualTo("https://checkout.stripe.com/pay/cs_test_123");
-            verify(sessionService).create(any(SessionCreateParams.class));
+            ArgumentCaptor<SessionCreateParams> params = ArgumentCaptor.forClass(SessionCreateParams.class);
+            verify(sessionService).create(params.capture());
+            assertThat(params.getValue().getLineItems()).hasSize(1);
+            assertThat(params.getValue().getLineItems().get(0).getPrice()).isEqualTo(priceId);
+            assertThat(params.getValue().getMetadata())
+                    .containsEntry("packId", packId.toString())
+                    .containsEntry("priceId", priceId);
         }
 
         @Test
@@ -118,7 +126,7 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, null);
+            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(priceId));
 
             // Then
             assertThat(result.sessionId()).isEqualTo("cs_test_456");
@@ -143,34 +151,45 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            stripeService.createCheckoutSession(userId, priceId, null);
+            stripeService.createCheckoutSession(userId, pack(priceId));
 
             // Then - verify the URL was modified
             verify(sessionService).create(any(SessionCreateParams.class));
         }
 
         @Test
-        @DisplayName("should throw exception when priceId is null")
-        void createCheckoutSession_nullPriceId_throwsException() {
+        @DisplayName("should throw exception when pack is null")
+        void createCheckoutSession_nullPack_throwsException() {
             // Given
             UUID userId = UUID.randomUUID();
 
             // When & Then
-            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, null, null))
+            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, null))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("priceId must be provided");
+                    .hasMessageContaining("server-resolved pack");
         }
 
         @Test
-        @DisplayName("should throw exception when priceId is blank")
-        void createCheckoutSession_blankPriceId_throwsException() {
+        @DisplayName("should throw exception when a resolved pack has no Stripe price")
+        void createCheckoutSession_blankPrice_throwsException() {
             // Given
             UUID userId = UUID.randomUUID();
 
             // When & Then
-            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, "  ", null))
+            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, pack("  ")))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("priceId must be provided");
+                    .hasMessageContaining("server-resolved pack");
+        }
+
+        @Test
+        @DisplayName("should reject an inactive pack")
+        void createCheckoutSession_inactivePack_throwsException() {
+            ProductPack inactivePack = pack("price_inactive");
+            inactivePack.setActive(false);
+
+            assertThatThrownBy(() -> stripeService.createCheckoutSession(UUID.randomUUID(), inactivePack))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("server-resolved pack");
         }
 
         @Test
@@ -188,9 +207,9 @@ class StripeServiceImplTest {
                     .thenThrow(stripeException);
 
             // When & Then
-            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, priceId, null))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Stripe session creation failed")
+            assertThatThrownBy(() -> stripeService.createCheckoutSession(userId, pack(priceId)))
+                    .isInstanceOf(uk.gegc.quizmaker.features.billing.domain.exception.StripeCheckoutUnavailableException.class)
+                    .hasMessageContaining("temporarily unavailable")
                     .hasCauseInstanceOf(StripeException.class);
         }
 
@@ -212,7 +231,7 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, null);
+            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(priceId));
 
             // Then
             assertThat(result.sessionId()).isEqualTo("cs_test_abc");
@@ -236,7 +255,7 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, null);
+            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(priceId));
 
             // Then
             assertThat(result.sessionId()).isEqualTo("cs_test_def");
@@ -260,7 +279,7 @@ class StripeServiceImplTest {
             when(sessionService.create(any(SessionCreateParams.class))).thenReturn(mockSession);
 
             // When
-            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, null);
+            CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(priceId));
 
             // Then
             assertThat(result.sessionId()).isEqualTo("cs_test_blank");
@@ -895,7 +914,7 @@ class StripeServiceImplTest {
                         .thenReturn(mockSession);
 
                 // When
-                CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, priceId, null);
+                CheckoutSessionResponse result = stripeService.createCheckoutSession(userId, pack(priceId));
 
                 // Then
                 assertThat(result.sessionId()).isEqualTo("cs_static_123");
@@ -1048,6 +1067,18 @@ class StripeServiceImplTest {
         }
     }
 
+    private static ProductPack pack(String priceId) {
+        return pack(UUID.randomUUID(), priceId);
+    }
+
+    private static ProductPack pack(UUID id, String priceId) {
+        ProductPack pack = new ProductPack();
+        pack.setId(id);
+        pack.setStripePriceId(priceId);
+        pack.setActive(true);
+        return pack;
+    }
+
     // Helper method to inject StripeClient using reflection
     private void injectStripeClient() throws Exception {
         var field = StripeServiceImpl.class.getDeclaredField("stripeClient");
@@ -1055,4 +1086,3 @@ class StripeServiceImplTest {
         field.set(stripeService, stripeClient);
     }
 }
-

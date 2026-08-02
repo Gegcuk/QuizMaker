@@ -1173,7 +1173,11 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         if (md != null) {
             String packIdStr = md.get("packId");
             if (StringUtils.hasText(packIdStr)) {
-                try { return UUID.fromString(packIdStr); } catch (IllegalArgumentException ignored) {}
+                try {
+                    return UUID.fromString(packIdStr);
+                } catch (IllegalArgumentException ex) {
+                    throw new InvalidCheckoutSessionException("Invalid packId in checkout metadata");
+                }
             }
         }
         return null;
@@ -1288,4 +1292,3 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
         }
     }
 }
-

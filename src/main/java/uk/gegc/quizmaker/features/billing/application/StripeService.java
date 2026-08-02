@@ -3,25 +3,24 @@ package uk.gegc.quizmaker.features.billing.application;
 import uk.gegc.quizmaker.features.billing.api.dto.CheckoutSessionResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.CustomerResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.SubscriptionResponse;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 
 import java.util.UUID;
 
 /**
  * Stripe integration service for creating Checkout Sessions and managing customers.
- * Part A scope: create session with priceId and metadata; no crediting here.
+ * Creates checkout sessions from server-resolved packs; no crediting occurs here.
  */
 public interface StripeService {
 
     /**
-     * Create a Stripe Checkout Session for purchasing a token pack.
-     * Either {@code priceId} (Stripe Price ID) or {@code packId} may be provided to carry metadata.
+     * Create a Stripe Checkout Session for one active, server-resolved token pack.
      *
      * @param userId   current authenticated user ID
-     * @param priceId  Stripe Price ID (required for MVP if not resolving via pack)
-     * @param packId   Optional internal ProductPack ID for metadata
+     * @param pack     server-owned pack containing the coupled Stripe price and entitlement
      * @return session URL and ID
      */
-    CheckoutSessionResponse createCheckoutSession(UUID userId, String priceId, UUID packId);
+    CheckoutSessionResponse createCheckoutSession(UUID userId, ProductPack pack);
 
     /** Retrieve a Checkout Session by id, optionally expanding line_items for pack resolution. */
     com.stripe.model.checkout.Session retrieveSession(String sessionId, boolean expandLineItems) throws com.stripe.exception.StripeException;

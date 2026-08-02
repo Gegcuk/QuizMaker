@@ -14,13 +14,13 @@ import uk.gegc.quizmaker.features.billing.api.dto.CreateCheckoutSessionRequest;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
 import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
-import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
@@ -51,7 +51,7 @@ class BillingCheckoutControllerPendingPaymentTest {
     @Mock
     private PaymentRepository paymentRepository;
     @Mock
-    private ProductPackRepository productPackRepository;
+    private CheckoutPackResolver checkoutPackResolver;
     @Mock
     private BillingProperties billingProperties;
     @Mock
@@ -79,16 +79,15 @@ class BillingCheckoutControllerPendingPaymentTest {
 
         CreateCheckoutSessionRequest request = new CreateCheckoutSessionRequest(priceId, packId);
         doNothing().when(rateLimitService).checkRateLimit(eq("checkout-session-create"), eq(USER_ID.toString()), eq(5));
-        when(stripeService.createCheckoutSession(USER_ID, priceId, packId))
-                .thenReturn(new CheckoutSessionResponse(sessionUrl, sessionId));
-        when(paymentRepository.findByStripeSessionId(sessionId)).thenReturn(Optional.empty());
-
         ProductPack pack = new ProductPack();
         pack.setId(packId);
+        pack.setStripePriceId(priceId);
         pack.setPriceCents(2500L);
         pack.setTokens(5000L);
         pack.setCurrency("eur");
-        when(productPackRepository.findById(packId)).thenReturn(Optional.of(pack));
+        when(checkoutPackResolver.resolve(packId, priceId)).thenReturn(pack);
+        when(stripeService.createCheckoutSession(USER_ID, pack)).thenReturn(new CheckoutSessionResponse(sessionUrl, sessionId));
+        when(paymentRepository.findByStripeSessionId(sessionId)).thenReturn(Optional.empty());
 
         ResponseEntity<CheckoutSessionResponse> response = controller.createCheckoutSession(request, authentication);
 
@@ -118,8 +117,14 @@ class BillingCheckoutControllerPendingPaymentTest {
 
         CreateCheckoutSessionRequest request = new CreateCheckoutSessionRequest(priceId, packId);
         doNothing().when(rateLimitService).checkRateLimit(eq("checkout-session-create"), eq(USER_ID.toString()), eq(5));
-        when(stripeService.createCheckoutSession(USER_ID, priceId, packId))
-                .thenReturn(new CheckoutSessionResponse(sessionUrl, sessionId));
+        ProductPack pack = new ProductPack();
+        pack.setId(packId);
+        pack.setStripePriceId(priceId);
+        pack.setPriceCents(2500L);
+        pack.setTokens(5000L);
+        pack.setCurrency("eur");
+        when(checkoutPackResolver.resolve(packId, priceId)).thenReturn(pack);
+        when(stripeService.createCheckoutSession(USER_ID, pack)).thenReturn(new CheckoutSessionResponse(sessionUrl, sessionId));
 
         Payment existing = new Payment();
         existing.setStripeSessionId(sessionId);

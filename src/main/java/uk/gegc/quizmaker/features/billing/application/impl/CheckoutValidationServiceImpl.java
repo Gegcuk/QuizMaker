@@ -1,252 +1,90 @@
 package uk.gegc.quizmaker.features.billing.application.impl;
 
+import com.stripe.model.LineItem;
 import com.stripe.model.checkout.Session;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
-import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 
-@Slf4j
+/** Validates that one Stripe line item matches one active server-owned token pack. */
 @Service
 @RequiredArgsConstructor
 public class CheckoutValidationServiceImpl implements CheckoutValidationService {
 
     private final ProductPackRepository productPackRepository;
-    private final BillingProperties billingProperties;
 
     @Override
     public CheckoutValidationResult validateAndResolvePack(Session session, UUID packIdFromMetadata) {
-
-        // 1. Resolve primary pack
-        ProductPack primaryPack = resolvePrimaryPack(session, packIdFromMetadata);
-        
-        // 2. Validate currency consistency
-        validateCurrencyConsistency(session, primaryPack);
-        
-        // 3. Handle multiple line items
-        List<ProductPack> additionalPacks = new ArrayList<>();
-        boolean hasMultipleLineItems = false;
-        
-        try {
-            var lineItems = session.getLineItems();
-            if (lineItems != null && !lineItems.getData().isEmpty()) {
-                hasMultipleLineItems = lineItems.getData().size() > 1;
-                
-                if (hasMultipleLineItems) {
-                    log.info("Multiple line items detected in session {}: {} items", 
-                            session.getId(), lineItems.getData().size());
-                    
-                    // Policy: Sum tokens across matched prices for multi-item checkouts
-                    // This allows customers to purchase multiple packs in a single session
-                    // All packs must have the same currency for consistency
-                    additionalPacks = resolveAdditionalPacks(session, primaryPack);
-                    
-                    log.info("Multi-item checkout validated: {} total packs, summing tokens and amounts", 
-                            1 + additionalPacks.size());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Failed to process line items for session {}: {}", session.getId(), e.getMessage());
+        if (session == null) {
+            throw invalid("Checkout session is missing");
         }
-        
-        // 4. Calculate totals
-        long totalAmountCents = calculateTotalAmount(session, primaryPack, additionalPacks);
-        long totalTokens = calculateTotalTokens(primaryPack, additionalPacks);
-        
-        // 5. Validate totals match session
-        validateTotalAmount(session, totalAmountCents);
-        
-        log.info("Checkout validation successful for session {}: {} pack(s), {} tokens, {} cents", 
-                session.getId(), 1 + additionalPacks.size(), totalTokens, totalAmountCents);
-        
-        return new CheckoutValidationResult(
-                primaryPack,
-                additionalPacks.isEmpty() ? null : additionalPacks,
-                totalAmountCents,
-                primaryPack.getCurrency(),
-                totalTokens,
-                hasMultipleLineItems
-        );
+
+        LineItem lineItem = requireSingleLineItem(session);
+        String priceId = requirePriceId(lineItem);
+        ProductPack pack = productPackRepository.findByStripePriceId(priceId)
+                .filter(ProductPack::isActive)
+                .orElseThrow(() -> invalid("Stripe line item does not map to an active token pack"));
+
+        crossCheckMetadata(session.getMetadata(), packIdFromMetadata, pack, priceId);
+        requireMatchingAmount(session, pack);
+        requireMatchingCurrency(session, lineItem, pack);
+
+        return new CheckoutValidationResult(pack, null, pack.getPriceCents(), pack.getCurrency(), pack.getTokens(), false);
     }
 
-    private ProductPack resolvePrimaryPack(Session session, UUID packIdFromMetadata) {
-        // First try: resolve from metadata
-        if (packIdFromMetadata != null) {
-            return productPackRepository.findById(packIdFromMetadata)
-                    .orElseThrow(() -> new InvalidCheckoutSessionException(
-                            "Pack referenced in metadata not found: " + packIdFromMetadata));
+    private LineItem requireSingleLineItem(Session session) {
+        if (session.getLineItems() == null) {
+            throw invalid("Checkout session line items were not expanded");
         }
-        
-        // Second try: resolve via Price ID from first line item
-        try {
-            var lineItems = session.getLineItems();
-            if (lineItems != null && !lineItems.getData().isEmpty()) {
-                var first = lineItems.getData().get(0);
-                String priceId = extractPriceId(first);
-                
-                if (StringUtils.hasText(priceId)) {
-                    Optional<ProductPack> byPrice = productPackRepository.findByStripePriceId(priceId);
-                    if (byPrice.isPresent()) {
-                        return byPrice.get();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Failed to resolve pack from line items for session {}: {}", session.getId(), e.getMessage());
+        List<LineItem> lineItems = session.getLineItems().getData();
+        if (lineItems == null || lineItems.size() != 1 || lineItems.get(0) == null) {
+            throw invalid("Checkout session must contain exactly one token-pack line item");
         }
-        
-        throw new InvalidCheckoutSessionException("Unable to resolve pack from session: " + session.getId());
+        return lineItems.get(0);
     }
 
-    private List<ProductPack> resolveAdditionalPacks(Session session, ProductPack primaryPack) {
-        List<ProductPack> additionalPacks = new ArrayList<>();
-        
-        try {
-            var lineItems = session.getLineItems();
-            if (lineItems != null && lineItems.getData().size() > 1) {
-                // Skip the first item (already resolved as primary pack)
-                for (int i = 1; i < lineItems.getData().size(); i++) {
-                    var lineItem = lineItems.getData().get(i);
-                    String priceId = extractPriceId(lineItem);
-                    
-                    if (StringUtils.hasText(priceId)) {
-                        Optional<ProductPack> pack = productPackRepository.findByStripePriceId(priceId);
-                        if (pack.isPresent()) {
-                            // Validate currency consistency for additional packs
-                            if (!pack.get().getCurrency().equals(primaryPack.getCurrency())) {
-                                throw new InvalidCheckoutSessionException(
-                                        "Currency mismatch in additional pack: expected " + 
-                                        primaryPack.getCurrency() + ", got " + pack.get().getCurrency());
-                            }
-                            additionalPacks.add(pack.get());
-                        } else {
-                            log.warn("Additional line item with unknown price ID: {} in session {}", 
-                                    priceId, session.getId());
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to resolve additional packs for session {}: {}", session.getId(), e.getMessage());
-            throw new InvalidCheckoutSessionException("Failed to resolve additional packs: " + e.getMessage());
+    private String requirePriceId(LineItem lineItem) {
+        if (lineItem.getPrice() == null || !StringUtils.hasText(lineItem.getPrice().getId())) {
+            throw invalid("Checkout line item is missing its Stripe price");
         }
-        
-        return additionalPacks;
+        return lineItem.getPrice().getId();
     }
 
-    private String extractPriceId(Object lineItem) {
-        try {
-            // Use proper Stripe SDK methods instead of reflection
-            // Cast to the appropriate Stripe SDK type
-            if (lineItem instanceof com.stripe.model.LineItem stripeLineItem) {
-                var price = stripeLineItem.getPrice();
-                if (price != null) {
-                    return price.getId();
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Failed to extract price ID from line item: {}", e.getMessage());
+    private void crossCheckMetadata(Map<String, String> metadata, UUID packIdFromMetadata, ProductPack pack, String lineItemPriceId) {
+        if (packIdFromMetadata != null && !packIdFromMetadata.equals(pack.getId())) {
+            throw invalid("Checkout metadata pack does not match the Stripe line item");
         }
-        return null;
+        if (metadata != null && StringUtils.hasText(metadata.get("priceId"))
+                && !metadata.get("priceId").equals(lineItemPriceId)) {
+            throw invalid("Checkout metadata price does not match the Stripe line item");
+        }
     }
 
-    private void validateCurrencyConsistency(Session session, ProductPack pack) {
-        String sessionCurrency = session.getCurrency();
-        String packCurrency = pack.getCurrency();
-        
-        if (!StringUtils.hasText(sessionCurrency)) {
-            log.warn("Session {} has no currency, using pack currency: {}", session.getId(), packCurrency);
-            return;
+    private void requireMatchingAmount(Session session, ProductPack pack) {
+        if (session.getAmountTotal() == null || session.getAmountTotal() != pack.getPriceCents()) {
+            throw invalid("Checkout amount does not match the configured token pack");
         }
-        
-        if (!sessionCurrency.equalsIgnoreCase(packCurrency)) {
-            throw new InvalidCheckoutSessionException(
-                    String.format("Currency mismatch: session currency '%s' does not match pack currency '%s'", 
-                            sessionCurrency, packCurrency));
-        }
-        
-        // Additional validation: check line item currencies if available
-        validateLineItemCurrencies(session, packCurrency);
-    }
-    
-    private void validateLineItemCurrencies(Session session, String expectedCurrency) {
-        try {
-            var lineItems = session.getLineItems();
-            if (lineItems != null && !lineItems.getData().isEmpty()) {
-                for (int i = 0; i < lineItems.getData().size(); i++) {
-                    var lineItem = lineItems.getData().get(i);
-                    String lineItemCurrency = extractLineItemCurrency(lineItem);
-                    
-                    if (StringUtils.hasText(lineItemCurrency) && !lineItemCurrency.equalsIgnoreCase(expectedCurrency)) {
-                        throw new InvalidCheckoutSessionException(
-                                String.format("Line item %d currency '%s' does not match expected currency '%s'", 
-                                        i, lineItemCurrency, expectedCurrency));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Failed to validate line item currencies for session {}: {}", session.getId(), e.getMessage());
-            // Don't throw here as this is additional validation
-        }
-    }
-    
-    private String extractLineItemCurrency(Object lineItem) {
-        try {
-            // Use proper Stripe SDK methods instead of reflection
-            // Cast to the appropriate Stripe SDK type
-            if (lineItem instanceof com.stripe.model.LineItem stripeLineItem) {
-                return stripeLineItem.getCurrency();
-            }
-        } catch (Exception e) {
-            log.debug("Failed to extract currency from line item: {}", e.getMessage());
-        }
-        return null;
     }
 
-    private long calculateTotalAmount(Session session, ProductPack primaryPack, List<ProductPack> additionalPacks) {
-        long total = primaryPack.getPriceCents();
-        
-        for (ProductPack pack : additionalPacks) {
-            total += pack.getPriceCents();
+    private void requireMatchingCurrency(Session session, LineItem lineItem, ProductPack pack) {
+        if (!sameCurrency(session.getCurrency(), pack.getCurrency()) || !sameCurrency(lineItem.getCurrency(), pack.getCurrency())) {
+            throw invalid("Checkout currency does not match the configured token pack");
         }
-        
-        return total;
     }
 
-    private long calculateTotalTokens(ProductPack primaryPack, List<ProductPack> additionalPacks) {
-        long total = primaryPack.getTokens();
-        
-        for (ProductPack pack : additionalPacks) {
-            total += pack.getTokens();
-        }
-        
-        return total;
+    private boolean sameCurrency(String actual, String expected) {
+        return StringUtils.hasText(actual) && StringUtils.hasText(expected) && actual.equalsIgnoreCase(expected);
     }
 
-    private void validateTotalAmount(Session session, long calculatedTotal) {
-        try {
-            Long sessionTotal = session.getAmountTotal();
-            if (sessionTotal != null && sessionTotal != calculatedTotal) {
-                if (billingProperties.isStrictAmountValidation()) {
-                    throw new InvalidCheckoutSessionException(
-                            String.format("Amount mismatch: session total %d cents vs calculated %d cents", 
-                                    sessionTotal, calculatedTotal));
-                }
-                log.warn("Amount mismatch (non-strict) for session {}: session total {} cents, calculated {} cents", 
-                        session.getId(), sessionTotal, calculatedTotal);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to validate total amount for session {}: {}", session.getId(), e.getMessage());
-        }
+    private InvalidCheckoutSessionException invalid(String message) {
+        return new InvalidCheckoutSessionException(message);
     }
 }

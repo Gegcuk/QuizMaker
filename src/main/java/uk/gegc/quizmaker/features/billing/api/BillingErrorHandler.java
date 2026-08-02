@@ -18,6 +18,8 @@ import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessio
 import uk.gegc.quizmaker.features.billing.domain.exception.LargePayloadSecurityException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
+import uk.gegc.quizmaker.features.billing.domain.exception.CheckoutPackMismatchException;
+import uk.gegc.quizmaker.features.billing.domain.exception.StripeCheckoutUnavailableException;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
@@ -34,6 +36,21 @@ import java.util.Map;
 @Slf4j
 @RestControllerAdvice(basePackages = "uk.gegc.quizmaker.features.billing.api")
 public class BillingErrorHandler {
+
+    @ExceptionHandler(CheckoutPackMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleCheckoutPackMismatch(CheckoutPackMismatchException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(HttpStatus.CONFLICT, ErrorTypes.CHECKOUT_PACK_MISMATCH,
+                "Checkout Pack Mismatch", ex.getMessage(), request);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
+    @ExceptionHandler(StripeCheckoutUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleStripeCheckoutUnavailable(StripeCheckoutUnavailableException ex, HttpServletRequest request) {
+        log.error("Stripe checkout unavailable", ex);
+        ProblemDetail problem = ProblemDetailBuilder.create(HttpStatus.SERVICE_UNAVAILABLE, ErrorTypes.STRIPE_CHECKOUT_UNAVAILABLE,
+                "Payment Service Unavailable", "Payment checkout is temporarily unavailable. Please retry.", request);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
+    }
 
     @ExceptionHandler(InvalidCheckoutSessionException.class)
     public ResponseEntity<ProblemDetail> handleInvalidCheckoutSession(InvalidCheckoutSessionException ex, HttpServletRequest request) {

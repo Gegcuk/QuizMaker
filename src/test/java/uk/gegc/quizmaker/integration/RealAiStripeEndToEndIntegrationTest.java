@@ -765,7 +765,7 @@ class RealAiStripeEndToEndIntegrationTest{
     }
 
     private void creditTokensViaStripeWebhook() throws Exception {
-        var response = stripeService.createCheckoutSession(testUser.getId(), selectedPack.getStripePriceId(), selectedPack.getId());
+        var response = stripeService.createCheckoutSession(testUser.getId(), selectedPack);
         String sessionId = response.sessionId();
 
         String payload = buildCheckoutSessionEventPayload(sessionId);
@@ -885,7 +885,7 @@ class RealAiStripeEndToEndIntegrationTest{
     }
 
     private void creditTokensForUser(User user, ProductPack pack) throws Exception {
-        var response = stripeService.createCheckoutSession(user.getId(), pack.getStripePriceId(), pack.getId());
+        var response = stripeService.createCheckoutSession(user.getId(), pack);
         String sessionId = response.sessionId();
 
         String payload = buildCheckoutSessionEventPayload(sessionId);

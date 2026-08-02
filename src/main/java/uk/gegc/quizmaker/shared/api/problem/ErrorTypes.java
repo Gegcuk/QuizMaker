@@ -80,6 +80,8 @@ public final class ErrorTypes {
     public static final URI STRIPE_ERROR = URI.create(BASE_URL + "/stripe-error");
     public static final URI BILLING_INTERNAL_ERROR = URI.create(BASE_URL + "/billing-internal-error");
     public static final URI BILLING_INVALID_REQUEST_BODY = URI.create(BASE_URL + "/billing-invalid-request-body");
+    public static final URI CHECKOUT_PACK_MISMATCH = URI.create(BASE_URL + "/checkout-pack-mismatch");
+    public static final URI STRIPE_CHECKOUT_UNAVAILABLE = URI.create(BASE_URL + "/stripe-checkout-unavailable");
 
     // ==================== Generic Errors ====================
     public static final URI INTERNAL_SERVER_ERROR = URI.create(BASE_URL + "/internal-server-error");

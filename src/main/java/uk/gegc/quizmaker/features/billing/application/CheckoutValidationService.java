@@ -13,10 +13,10 @@ import java.util.UUID;
 public interface CheckoutValidationService {
 
     /**
-     * Validates a checkout session and resolves the product pack(s).
+     * Validates one Stripe line item and resolves its active server-owned product pack.
      * 
      * @param session the Stripe checkout session
-     * @param packIdFromMetadata the pack ID from session metadata (if any)
+     * @param packIdFromMetadata the metadata pack ID to cross-check against the line item (if any)
      * @return validation result with resolved pack information
      * @throws InvalidCheckoutSessionException if validation fails
      */
