@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.api.dto.PackDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
@@ -44,6 +45,9 @@ class BillingCheckoutPacksControllerTest {
 
     @MockitoBean
     private CheckoutReadService checkoutReadService;
+
+    @MockitoBean
+    private CheckoutPackResolver checkoutPackResolver;
 
     @MockitoBean
     private StripeService stripeService;
