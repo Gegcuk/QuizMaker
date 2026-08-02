@@ -152,6 +152,7 @@ class BillingCheckoutControllerTest {
 
     @Test
     @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
+    @org.junit.jupiter.api.DisplayName("checkout conflict returns RFC 7807 and does not call Stripe or persist payment")
     void createCheckoutSession_WithConflictingPackAndPrice_ReturnsConflictBeforeStripeOrPaymentMutation() throws Exception {
         UUID packId = UUID.randomUUID();
         CreateCheckoutSessionRequest request = new CreateCheckoutSessionRequest("price_cheaper", packId);
@@ -172,6 +173,7 @@ class BillingCheckoutControllerTest {
 
     @Test
     @WithMockUser
+    @org.junit.jupiter.api.DisplayName("billing OpenAPI describes pack-first checkout compatibility and failure modes")
     void checkoutSessionOpenApiContract_DescribesPackFirstCompatibilityAndFailureModes() throws Exception {
         JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
                 .andExpect(status().isOk())

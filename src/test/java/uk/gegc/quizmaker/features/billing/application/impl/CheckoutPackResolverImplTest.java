@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.application.impl;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("Checkout pack resolver")
 class CheckoutPackResolverImplTest {
 
     @Mock
@@ -32,6 +34,7 @@ class CheckoutPackResolverImplTest {
     }
 
     @Test
+    @DisplayName("resolves an active pack ID as the server-owned checkout selection")
     void resolvesAnActivePackIdAndUsesItsConfiguredPrice() {
         UUID packId = UUID.randomUUID();
         ProductPack pack = pack(packId, "price_standard", true);
@@ -42,6 +45,7 @@ class CheckoutPackResolverImplTest {
     }
 
     @Test
+    @DisplayName("supports a legacy price only when it maps to one active pack")
     void resolvesTheLegacyPriceOnlyWhenItMapsToAnActivePack() {
         ProductPack pack = pack(UUID.randomUUID(), "price_legacy", true);
         when(productPackRepository.findByStripePriceId("price_legacy")).thenReturn(Optional.of(pack));
@@ -50,6 +54,7 @@ class CheckoutPackResolverImplTest {
     }
 
     @Test
+    @DisplayName("rejects conflicting pack and legacy price before Stripe is called")
     void rejectsConflictingPackAndLegacyPriceBeforeStripeIsCalled() {
         UUID packId = UUID.randomUUID();
         ProductPack pack = pack(packId, "price_standard", true);
@@ -61,6 +66,7 @@ class CheckoutPackResolverImplTest {
     }
 
     @Test
+    @DisplayName("rejects inactive and unknown packs")
     void rejectsInactiveOrUnknownPacks() {
         UUID inactiveId = UUID.randomUUID();
         when(productPackRepository.findById(inactiveId)).thenReturn(Optional.of(pack(inactiveId, "price_disabled", false)));

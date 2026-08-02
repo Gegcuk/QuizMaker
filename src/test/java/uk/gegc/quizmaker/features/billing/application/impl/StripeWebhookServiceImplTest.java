@@ -550,21 +550,20 @@ class StripeWebhookServiceImplTest {
         }
 
         @Test
-        @DisplayName("extractPackId should return null when packId is invalid UUID")
-        void extractPackIdShouldReturnNullWhenPackIdIsInvalidUuid() throws Exception {
+        @DisplayName("extractPackId should reject an invalid UUID rather than ignore checkout metadata")
+        void extractPackIdShouldRejectInvalidUuid() throws Exception {
             // Given
             Session mockSession = mock(Session.class);
             Map<String, String> metadata = new HashMap<>();
             metadata.put("packId", "invalid-uuid");
             when(mockSession.getMetadata()).thenReturn(metadata);
 
-            // When
+            // When & Then
             Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("extractPackId", Session.class);
             method.setAccessible(true);
-            UUID result = (UUID) method.invoke(webhookService, mockSession);
-
-            // Then
-            assertThat(result).isNull();
+            assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
+                    .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
+                    .hasRootCauseMessage("Invalid packId in checkout metadata");
         }
     }
 
