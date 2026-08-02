@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.CustomerResponse;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.impl.BillingServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
@@ -29,6 +31,8 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
+import uk.gegc.quizmaker.features.billing.domain.exception.CheckoutPackMismatchException;
 import com.stripe.model.Customer;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +44,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -92,6 +99,9 @@ class BillingCheckoutControllerTest {
     private PaymentRepository paymentRepository;
 
     @MockitoBean
+    private CheckoutPackResolver checkoutPackResolver;
+
+    @MockitoBean
     private BillingProperties billingProperties;
 
     @BeforeEach
@@ -121,7 +131,12 @@ class BillingCheckoutControllerTest {
         // Mock permission check to allow access
         when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
         
-        when(stripeService.createCheckoutSession(any(UUID.class), eq(priceId), eq(packId)))
+        ProductPack pack = new ProductPack();
+        pack.setId(packId);
+        pack.setStripePriceId(priceId);
+        pack.setActive(true);
+        when(checkoutPackResolver.resolve(packId, priceId)).thenReturn(pack);
+        when(stripeService.createCheckoutSession(any(UUID.class), eq(pack)))
                 .thenReturn(expectedResponse);
 
         // When & Then
@@ -133,6 +148,44 @@ class BillingCheckoutControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.url").value(sessionUrl))
                 .andExpect(jsonPath("$.sessionId").value(sessionId));
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = {"BILLING_WRITE"})
+    void createCheckoutSession_WithConflictingPackAndPrice_ReturnsConflictBeforeStripeOrPaymentMutation() throws Exception {
+        UUID packId = UUID.randomUUID();
+        CreateCheckoutSessionRequest request = new CreateCheckoutSessionRequest("price_cheaper", packId);
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        doThrow(new CheckoutPackMismatchException("packId and priceId identify different token packs"))
+                .when(checkoutPackResolver).resolve(packId, "price_cheaper");
+
+        mockMvc.perform(post("/api/v1/billing/checkout-sessions")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/checkout-pack-mismatch"));
+
+        verify(stripeService, never()).createCheckoutSession(any(), any());
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    @WithMockUser
+    void checkoutSessionOpenApiContract_DescribesPackFirstCompatibilityAndFailureModes() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1checkout-sessions/post/requestBody/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/CreateCheckoutSessionRequest");
+        assertThat(specification.at("/components/schemas/CreateCheckoutSessionRequest/properties/priceId/deprecated").asBoolean()).isTrue();
+        assertThat(specification.at("/components/schemas/CreateCheckoutSessionRequest/properties/packId/description").asText())
+                .contains("server-owned");
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1checkout-sessions/post/responses/409").isMissingNode()).isFalse();
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1checkout-sessions/post/responses/503").isMissingNode()).isFalse();
     }
 
     @Test

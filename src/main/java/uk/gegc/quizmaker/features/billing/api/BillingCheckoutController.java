@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.*;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
@@ -40,12 +41,10 @@ import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
-import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import org.springframework.http.HttpStatus;
-import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -67,7 +66,7 @@ public class BillingCheckoutController {
     private final RateLimitService rateLimitService;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
-    private final ProductPackRepository productPackRepository;
+    private final CheckoutPackResolver checkoutPackResolver;
     private final BillingProperties billingProperties;
     private final FeatureFlags featureFlags;
 
@@ -277,7 +276,8 @@ public class BillingCheckoutController {
 
     @Operation(
             summary = "Create checkout session",
-            description = "Creates a Stripe checkout session for purchasing token packs. Requires BILLING_WRITE permission."
+            description = "Creates a Stripe checkout session for one active server-owned token pack. Requires BILLING_WRITE permission. "
+                    + "Send packId. The deprecated priceId is accepted only for legacy clients and is cross-checked when both identifiers are supplied."
     )
     @ApiResponses({
             @ApiResponse(
@@ -291,7 +291,11 @@ public class BillingCheckoutController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Billing feature disabled or pack not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "packId and deprecated priceId identify different packs",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "429", description = "Rate limit exceeded (5/min)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Stripe checkout is temporarily unavailable; retry without changing the pack selection",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/checkout-sessions")
@@ -312,16 +316,13 @@ public class BillingCheckoutController {
         // Rate limiting: 5 requests per minute per user
         rateLimitService.checkRateLimit("checkout-session-create", currentUserId.toString(), 5);
         
-        log.info("Creating checkout session for user: {} with priceId: {}", currentUserId, request.priceId());
-        
-        CheckoutSessionResponse session = stripeService.createCheckoutSession(
-            currentUserId, 
-            request.priceId(), 
-            request.packId()
-        );
+        ProductPack pack = checkoutPackResolver.resolve(request.packId(), request.priceId());
+        log.info("Creating checkout session for user={} packId={}", currentUserId, pack.getId());
+
+        CheckoutSessionResponse session = stripeService.createCheckoutSession(currentUserId, pack);
 
         // Seed a pending payment record so /checkout-sessions/{id} resolves immediately after redirect
-        seedPendingPayment(currentUserId, session.sessionId(), request.priceId(), request.packId());
+        seedPendingPayment(currentUserId, session.sessionId(), pack);
         
         log.info("Checkout session created successfully: {} for user: {}", session.sessionId(), currentUserId);
         
@@ -563,60 +564,34 @@ public class BillingCheckoutController {
         return created.id();
     }
 
-    private void seedPendingPayment(UUID userId, String sessionId, String priceId, UUID packId) {
+    private void seedPendingPayment(UUID userId, String sessionId, ProductPack pack) {
         // Avoid duplicate seed if it somehow exists (e.g., retrying create with same session)
         if (paymentRepository.findByStripeSessionId(sessionId).isPresent()) {
             log.info("Payment already exists for session {}, skipping pending seed", sessionId);
             return;
         }
 
-        long amountCents = 0L;
-        long tokens = 0L;
-        String currency = "usd"; // safe default; will be overwritten by webhook upsert
-
-        var pack = resolvePack(packId, priceId).orElse(null);
-        if (pack != null) {
-            amountCents = pack.getPriceCents();
-            tokens = pack.getTokens();
-            if (StringUtils.hasText(pack.getCurrency())) {
-                currency = pack.getCurrency();
-            }
-        }
-
         Payment payment = new Payment();
         payment.setUserId(userId);
         payment.setStatus(PaymentStatus.PENDING);
         payment.setStripeSessionId(sessionId);
-        payment.setPackId(packId);
-        payment.setAmountCents(amountCents);
-        payment.setCurrency(currency);
-        payment.setCreditedTokens(tokens);
+        payment.setPackId(pack.getId());
+        payment.setAmountCents(pack.getPriceCents());
+        payment.setCurrency(pack.getCurrency());
+        payment.setCreditedTokens(pack.getTokens());
         payment.setRefundedAmountCents(0L);
-        payment.setSessionMetadata(buildPendingMetadata(priceId, packId));
+        payment.setSessionMetadata(buildPendingMetadata(pack));
 
         paymentRepository.save(payment);
         log.info("Seeded pending payment for session {} user {} (amountCents={} currency={} tokens={})",
-                sessionId, userId, amountCents, currency, tokens);
+                sessionId, userId, pack.getPriceCents(), pack.getCurrency(), pack.getTokens());
     }
 
-    private java.util.Optional<ProductPack> resolvePack(UUID packId, String priceId) {
-        if (packId != null) {
-            var byId = productPackRepository.findById(packId);
-            if (byId.isPresent()) return byId;
-        }
-        if (StringUtils.hasText(priceId)) {
-            return productPackRepository.findByStripePriceId(priceId);
-        }
-        return java.util.Optional.empty();
-    }
-
-    private String buildPendingMetadata(String priceId, UUID packId) {
+    private String buildPendingMetadata(ProductPack pack) {
         try {
             java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
-            meta.put("priceId", priceId);
-            if (packId != null) {
-                meta.put("packId", packId.toString());
-            }
+            meta.put("priceId", pack.getStripePriceId());
+            meta.put("packId", pack.getId().toString());
             meta.put("status", "PENDING");
             return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(meta);
         } catch (Exception e) {

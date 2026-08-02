@@ -23,6 +23,8 @@ import uk.gegc.quizmaker.features.billing.api.dto.CustomerResponse;
 import uk.gegc.quizmaker.features.billing.api.dto.SubscriptionResponse;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.domain.exception.StripeCheckoutUnavailableException;
+import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 
 import java.util.UUID;
 
@@ -37,10 +39,11 @@ public class StripeServiceImpl implements StripeService {
     private StripeClient stripeClient;
 
     @Override
-    public CheckoutSessionResponse createCheckoutSession(UUID userId, String priceId, UUID packId) {
-        if (!StringUtils.hasText(priceId)) {
-            throw new IllegalArgumentException("priceId must be provided for Checkout Session");
+    public CheckoutSessionResponse createCheckoutSession(UUID userId, ProductPack pack) {
+        if (pack == null || pack.getId() == null || !pack.isActive() || !StringUtils.hasText(pack.getStripePriceId())) {
+            throw new IllegalArgumentException("An active server-resolved pack with a Stripe price is required");
         }
+        String priceId = pack.getStripePriceId();
 
         String successUrl = stripeProperties.getSuccessUrl();
         String cancelUrl = stripeProperties.getCancelUrl();
@@ -63,21 +66,20 @@ public class StripeServiceImpl implements StripeService {
                 .setClientReferenceId(userId.toString())
                 .putMetadata("userId", userId.toString());
 
-        if (packId != null) {
-            params.putMetadata("packId", packId.toString());
-        }
+        params.putMetadata("packId", pack.getId().toString());
+        params.putMetadata("priceId", priceId);
 
         try {
             Session session = (stripeClient != null)
                     ? stripeClient.checkout().sessions().create(params.build())
                     : Session.create(params.build());
             log.info("Created Stripe Checkout session id={} for user={} priceId={} packId={}",
-                    session.getId(), userId, priceId, packId);
+                    session.getId(), userId, priceId, pack.getId());
             return new CheckoutSessionResponse(session.getUrl(), session.getId());
         } catch (StripeException e) {
             log.error("Failed to create Stripe Checkout session for user={} priceId={} packId={}: {}",
-                    userId, priceId, packId, e.getMessage());
-            throw new IllegalStateException("Stripe session creation failed", e);
+                    userId, priceId, pack.getId(), e.getMessage());
+            throw new StripeCheckoutUnavailableException(e);
         }
     }
 
