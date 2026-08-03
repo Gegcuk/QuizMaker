@@ -27,6 +27,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
@@ -99,6 +101,12 @@ class QuizGenerationFacadeImplBillingTest {
     
     @Mock
     private QuizAssemblyService quizAssemblyService;
+
+    @Mock
+    private QuizGenerationIdempotencyService idempotencyService;
+
+    @Mock
+    private QuizGenerationRequestCanonicalizer requestCanonicalizer;
     
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -765,7 +773,8 @@ class QuizGenerationFacadeImplBillingTest {
                     userRepository, jobRepository, jobService, aiQuizGenerationService,
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, featureFlags, applicationEventPublisher,
-                    transactionTemplate, quizJobProperties, quizAssemblyService
+                    transactionTemplate, quizJobProperties, quizAssemblyService,
+                    idempotencyService, requestCanonicalizer
             );
             
             job.setBillingIdempotencyKeys(null); // Start with null to test creation path
@@ -870,4 +879,3 @@ class QuizGenerationFacadeImplBillingTest {
                 .collect(Collectors.toList());
     }
 }
-

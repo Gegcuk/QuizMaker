@@ -91,13 +91,41 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
+    public QuizGenerationResponse generateQuizFromDocument(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    ) {
+        return quizGenerationFacade.generateQuizFromDocument(username, request, idempotencyKey);
+    }
+
+    @Override
     public QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
         return quizGenerationFacade.generateQuizFromUpload(username, file, request);
     }
 
     @Override
+    public QuizGenerationResponse generateQuizFromUpload(
+            String username,
+            MultipartFile file,
+            GenerateQuizFromUploadRequest request,
+            String idempotencyKey
+    ) {
+        return quizGenerationFacade.generateQuizFromUpload(username, file, request, idempotencyKey);
+    }
+
+    @Override
     public QuizGenerationResponse generateQuizFromText(String username, GenerateQuizFromTextRequest request) {
         return quizGenerationFacade.generateQuizFromText(username, request);
+    }
+
+    @Override
+    public QuizGenerationResponse generateQuizFromText(
+            String username,
+            GenerateQuizFromTextRequest request,
+            String idempotencyKey
+    ) {
+        return quizGenerationFacade.generateQuizFromText(username, request, idempotencyKey);
     }
 
     @Transactional
@@ -123,6 +151,15 @@ public class QuizServiceImpl implements QuizService {
     @Override
     public QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request) {
         return quizGenerationFacade.startQuizGeneration(username, request);
+    }
+
+    @Override
+    public QuizGenerationResponse startQuizGeneration(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    ) {
+        return quizGenerationFacade.startQuizGeneration(username, request, idempotencyKey);
     }
 
     @Override

@@ -20,6 +20,12 @@ public interface InternalBillingService {
     ReleaseResultDto release(UUID reservationId, String reason, String ref, String idempotencyKey);
 
     /**
+     * Links an ACTIVE reservation to the generation job that owns it. This is
+     * internal-only because callers must already have established ownership.
+     */
+    void attachReservationToJob(UUID userId, UUID reservationId, UUID jobId);
+
+    /**
      * Credit tokens to a user's account from a purchase.
      * This is an internal operation used by webhooks and subscription services.
      * 
@@ -43,4 +49,3 @@ public interface InternalBillingService {
      */
     void deductTokens(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson);
 }
-

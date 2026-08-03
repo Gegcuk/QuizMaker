@@ -629,7 +629,7 @@ public class QuizController {
 
     @Operation(
             summary = "Generate quiz from document using AI (Async)",
-            description = "Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be processed and have chunks available. Users can specify exactly how many questions of each type to generate per chunk. Supports different scopes: entire document, specific chunks, specific chapter, or specific section. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
+            description = "Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be owned by the authenticated user and have chunks available. Reuse the same Idempotency-Key for a retry of the same command; reusing it with material changes returns 409. Clients not yet sending the optional header remain supported, but do not receive replay guarantees. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -656,7 +656,7 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "403",
-                            description = "Authenticated but not an ADMIN",
+                            description = "Authenticated user lacks QUIZ_CREATE permission",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
@@ -666,7 +666,17 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "409",
-                            description = "User already has an active generation job",
+                            description = "Idempotency-Key was reused for a different command, or the user already has an active generation job",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "Generation-start rate limit exceeded",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "503",
+                            description = "Matching generation request is still initializing or cannot be resumed safely",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
@@ -675,18 +685,24 @@ public class QuizController {
     @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationResponse> generateQuizFromDocument(
             @RequestBody @Valid GenerateQuizFromDocumentRequest request,
+            @Parameter(
+                    description = "Optional opaque retry key, 1-128 characters. Reuse only for the same source and generation settings; retain it across reconnects and app restarts.",
+                    schema = @Schema(minLength = 1, maxLength = 128),
+                    example = "ios-quiz-generation-7d9bf2f0-4e62-4d90-b3e2-2b33a4d3cd21"
+            )
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
         // Rate limit quiz generation starts: 3 per minute per user
         rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
         
-        QuizGenerationResponse response = quizService.startQuizGeneration(authentication.getName(), request);
+        QuizGenerationResponse response = quizService.startQuizGeneration(authentication.getName(), request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @Operation(
             summary = "Upload document and generate quiz in one operation (Async)",
-            description = "Upload a document, process it, and start quiz generation in a single operation. This endpoint combines document upload and quiz generation for simpler frontend integration. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
+            description = "Upload a document, process it, and start quiz generation in one operation. Reuse the same Idempotency-Key only for a retry of the same upload command; changing material settings with the same key returns 409. The raw upload is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -716,12 +732,27 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "403",
-                            description = "Authenticated but not an ADMIN",
+                            description = "Authenticated user lacks QUIZ_CREATE permission",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "422",
                             description = "Document processing failed",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "409",
+                            description = "Idempotency-Key was reused for a different command",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "Generation-start rate limit exceeded",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "503",
+                            description = "Matching generation request is still initializing or cannot be resumed safely",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
@@ -744,6 +775,12 @@ public class QuizController {
             @RequestParam(value = "categoryId", required = false) UUID categoryId,
             @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
             @RequestParam(value = "language", required = false) String language,
+            @Parameter(
+                    description = "Optional opaque retry key, 1-128 characters. Reuse only for the same upload command.",
+                    schema = @Schema(minLength = 1, maxLength = 128),
+                    example = "ios-quiz-upload-7d9bf2f0-4e62-4d90-b3e2-2b33a4d3cd21"
+            )
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
         // Validate file upload
@@ -774,13 +811,13 @@ public class QuizController {
         // Rate limit quiz generation starts: 3 per minute per user
         rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
         
-        QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request);
+        QuizGenerationResponse response = quizService.generateQuizFromUpload(authentication.getName(), file, request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @Operation(
             summary = "Generate quiz from plain text (Async)",
-            description = "Generate a quiz from plain text content in a single operation. This endpoint processes the text, chunks it, and starts quiz generation. Returns a job ID for tracking progress. Requires QUIZ_CREATE permission.",
+            description = "Generate a quiz from plain text in one operation. Reuse the same Idempotency-Key only for a retry of the same command; material setting changes with the same key return 409. Text content is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -807,17 +844,27 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "403",
-                            description = "Authenticated but not an ADMIN",
+                            description = "Authenticated user lacks QUIZ_CREATE permission",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "409",
-                            description = "User already has an active generation job",
+                            description = "Idempotency-Key was reused for a different command, or the user already has an active generation job",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
                             responseCode = "422",
                             description = "Text processing failed",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "429",
+                            description = "Generation-start rate limit exceeded",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "503",
+                            description = "Matching generation request is still initializing or cannot be resumed safely",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }
@@ -826,12 +873,18 @@ public class QuizController {
     @RequirePermission(PermissionName.QUIZ_CREATE)
     public ResponseEntity<QuizGenerationResponse> generateQuizFromText(
             @RequestBody @Valid GenerateQuizFromTextRequest request,
+            @Parameter(
+                    description = "Optional opaque retry key, 1-128 characters. Reuse only for the same text-generation command.",
+                    schema = @Schema(minLength = 1, maxLength = 128),
+                    example = "ios-quiz-text-7d9bf2f0-4e62-4d90-b3e2-2b33a4d3cd21"
+            )
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
         // Rate limit quiz generation starts: 3 per minute per user
         rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
         
-        QuizGenerationResponse response = quizService.generateQuizFromText(authentication.getName(), request);
+        QuizGenerationResponse response = quizService.generateQuizFromText(authentication.getName(), request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
