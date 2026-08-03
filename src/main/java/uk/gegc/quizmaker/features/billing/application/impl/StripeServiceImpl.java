@@ -184,18 +184,16 @@ public class StripeServiceImpl implements StripeService {
     }
 
     @Override
-    public Subscription updateSubscription(String subscriptionId, String newPriceId) throws StripeException {
-        if (!StringUtils.hasText(subscriptionId) || !StringUtils.hasText(newPriceId)) {
-            throw new IllegalArgumentException("Subscription ID and new Price ID must be provided");
+    public Subscription updateSubscription(Subscription subscription, String newPriceId) throws StripeException {
+        if (subscription == null || !StringUtils.hasText(subscription.getId()) || !StringUtils.hasText(newPriceId)) {
+            throw new IllegalArgumentException("Verified subscription and new Price ID must be provided");
+        }
+        if (subscription.getItems() == null || subscription.getItems().getData() == null
+                || subscription.getItems().getData().isEmpty()) {
+            throw new IllegalArgumentException("Verified subscription must contain at least one subscription item");
         }
 
-        // Retrieve the subscription to get the subscription item ID
-        Subscription subscription;
-        if (stripeClient != null) {
-            subscription = stripeClient.subscriptions().retrieve(subscriptionId);
-        } else {
-            subscription = Subscription.retrieve(subscriptionId);
-        }
+        String subscriptionId = subscription.getId();
 
         SubscriptionUpdateParams params = SubscriptionUpdateParams.builder()
                 .addItem(
@@ -207,32 +205,26 @@ public class StripeServiceImpl implements StripeService {
                 .setCancelAtPeriodEnd(false)
                 .build();
 
-        if (stripeClient != null) {
-            subscription = stripeClient.subscriptions().update(subscriptionId, params);
-        } else {
-            subscription = subscription.update(params);
-        }
+        Subscription updated = stripeClient != null
+                ? stripeClient.subscriptions().update(subscriptionId, params)
+                : subscription.update(params);
 
-        log.info("Updated Stripe subscription id={} to new priceId={}", subscriptionId, newPriceId);
-        return subscription;
+        log.info("Updated a verified Stripe subscription");
+        return updated;
     }
 
     @Override
-    public Subscription cancelSubscription(String subscriptionId) throws StripeException {
-        if (!StringUtils.hasText(subscriptionId)) {
-            throw new IllegalArgumentException("Subscription ID must be provided");
+    public Subscription cancelSubscription(Subscription subscription) throws StripeException {
+        if (subscription == null || !StringUtils.hasText(subscription.getId())) {
+            throw new IllegalArgumentException("Verified subscription must be provided");
         }
 
-        Subscription subscription;
-        if (stripeClient != null) {
-            subscription = stripeClient.subscriptions().retrieve(subscriptionId);
-        } else {
-            subscription = Subscription.retrieve(subscriptionId);
-        }
+        String subscriptionId = subscription.getId();
+        Subscription deletedSubscription = stripeClient != null
+                ? stripeClient.subscriptions().cancel(subscriptionId)
+                : subscription.cancel();
 
-        Subscription deletedSubscription = subscription.cancel();
-
-        log.info("Cancelled Stripe subscription id={}", subscriptionId);
+        log.info("Cancelled a verified Stripe subscription");
         return deletedSubscription;
     }
 

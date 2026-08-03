@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -26,4 +27,9 @@ public interface SubscriptionStatusRepository extends JpaRepository<Subscription
      * @return optional subscription status
      */
     Optional<SubscriptionStatus> findBySubscriptionId(String subscriptionId);
+
+    /**
+     * Returns every local association for a Stripe subscription so authorization can reject ambiguous data.
+     */
+    List<SubscriptionStatus> findAllBySubscriptionId(String subscriptionId);
 }

@@ -515,8 +515,8 @@ class StripeServiceImplTest {
         }
 
         @Test
-        @DisplayName("should update subscription successfully")
-        void updateSubscription_validInput_updatesSubscription() throws StripeException {
+        @DisplayName("updates a verified subscription without retrieving it again")
+        void updateSubscription_verifiedSubscription_updatesWithoutSecondRetrieve() throws StripeException {
             // Given
             String subscriptionId = "sub_123";
             String newPriceId = "price_new";
@@ -524,39 +524,38 @@ class StripeServiceImplTest {
             Subscription mockSubscription = mock(Subscription.class);
             SubscriptionItemCollection mockItems = mock(SubscriptionItemCollection.class);
             SubscriptionItem mockItem = mock(SubscriptionItem.class);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
             when(mockItem.getId()).thenReturn("si_123");
             when(mockItems.getData()).thenReturn(List.of(mockItem));
             when(mockSubscription.getItems()).thenReturn(mockItems);
 
-            when(subscriptionService.retrieve(subscriptionId)).thenReturn(mockSubscription);
             when(subscriptionService.update(eq(subscriptionId), any(SubscriptionUpdateParams.class)))
                     .thenReturn(mockSubscription);
 
-            // When
-            Subscription result = stripeService.updateSubscription(subscriptionId, newPriceId);
+            Subscription result = stripeService.updateSubscription(mockSubscription, newPriceId);
 
-            // Then
             assertThat(result).isEqualTo(mockSubscription);
-            verify(subscriptionService).retrieve(subscriptionId);
             verify(subscriptionService).update(eq(subscriptionId), any(SubscriptionUpdateParams.class));
+            verify(subscriptionService, never()).retrieve(any());
         }
 
         @Test
-        @DisplayName("should throw exception when subscriptionId is null")
-        void updateSubscription_nullSubscriptionId_throwsException() {
-            // When & Then
-            assertThatThrownBy(() -> stripeService.updateSubscription(null, "price_new"))
+        @DisplayName("rejects a missing verified subscription")
+        void updateSubscription_nullSubscription_throwsException() {
+            assertThatThrownBy(() -> stripeService.updateSubscription((Subscription) null, "price_new"))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Subscription ID and new Price ID must be provided");
+                    .hasMessageContaining("Verified subscription and new Price ID must be provided");
         }
 
         @Test
-        @DisplayName("should throw exception when newPriceId is null")
+        @DisplayName("rejects a missing new price ID")
         void updateSubscription_nullNewPriceId_throwsException() {
-            // When & Then
-            assertThatThrownBy(() -> stripeService.updateSubscription("sub_123", null))
+            Subscription subscription = mock(Subscription.class);
+            when(subscription.getId()).thenReturn("sub_123");
+
+            assertThatThrownBy(() -> stripeService.updateSubscription(subscription, null))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Subscription ID and new Price ID must be provided");
+                    .hasMessageContaining("Verified subscription and new Price ID must be provided");
         }
     }
 
@@ -571,32 +570,29 @@ class StripeServiceImplTest {
         }
 
         @Test
-        @DisplayName("should cancel subscription successfully")
-        void cancelSubscription_validInput_cancelsSubscription() throws StripeException {
+        @DisplayName("cancels a verified subscription without retrieving it again")
+        void cancelSubscription_verifiedSubscription_cancelsWithoutSecondRetrieve() throws StripeException {
             // Given
             String subscriptionId = "sub_123";
 
             Subscription mockSubscription = mock(Subscription.class);
             Subscription canceledSubscription = mock(Subscription.class);
-            when(mockSubscription.cancel()).thenReturn(canceledSubscription);
-            when(subscriptionService.retrieve(subscriptionId)).thenReturn(mockSubscription);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
+            when(subscriptionService.cancel(subscriptionId)).thenReturn(canceledSubscription);
 
-            // When
-            Subscription result = stripeService.cancelSubscription(subscriptionId);
+            Subscription result = stripeService.cancelSubscription(mockSubscription);
 
-            // Then
             assertThat(result).isEqualTo(canceledSubscription);
-            verify(subscriptionService).retrieve(subscriptionId);
-            verify(mockSubscription).cancel();
+            verify(subscriptionService).cancel(subscriptionId);
+            verify(subscriptionService, never()).retrieve(any());
         }
 
         @Test
-        @DisplayName("should throw exception when subscriptionId is null")
-        void cancelSubscription_nullSubscriptionId_throwsException() {
-            // When & Then
-            assertThatThrownBy(() -> stripeService.cancelSubscription(null))
+        @DisplayName("rejects a missing verified subscription")
+        void cancelSubscription_nullSubscription_throwsException() {
+            assertThatThrownBy(() -> stripeService.cancelSubscription((Subscription) null))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Subscription ID must be provided");
+                    .hasMessageContaining("Verified subscription must be provided");
         }
     }
 
@@ -952,54 +948,42 @@ class StripeServiceImplTest {
         }
 
         @Test
-        @DisplayName("should use static API for updateSubscription when StripeClient is null")
-        void updateSubscription_withoutStripeClient_usesStaticApi() throws StripeException {
+        @DisplayName("uses the verified subscription API when StripeClient is null")
+        void updateSubscription_withoutStripeClient_usesVerifiedSubscriptionApi() throws StripeException {
             // Given
             String subscriptionId = "sub_static";
             String newPriceId = "price_static_new";
             
-            try (var subscriptionMock = mockStatic(Subscription.class)) {
-                Subscription mockSubscription = mock(Subscription.class);
-                SubscriptionItemCollection mockItems = mock(SubscriptionItemCollection.class);
-                SubscriptionItem mockItem = mock(SubscriptionItem.class);
-                when(mockItem.getId()).thenReturn("si_static");
-                when(mockItems.getData()).thenReturn(List.of(mockItem));
-                when(mockSubscription.getItems()).thenReturn(mockItems);
-                when(mockSubscription.update(any(SubscriptionUpdateParams.class))).thenReturn(mockSubscription);
-                
-                subscriptionMock.when(() -> Subscription.retrieve(subscriptionId))
-                        .thenReturn(mockSubscription);
+            Subscription mockSubscription = mock(Subscription.class);
+            SubscriptionItemCollection mockItems = mock(SubscriptionItemCollection.class);
+            SubscriptionItem mockItem = mock(SubscriptionItem.class);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
+            when(mockItem.getId()).thenReturn("si_static");
+            when(mockItems.getData()).thenReturn(List.of(mockItem));
+            when(mockSubscription.getItems()).thenReturn(mockItems);
+            when(mockSubscription.update(any(SubscriptionUpdateParams.class))).thenReturn(mockSubscription);
 
-                // When
-                Subscription result = stripeService.updateSubscription(subscriptionId, newPriceId);
+            Subscription result = stripeService.updateSubscription(mockSubscription, newPriceId);
 
-                // Then
-                assertThat(result).isEqualTo(mockSubscription);
-                subscriptionMock.verify(() -> Subscription.retrieve(subscriptionId));
-            }
+            assertThat(result).isEqualTo(mockSubscription);
+            verify(mockSubscription).update(any(SubscriptionUpdateParams.class));
         }
 
         @Test
-        @DisplayName("should use static API for cancelSubscription when StripeClient is null")
-        void cancelSubscription_withoutStripeClient_usesStaticApi() throws StripeException {
+        @DisplayName("uses the verified subscription API for cancellation when StripeClient is null")
+        void cancelSubscription_withoutStripeClient_usesVerifiedSubscriptionApi() throws StripeException {
             // Given
             String subscriptionId = "sub_cancel_static";
             
-            try (var subscriptionMock = mockStatic(Subscription.class)) {
-                Subscription mockSubscription = mock(Subscription.class);
-                Subscription canceledSubscription = mock(Subscription.class);
-                when(mockSubscription.cancel()).thenReturn(canceledSubscription);
-                
-                subscriptionMock.when(() -> Subscription.retrieve(subscriptionId))
-                        .thenReturn(mockSubscription);
+            Subscription mockSubscription = mock(Subscription.class);
+            Subscription canceledSubscription = mock(Subscription.class);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
+            when(mockSubscription.cancel()).thenReturn(canceledSubscription);
 
-                // When
-                Subscription result = stripeService.cancelSubscription(subscriptionId);
+            Subscription result = stripeService.cancelSubscription(mockSubscription);
 
-                // Then
-                assertThat(result).isEqualTo(canceledSubscription);
-                subscriptionMock.verify(() -> Subscription.retrieve(subscriptionId));
-            }
+            assertThat(result).isEqualTo(canceledSubscription);
+            verify(mockSubscription).cancel();
         }
 
         @Test

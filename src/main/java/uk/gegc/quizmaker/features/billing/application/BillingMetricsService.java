@@ -52,6 +52,11 @@ public interface BillingMetricsService {
     void recordReconciliationFailure(UUID userId, String reason);
 
     /**
+     * Records a bounded subscription-mutation outcome without customer or subscription identifiers.
+     */
+    void recordSubscriptionMutation(String operation, String outcome, String reason);
+
+    /**
      * Record alerting metrics.
      */
     void recordWebhookFailureRate(String eventType, double failureRate);

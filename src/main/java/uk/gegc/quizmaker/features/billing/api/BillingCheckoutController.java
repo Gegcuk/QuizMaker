@@ -30,6 +30,7 @@ import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
 import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
@@ -62,6 +63,7 @@ public class BillingCheckoutController {
     private final BillingService billingService;
     private final CheckoutReadService checkoutReadService;
     private final StripeService stripeService;
+    private final SubscriptionMutationService subscriptionMutationService;
     private final EstimationService estimationService;
     private final RateLimitService rateLimitService;
     private final UserRepository userRepository;
@@ -452,7 +454,9 @@ public class BillingCheckoutController {
     }
     @Operation(
             summary = "Update subscription",
-            description = "Updates an existing Stripe subscription to a new price. Requires BILLING_WRITE permission."
+            description = "Updates the authenticated user's recorded Stripe subscription to a server-resolved price. "
+                    + "The supplied subscriptionId is an untrusted compatibility field and must match both the local "
+                    + "subscription record and the Stripe customer's userId metadata. Requires BILLING_WRITE permission."
     )
     @ApiResponses({
             @ApiResponse(
@@ -461,9 +465,11 @@ public class BillingCheckoutController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid request",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission or subscription ownership could not be verified",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "Subscription or price not found",
+            @ApiResponse(responseCode = "409", description = "Subscription is not in a state that can be updated",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Stripe is temporarily unavailable; retry later",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/update-subscription")
@@ -480,16 +486,18 @@ public class BillingCheckoutController {
         // Resolve price ID from lookup key via Stripe
         String newPriceId = stripeService.resolvePriceIdByLookupKey(request.newPriceLookupKey());
 
-        log.info("Updating subscription {} for user {} to price {}",
-                request.subscriptionId(), currentUserId, newPriceId);
+        log.info("Updating an authenticated user's recorded subscription");
 
-        var subscription = stripeService.updateSubscription(request.subscriptionId(), newPriceId);
+        var subscription = subscriptionMutationService.updateSubscription(currentUserId, request.subscriptionId(), newPriceId);
         // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }
     @Operation(
             summary = "Cancel subscription",
-            description = "Cancels an existing Stripe subscription. Requires BILLING_WRITE permission."
+            description = "Cancels the authenticated user's recorded Stripe subscription. "
+                    + "The supplied subscriptionId is an untrusted compatibility field and must match both the local "
+                    + "subscription record and the Stripe customer's userId metadata. Repeating a completed cancellation is idempotent. "
+                    + "Requires BILLING_WRITE permission."
     )
     @ApiResponses({
             @ApiResponse(
@@ -498,9 +506,9 @@ public class BillingCheckoutController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid request",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission",
+            @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission or subscription ownership could not be verified",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "Subscription not found",
+            @ApiResponse(responseCode = "503", description = "Stripe is temporarily unavailable; retry later",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/cancel-subscription")
@@ -514,9 +522,9 @@ public class BillingCheckoutController {
             Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
-        log.info("Cancelling subscription {} for user {}", request.subscriptionId(), currentUserId);
+        log.info("Cancelling an authenticated user's recorded subscription");
 
-        var subscription = stripeService.cancelSubscription(request.subscriptionId());
+        var subscription = subscriptionMutationService.cancelSubscription(currentUserId, request.subscriptionId());
         // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }
