@@ -2,11 +2,25 @@
 
 This guide defines the issue format for QuizMaker. It is written for maintainers, contributors, and AI agents.
 
-## What A Good Issue Does
+## Issue Workflow
 
-A good issue explains the user or system problem, the observable outcome, constraints, and how completion can be verified. It should not force a class name or design pattern unless that is an approved architectural constraint.
+Do not implement an issue until it identifies the user or system problem, testable acceptance criteria, explicit scope and exclusions, data owner, permission model, failure behavior, offline behavior where relevant, API/data changes, OpenAPI compatibility impact, and dependencies.
 
-Prefer a vertical slice that delivers usable behavior across the necessary layers. Avoid splitting one outcome into separate "create entity", "create repository", "create service", and "create controller" issues unless they are explicitly tracked as dependent tasks under one epic and cannot be delivered safely together.
+An incomplete issue is not ready. Refine it before implementation rather than silently making product, security, privacy, persistence, or client-contract decisions. A good issue describes an independently verifiable vertical slice; it does not prescribe a class name or design pattern unless an approved architectural constraint requires one.
+
+Prefer a vertical slice that delivers useful behavior across the necessary layers. Do not split one outcome into separate entity, repository, service, and controller issues unless they are independently releasable and explicitly linked as dependencies.
+
+### Definition Of Ready
+
+An issue may be implemented only when all of the following are true:
+
+- the required structure below is complete, using `Not applicable` only with a reason;
+- acceptance criteria are observable and testable, including failure behavior and offline behavior when relevant;
+- an accountable data owner and all authorization, ownership, visibility, and privacy decisions are named;
+- API contracts, OpenAPI grouping and compatibility impact are known for every client-visible change;
+- additive migration/backfill/retention/rollback considerations are explicit for data changes;
+- dependencies, sequencing, and any decision that still needs project-owner approval are explicit;
+- the issue is small enough for one focused branch and local commit series, or is split into independently testable child issues.
 
 ## Title Format
 
@@ -27,18 +41,20 @@ Examples:
 
 Avoid titles that only name an implementation artifact, such as `Create XServiceImpl`.
 
-## Required Issue Sections
+## Required Issue Structure
 
-Use all applicable sections. Write `Not applicable` rather than silently omitting a section that readers may expect.
+Every issue must use every heading below, in this order. Write `Not applicable because ...` rather than omitting a section. The detail under each heading must be sufficient for a contributor or AI agent to implement the work without guessing.
 
 ```markdown
-## Problem and context
+## Problem
 
-Who is affected, what currently happens, and why it matters. Include reproducible evidence or links where available.
+Who is affected, what currently happens, why it matters, and reproducible evidence or links where available.
 
-## User or system outcome
+## User story
 
-Describe the observable result after completion.
+As a ...
+I want ...
+So that ...
 
 ## Scope
 
@@ -53,51 +69,96 @@ Describe the observable result after completion.
 
 ## Acceptance criteria
 
-- [ ] Testable outcome stated in externally observable terms
-- [ ] Important error or edge case
-- [ ] Backward-compatibility expectation
+- [ ] Given ..., when ..., then ...
+- [ ] Given ..., when ..., then ...
+- [ ] Failure behaviour is defined.
+- [ ] Offline behaviour is defined where relevant.
 
-## API and documentation
+## API changes
 
-- Endpoint and method, if already approved
-- Request/response shape, pagination, status codes, and RFC 7807 errors
-- OpenAPI group and `/api/v1/api-summary` discoverability
-- Representative valid examples
+- OpenAPI operation and logical group, named request/response schemas, and representative examples
+- Authentication, authorization, ownership/visibility, RFC 7807 error responses, validation, and idempotency
+- Pagination/filtering/sorting when applicable
+- Backward-compatibility impact and iOS compatibility plan, even if no iOS client exists yet
 
-## Security and privacy
+## Data changes
 
-- Authentication requirement
-- Permission names and ownership/visibility rules
-- Negative authorization cases
-- PII, secret, rate-limit, abuse, SSRF, upload, or audit concerns
+- Data owner for every new or changed record
+- Additive Flyway migration, indexes, constraints, retention, backfill, and rollback considerations
+- Existing data and client compatibility
 
-## Data and compatibility
+## Permissions and privacy
 
-- Migration, indexes, constraints, retention, and rollback considerations
-- Existing clients/data that must continue to work
+- Authentication requirement and permission names
+- Ownership, organization, tenant, audience, and visibility rules
+- Negative authorization cases and default-deny behavior
+- Personal data, secrets, abuse, rate-limit, SSRF, upload, audit, and redaction concerns
 
-## Test expectations
+## Failure cases
 
-- Unit tests for business rules
-- MVC/contract tests for HTTP and OpenAPI behavior
-- Repository tests for custom persistence behavior
-- Integration tests for cross-layer, transaction, or security behavior
+- Validation, concurrency, partial-write, provider/outage, retry/idempotency, and recovery behavior
+- Offline/reconnect behavior where relevant, or why it is not applicable
+- What must be rolled back, retained, retried, rejected, or surfaced operationally
+
+## Observability
+
+- Logs, metrics, traces, audit events, alerts, dashboards, and operational ownership where affected
+- Low-cardinality metric dimensions and redaction requirements
+
+## Testing requirements
+
+- Unit tests for business rules and error paths
+- MVC/OpenAPI contract tests for client-visible HTTP behavior
+- MySQL integration tests for persistence, transaction, locking, or concurrency behavior where applicable
+- Compatibility fixtures for existing APIs/data and authorization/ownership negative tests
 - Fakes/stubs for external systems; never require a real paid API
 
-## Dependencies and related work
+## Documentation
 
-- Blocking issues
-- Issues blocked by this work
-- Frontend counterpart, if any
+- OpenAPI, user documentation, developer/architecture docs, runbooks, migration notes, and frontend guidance where affected
+- A required `docs/manual-testing/issue-<number>-<slug>.md` manual guide for implemented product, API, security, data, or operational work
+
+## Dependencies
+
+- Blocking issues, issues this work blocks, external prerequisites, and frontend counterparts
+- Exact assumptions that must be approved before implementation
+
+## Definition of ready
+
+- [ ] All decisions required by this issue are explicit and approved, or this issue is marked blocked pending a named decision.
+- [ ] The scope is a focused vertical slice with known dependencies.
+- [ ] API/data/security compatibility is explicit.
 
 ## Definition of done
 
-- [ ] Acceptance criteria are satisfied
-- [ ] Appropriate tests pass
-- [ ] Security and compatibility have been reviewed
-- [ ] OpenAPI and user/developer documentation are updated
-- [ ] No unrelated changes are included
+- [ ] Acceptance criteria and relevant tests pass.
+- [ ] Migrations, API contracts, architecture boundaries, authorization, observability, and documentation are updated where affected.
+- [ ] Client-visible endpoints have an OpenAPI contract and contract-validation coverage.
+- [ ] Injected application services are used through their interfaces and feature package boundaries remain intact.
+- [ ] Logs expose no secrets or sensitive location data.
+- [ ] Automated checks and essential manual verification are recorded.
+- [ ] Work is committed locally only; no AI push, merge, or deployment occurs.
 ```
+
+Do not retain the old `## Dependencies and related work` heading in new issues; use the required `## Dependencies` heading.
+
+## Instruction Quality
+
+Every setup or operational issue must be executable by the project owner without guessing.
+
+- List terminal commands as numbered, copyable lines. State whether each command runs **locally**, **over SSH on the Droplet**, or in a **provider console**.
+- Use placeholders such as `<DROPLET_IP>`, `<LOCAL_PATH>`, `<DOMAIN>`, and `<SSH_USER>` rather than real credentials, tokens, or production identifiers.
+- For Apple Developer, DigitalOcean, Cloudflare, GitHub, Stripe, or another provider-console action, provide numbered click-by-click console steps and a clear verification signal.
+- Until a domain exists, use the Droplet IP only for SSH, firewall verification, health checks, and SSH tunnels. Do not present it as a production browser/API origin or an Apple web callback URL.
+- State rollback and recovery commands/steps where an operational action can affect availability or data.
+
+## Branches And Commits
+
+- One issue, one branch. Never work directly on `main` or `master`.
+- Name branches by intent and issue number: `feature/123-record-local-activity`, `fix/167-prevent-duplicate-upload`, `refactor/204-extract-route-policy`, or `chore/219-upgrade-testcontainers`.
+- Use Conventional Commits, for example `feat(activity): persist local recording checkpoints`.
+- Keep commits local until the project owner reviews the work and explicitly instructs a push.
+- AI agents must not push, create/merge pull requests, deploy, or alter production outside an explicit user instruction.
 
 ## Bug-Specific Evidence
 
@@ -140,8 +201,9 @@ Each issue should normally have:
 - Are API schemas named and typed rather than generic `object` or raw `Page`?
 - Is the OpenAPI group identified?
 - Is backward compatibility clear?
+- Are data ownership, failure behavior, offline behavior, and observability explicit?
 - Are tests expected at the correct layers?
 - Are dependencies linked in both directions?
-- Is the issue small enough for one focused local commit or a short commit series?
+- Is the issue small enough for one focused branch and local commit series?
 
 If any answer is unclear, refine or split the issue before implementation starts.
