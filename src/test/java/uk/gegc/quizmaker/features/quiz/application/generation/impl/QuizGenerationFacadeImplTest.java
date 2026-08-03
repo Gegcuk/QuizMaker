@@ -204,8 +204,8 @@ class QuizGenerationFacadeImplTest {
     class GenerateQuizFromDocumentTests {
         
         @Test
-        @DisplayName("Successful generation - delegates to startQuizGeneration")
-        void successfulGeneration_delegatesToStartQuizGeneration() {
+        @DisplayName("Legacy generation without a key remains supported with a one-off operation")
+        void legacyGenerationWithoutKey_usesOneOffOperationAndStartsGeneration() {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
@@ -234,6 +234,15 @@ class QuizGenerationFacadeImplTest {
             verify(estimationService).estimateQuizGeneration(documentId, documentRequest);
             verify(internalBillingService).reserve(eq(testUser.getId()), eq(1200L), eq("quiz-generation"), any());
             verify(jobService).createJob(eq(testUser), eq(documentId), any(), eq(3), eq(120));
+            ArgumentCaptor<String> legacyKeyCaptor = ArgumentCaptor.forClass(String.class);
+            verify(idempotencyService).claim(
+                    eq(testUser.getId()),
+                    eq(uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType.DOCUMENT),
+                    legacyKeyCaptor.capture(),
+                    any(),
+                    eq(true)
+            );
+            assertThat(legacyKeyCaptor.getValue()).startsWith("legacy-");
             verify(internalBillingService).attachReservationToJob(testUser.getId(), reservation.id(), job.getId());
             verify(idempotencyService).linkStartedGeneration(generationOperation, job.getId(), reservation.id(), 120);
             verify(applicationEventPublisher).publishEvent(any(QuizGenerationRequestedEvent.class));

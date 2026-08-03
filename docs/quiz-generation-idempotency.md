@@ -16,6 +16,12 @@ The key is an opaque, trimmed value of 1-128 characters. It is scoped to the aut
 
 During the additive transition, requests without the header remain supported for existing clients. They use a one-off legacy operation and therefore do not receive replay guarantees. New clients must send the header; a later minimum-client release can make it required after usage has been measured.
 
+## Existing Frontend Compatibility
+
+The current frontend requires no change to keep working. All three endpoint paths, request fields, `202 Accepted` status, and `QuizGenerationResponse` shape are unchanged. When the frontend omits `Idempotency-Key`, the backend creates a fresh one-off legacy operation for that request and follows the existing generation path.
+
+This preserves the previous behaviour, including separate starts for separate clicks. It does not make repeated legacy requests replay-safe. A frontend change is only needed to opt into the stronger retry guarantee described below; it must be additive and must continue tolerating requests without a stored key during the migration window.
+
 ## Client Behaviour
 
 Create one UUID when the user confirms a generation command, persist it with the pending local action, and send it unchanged on every retry until the command has reached a terminal outcome. Do not reuse the UUID for a new command, another user, or a different generation flow.
