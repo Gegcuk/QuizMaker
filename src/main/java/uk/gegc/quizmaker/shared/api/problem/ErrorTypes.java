@@ -35,6 +35,7 @@ public final class ErrorTypes {
     public static final URI UNSUPPORTED_FILE_TYPE = URI.create(BASE_URL + "/unsupported-file-type");
     public static final URI UNSUPPORTED_FORMAT = URI.create(BASE_URL + "/unsupported-format");
     public static final URI QUIZ_GENERATION_FAILED = URI.create(BASE_URL + "/quiz-generation-failed");
+    public static final URI QUIZ_GENERATION_UNAVAILABLE = URI.create(BASE_URL + "/quiz-generation-unavailable");
 
     // ==================== Processing Errors ====================
     public static final URI CONVERSION_FAILED = URI.create(BASE_URL + "/conversion-failed");

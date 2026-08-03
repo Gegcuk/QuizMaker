@@ -18,11 +18,36 @@ public interface QuizGenerationFacade {
 
     QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request);
 
+    QuizGenerationResponse generateQuizFromDocument(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    );
+
     QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request);
+
+    QuizGenerationResponse generateQuizFromUpload(
+            String username,
+            MultipartFile file,
+            GenerateQuizFromUploadRequest request,
+            String idempotencyKey
+    );
 
     QuizGenerationResponse generateQuizFromText(String username, GenerateQuizFromTextRequest request);
 
+    QuizGenerationResponse generateQuizFromText(
+            String username,
+            GenerateQuizFromTextRequest request,
+            String idempotencyKey
+    );
+
     QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request);
+
+    QuizGenerationResponse startQuizGeneration(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    );
 
     QuizGenerationStatus cancelGenerationJob(UUID jobId, String username);
 

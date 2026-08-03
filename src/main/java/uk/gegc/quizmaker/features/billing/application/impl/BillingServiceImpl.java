@@ -366,6 +366,22 @@ public class BillingServiceImpl implements BillingService {
         return performRelease(reservationId, reason, ref, idempotencyKey);
     }
 
+    @Transactional
+    public void attachReservationToJobInternal(UUID userId, UUID reservationId, UUID jobId) {
+        Reservation reservation = reservationRepository.findByIdAndUserIdForUpdate(reservationId, userId)
+                .orElseThrow(() -> new ReservationNotActiveException("Reservation is not active or does not belong to the generation user"));
+
+        if (reservation.getState() != ReservationState.ACTIVE) {
+            throw new ReservationNotActiveException("Reservation must be ACTIVE before it can be linked to a generation job");
+        }
+        if (reservation.getJobId() != null && !reservation.getJobId().equals(jobId)) {
+            throw new IdempotencyConflictException("Reservation is already linked to a different generation job");
+        }
+
+        reservation.setJobId(jobId);
+        reservationRepository.save(reservation);
+    }
+
     private ReleaseResultDto performRelease(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {

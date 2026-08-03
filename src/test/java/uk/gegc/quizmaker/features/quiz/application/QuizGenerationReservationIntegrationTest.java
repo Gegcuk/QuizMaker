@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -126,7 +127,7 @@ class QuizGenerationReservationIntegrationTest {
                 "Quiz generation started successfully",
                 300L // estimatedTimeSeconds
         );
-        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class)))
+        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), any()))
                 .thenReturn(mockResponse);
 
         // When
@@ -139,12 +140,14 @@ class QuizGenerationReservationIntegrationTest {
                 .andExpect(jsonPath("$.jobId").exists())
                 .andExpect(jsonPath("$.estimatedTimeSeconds").exists())
                 .andExpect(jsonPath("$.status").value("PROCESSING"));
+
+        verify(quizService).startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test
     @WithMockUser(username = "integration-test-user", roles = "ADMIN")
-    @DisplayName("POST /api/v1/quizzes/generate-from-document should handle double-clicks idempotently")
-    void generateQuizFromDocument_ShouldHandleDoubleClicksIdempotently() throws Exception {
+    @DisplayName("POST /api/v1/quizzes/generate-from-document forwards the same key on client retries")
+    void generateQuizFromDocument_ForwardsSameIdempotencyKeyOnRetries() throws Exception {
         // Mock quiz service response
         QuizGenerationResponse mockResponse = new QuizGenerationResponse(
                 UUID.randomUUID(),
@@ -152,7 +155,7 @@ class QuizGenerationReservationIntegrationTest {
                 "Quiz generation started successfully",
                 300L // estimatedTimeSeconds
         );
-        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class)))
+        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), any()))
                 .thenReturn(mockResponse);
 
         String requestJson = objectMapper.writeValueAsString(testRequest);
@@ -160,16 +163,21 @@ class QuizGenerationReservationIntegrationTest {
         // When - make the same request twice rapidly (simulating double-click)
         mockMvc.perform(post("/api/v1/quizzes/generate-from-document")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "ios-retry-key")
                         .content(requestJson)
                         .with(csrf()))
                 .andExpect(status().isAccepted());
 
-        // Second request should be handled idempotently
+        // The service owns replay behaviour; this boundary test verifies that it receives the same key.
         mockMvc.perform(post("/api/v1/quizzes/generate-from-document")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "ios-retry-key")
                         .content(requestJson)
                         .with(csrf()))
                 .andExpect(status().isAccepted());
+
+        verify(quizService, org.mockito.Mockito.times(2)).startQuizGeneration(
+                any(String.class), any(GenerateQuizFromDocumentRequest.class), org.mockito.ArgumentMatchers.eq("ios-retry-key"));
     }
 
     @Test
@@ -185,7 +193,7 @@ class QuizGenerationReservationIntegrationTest {
                 1L, // shortfall
                 java.time.LocalDateTime.now().plusMinutes(30) // reservationTtl
             );
-        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class)))
+        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), any()))
                 .thenThrow(exception);
 
         // When
@@ -213,7 +221,7 @@ class QuizGenerationReservationIntegrationTest {
             new uk.gegc.quizmaker.shared.exception.ValidationException(
                 "User already has an active generation job"
             );
-        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class)))
+        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), any()))
                 .thenThrow(exception);
 
         // When
@@ -226,5 +234,24 @@ class QuizGenerationReservationIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Validation Failed"))
                 .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("already has an active generation job")))
                 .andExpect(jsonPath("$.timestamp").exists());
+    }
+
+    @Test
+    @WithMockUser(username = "integration-test-user", roles = "ADMIN")
+    @DisplayName("POST /api/v1/quizzes/generate-from-document returns 409 when a key is reused for a different command")
+    void generateQuizFromDocument_ShouldReturnConflictForChangedCommandWithSameKey() throws Exception {
+        when(quizService.startQuizGeneration(any(String.class), any(GenerateQuizFromDocumentRequest.class), any()))
+                .thenThrow(new uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException(
+                        "This Idempotency-Key was already used for a different quiz-generation request."));
+
+        mockMvc.perform(post("/api/v1/quizzes/generate-from-document")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "ios-retry-key")
+                        .content(objectMapper.writeValueAsString(testRequest))
+                        .with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/idempotency-conflict"))
+                .andExpect(jsonPath("$.title").value("Idempotency Conflict"));
     }
 }

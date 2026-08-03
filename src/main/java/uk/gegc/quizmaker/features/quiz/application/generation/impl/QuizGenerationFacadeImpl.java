@@ -19,6 +19,8 @@ import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
+import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
+import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
@@ -31,12 +33,18 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationOperation;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInProgressException;
+import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInconsistentException;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -75,22 +83,60 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final TransactionTemplate transactionTemplate;
     private final QuizJobProperties quizJobProperties;
     private final QuizAssemblyService quizAssemblyService;
+    private final QuizGenerationIdempotencyService idempotencyService;
+    private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
 
     @Override
-    @Transactional
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
-        return startQuizGeneration(username, request);
+        return generateQuizFromDocument(username, request, null);
     }
 
     @Override
-    @Transactional
+    public QuizGenerationResponse generateQuizFromDocument(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    ) {
+        return startQuizGeneration(username, request, idempotencyKey);
+    }
+
+    @Override
     public QuizGenerationResponse generateQuizFromUpload(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
+        return generateQuizFromUpload(username, file, request, null);
+    }
+
+    @Override
+    public QuizGenerationResponse generateQuizFromUpload(
+            String username,
+            MultipartFile file,
+            GenerateQuizFromUploadRequest request,
+            String idempotencyKey
+    ) {
+        User user = findUser(username);
+        QuizGenerationOperation operation = claimOperation(
+                user,
+                GenerationOperationType.UPLOAD,
+                idempotencyKey,
+                requestCanonicalizer.forUpload(request, file)
+        );
+        if (operation.hasStartedJob()) {
+            return existingGenerationResponse(operation);
+        }
+
         try {
-            DocumentDto document = processDocumentCompletely(username, file, request);
-            verifyDocumentChunks(document.getId(), request);
-            GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
-            return startQuizGeneration(username, quizRequest);
+            SourceResolution source = resolveOrProcessUploadSource(username, user, file, request, operation);
+            if (source.replayResponse() != null) {
+                return source.replayResponse();
+            }
+            return startQuizGenerationForOperation(
+                    username,
+                    user,
+                    request.toGenerateQuizFromDocumentRequest(source.documentId()),
+                    operation.getId()
+            );
         } catch (InsufficientTokensException e) {
+            throw e;
+        } catch (IdempotencyConflictException | GenerationOperationInProgressException | GenerationOperationInconsistentException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to start quiz generation from upload for user: {}", username, e);
@@ -99,15 +145,42 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     }
 
     @Override
-    @Transactional
     public QuizGenerationResponse generateQuizFromText(String username, GenerateQuizFromTextRequest request) {
+        return generateQuizFromText(username, request, null);
+    }
+
+    @Override
+    public QuizGenerationResponse generateQuizFromText(
+            String username,
+            GenerateQuizFromTextRequest request,
+            String idempotencyKey
+    ) {
+        User user = findUser(username);
+        QuizGenerationOperation operation = claimOperation(
+                user,
+                GenerationOperationType.TEXT,
+                idempotencyKey,
+                requestCanonicalizer.forText(request)
+        );
+        if (operation.hasStartedJob()) {
+            return existingGenerationResponse(operation);
+        }
+
         try {
             log.info("Starting quiz generation from text for user: {}, text length: {}", username, request.text().length());
-            DocumentDto document = processTextAsDocument(username, request);
-            verifyDocumentChunks(document.getId(), request);
-            GenerateQuizFromDocumentRequest quizRequest = request.toGenerateQuizFromDocumentRequest(document.getId());
-            return startQuizGeneration(username, quizRequest);
+            SourceResolution source = resolveOrProcessTextSource(username, user, request, operation);
+            if (source.replayResponse() != null) {
+                return source.replayResponse();
+            }
+            return startQuizGenerationForOperation(
+                    username,
+                    user,
+                    request.toGenerateQuizFromDocumentRequest(source.documentId()),
+                    operation.getId()
+            );
         } catch (InsufficientTokensException e) {
+            throw e;
+        } catch (IdempotencyConflictException | GenerationOperationInProgressException | GenerationOperationInconsistentException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to start quiz generation from text for user: {}", username, e);
@@ -177,29 +250,65 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
     @Override
     public QuizGenerationResponse startQuizGeneration(String username, GenerateQuizFromDocumentRequest request) {
-        User user = userRepository.findByUsername(username)
-                .or(() -> userRepository.findByEmail(username))
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+        return startQuizGeneration(username, request, null);
+    }
 
+    @Override
+    public QuizGenerationResponse startQuizGeneration(
+            String username,
+            GenerateQuizFromDocumentRequest request,
+            String idempotencyKey
+    ) {
+        User user = findUser(username);
+        QuizGenerationOperation operation = claimOperation(
+                user,
+                GenerationOperationType.DOCUMENT,
+                idempotencyKey,
+                requestCanonicalizer.forDocument(request)
+        );
+        if (operation.hasStartedJob()) {
+            return existingGenerationResponse(operation);
+        }
+        return startQuizGenerationForOperation(username, user, request, operation.getId());
+    }
+
+    private QuizGenerationResponse startQuizGenerationForOperation(
+            String username,
+            User user,
+            GenerateQuizFromDocumentRequest request,
+            UUID operationId
+    ) {
         return transactionTemplate.execute(status -> {
+            QuizGenerationOperation operation = idempotencyService.lockForGeneration(operationId, user.getId());
+            if (operation.hasStartedJob()) {
+                return existingGenerationResponse(operation);
+            }
+
             try {
+                // The operation is owned by this user; the source document must be as well.
+                documentProcessingService.getDocumentById(request.documentId(), username);
                 EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
                 long estimatedTokens = estimation.estimatedBillingTokens();
 
                 log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, username);
 
-                String stableIdempotencyKey = "quiz:" + user.getId() + ":" + request.documentId() + ":" +
-                        (request.quizScope() != null ? request.quizScope().name() : "default");
+                String reservationIdempotencyKey = "quiz-generation:reserve:" + operation.getId();
 
                 ReservationDto reservation;
                 try {
-                    reservation = billingService.reserve(user.getId(), estimatedTokens, "quiz-generation", stableIdempotencyKey);
-                    log.info("Reserved {} tokens for user {} (reservationId={}, key={})",
-                            estimatedTokens, username, reservation.id(), stableIdempotencyKey);
+                    reservation = internalBillingService.reserve(
+                            user.getId(), estimatedTokens, "quiz-generation", reservationIdempotencyKey);
+                    log.info("Reserved {} tokens for user {} (reservationId={})",
+                            estimatedTokens, username, reservation.id());
                 } catch (InsufficientTokensException e) {
                     throw new InsufficientTokensException(
                             "Insufficient tokens to start quiz generation. " + e.getMessage(),
                             e.getEstimatedTokens(), e.getAvailableTokens(), e.getShortfall(), e.getReservationTtl());
+                }
+
+                if (!user.getId().equals(reservation.userId()) || reservation.state() != ReservationState.ACTIVE) {
+                    throw new GenerationOperationInconsistentException(
+                            "The existing generation reservation is unavailable. Retry with a new Idempotency-Key.");
                 }
 
                 int totalChunks = aiQuizGenerationService.calculateTotalChunks(request.documentId(), request);
@@ -212,7 +321,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                             objectMapper.writeValueAsString(request), totalChunks, estimatedSeconds);
                 } catch (DataIntegrityViolationException e) {
                     log.warn("Job creation failed due to constraint violation; checking for stale job");
-                    if (e.getMessage() != null && e.getMessage().contains("active_user_id")) {
+                    if (isActiveJobConstraint(e)) {
                         Optional<QuizGenerationJob> staleCancelled = jobService.findAndCancelStaleJobForUser(username);
                         if (staleCancelled.isPresent()) {
                             log.info("Auto-cancelled stale job {}, retrying job creation", staleCancelled.get().getId());
@@ -222,16 +331,13 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                                 log.info("Successfully created job after auto-cancelling stale job");
                             } catch (Exception retryEx) {
                                 log.error("Retry of job creation failed after auto-cancel", retryEx);
-                                releaseReservationSafely(reservation.id(), "job-creation-retry-failed");
                                 throw new ValidationException("User already has an active generation job. Please try again.");
                             }
                         } else {
                             log.info("No stale job found; user has a legitimately active job");
-                            releaseReservationSafely(reservation.id(), "job-creation-failed");
                             throw new ValidationException("User already has an active generation job. Please wait for it to complete.");
                         }
                     } else {
-                        releaseReservationSafely(reservation.id(), "job-creation-failed");
                         throw e;
                     }
                 }
@@ -242,8 +348,10 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 job.setBillingState(BillingState.RESERVED);
                 job.setInputPromptTokens(estimation.estimatedLlmTokens());
                 job.setEstimationVersion("v1.0");
-                job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(Map.of("reserve", stableIdempotencyKey)));
+                job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(Map.of("reserve", reservationIdempotencyKey)));
                 jobRepository.save(job);
+                internalBillingService.attachReservationToJob(user.getId(), reservation.id(), job.getId());
+                idempotencyService.linkStartedGeneration(operation, job.getId(), reservation.id(), estimatedSeconds);
 
                 log.info("Updated job {} for user {} with reservation {}, starting async generation",
                         job.getId(), username, reservation.id());
@@ -257,11 +365,120 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         });
     }
 
-    private void releaseReservationSafely(UUID reservationId, String reason) {
+    private User findUser(String username) {
+        return userRepository.findByUsername(username)
+                .or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+    }
+
+    private QuizGenerationOperation claimOperation(
+            User user,
+            GenerationOperationType operationType,
+            String suppliedKey,
+            uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestFingerprint fingerprint
+    ) {
+        IdempotencyKey idempotencyKey = normalizeIdempotencyKey(suppliedKey);
+        return idempotencyService.claim(
+                user.getId(), operationType, idempotencyKey.value(), fingerprint, idempotencyKey.legacy());
+    }
+
+    private SourceResolution resolveOrProcessUploadSource(
+            String username,
+            User user,
+            MultipartFile file,
+            GenerateQuizFromUploadRequest request,
+            QuizGenerationOperation operation
+    ) {
+        QuizGenerationIdempotencyService.SourceOperationState sourceState =
+                idempotencyService.acquireSourceProcessing(operation.getId(), user.getId());
+        if (sourceState == QuizGenerationIdempotencyService.SourceOperationState.REPLAY) {
+            return SourceResolution.replay(existingGenerationResponse(idempotencyService.get(operation.getId(), user.getId())));
+        }
+        if (sourceState == QuizGenerationIdempotencyService.SourceOperationState.READY_TO_START) {
+            return SourceResolution.document(idempotencyService.get(operation.getId(), user.getId()).getSourceDocumentId());
+        }
+
         try {
-            billingService.release(reservationId, reason, "quiz-generation", null);
-        } catch (Exception releaseEx) {
-            log.error("Failed to release reservation {} after {} failure", reservationId, reason, releaseEx);
+            DocumentDto document = processDocumentCompletely(username, file, request);
+            verifyDocumentChunks(document.getId(), request);
+            idempotencyService.attachSourceDocument(operation.getId(), user.getId(), document.getId());
+            return SourceResolution.document(document.getId());
+        } catch (RuntimeException exception) {
+            idempotencyService.markSourceRetryable(operation.getId(), user.getId());
+            throw exception;
+        }
+    }
+
+    private SourceResolution resolveOrProcessTextSource(
+            String username,
+            User user,
+            GenerateQuizFromTextRequest request,
+            QuizGenerationOperation operation
+    ) {
+        QuizGenerationIdempotencyService.SourceOperationState sourceState =
+                idempotencyService.acquireSourceProcessing(operation.getId(), user.getId());
+        if (sourceState == QuizGenerationIdempotencyService.SourceOperationState.REPLAY) {
+            return SourceResolution.replay(existingGenerationResponse(idempotencyService.get(operation.getId(), user.getId())));
+        }
+        if (sourceState == QuizGenerationIdempotencyService.SourceOperationState.READY_TO_START) {
+            return SourceResolution.document(idempotencyService.get(operation.getId(), user.getId()).getSourceDocumentId());
+        }
+
+        try {
+            DocumentDto document = processTextAsDocument(username, request);
+            verifyDocumentChunks(document.getId(), request);
+            idempotencyService.attachSourceDocument(operation.getId(), user.getId(), document.getId());
+            return SourceResolution.document(document.getId());
+        } catch (RuntimeException exception) {
+            idempotencyService.markSourceRetryable(operation.getId(), user.getId());
+            throw exception;
+        }
+    }
+
+    private QuizGenerationResponse existingGenerationResponse(QuizGenerationOperation operation) {
+        UUID jobId = operation.getJobId();
+        QuizGenerationJob job = jobRepository.findById(jobId)
+                .orElseThrow(() -> new GenerationOperationInconsistentException(
+                        "The existing quiz-generation job is unavailable. Retry with a new Idempotency-Key."));
+        return new QuizGenerationResponse(
+                job.getId(),
+                job.getStatus(),
+                "Existing quiz generation returned for this Idempotency-Key",
+                operation.getEstimatedTimeSeconds() == null ? null : operation.getEstimatedTimeSeconds().longValue()
+        );
+    }
+
+    private boolean isActiveJobConstraint(DataIntegrityViolationException exception) {
+        String message = exception.getMostSpecificCause().getMessage();
+        return message != null && (message.contains("active_user_id")
+                || message.contains("one_active_per_user")
+                || message.contains("active_username"));
+    }
+
+    private IdempotencyKey normalizeIdempotencyKey(String suppliedKey) {
+        if (suppliedKey == null) {
+            return new IdempotencyKey("legacy-" + UUID.randomUUID(), true);
+        }
+        String normalized = suppliedKey.trim();
+        if (normalized.isEmpty()) {
+            throw new ValidationException("Idempotency-Key must contain at least one non-whitespace character");
+        }
+        if (normalized.length() > 128) {
+            throw new ValidationException("Idempotency-Key must not exceed 128 characters");
+        }
+        return new IdempotencyKey(normalized, false);
+    }
+
+    private record IdempotencyKey(String value, boolean legacy) {
+    }
+
+    private record SourceResolution(UUID documentId, QuizGenerationResponse replayResponse) {
+        static SourceResolution document(UUID documentId) {
+            return new SourceResolution(documentId, null);
+        }
+
+        static SourceResolution replay(QuizGenerationResponse replayResponse) {
+            return new SourceResolution(null, replayResponse);
         }
     }
 

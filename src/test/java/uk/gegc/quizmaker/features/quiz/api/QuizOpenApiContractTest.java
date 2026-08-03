@@ -170,6 +170,12 @@ class QuizOpenApiContractTest {
                 .isEqualTo("string");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1bulk-update/patch/responses/400");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1bulk-update/patch/responses/403");
+        assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post");
+        assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post");
+        assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-text/post");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/409");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/429");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/503");
 
         BulkQuizUpdateRequest bulkRequest = strictObjectMapper().treeToValue(
                 specification.at("/paths/~1api~1v1~1quizzes~1bulk-update/patch/requestBody/content/application~1json/examples/Update quiz visibility and timer/value"),
@@ -192,5 +198,22 @@ class QuizOpenApiContractTest {
 
     private void assertResponseDocumented(JsonNode specification, String responsePointer) {
         assertThat(specification.at(responsePointer).isMissingNode()).isFalse();
+    }
+
+    private void assertIdempotencyHeader(JsonNode specification, String operationPointer) {
+        JsonNode parameters = specification.at(operationPointer + "/parameters");
+        JsonNode idempotencyHeader = null;
+        for (JsonNode parameter : parameters) {
+            if ("Idempotency-Key".equals(parameter.path("name").asText())) {
+                idempotencyHeader = parameter;
+                break;
+            }
+        }
+
+        assertThat(idempotencyHeader).isNotNull();
+        assertThat(idempotencyHeader.path("in").asText()).isEqualTo("header");
+        assertThat(idempotencyHeader.path("required").asBoolean()).isFalse();
+        assertThat(idempotencyHeader.at("/schema/minLength").asInt()).isEqualTo(1);
+        assertThat(idempotencyHeader.at("/schema/maxLength").asInt()).isEqualTo(128);
     }
 }

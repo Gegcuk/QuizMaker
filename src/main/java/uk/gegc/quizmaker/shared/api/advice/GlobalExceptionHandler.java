@@ -30,6 +30,8 @@ import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.repetition.application.exception.RepetitionAlreadyProcessedException;
+import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInconsistentException;
+import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInProgressException;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.exception.*;
@@ -427,6 +429,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 request
         );
         return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
+    @ExceptionHandler({GenerationOperationInProgressException.class, GenerationOperationInconsistentException.class})
+    public ResponseEntity<ProblemDetail> handleGenerationOperationUnavailable(RuntimeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ErrorTypes.QUIZ_GENERATION_UNAVAILABLE,
+                "Quiz Generation Temporarily Unavailable",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "3")
+                .body(problem);
     }
 
     @ExceptionHandler(InvalidJobStateForCommitException.class)
