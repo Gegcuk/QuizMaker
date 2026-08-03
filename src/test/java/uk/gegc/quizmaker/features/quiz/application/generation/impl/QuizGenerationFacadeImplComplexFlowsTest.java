@@ -31,11 +31,15 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestFingerprint;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationOperation;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -107,6 +111,15 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     
     @Mock
     private QuizAssemblyService quizAssemblyService;
+
+    @Mock
+    private QuizGenerationIdempotencyService idempotencyService;
+
+    @Mock
+    private QuizGenerationRequestCanonicalizer requestCanonicalizer;
+
+    @Mock
+    private QuizGenerationOperation generationOperation;
     
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -120,6 +133,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     private EstimationDto estimation;
     private ReservationDto reservation;
     private QuizGenerationJob job;
+    private UUID operationId;
     
     @BeforeEach
     void setUp() {
@@ -161,6 +175,15 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         );
         
         job = createJob(testUser, documentId);
+        operationId = UUID.randomUUID();
+
+        GenerationRequestFingerprint fingerprint = new GenerationRequestFingerprint("a".repeat(64), "v1");
+        lenient().when(requestCanonicalizer.forDocument(any())).thenReturn(fingerprint);
+        lenient().when(idempotencyService.claim(any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(generationOperation);
+        lenient().when(idempotencyService.lockForGeneration(any(), any())).thenReturn(generationOperation);
+        lenient().when(generationOperation.getId()).thenReturn(operationId);
+        lenient().when(generationOperation.hasStartedJob()).thenReturn(false);
     }
     
     // ============================================================================
@@ -177,7 +200,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(eq(testUser.getId()), eq(1200L), eq("quiz-generation"), anyString()))
+            when(internalBillingService.reserve(eq(testUser.getId()), eq(1200L), eq("quiz-generation"), anyString()))
                     .thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
@@ -199,10 +222,15 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Verify all steps
             verify(userRepository).findByUsername("testuser");
             verify(estimationService).estimateQuizGeneration(documentId, documentRequest);
-            verify(billingService).reserve(eq(testUser.getId()), eq(1200L), eq("quiz-generation"), anyString());
+            verify(documentProcessingService).getDocumentById(documentId, "testuser");
+            verify(internalBillingService).reserve(eq(testUser.getId()), eq(1200L), eq("quiz-generation"),
+                    eq("quiz-generation:reserve:" + operationId));
             verify(jobService).createJob(eq(testUser), eq(documentId), anyString(), eq(3), eq(120));
             verify(jobRepository).save(job);
+            verify(internalBillingService).attachReservationToJob(testUser.getId(), reservation.id(), job.getId());
+            verify(idempotencyService).linkStartedGeneration(generationOperation, job.getId(), reservation.id(), 120);
             verify(applicationEventPublisher).publishEvent(any(QuizGenerationRequestedEvent.class));
+            verifyNoInteractions(billingService);
             
             // Verify job fields set correctly
             assertThat(job.getBillingReservationId()).isEqualTo(reservation.id());
@@ -224,7 +252,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("User not found: nonexistent");
             
-            verifyNoInteractions(billingService);
+            verifyNoInteractions(billingService, internalBillingService, idempotencyService);
             verifyNoInteractions(jobService);
         }
         
@@ -235,7 +263,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             when(userRepository.findByUsername("user@example.com")).thenReturn(Optional.empty());
             when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(job);
@@ -252,6 +280,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             assertThat(response).isNotNull();
             verify(userRepository).findByUsername("user@example.com");
             verify(userRepository).findByEmail("user@example.com");
+            verify(documentProcessingService).getDocumentById(documentId, testUser.getUsername());
         }
         
         @Test
@@ -260,7 +289,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString()))
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString()))
                     .thenThrow(new InsufficientTokensException(
                             "Insufficient tokens",
                             1200L, 500L, 700L,
@@ -286,7 +315,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(job);
@@ -314,12 +343,12 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         }
         
         @Test
-        @DisplayName("Job creation fails - reservation released")
-        void jobCreationFails_reservationReleased() throws Exception {
+        @DisplayName("Job creation failure leaves reservation unlinked for transaction rollback")
+        void jobCreationFails_reservationRemainsUnlinked() throws Exception {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
@@ -342,8 +371,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("Job creation failed");
             
-            // Note: In real code, reservation release happens inside transaction before rollback
-            // So we can't verify it was called since the transaction rolls back
+            verify(internalBillingService, never()).attachReservationToJob(any(), any(), any());
+            verify(idempotencyService, never()).linkStartedGeneration(any(), any(), any(), anyInt());
+            verifyNoInteractions(applicationEventPublisher);
         }
         
         @Test
@@ -352,7 +382,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
@@ -376,8 +406,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Verify stale job check was performed
             verify(jobService).findAndCancelStaleJobForUser("testuser");
             
-            // Verify reservation was released
-            verify(billingService).release(eq(reservation.id()), anyString(), eq("quiz-generation"), isNull());
+            verify(internalBillingService, never()).attachReservationToJob(any(), any(), any());
+            verify(idempotencyService, never()).linkStartedGeneration(any(), any(), any(), anyInt());
+            verifyNoInteractions(applicationEventPublisher);
         }
         
         @Test
@@ -389,7 +420,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
@@ -421,19 +452,20 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Verify job creation was retried
             verify(jobService, times(2)).createJob(any(), any(), any(), anyInt(), anyInt());
             
-            // Verify reservation was NOT released (kept for new job)
-            verify(billingService, never()).release(any(), any(), any(), any());
+            verify(internalBillingService).attachReservationToJob(testUser.getId(), reservation.id(), job.getId());
+            verify(idempotencyService).linkStartedGeneration(generationOperation, job.getId(), reservation.id(), 120);
+            verifyNoInteractions(billingService);
         }
         
         @Test
-        @DisplayName("Active job exists - stale job found - retry fails - releases reservation")
-        void activeJobExists_staleJobFound_retryFails_releasesReservation() throws Exception {
+        @DisplayName("Active job exists - stale job found - retry fails before reservation is linked")
+        void activeJobExists_staleJobFound_retryFails_beforeReservationIsLinked() throws Exception {
             // Given
             QuizGenerationJob staleJob = createJob(testUser, documentId);
             
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
@@ -457,19 +489,20 @@ class QuizGenerationFacadeImplComplexFlowsTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("User already has an active generation job. Please try again.");
             
-            // Verify reservation was released
-            verify(billingService).release(eq(reservation.id()), eq("job-creation-retry-failed"), eq("quiz-generation"), isNull());
+            verify(internalBillingService, never()).attachReservationToJob(any(), any(), any());
+            verify(idempotencyService, never()).linkStartedGeneration(any(), any(), any(), anyInt());
+            verifyNoInteractions(applicationEventPublisher);
         }
         
         @Test
-        @DisplayName("Idempotency key - generated correctly")
-        void idempotencyKey_generatedCorrectly() throws Exception {
+        @DisplayName("Supplied idempotency key claims the operation and derives the reservation key")
+        void suppliedIdempotencyKey_claimsOperationAndDerivesReservationKey() throws Exception {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
             
             ArgumentCaptor<String> idempotencyKeyCaptor = ArgumentCaptor.forClass(String.class);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), idempotencyKeyCaptor.capture()))
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), idempotencyKeyCaptor.capture()))
                     .thenReturn(reservation);
             
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
@@ -482,21 +515,26 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             });
             
             // When
-            facade.startQuizGeneration("testuser", documentRequest);
+            facade.startQuizGeneration("testuser", documentRequest, "client-retry-key");
             
             // Then
-            String idempotencyKey = idempotencyKeyCaptor.getValue();
-            assertThat(idempotencyKey).isEqualTo("quiz:" + testUser.getId() + ":" + documentId + ":ENTIRE_DOCUMENT");
+            verify(idempotencyService).claim(
+                    eq(testUser.getId()),
+                    eq(uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType.DOCUMENT),
+                    eq("client-retry-key"),
+                    any(),
+                    eq(false)
+            );
+            assertThat(idempotencyKeyCaptor.getValue()).isEqualTo("quiz-generation:reserve:" + operationId);
         }
         
         @Test
-        @DisplayName("Idempotency key - with null scope - uses ENTIRE_DOCUMENT default")
-        void idempotencyKey_withNullScope_usesEntireDocumentDefault() throws Exception {
+        @DisplayName("Legacy start uses a one-off operation but keeps an operation-scoped reservation key")
+        void legacyStart_usesOneOffOperationAndOperationScopedReservationKey() throws Exception {
             // Given
-            // Note: GenerateQuizFromDocumentRequest defaults null scope to ENTIRE_DOCUMENT
             GenerateQuizFromDocumentRequest requestWithNullScope = new GenerateQuizFromDocumentRequest(
                     documentId,
-                    null,  // null scope (will default to ENTIRE_DOCUMENT)
+                    null,
                     null, null, null, "Quiz", null,
                     Map.of(QuestionType.MCQ_SINGLE, 5),
                     Difficulty.MEDIUM, 2, null, List.of()
@@ -506,7 +544,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             when(estimationService.estimateQuizGeneration(documentId, requestWithNullScope)).thenReturn(estimation);
             
             ArgumentCaptor<String> idempotencyKeyCaptor = ArgumentCaptor.forClass(String.class);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), idempotencyKeyCaptor.capture()))
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), idempotencyKeyCaptor.capture()))
                     .thenReturn(reservation);
             
             when(aiQuizGenerationService.calculateTotalChunks(documentId, requestWithNullScope)).thenReturn(3);
@@ -521,9 +559,16 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // When
             facade.startQuizGeneration("testuser", requestWithNullScope);
             
-            // Then - Since scope defaults to ENTIRE_DOCUMENT, key should contain that
-            String idempotencyKey = idempotencyKeyCaptor.getValue();
-            assertThat(idempotencyKey).contains(":ENTIRE_DOCUMENT");
+            ArgumentCaptor<String> operationKeyCaptor = ArgumentCaptor.forClass(String.class);
+            verify(idempotencyService).claim(
+                    eq(testUser.getId()),
+                    eq(uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType.DOCUMENT),
+                    operationKeyCaptor.capture(),
+                    any(),
+                    eq(true)
+            );
+            assertThat(operationKeyCaptor.getValue()).startsWith("legacy-");
+            assertThat(idempotencyKeyCaptor.getValue()).isEqualTo("quiz-generation:reserve:" + operationId);
         }
         
         @Test
@@ -532,7 +577,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(job);
@@ -560,7 +605,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(5);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(5), eq(documentRequest.questionsPerType())))
                     .thenReturn(250);
@@ -584,7 +629,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(7);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(7), any())).thenReturn(280);
             when(jobService.createJob(eq(testUser), eq(documentId), anyString(), eq(7), eq(280))).thenReturn(job);
@@ -628,7 +673,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
@@ -649,45 +694,37 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Verify stale job check was NOT performed (different constraint)
             verify(jobService, never()).findAndCancelStaleJobForUser(any());
             
-            // Verify reservation was released
-            verify(billingService).release(eq(reservation.id()), eq("job-creation-failed"), eq("quiz-generation"), isNull());
+            verify(internalBillingService, never()).attachReservationToJob(any(), any(), any());
+            verify(idempotencyService, never()).linkStartedGeneration(any(), any(), any(), anyInt());
+            verifyNoInteractions(applicationEventPublisher);
         }
         
         @Test
-        @DisplayName("Release reservation safely - logs error on exception")
-        void releaseReservationSafely_logsError_onException() throws Exception {
+        @DisplayName("Reservation attachment failure prevents operation link and event publication")
+        void reservationAttachmentFailure_preventsOperationLinkAndEventPublication() throws Exception {
             // Given
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
             when(estimationService.estimateQuizGeneration(documentId, documentRequest)).thenReturn(estimation);
-            when(billingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
+            when(internalBillingService.reserve(any(UUID.class), anyLong(), anyString(), anyString())).thenReturn(reservation);
             when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
             when(aiQuizGenerationService.calculateEstimatedGenerationTime(eq(3), any())).thenReturn(120);
             
-            DataIntegrityViolationException constraintViolation = 
-                new DataIntegrityViolationException("Duplicate key value violates unique constraint \"active_user_id\"");
-            when(jobService.createJob(any(), any(), any(), anyInt(), anyInt()))
-                    .thenThrow(constraintViolation);
-            
-            when(jobService.findAndCancelStaleJobForUser("testuser")).thenReturn(Optional.empty());
-            
-            // Release also fails
-            doThrow(new RuntimeException("Release failed"))
-                    .when(billingService).release(any(), any(), any(), any());
+            when(jobService.createJob(any(), any(), any(), anyInt(), anyInt())).thenReturn(job);
+            doThrow(new RuntimeException("Reservation attachment failed"))
+                    .when(internalBillingService).attachReservationToJob(testUser.getId(), reservation.id(), job.getId());
             
             when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
                 TransactionCallback<?> callback = invocation.getArgument(0);
                 return callback.doInTransaction(null);
             });
             
-            // When & Then - outer exception is ValidationException, release error is logged
+            // When & Then
             assertThatThrownBy(() -> facade.startQuizGeneration("testuser", documentRequest))
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("User already has an active generation job");
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Reservation attachment failed");
             
-            // Verify release was attempted
-            verify(billingService).release(eq(reservation.id()), eq("job-creation-failed"), eq("quiz-generation"), isNull());
-            
-            // Error is logged, not thrown (private method handles it gracefully)
+            verify(idempotencyService, never()).linkStartedGeneration(any(), any(), any(), anyInt());
+            verifyNoInteractions(applicationEventPublisher);
         }
     }
     
@@ -1051,4 +1088,3 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         return job;
     }
 }
-

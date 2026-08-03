@@ -594,6 +594,26 @@ class QuizGenerationFacadeImplTest {
             verify(aiQuizGenerationService, atLeastOnce()).calculateTotalChunks(eq(processedDocument.getId()), any());
             verify(internalBillingService).reserve(eq(testUser.getId()), anyLong(), eq("quiz-generation"), any());
         }
+
+        @Test
+        @DisplayName("Email identity uses the resolved username for upload processing")
+        void emailIdentity_usesResolvedUsernameForUploadProcessing() throws Exception {
+            byte[] fileBytes = "test content".getBytes();
+            when(mockFile.getBytes()).thenReturn(fileBytes);
+            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
+            when(userRepository.findByUsername("testuser@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findByEmail("testuser@example.com")).thenReturn(Optional.of(testUser));
+            when(documentProcessingService.uploadAndProcessDocument(
+                    eq(testUser.getUsername()), eq(fileBytes), eq("test.pdf"), any()))
+                    .thenThrow(new RuntimeException("Document processing failed"));
+
+            assertThatThrownBy(() -> facade.generateQuizFromUpload("testuser@example.com", mockFile, uploadRequest))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Failed to generate quiz from upload");
+
+            verify(documentProcessingService).uploadAndProcessDocument(
+                    eq(testUser.getUsername()), eq(fileBytes), eq("test.pdf"), any());
+        }
         
         @Test
         @DisplayName("File read error - throws RuntimeException")
@@ -829,6 +849,23 @@ class QuizGenerationFacadeImplTest {
             
             verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), any(byte[].class), eq("text-input.txt"), any());
             verify(aiQuizGenerationService, atLeastOnce()).calculateTotalChunks(eq(processedTextDocument.getId()), any());
+        }
+
+        @Test
+        @DisplayName("Email identity uses the resolved username for text processing")
+        void emailIdentity_usesResolvedUsernameForTextProcessing() {
+            when(userRepository.findByUsername("testuser@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findByEmail("testuser@example.com")).thenReturn(Optional.of(testUser));
+            when(documentProcessingService.uploadAndProcessDocument(
+                    eq(testUser.getUsername()), any(byte[].class), eq("text-input.txt"), any()))
+                    .thenThrow(new RuntimeException("Text processing failed"));
+
+            assertThatThrownBy(() -> facade.generateQuizFromText("testuser@example.com", textRequest))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Failed to generate quiz from text");
+
+            verify(documentProcessingService).uploadAndProcessDocument(
+                    eq(testUser.getUsername()), any(byte[].class), eq("text-input.txt"), any());
         }
         
         @Test

@@ -124,12 +124,11 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         }
 
         try {
-            SourceResolution source = resolveOrProcessUploadSource(username, user, file, request, operation);
+            SourceResolution source = resolveOrProcessUploadSource(user, file, request, operation);
             if (source.replayResponse() != null) {
                 return source.replayResponse();
             }
             return startQuizGenerationForOperation(
-                    username,
                     user,
                     request.toGenerateQuizFromDocumentRequest(source.documentId()),
                     operation.getId()
@@ -168,12 +167,11 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
         try {
             log.info("Starting quiz generation from text for user: {}, text length: {}", username, request.text().length());
-            SourceResolution source = resolveOrProcessTextSource(username, user, request, operation);
+            SourceResolution source = resolveOrProcessTextSource(user, request, operation);
             if (source.replayResponse() != null) {
                 return source.replayResponse();
             }
             return startQuizGenerationForOperation(
-                    username,
                     user,
                     request.toGenerateQuizFromDocumentRequest(source.documentId()),
                     operation.getId()
@@ -269,15 +267,15 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         if (operation.hasStartedJob()) {
             return existingGenerationResponse(operation);
         }
-        return startQuizGenerationForOperation(username, user, request, operation.getId());
+        return startQuizGenerationForOperation(user, request, operation.getId());
     }
 
     private QuizGenerationResponse startQuizGenerationForOperation(
-            String username,
             User user,
             GenerateQuizFromDocumentRequest request,
             UUID operationId
     ) {
+        String ownerUsername = user.getUsername();
         return transactionTemplate.execute(status -> {
             QuizGenerationOperation operation = idempotencyService.lockForGeneration(operationId, user.getId());
             if (operation.hasStartedJob()) {
@@ -286,11 +284,11 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
             try {
                 // The operation is owned by this user; the source document must be as well.
-                documentProcessingService.getDocumentById(request.documentId(), username);
+                documentProcessingService.getDocumentById(request.documentId(), ownerUsername);
                 EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
                 long estimatedTokens = estimation.estimatedBillingTokens();
 
-                log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, username);
+                log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, ownerUsername);
 
                 String reservationIdempotencyKey = "quiz-generation:reserve:" + operation.getId();
 
@@ -299,7 +297,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                     reservation = internalBillingService.reserve(
                             user.getId(), estimatedTokens, "quiz-generation", reservationIdempotencyKey);
                     log.info("Reserved {} tokens for user {} (reservationId={})",
-                            estimatedTokens, username, reservation.id());
+                            estimatedTokens, ownerUsername, reservation.id());
                 } catch (InsufficientTokensException e) {
                     throw new InsufficientTokensException(
                             "Insufficient tokens to start quiz generation. " + e.getMessage(),
@@ -322,7 +320,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 } catch (DataIntegrityViolationException e) {
                     log.warn("Job creation failed due to constraint violation; checking for stale job");
                     if (isActiveJobConstraint(e)) {
-                        Optional<QuizGenerationJob> staleCancelled = jobService.findAndCancelStaleJobForUser(username);
+                        Optional<QuizGenerationJob> staleCancelled = jobService.findAndCancelStaleJobForUser(ownerUsername);
                         if (staleCancelled.isPresent()) {
                             log.info("Auto-cancelled stale job {}, retrying job creation", staleCancelled.get().getId());
                             try {
@@ -354,7 +352,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 idempotencyService.linkStartedGeneration(operation, job.getId(), reservation.id(), estimatedSeconds);
 
                 log.info("Updated job {} for user {} with reservation {}, starting async generation",
-                        job.getId(), username, reservation.id());
+                        job.getId(), ownerUsername, reservation.id());
 
                 applicationEventPublisher.publishEvent(new QuizGenerationRequestedEvent(this, job.getId(), request));
 
@@ -383,7 +381,6 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     }
 
     private SourceResolution resolveOrProcessUploadSource(
-            String username,
             User user,
             MultipartFile file,
             GenerateQuizFromUploadRequest request,
@@ -399,7 +396,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         }
 
         try {
-            DocumentDto document = processDocumentCompletely(username, file, request);
+            DocumentDto document = processDocumentCompletely(user.getUsername(), file, request);
             verifyDocumentChunks(document.getId(), request);
             idempotencyService.attachSourceDocument(operation.getId(), user.getId(), document.getId());
             return SourceResolution.document(document.getId());
@@ -410,7 +407,6 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     }
 
     private SourceResolution resolveOrProcessTextSource(
-            String username,
             User user,
             GenerateQuizFromTextRequest request,
             QuizGenerationOperation operation
@@ -425,7 +421,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         }
 
         try {
-            DocumentDto document = processTextAsDocument(username, request);
+            DocumentDto document = processTextAsDocument(user.getUsername(), request);
             verifyDocumentChunks(document.getId(), request);
             idempotencyService.attachSourceDocument(operation.getId(), user.getId(), document.getId());
             return SourceResolution.document(document.getId());
