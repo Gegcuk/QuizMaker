@@ -80,7 +80,10 @@ public class BillingErrorHandler {
 
     private boolean isWebhookRequest(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        return uri != null && uri.contains("/stripe/webhook");
+        return uri != null && (
+                uri.endsWith("/api/v1/billing/stripe/webhook")
+                        || uri.endsWith("/api/v1/billing/webhooks")
+        );
     }
 
     @ExceptionHandler(IdempotencyConflictException.class)

@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.features.billing.api;
 
 import com.stripe.exception.StripeException;
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -26,7 +25,7 @@ import org.springframework.http.HttpStatus;
 @RestController
 @RequestMapping("/api/v1/billing")
 @RequiredArgsConstructor
-@Tag(name = "Stripe Webhooks", description = "Internal endpoints for Stripe webhook events (not for public use)")
+@Tag(name = "Stripe Webhooks", description = "Machine-to-machine Stripe endpoints. They are public only for Stripe and require a valid Stripe-Signature header; do not send a bearer token.")
 public class StripeWebhookController {
 
     private final StripeWebhookService webhookService;
@@ -34,40 +33,56 @@ public class StripeWebhookController {
 
     @Operation(
             summary = "Handle Stripe webhook",
-            description = "Internal endpoint for Stripe to send payment events. Validates signature and processes events."
+            description = "Verifies the Stripe-Signature header before processing. For Checkout Sessions, the server retrieves the authoritative session, credits tokens only when payment_status is paid, and settles each Stripe Checkout Session at most once. Invalid, transient Stripe, and database failures return 500 so Stripe retries delivery."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Webhook processed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid signature",
+            @ApiResponse(responseCode = "200", description = "Webhook processed, ignored, or already received"),
+            @ApiResponse(responseCode = "400", description = "Malformed webhook payload",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid Stripe signature",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Retryable Stripe, database, or settlement processing failure",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    @Hidden // Hide from public Swagger UI
     @PostMapping("/stripe/webhook")
     public ResponseEntity<String> handleStripeWebhook(
-            @Parameter(hidden = true) @RequestBody String payload,
-            @Parameter(description = "Stripe signature header for verification") @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "Raw JSON event payload sent by Stripe. It must not be modified before signature verification.",
+                    content = @Content(mediaType = "application/json", schema = @Schema(type = "string", format = "json"))
+            ) @RequestBody String payload,
+            @Parameter(required = true, description = "Stripe signature header used to authenticate the raw payload")
+            @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
     ) throws StripeException {
         return handleWebhook(payload, sigHeader);
     }
 
     @Operation(
             summary = "Handle Stripe webhook (alternative endpoint)",
-            description = "Alternative webhook endpoint for Stripe events. Validates signature and processes events."
+            description = "Alternative Stripe webhook endpoint with the same signature verification, authoritative Checkout Session lookup, and session-level idempotent settlement as /stripe/webhook."
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Webhook processed successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid signature",
+            @ApiResponse(responseCode = "200", description = "Webhook processed, ignored, or already received"),
+            @ApiResponse(responseCode = "400", description = "Malformed webhook payload",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Missing or invalid Stripe signature",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Billing feature disabled",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Retryable Stripe, database, or settlement processing failure",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    @Hidden // Hide from public Swagger UI
     @PostMapping("/webhooks")
     public ResponseEntity<String> handleWebhooks(
-            @Parameter(hidden = true) @RequestBody String payload,
-            @Parameter(description = "Stripe signature header for verification") @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "Raw JSON event payload sent by Stripe. It must not be modified before signature verification.",
+                    content = @Content(mediaType = "application/json", schema = @Schema(type = "string", format = "json"))
+            ) @RequestBody String payload,
+            @Parameter(required = true, description = "Stripe signature header used to authenticate the raw payload")
+            @RequestHeader(name = "Stripe-Signature", required = false) String sigHeader
     ) throws StripeException {
         return handleWebhook(payload, sigHeader);
     }

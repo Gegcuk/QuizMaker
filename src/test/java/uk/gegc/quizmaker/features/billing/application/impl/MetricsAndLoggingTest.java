@@ -51,6 +51,7 @@ class MetricsAndLoggingTest {
             null, // subscriptionService
             null, // processedStripeEventRepository
             null, // paymentRepository
+            null, // checkoutSessionSettlementService
             new ObjectMapper()  // objectMapper
         );
     }
