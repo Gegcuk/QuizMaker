@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
@@ -76,6 +77,9 @@ class StripeWebhookServiceImplEdgeCasesTest {
     
     @Mock
     private PaymentRepository paymentRepository;
+
+    @Mock
+    private CheckoutSessionSettlementService checkoutSessionSettlementService;
     
     private ObjectMapper objectMapper;
     
@@ -94,6 +98,7 @@ class StripeWebhookServiceImplEdgeCasesTest {
             subscriptionService,
             processedStripeEventRepository,
             paymentRepository,
+            checkoutSessionSettlementService,
             objectMapper
         );
     }
@@ -121,6 +126,7 @@ class StripeWebhookServiceImplEdgeCasesTest {
                 subscriptionService,
                 processedStripeEventRepository,
                 paymentRepository,
+                checkoutSessionSettlementService,
                 brokenMapper // Broken mapper!
             );
 
@@ -190,6 +196,7 @@ class StripeWebhookServiceImplEdgeCasesTest {
                 subscriptionService,
                 processedStripeEventRepository,
                 paymentRepository,
+                checkoutSessionSettlementService,
                 brokenMapper
             );
 
@@ -991,4 +998,3 @@ class StripeWebhookServiceImplEdgeCasesTest {
         }
     }
 }
-

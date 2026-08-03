@@ -16,12 +16,12 @@ import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementCommand;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
@@ -56,6 +56,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     private final SubscriptionService subscriptionService;
     private final ProcessedStripeEventRepository processedStripeEventRepository;
     private final PaymentRepository paymentRepository;
+    private final CheckoutSessionSettlementService checkoutSessionSettlementService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -174,7 +175,38 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
     }
 
     private Result handleCheckoutSessionCompleted(Event event, String eventId, WebhookLoggingContext loggingContext) {
-        // Idempotency at event level
+        return handleCheckoutSessionEvent(
+                event,
+                eventId,
+                loggingContext,
+                CheckoutSessionSettlementCommand.UnpaidDisposition.KEEP_PENDING
+        );
+    }
+
+    private Result handleCheckoutSessionAsyncPaymentSucceeded(Event event, String eventId, WebhookLoggingContext loggingContext) {
+        return handleCheckoutSessionEvent(
+                event,
+                eventId,
+                loggingContext,
+                CheckoutSessionSettlementCommand.UnpaidDisposition.KEEP_PENDING
+        );
+    }
+
+    private Result handleCheckoutSessionAsyncPaymentFailed(Event event, String eventId, WebhookLoggingContext loggingContext) {
+        return handleCheckoutSessionEvent(
+                event,
+                eventId,
+                loggingContext,
+                CheckoutSessionSettlementCommand.UnpaidDisposition.MARK_FAILED
+        );
+    }
+
+    private Result handleCheckoutSessionEvent(
+            Event event,
+            String eventId,
+            WebhookLoggingContext loggingContext,
+            CheckoutSessionSettlementCommand.UnpaidDisposition unpaidDisposition
+    ) {
         if (processedStripeEventRepository.existsByEventId(eventId)) {
             loggingContext.logInfo(log, "Duplicate Stripe event received; id={} type={}", eventId, event.getType());
             return Result.DUPLICATE;
@@ -182,136 +214,46 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
 
         String sessionId = extractSessionId(event, event.toJson());
         if (!StringUtils.hasText(sessionId)) {
-            throw new InvalidCheckoutSessionException("Missing session id in event payload");
+            throw new InvalidCheckoutSessionException("Missing session id in checkout event payload");
         }
-        
-        // Update logging context with session ID
         loggingContext.setSessionId(sessionId);
 
-        // Retrieve session from Stripe (with line_items for pack resolution)
         final Session session;
         try {
-            session = stripeService.retrieveSession(sessionId, /*expandLineItems=*/true);
+            session = stripeService.retrieveSession(sessionId, true);
         } catch (StripeException e) {
-            loggingContext.logError(log, "Stripe API error while retrieving session {}: {}", sessionId, e.getMessage());
+            loggingContext.logError(log, "Stripe API error while retrieving checkout session {}: {}", sessionId, e.getMessage());
             throw new InvalidCheckoutSessionException("Stripe session retrieval failed");
         }
 
         UUID userId = extractUserId(session);
         UUID packId = extractPackId(session);
-        
-        // Validate checkout session and resolve pack(s) with guardrails
-        CheckoutValidationService.CheckoutValidationResult validationResult = 
+        CheckoutValidationService.CheckoutValidationResult validationResult =
                 checkoutValidationService.validateAndResolvePack(session, packId);
-        
-        // Update logging context with extracted data
+
         loggingContext.setUserId(userId);
         loggingContext.setPriceId(validationResult.primaryPack().getStripePriceId());
 
-        // Perform DB work transactionally with enhanced idempotency
-        upsertPaymentAndCredit(eventId, session, userId, validationResult, loggingContext);
-        return Result.OK;
-    }
+        CheckoutSessionSettlementService.SettlementResult settlementResult = checkoutSessionSettlementService.settle(
+                new CheckoutSessionSettlementCommand(
+                        eventId,
+                        sessionId,
+                        extractPaymentIntentId(session),
+                        extractCustomerId(session),
+                        userId,
+                        validationResult.primaryPack().getId(),
+                        validationResult.totalAmountCents(),
+                        validationResult.currency(),
+                        validationResult.totalTokens(),
+                        buildEnhancedPurchaseMetaJson(session, validationResult),
+                        "paid".equalsIgnoreCase(session.getPaymentStatus()),
+                        unpaidDisposition
+                )
+        );
 
-    private Result handleCheckoutSessionAsyncPaymentSucceeded(Event event, String eventId, WebhookLoggingContext loggingContext) {
-        loggingContext.logInfo(log, "Async payment succeeded for checkout session: {}", eventId);
-        
-        // Idempotency at event level
-        if (processedStripeEventRepository.existsByEventId(eventId)) {
-            loggingContext.logInfo(log, "Duplicate async payment succeeded event received; id={} type={}", eventId, event.getType());
-            return Result.DUPLICATE;
-        }
-
-        String sessionId = extractSessionId(event, event.toJson());
-        if (!StringUtils.hasText(sessionId)) {
-            throw new InvalidCheckoutSessionException("Missing session id in async payment succeeded event payload");
-        }
-        
-        // Update logging context with session ID
-        loggingContext.setSessionId(sessionId);
-
-        // Retrieve session from Stripe (with line_items for pack resolution)
-        final Session session;
-        try {
-            session = stripeService.retrieveSession(sessionId, /*expandLineItems=*/true);
-        } catch (StripeException e) {
-            loggingContext.logError(log, "Stripe API error while retrieving session {} for async payment: {}", sessionId, e.getMessage());
-            throw new InvalidCheckoutSessionException("Stripe session retrieval failed for async payment");
-        }
-
-        UUID userId = extractUserId(session);
-        UUID packId = extractPackId(session);
-        
-        // Validate checkout session and resolve pack(s) with guardrails
-        CheckoutValidationService.CheckoutValidationResult validationResult = 
-                checkoutValidationService.validateAndResolvePack(session, packId);
-        
-        // Update logging context with extracted data
-        loggingContext.setUserId(userId);
-        loggingContext.setPriceId(validationResult.primaryPack().getStripePriceId());
-
-        // Perform DB work transactionally with enhanced idempotency
-        upsertPaymentAndCredit(eventId, session, userId, validationResult, loggingContext);
-        
-        loggingContext.logInfo(log, "Successfully processed async payment succeeded for checkout session {} for user {} with {} tokens", 
-                sessionId, userId, validationResult.totalTokens());
-        
-        return Result.OK;
-    }
-
-    private Result handleCheckoutSessionAsyncPaymentFailed(Event event, String eventId, WebhookLoggingContext loggingContext) {
-        loggingContext.logWarn(log, "Async payment failed for checkout session: {}", eventId);
-        
-        // Idempotency at event level
-        if (processedStripeEventRepository.existsByEventId(eventId)) {
-            loggingContext.logInfo(log, "Duplicate async payment failed event received; id={} type={}", eventId, event.getType());
-            return Result.DUPLICATE;
-        }
-
-        String sessionId = extractSessionId(event, event.toJson());
-        if (!StringUtils.hasText(sessionId)) {
-            loggingContext.logWarn(log, "Missing session id in async payment failed event payload: {}", eventId);
-            return Result.IGNORED;
-        }
-        
-        // Update logging context with session ID
-        loggingContext.setSessionId(sessionId);
-
-        // Retrieve session from Stripe to get user info
-        final Session session;
-        try {
-            session = stripeService.retrieveSession(sessionId, /*expandLineItems=*/false);
-        } catch (StripeException e) {
-            loggingContext.logError(log, "Stripe API error while retrieving session {} for async payment failure: {}", sessionId, e.getMessage());
-            return Result.IGNORED; // Don't fail the webhook for this
-        }
-
-        try {
-            UUID userId = extractUserId(session);
-            loggingContext.setUserId(userId);
-            
-            // Update payment status to failed if it exists
-            var payment = paymentRepository.findByStripeSessionId(sessionId);
-            if (payment.isPresent()) {
-                payment.get().setStatus(PaymentStatus.FAILED);
-                paymentRepository.save(payment.get());
-                
-                loggingContext.logWarn(log, "Updated payment status to FAILED for session {} user {}", sessionId, userId);
-            } else {
-                loggingContext.logInfo(log, "No payment record found for failed async payment session {}", sessionId);
-            }
-            
-            // Record processed event for observability
-            ProcessedStripeEvent processed = new ProcessedStripeEvent();
-            processed.setEventId(eventId);
-            processedStripeEventRepository.save(processed);
-            
-        } catch (Exception e) {
-            loggingContext.logError(log, "Error processing async payment failure for session {}: {}", sessionId, e.getMessage(), e);
-            // Don't throw - we don't want to retry async payment failures
-        }
-        
-        return Result.OK;
+        return settlementResult == CheckoutSessionSettlementService.SettlementResult.DUPLICATE_EVENT
+                ? Result.DUPLICATE
+                : Result.OK;
     }
 
     private Result handlePaymentIntentSucceeded(Event event, String eventId, WebhookLoggingContext loggingContext) {
@@ -345,16 +287,13 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             // Update logging context
             loggingContext.setUserId(payment.get().getUserId());
             
-            // Update payment status to succeeded if it's not already
-            if (payment.get().getStatus() != PaymentStatus.SUCCEEDED) {
-                payment.get().setStatus(PaymentStatus.SUCCEEDED);
-                paymentRepository.save(payment.get());
-                
-                loggingContext.logInfo(log, "Updated payment status to SUCCEEDED for payment intent {} user {}", 
-                        paymentIntentId, payment.get().getUserId());
-            } else {
-                loggingContext.logInfo(log, "Payment already marked as SUCCEEDED for payment intent {}", paymentIntentId);
-            }
+            // A Checkout Session is the authority for one-time purchase settlement. In particular,
+            // an asynchronous session can emit payment_intent.succeeded before its authoritative
+            // checkout.session.async_payment_succeeded event. Changing the payment state here would
+            // make the session handler believe tokens had already been credited.
+            loggingContext.logInfo(log,
+                    "Recorded payment intent success {} for checkout session {}; awaiting Checkout Session settlement",
+                    paymentIntentId, payment.get().getStripeSessionId());
             
             // Record processed event for observability
             ProcessedStripeEvent processed = new ProcessedStripeEvent();
@@ -406,12 +345,11 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             // Update logging context
             loggingContext.setUserId(payment.get().getUserId());
             
-            // Update payment status to failed
-            payment.get().setStatus(PaymentStatus.FAILED);
-            paymentRepository.save(payment.get());
-            
-            loggingContext.logWarn(log, "Updated payment status to FAILED for payment intent {} user {} (code: {}, message: {})", 
-                    paymentIntentId, payment.get().getUserId(), failureCode, failureMessage);
+            // See the successful PaymentIntent handler: Checkout Session payment_status decides
+            // whether a server-created checkout payment becomes FAILED or is credited.
+            loggingContext.logWarn(log,
+                    "Recorded payment intent failure {} for checkout session {} (code: {}, message: {}); awaiting Checkout Session settlement",
+                    paymentIntentId, payment.get().getStripeSessionId(), failureCode, failureMessage);
             
             // Record processed event for observability
             ProcessedStripeEvent processed = new ProcessedStripeEvent();
@@ -1071,66 +1009,6 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             log.warn("Failed to build dispute won metadata JSON: {}", e.getMessage());
             return null;
         }
-    }
-
-    @Transactional
-    protected void upsertPaymentAndCredit(String eventId, Session session, UUID userId, 
-            CheckoutValidationService.CheckoutValidationResult validationResult, WebhookLoggingContext loggingContext) {
-        
-        // Upsert Payment → SUCCEEDED with enhanced auditability
-        Payment payment = paymentRepository.findByStripeSessionId(session.getId())
-                .orElseGet(Payment::new);
-        payment.setUserId(userId);
-        payment.setStatus(PaymentStatus.SUCCEEDED);
-        payment.setStripeSessionId(session.getId());
-        payment.setStripePaymentIntentId(extractPaymentIntentId(session));
-        payment.setPackId(validationResult.primaryPack().getId());
-        
-        // Persist unit price & currency alongside Payment for auditability
-        payment.setAmountCents(validationResult.totalAmountCents());
-        payment.setCurrency(validationResult.currency());
-        payment.setCreditedTokens(validationResult.totalTokens());
-        
-        payment.setStripeCustomerId(extractCustomerId(session));
-        
-        // Enhanced metadata with validation details
-        String enhancedMetadata = buildEnhancedPurchaseMetaJson(session, validationResult);
-        payment.setSessionMetadata(enhancedMetadata);
-        
-        // Handle concurrent webhook deliveries that might cause unique constraint violations
-        try {
-            paymentRepository.save(payment);
-        } catch (DataIntegrityViolationException e) {
-            // Another webhook delivery already processed this session - re-read the existing payment
-            loggingContext.logInfo(log, "Payment already exists for session {}, re-reading existing payment", session.getId());
-            payment = paymentRepository.findByStripeSessionId(session.getId())
-                    .orElseThrow(() -> new IllegalStateException("Payment not found after unique constraint violation for session: " + session.getId()));
-            
-            // Verify the existing payment is in the correct state
-            if (payment.getStatus() != PaymentStatus.SUCCEEDED) {
-                throw new IllegalStateException("Existing payment for session " + session.getId() + " is not in SUCCEEDED state: " + payment.getStatus());
-            }
-            
-            loggingContext.logInfo(log, "Using existing payment {} for session {}", payment.getId(), session.getId());
-        }
-
-        // Enhanced idempotency key: eventId:sessionId for per-event uniqueness
-        String idempotencyKey = String.format("checkout:%s:%s", eventId, session.getId());
-        
-        loggingContext.logInfo(log, "Crediting {} tokens to user {} for session {} with idempotency key: {} ({} pack(s))", 
-                validationResult.totalTokens(), userId, session.getId(), idempotencyKey, validationResult.getPackCount());
-        
-        // Credit total tokens from all packs
-        internalBillingService.creditPurchase(userId, validationResult.totalTokens(), idempotencyKey, 
-                validationResult.primaryPack().getId().toString(), enhancedMetadata);
-
-        // Mark event processed after successful credit (DB work committed)
-        ProcessedStripeEvent processed = new ProcessedStripeEvent();
-        processed.setEventId(eventId);
-        processedStripeEventRepository.save(processed);
-        
-        loggingContext.logInfo(log, "Successfully processed checkout session {} for user {} with {} tokens from {} pack(s)", 
-                session.getId(), userId, validationResult.totalTokens(), validationResult.getPackCount());
     }
 
     private String extractSessionId(Event event, String payload) {

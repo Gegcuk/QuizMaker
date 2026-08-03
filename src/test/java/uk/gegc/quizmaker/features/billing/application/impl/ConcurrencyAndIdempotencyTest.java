@@ -22,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
@@ -83,6 +84,8 @@ class ConcurrencyAndIdempotencyTest {
     @Mock
     private PaymentRepository paymentRepository;
     @Mock
+    private CheckoutSessionSettlementService checkoutSessionSettlementService;
+    @Mock
     private ProcessedStripeEventRepository processedStripeEventRepository;
     @Mock
     private BillingMetricsService billingMetricsService;
@@ -109,6 +112,7 @@ class ConcurrencyAndIdempotencyTest {
             subscriptionService,
             processedStripeEventRepository,
             paymentRepository,
+            checkoutSessionSettlementService,
             objectMapper
         );
 
@@ -244,8 +248,9 @@ class ConcurrencyAndIdempotencyTest {
             assertThat(result2).isIn(StripeWebhookService.Result.OK, StripeWebhookService.Result.DUPLICATE);
             assertThat(result1).isNotEqualTo(result2); // One OK, one DUPLICATE
 
-            // Verify processed event was saved only once
-            verify(processedStripeEventRepository, times(1)).save(any(ProcessedStripeEvent.class));
+            // The transactional settlement service owns event recording and economic idempotency.
+            // The real MySQL integration test verifies its row lock under concurrent delivery.
+            verify(checkoutSessionSettlementService, times(1)).settle(any());
         }
     }
 
@@ -354,8 +359,8 @@ class ConcurrencyAndIdempotencyTest {
                 assertThat(result3).isEqualTo(StripeWebhookService.Result.DUPLICATE);
             }
 
-            // Then - verify processed event was saved only once
-            verify(processedStripeEventRepository, times(1)).save(any(ProcessedStripeEvent.class));
+            // The initial event is delegated once; later delivery retries are rejected at the event gate.
+            verify(checkoutSessionSettlementService, times(1)).settle(any());
         }
     }
 

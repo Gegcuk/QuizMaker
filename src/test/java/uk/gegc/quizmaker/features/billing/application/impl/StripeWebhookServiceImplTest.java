@@ -18,8 +18,11 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementCommand;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
@@ -83,6 +86,9 @@ class StripeWebhookServiceImplTest {
     
     @Mock
     private PaymentRepository paymentRepository;
+
+    @Mock
+    private CheckoutSessionSettlementService checkoutSessionSettlementService;
     
     private ObjectMapper objectMapper;
     
@@ -101,6 +107,7 @@ class StripeWebhookServiceImplTest {
             subscriptionService,
             processedStripeEventRepository,
             paymentRepository,
+            checkoutSessionSettlementService,
             objectMapper
         );
     }
@@ -673,114 +680,6 @@ class StripeWebhookServiceImplTest {
     }
 
     @Nested
-    @DisplayName("Payment Upsert Concurrency Tests")
-    class PaymentUpsertConcurrencyTests {
-
-        @Test
-        @DisplayName("upsertPaymentAndCredit: when DataIntegrityViolationException occurs then re-read existing payment and continue")
-        void upsertPaymentAndCredit_whenDataIntegrityViolationExceptionOccurs_thenReReadExistingPaymentAndContinue() throws Exception {
-            // Given
-            String eventId = "evt_test";
-            String sessionId = "cs_test_session_123";
-            UUID userId = UUID.randomUUID();
-            
-            Session mockSession = mock(Session.class);
-            when(mockSession.getId()).thenReturn(sessionId);
-            when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent");
-            when(mockSession.getCustomer()).thenReturn("cus_test_customer");
-            
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            when(validationResult.totalTokens()).thenReturn(1000L);
-            when(validationResult.totalAmountCents()).thenReturn(1000L);
-            when(validationResult.currency()).thenReturn("usd");
-            when(validationResult.getPackCount()).thenReturn(1);
-            
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(validationResult.primaryPack()).thenReturn(mockPack);
-            
-            // Mock existing payment that was created by concurrent webhook
-            uk.gegc.quizmaker.features.billing.domain.model.Payment existingPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            when(existingPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.SUCCEEDED);
-            
-            // Mock repository behavior - simulate concurrent delivery scenario
-            when(paymentRepository.findByStripeSessionId(sessionId))
-                    .thenReturn(Optional.empty()) // First call returns empty
-                    .thenReturn(Optional.of(existingPayment)); // Re-read returns existing payment
-            when(paymentRepository.save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class)))
-                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate entry")); // Save throws unique constraint violation
-            
-            WebhookLoggingContext loggingContext = mock(WebhookLoggingContext.class);
-            
-            // When
-            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("upsertPaymentAndCredit", 
-                    String.class, Session.class, UUID.class, CheckoutValidationService.CheckoutValidationResult.class, WebhookLoggingContext.class);
-            method.setAccessible(true);
-            method.invoke(webhookService, eventId, mockSession, userId, validationResult, loggingContext);
-            
-            // Then
-            // Verify that save was attempted first
-            verify(paymentRepository).save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class));
-            
-            // Verify that findByStripeSessionId was called twice (initial + re-read)
-            verify(paymentRepository, times(2)).findByStripeSessionId(sessionId);
-            
-            // Verify that billing service was called to credit tokens (idempotent operation)
-            verify(internalBillingService).creditPurchase(eq(userId), eq(1000L), anyString(), anyString(), any());
-            
-            // Verify that event was marked as processed
-            verify(processedStripeEventRepository).save(any(uk.gegc.quizmaker.features.billing.domain.model.ProcessedStripeEvent.class));
-        }
-
-        @Test
-        @DisplayName("upsertPaymentAndCredit: when DataIntegrityViolationException occurs and existing payment is not SUCCEEDED then throw exception")
-        void upsertPaymentAndCredit_whenDataIntegrityViolationExceptionOccursAndExistingPaymentNotSucceeded_thenThrowException() throws Exception {
-            // Given
-            String eventId = "evt_test";
-            String sessionId = "cs_test_session_123";
-            UUID userId = UUID.randomUUID();
-            
-            Session mockSession = mock(Session.class);
-            when(mockSession.getId()).thenReturn(sessionId);
-            when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent");
-            when(mockSession.getCustomer()).thenReturn("cus_test_customer");
-            
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            when(validationResult.totalTokens()).thenReturn(1000L);
-            when(validationResult.totalAmountCents()).thenReturn(1000L);
-            when(validationResult.currency()).thenReturn("usd");
-            
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(validationResult.primaryPack()).thenReturn(mockPack);
-            
-            // Mock existing payment that is in wrong state
-            uk.gegc.quizmaker.features.billing.domain.model.Payment existingPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            when(existingPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING); // Wrong state
-            
-            // Mock repository behavior
-            when(paymentRepository.findByStripeSessionId(sessionId))
-                    .thenReturn(Optional.empty()) // First call returns empty
-                    .thenReturn(Optional.of(existingPayment)); // Re-read returns existing payment in wrong state
-            when(paymentRepository.save(any(uk.gegc.quizmaker.features.billing.domain.model.Payment.class)))
-                    .thenThrow(new org.springframework.dao.DataIntegrityViolationException("Duplicate entry")); // Save throws unique constraint violation
-            
-            WebhookLoggingContext loggingContext = mock(WebhookLoggingContext.class);
-            
-            // When & Then
-            Method method = StripeWebhookServiceImpl.class.getDeclaredMethod("upsertPaymentAndCredit", 
-                    String.class, Session.class, UUID.class, CheckoutValidationService.CheckoutValidationResult.class, WebhookLoggingContext.class);
-            method.setAccessible(true);
-            
-            assertThatThrownBy(() -> method.invoke(webhookService, eventId, mockSession, userId, validationResult, loggingContext))
-                    .hasCauseInstanceOf(IllegalStateException.class)
-                    .hasRootCauseMessage("Existing payment for session " + sessionId + " is not in SUCCEEDED state: PENDING");
-        }
-    }
-
-    @Nested
     @DisplayName("Async Payment Event Tests")
     class AsyncPaymentEventTests {
 
@@ -801,6 +700,7 @@ class StripeWebhookServiceImplTest {
             when(mockSession.getId()).thenReturn("cs_test_session");
             when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
             when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
+            when(mockSession.getPaymentStatus()).thenReturn("paid");
 
             CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
             uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
@@ -808,11 +708,14 @@ class StripeWebhookServiceImplTest {
             when(mockPack.getStripePriceId()).thenReturn("price_test");
             when(validationResult.primaryPack()).thenReturn(mockPack);
             when(validationResult.totalTokens()).thenReturn(1000L);
+            when(validationResult.totalAmountCents()).thenReturn(1000L);
+            when(validationResult.currency()).thenReturn("usd");
 
             when(processedStripeEventRepository.existsByEventId("evt_async_success")).thenReturn(false);
             when(stripeService.retrieveSession("cs_test_session", true)).thenReturn(mockSession);
             when(checkoutValidationService.validateAndResolvePack(any(Session.class), any(UUID.class))).thenReturn(validationResult);
-            when(paymentRepository.findByStripeSessionId("cs_test_session")).thenReturn(Optional.empty());
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -825,7 +728,12 @@ class StripeWebhookServiceImplTest {
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_succeeded");
                 verify(metricsService).incrementWebhookOk("checkout.session.async_payment_succeeded");
-                verify(internalBillingService).creditPurchase(any(UUID.class), eq(1000L), anyString(), anyString(), any());
+                ArgumentCaptor<CheckoutSessionSettlementCommand> commandCaptor =
+                        ArgumentCaptor.forClass(CheckoutSessionSettlementCommand.class);
+                verify(checkoutSessionSettlementService).settle(commandCaptor.capture());
+                assertThat(commandCaptor.getValue().paid()).isTrue();
+                assertThat(commandCaptor.getValue().unpaidDisposition())
+                        .isEqualTo(CheckoutSessionSettlementCommand.UnpaidDisposition.KEEP_PENDING);
             }
         }
 
@@ -843,15 +751,25 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.toJson()).thenReturn(payload);
 
             Session mockSession = mock(Session.class);
-            lenient().when(mockSession.getId()).thenReturn("cs_test_session");
-            lenient().when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+            when(mockSession.getId()).thenReturn("cs_test_session");
+            when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+            when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
+            when(mockSession.getPaymentStatus()).thenReturn("unpaid");
 
-            uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            lenient().when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
+            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
+            when(mockPack.getId()).thenReturn(UUID.randomUUID());
+            when(mockPack.getStripePriceId()).thenReturn("price_test");
+            when(validationResult.primaryPack()).thenReturn(mockPack);
+            when(validationResult.totalTokens()).thenReturn(1000L);
+            when(validationResult.totalAmountCents()).thenReturn(1000L);
+            when(validationResult.currency()).thenReturn("usd");
 
             when(processedStripeEventRepository.existsByEventId("evt_async_failed")).thenReturn(false);
-            when(stripeService.retrieveSession("cs_test_session", false)).thenReturn(mockSession);
-            when(paymentRepository.findByStripeSessionId("cs_test_session")).thenReturn(Optional.of(mockPayment));
+            when(stripeService.retrieveSession("cs_test_session", true)).thenReturn(mockSession);
+            when(checkoutValidationService.validateAndResolvePack(any(Session.class), any(UUID.class))).thenReturn(validationResult);
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.FAILED);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -864,8 +782,12 @@ class StripeWebhookServiceImplTest {
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
                 verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed");
-                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.FAILED);
-                verify(paymentRepository).save(mockPayment);
+                ArgumentCaptor<CheckoutSessionSettlementCommand> commandCaptor =
+                        ArgumentCaptor.forClass(CheckoutSessionSettlementCommand.class);
+                verify(checkoutSessionSettlementService).settle(commandCaptor.capture());
+                assertThat(commandCaptor.getValue().paid()).isFalse();
+                assertThat(commandCaptor.getValue().unpaidDisposition())
+                        .isEqualTo(CheckoutSessionSettlementCommand.UnpaidDisposition.MARK_FAILED);
             }
         }
 
@@ -889,8 +811,8 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
 
             uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
             when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+            when(mockPayment.getStripeSessionId()).thenReturn("cs_test_session");
 
             when(processedStripeEventRepository.existsByEventId("evt_pi_success")).thenReturn(false);
             when(paymentRepository.findByStripePaymentIntentId("pi_test_intent")).thenReturn(Optional.of(mockPayment));
@@ -906,8 +828,8 @@ class StripeWebhookServiceImplTest {
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
                 verify(metricsService).incrementWebhookReceived("payment_intent.succeeded");
                 verify(metricsService).incrementWebhookOk("payment_intent.succeeded");
-                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.SUCCEEDED);
-                verify(paymentRepository).save(mockPayment);
+                verify(mockPayment, never()).setStatus(any());
+                verify(paymentRepository, never()).save(any());
             }
         }
 
@@ -936,8 +858,8 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
 
             uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            lenient().when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.PENDING);
-            lenient().when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+            when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+            when(mockPayment.getStripeSessionId()).thenReturn("cs_test_session");
 
             when(processedStripeEventRepository.existsByEventId("evt_pi_failed")).thenReturn(false);
             when(paymentRepository.findByStripePaymentIntentId("pi_test_intent")).thenReturn(Optional.of(mockPayment));
@@ -953,8 +875,8 @@ class StripeWebhookServiceImplTest {
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
                 verify(metricsService).incrementWebhookReceived("payment_intent.payment_failed");
                 verify(metricsService).incrementWebhookOk("payment_intent.payment_failed");
-                verify(mockPayment).setStatus(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.FAILED);
-                verify(paymentRepository).save(mockPayment);
+                verify(mockPayment, never()).setStatus(any());
+                verify(paymentRepository, never()).save(any());
             }
         }
 
@@ -1012,7 +934,7 @@ class StripeWebhookServiceImplTest {
                 // When & Then
                 assertThatThrownBy(() -> webhookService.process(payload, signature))
                     .isInstanceOf(InvalidCheckoutSessionException.class)
-                    .hasMessageContaining("Missing session id in async payment succeeded event payload");
+                    .hasMessageContaining("Missing session id in checkout event payload");
 
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_succeeded");
             }
@@ -1042,7 +964,7 @@ class StripeWebhookServiceImplTest {
                 // When & Then
                 assertThatThrownBy(() -> webhookService.process(payload, signature))
                     .isInstanceOf(InvalidCheckoutSessionException.class)
-                    .hasMessageContaining("Stripe session retrieval failed for async payment");
+                    .hasMessageContaining("Stripe session retrieval failed");
 
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_succeeded");
                 verify(stripeService).retrieveSession("cs_error", true);
@@ -1080,8 +1002,8 @@ class StripeWebhookServiceImplTest {
         }
 
         @Test
-        @DisplayName("Should return IGNORED for async payment failed with missing session ID")
-        void asyncPaymentFailed_missingSessionId_returnsIgnored() throws StripeException {
+        @DisplayName("Rejects async payment failed with missing session ID so Stripe can retry")
+        void asyncPaymentFailed_missingSessionId_throwsException() throws StripeException {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = "{\"id\":\"evt_no_session_failed\",\"type\":\"checkout.session.async_payment_failed\",\"data\":{\"object\":{}}}";
@@ -1098,19 +1020,17 @@ class StripeWebhookServiceImplTest {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
                     .thenReturn(mockEvent);
 
-                // When
-                StripeWebhookService.Result result = webhookService.process(payload, signature);
-
-                // Then
-                assertThat(result).isEqualTo(StripeWebhookService.Result.IGNORED);
+                assertThatThrownBy(() -> webhookService.process(payload, signature))
+                        .isInstanceOf(InvalidCheckoutSessionException.class)
+                        .hasMessageContaining("Missing session id in checkout event payload");
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
-                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed"); // IGNORED treated as OK
+                verify(metricsService).incrementWebhookFailed("checkout.session.async_payment_failed");
             }
         }
 
         @Test
-        @DisplayName("Should return IGNORED when Stripe API fails for async payment failed")
-        void asyncPaymentFailed_stripeApiError_returnsIgnored() throws StripeException {
+        @DisplayName("Retries async payment failure when the authoritative Stripe session cannot be retrieved")
+        void asyncPaymentFailed_stripeApiError_throwsException() throws StripeException {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = "{\"id\":\"evt_failed_api_error\",\"type\":\"checkout.session.async_payment_failed\",\"data\":{\"object\":{\"id\":\"cs_failed\"}}}";
@@ -1122,27 +1042,25 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.toJson()).thenReturn(payload);
 
             when(processedStripeEventRepository.existsByEventId("evt_failed_api_error")).thenReturn(false);
-            when(stripeService.retrieveSession("cs_failed", false))
+            when(stripeService.retrieveSession("cs_failed", true))
                 .thenThrow(new com.stripe.exception.ApiException("API Error", "req_123", "code", 500, null));
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
                     .thenReturn(mockEvent);
 
-                // When
-                StripeWebhookService.Result result = webhookService.process(payload, signature);
-
-                // Then
-                assertThat(result).isEqualTo(StripeWebhookService.Result.IGNORED);
+                assertThatThrownBy(() -> webhookService.process(payload, signature))
+                        .isInstanceOf(InvalidCheckoutSessionException.class)
+                        .hasMessageContaining("Stripe session retrieval failed");
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
-                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed"); // IGNORED treated as OK
-                verify(stripeService).retrieveSession("cs_failed", false);
+                verify(metricsService).incrementWebhookFailed("checkout.session.async_payment_failed");
+                verify(stripeService).retrieveSession("cs_failed", true);
             }
         }
 
         @Test
-        @DisplayName("Should handle async payment failed when payment record not found")
-        void asyncPaymentFailed_paymentNotFound_logsAndContinues() throws StripeException {
+        @DisplayName("Retries async payment failure when no server-created payment is found")
+        void asyncPaymentFailed_paymentNotFound_throwsException() throws StripeException {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = "{\"id\":\"evt_no_payment\",\"type\":\"checkout.session.async_payment_failed\",\"data\":{\"object\":{\"id\":\"cs_test\"}}}";
@@ -1154,31 +1072,40 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.toJson()).thenReturn(payload);
 
             Session mockSession = mock(Session.class);
-            lenient().when(mockSession.getId()).thenReturn("cs_test");
-            lenient().when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+            when(mockSession.getId()).thenReturn("cs_test");
+            when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
+            when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
+
+            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
+            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
+            when(mockPack.getId()).thenReturn(UUID.randomUUID());
+            when(mockPack.getStripePriceId()).thenReturn("price_test");
+            when(validationResult.primaryPack()).thenReturn(mockPack);
+            when(validationResult.totalTokens()).thenReturn(1000L);
+            when(validationResult.totalAmountCents()).thenReturn(1000L);
+            when(validationResult.currency()).thenReturn("usd");
 
             when(processedStripeEventRepository.existsByEventId("evt_no_payment")).thenReturn(false);
-            when(stripeService.retrieveSession("cs_test", false)).thenReturn(mockSession);
-            when(paymentRepository.findByStripeSessionId("cs_test")).thenReturn(Optional.empty()); // NOT FOUND
+            when(stripeService.retrieveSession("cs_test", true)).thenReturn(mockSession);
+            when(checkoutValidationService.validateAndResolvePack(any(Session.class), any(UUID.class))).thenReturn(validationResult);
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenThrow(new InvalidCheckoutSessionException("No server-created payment exists for checkout session"));
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
                     .thenReturn(mockEvent);
 
-                // When
-                StripeWebhookService.Result result = webhookService.process(payload, signature);
-
-                // Then
-                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                assertThatThrownBy(() -> webhookService.process(payload, signature))
+                        .isInstanceOf(InvalidCheckoutSessionException.class)
+                        .hasMessageContaining("No server-created payment exists");
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
-                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed");
-                verify(paymentRepository, never()).save(any());
+                verify(metricsService).incrementWebhookFailed("checkout.session.async_payment_failed");
             }
         }
 
         @Test
-        @DisplayName("Should handle exception during async payment failed processing")
-        void asyncPaymentFailed_processingException_returnsOk() throws StripeException {
+        @DisplayName("Retries async payment failure when checkout identity extraction fails")
+        void asyncPaymentFailed_processingException_throwsException() throws StripeException {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = "{\"id\":\"evt_exception\",\"type\":\"checkout.session.async_payment_failed\",\"data\":{\"object\":{\"id\":\"cs_test\"}}}";
@@ -1190,23 +1117,20 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.toJson()).thenReturn(payload);
 
             Session mockSession = mock(Session.class);
-            lenient().when(mockSession.getId()).thenReturn("cs_test");
-            lenient().when(mockSession.getClientReferenceId()).thenThrow(new RuntimeException("Extraction error"));
+            when(mockSession.getClientReferenceId()).thenThrow(new RuntimeException("Extraction error"));
 
             when(processedStripeEventRepository.existsByEventId("evt_exception")).thenReturn(false);
-            when(stripeService.retrieveSession("cs_test", false)).thenReturn(mockSession);
+            when(stripeService.retrieveSession("cs_test", true)).thenReturn(mockSession);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
                     .thenReturn(mockEvent);
 
-                // When
-                StripeWebhookService.Result result = webhookService.process(payload, signature);
-
-                // Then - Returns OK despite exception (logged but not thrown)
-                assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
+                assertThatThrownBy(() -> webhookService.process(payload, signature))
+                        .isInstanceOf(RuntimeException.class)
+                        .hasMessageContaining("Extraction error");
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
-                verify(metricsService).incrementWebhookOk("checkout.session.async_payment_failed");
+                verify(metricsService).incrementWebhookFailed("checkout.session.async_payment_failed");
             }
         }
 
@@ -1308,8 +1232,8 @@ class StripeWebhookServiceImplTest {
         }
 
         @Test
-        @DisplayName("Should skip update when payment already SUCCEEDED for payment_intent.succeeded")
-        void paymentIntentSucceeded_alreadySucceeded_skipsUpdate() throws StripeException {
+        @DisplayName("Payment intent success never settles a checkout payment before its Checkout Session")
+        void paymentIntentSucceeded_doesNotSettleCheckoutPayment() throws StripeException {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = "{\"id\":\"evt_already_succeeded\",\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"pi_test\"}}}";
@@ -1327,8 +1251,8 @@ class StripeWebhookServiceImplTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
 
             uk.gegc.quizmaker.features.billing.domain.model.Payment mockPayment = mock(uk.gegc.quizmaker.features.billing.domain.model.Payment.class);
-            when(mockPayment.getStatus()).thenReturn(uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus.SUCCEEDED); // Already succeeded!
             when(mockPayment.getUserId()).thenReturn(UUID.randomUUID());
+            when(mockPayment.getStripeSessionId()).thenReturn("cs_test_session");
 
             when(processedStripeEventRepository.existsByEventId("evt_already_succeeded")).thenReturn(false);
             when(paymentRepository.findByStripePaymentIntentId("pi_test")).thenReturn(Optional.of(mockPayment));
@@ -1344,7 +1268,8 @@ class StripeWebhookServiceImplTest {
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
                 verify(metricsService).incrementWebhookReceived("payment_intent.succeeded");
                 verify(metricsService).incrementWebhookOk("payment_intent.succeeded");
-                verify(paymentRepository, never()).save(any()); // No save needed
+                verify(mockPayment, never()).setStatus(any());
+                verify(paymentRepository, never()).save(any());
             }
         }
 

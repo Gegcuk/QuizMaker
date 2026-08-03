@@ -55,7 +55,7 @@ class EnhancedMetadataBuilderTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         webhookService = new StripeWebhookServiceImpl(
-            null, null, null, null, null, null, null, null, null, objectMapper
+            null, null, null, null, null, null, null, null, null, null, objectMapper
         );
     }
 

@@ -20,10 +20,13 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementCommand;
+import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
@@ -92,6 +95,9 @@ class StripeWebhookServiceHandlerTest {
     
     @Mock
     private PaymentRepository paymentRepository;
+
+    @Mock
+    private CheckoutSessionSettlementService checkoutSessionSettlementService;
     
     private ObjectMapper objectMapper;
     private StripeWebhookServiceImpl webhookService;
@@ -114,6 +120,7 @@ class StripeWebhookServiceHandlerTest {
             subscriptionService,
             processedStripeEventRepository,
             paymentRepository,
+            checkoutSessionSettlementService,
             objectMapper
         );
     }
@@ -419,7 +426,7 @@ class StripeWebhookServiceHandlerTest {
                 // When & Then
                 assertThatThrownBy(() -> webhookService.process(payload, signature))
                     .isInstanceOf(InvalidCheckoutSessionException.class)
-                    .hasMessage("Missing session id in event payload");
+                    .hasMessage("Missing session id in checkout event payload");
                 
                 // Verify no side effects
                 verify(stripeService, never()).retrieveSession(anyString(), any(Boolean.class));
@@ -1712,8 +1719,8 @@ class StripeWebhookServiceHandlerTest {
     class UpsertTransactionalityTests {
 
         @Test
-        @DisplayName("When internalBillingService.creditPurchase throws → transaction rolls back Payment save and does not save ProcessedStripeEvent")
-        void shouldRollbackWhenCreditPurchaseThrows() throws Exception {
+        @DisplayName("Settlement failures propagate so the webhook is retried")
+        void shouldPropagateSettlementFailureForRetry() throws Exception {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String sessionId = "cs_test_session_456";
@@ -1765,11 +1772,8 @@ class StripeWebhookServiceHandlerTest {
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(sessionId, true)).thenReturn(mockSession);
             when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
-            when(paymentRepository.findByStripeSessionId(sessionId)).thenReturn(Optional.empty());
-            
-            // Make creditPurchase throw an exception
-            doThrow(new RuntimeException("Billing service error"))
-                .when(internalBillingService).creditPurchase(any(), anyLong(), anyString(), anyString(), anyString());
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenThrow(new RuntimeException("Settlement service error"));
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -1778,26 +1782,19 @@ class StripeWebhookServiceHandlerTest {
                 // When & Then
                 assertThatThrownBy(() -> webhookService.process(payload, signature))
                         .isInstanceOf(RuntimeException.class)
-                        .hasMessage("Billing service error");
+                        .hasMessage("Settlement service error");
 
                 // Verify metrics
                 verify(metricsService).incrementWebhookReceived("checkout.session.completed");
                 verify(metricsService).incrementWebhookFailed("checkout.session.completed");
                 
-                // Verify Payment was saved (this happens before creditPurchase)
-                verify(paymentRepository).save(any(Payment.class));
-                
-                // Verify creditPurchase was called and threw
-                verify(internalBillingService).creditPurchase(any(), anyLong(), anyString(), anyString(), anyString());
-                
-                // Verify ProcessedStripeEvent was NOT saved due to rollback
-                verify(processedStripeEventRepository, never()).save(any(ProcessedStripeEvent.class));
+                verify(checkoutSessionSettlementService).settle(any());
             }
         }
 
         @Test
-        @DisplayName("Success path saves Payment once, then credits, then saves processed event")
-        void shouldFollowCorrectSuccessPath() throws Exception {
+        @DisplayName("Success path delegates the verified Checkout Session to transactional settlement")
+        void shouldDelegateVerifiedSessionToSettlement() throws Exception {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String sessionId = "cs_test_session_456";
@@ -1849,7 +1846,8 @@ class StripeWebhookServiceHandlerTest {
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(sessionId, true)).thenReturn(mockSession);
             when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
-            when(paymentRepository.findByStripeSessionId(sessionId)).thenReturn(Optional.empty());
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -1861,23 +1859,15 @@ class StripeWebhookServiceHandlerTest {
                 // Then
                 assertThat(result).isEqualTo(StripeWebhookService.Result.OK);
 
-                // Verify correct sequence of operations
-                var inOrder = org.mockito.Mockito.inOrder(paymentRepository, internalBillingService, processedStripeEventRepository);
-                
-                // 1. Payment should be saved first
-                inOrder.verify(paymentRepository).save(any(Payment.class));
-                
-                // 2. Then creditPurchase should be called
-                inOrder.verify(internalBillingService).creditPurchase(
-                    eq(TEST_USER_ID),
-                    eq(500L), // totalTokens
-                    eq(String.format("checkout:%s:%s", TEST_EVENT_ID, sessionId)),
-                    eq(TEST_PACK_ID.toString()),
-                    anyString() // enhancedMetadata
-                );
-                
-                // 3. Finally ProcessedStripeEvent should be saved
-                inOrder.verify(processedStripeEventRepository).save(any(ProcessedStripeEvent.class));
+                ArgumentCaptor<CheckoutSessionSettlementCommand> commandCaptor =
+                        ArgumentCaptor.forClass(CheckoutSessionSettlementCommand.class);
+                verify(checkoutSessionSettlementService).settle(commandCaptor.capture());
+                assertThat(commandCaptor.getValue().eventId()).isEqualTo(TEST_EVENT_ID);
+                assertThat(commandCaptor.getValue().stripeSessionId()).isEqualTo(sessionId);
+                assertThat(commandCaptor.getValue().userId()).isEqualTo(TEST_USER_ID);
+                assertThat(commandCaptor.getValue().packId()).isEqualTo(TEST_PACK_ID);
+                assertThat(commandCaptor.getValue().tokens()).isEqualTo(500L);
+                assertThat(commandCaptor.getValue().paid()).isTrue();
                 
                 // Verify metrics
                 verify(metricsService).incrementWebhookReceived("checkout.session.completed");
@@ -1891,7 +1881,7 @@ class StripeWebhookServiceHandlerTest {
     class RetrySemanticsTests {
 
         @Test
-        @DisplayName("Simulate transient Stripe error - First attempt 500, second attempt OK - Only one credit & one processed record")
+        @DisplayName("Retries a transient Stripe lookup failure and delegates the successful retry once")
         void shouldHandleTransientStripeErrorWithRetry() throws Exception {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
@@ -1955,6 +1945,8 @@ class StripeWebhookServiceHandlerTest {
             when(stripeService.retrieveSession(sessionId, true))
                 .thenThrow(new InvalidRequestException("Temporary Stripe API error", null, null, null, 500, null))  // First attempt: 500 error
                 .thenReturn(mockSession);  // Second attempt: success
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -1979,17 +1971,7 @@ class StripeWebhookServiceHandlerTest {
                 verify(metricsService, times(2)).incrementWebhookReceived("checkout.session.completed");
                 verify(metricsService).incrementWebhookOk("checkout.session.completed");
 
-                // Verify idempotency: Credit should be issued on second attempt (successful retry)
-                verify(internalBillingService).creditPurchase(
-                    eq(TEST_USER_ID),
-                    eq(500L), // totalTokens
-                    eq(String.format("checkout:%s:%s", TEST_EVENT_ID, sessionId)),
-                    eq(TEST_PACK_ID.toString()),
-                    eq(null) // enhancedMetadata (null due to metadata build failure)
-                );
-                
-                // Verify ProcessedStripeEvent was saved on successful retry
-                verify(processedStripeEventRepository).save(any(ProcessedStripeEvent.class));
+                verify(checkoutSessionSettlementService, times(1)).settle(any());
                 
                 // Verify Stripe service was called twice (first failed, second succeeded)
                 verify(stripeService, times(2)).retrieveSession(sessionId, true);

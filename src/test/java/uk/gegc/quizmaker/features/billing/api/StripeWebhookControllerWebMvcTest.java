@@ -1,8 +1,12 @@
 package uk.gegc.quizmaker.features.billing.api;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,11 +18,14 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
+import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -38,6 +45,9 @@ class StripeWebhookControllerWebMvcTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private StripeWebhookService webhookService;
@@ -93,5 +103,42 @@ class StripeWebhookControllerWebMvcTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
     }
-}
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/billing/stripe/webhook", "/api/v1/billing/webhooks"})
+    @DisplayName("Both Stripe webhook paths return 500 for a retryable checkout settlement failure")
+    void retryableCheckoutSettlementFailure_returns500ForBothWebhookPaths(String webhookPath) throws Exception {
+        when(featureFlags.isBilling()).thenReturn(true);
+        when(webhookService.process(any(), any()))
+                .thenThrow(new InvalidCheckoutSessionException("Stripe session retrieval failed"));
+
+        mockMvc.perform(post(webhookPath)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Stripe-Signature", "t=1,v1=abc")
+                        .content("{\"id\":\"evt_test_webhook\",\"object\":\"event\"}"))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    @DisplayName("Billing OpenAPI documents Stripe authentication and retryable Checkout Session settlement")
+    void billingOpenApi_documentsStripeWebhookContract() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        String operation = "/paths/~1api~1v1~1billing~1stripe~1webhook/post";
+        assertThat(specification.at(operation + "/description").asText())
+                .contains("payment_status is paid")
+                .contains("at most once");
+        assertThat(specification.at(operation + "/parameters/0/name").asText()).isEqualTo("Stripe-Signature");
+        assertThat(specification.at(operation + "/parameters/0/required").asBoolean()).isTrue();
+        assertThat(specification.at(operation + "/responses/401").isMissingNode()).isFalse();
+        assertThat(specification.at(operation + "/responses/500").isMissingNode()).isFalse();
+        assertThat(specification.at(operation + "/security/0").size()).isZero();
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1webhooks/post/description").asText())
+                .contains("session-level idempotent settlement");
+    }
+}
