@@ -21,7 +21,7 @@ Verify that the release image and the Compose backend receive the same resolved 
 2. Over SSH on the staging server, run the preflight against the candidate image:
 
    ```bash
-   docker run --rm --env-file .env -e SPRING_PROFILES_ACTIVE=prod quizmaker-backend:<RELEASE_SHA> --config-preflight
+   docker compose --env-file .env run --rm --no-deps quizmaker-backend --config-preflight
    ```
 
 3. Verify the command exits with code `0` and prints `Production billing configuration preflight passed.` The command must not start or replace a Compose service.
@@ -45,7 +45,7 @@ Verify that the release image and the Compose backend receive the same resolved 
 3. Over SSH on the staging server, run the same command against the temporary file:
 
    ```bash
-   docker run --rm --env-file /tmp/quizmaker-preflight-invalid.env -e SPRING_PROFILES_ACTIVE=prod quizmaker-backend:<RELEASE_SHA> --config-preflight
+   docker compose --env-file /tmp/quizmaker-preflight-invalid.env run --rm --no-deps quizmaker-backend --config-preflight
    ```
 
 4. Verify the command exits non-zero, identifies `billing.token-to-llm-ratio`, and does not print the broader environment or any secret values.

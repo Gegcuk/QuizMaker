@@ -146,7 +146,9 @@ jobs:
             rm -f quizmaker-backend.tar
             docker image inspect "$release_image" >/dev/null
             docker compose --env-file .env config --quiet
-            docker run --rm --env-file .env -e SPRING_PROFILES_ACTIVE=prod "$release_image" --config-preflight
+            # Run preflight through Compose so it receives precisely the environment
+            # that the candidate and replacement backend will receive.
+            docker compose --env-file .env run --rm --no-deps quizmaker-backend --config-preflight
 
             wait_for_health() {
               local container="$1"
