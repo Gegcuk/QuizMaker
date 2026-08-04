@@ -253,6 +253,17 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     }
 
     @Override
+    public void recordSubscriptionMutation(String operation, String outcome, String reason) {
+        Counter.builder("billing.subscription.mutations")
+                .description("Subscription mutation outcomes by operation, result, and bounded reason")
+                .tag("operation", operation)
+                .tag("outcome", outcome)
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    @Override
     public void recordWebhookFailureRate(String eventType, double failureRate) {
         log.warn("METRIC: billing.webhook.failure_rate eventType={} failureRate={}", eventType, failureRate);
         webhookFailureRateGauges.computeIfAbsent(eventType, key -> {

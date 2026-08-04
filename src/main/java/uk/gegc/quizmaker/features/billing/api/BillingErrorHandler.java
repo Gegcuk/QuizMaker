@@ -20,6 +20,8 @@ import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveE
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidSignatureException;
 import uk.gegc.quizmaker.features.billing.domain.exception.CheckoutPackMismatchException;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeCheckoutUnavailableException;
+import uk.gegc.quizmaker.features.billing.domain.exception.StripeSubscriptionUnavailableException;
+import uk.gegc.quizmaker.features.billing.domain.exception.SubscriptionMutationConflictException;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
@@ -50,6 +52,38 @@ public class BillingErrorHandler {
         ProblemDetail problem = ProblemDetailBuilder.create(HttpStatus.SERVICE_UNAVAILABLE, ErrorTypes.STRIPE_CHECKOUT_UNAVAILABLE,
                 "Payment Service Unavailable", "Payment checkout is temporarily unavailable. Please retry.", request);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
+    }
+
+    @ExceptionHandler(StripeSubscriptionUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleStripeSubscriptionUnavailable(
+            StripeSubscriptionUnavailableException ex,
+            HttpServletRequest request
+    ) {
+        log.error("Stripe subscription mutation unavailable", ex);
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ErrorTypes.STRIPE_SUBSCRIPTION_UNAVAILABLE,
+                "Subscription Service Unavailable",
+                "Subscription service is temporarily unavailable. Please retry.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
+    }
+
+    @ExceptionHandler(SubscriptionMutationConflictException.class)
+    public ResponseEntity<ProblemDetail> handleSubscriptionMutationConflict(
+            SubscriptionMutationConflictException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Subscription mutation conflict: {}", ex.getMessage());
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.CONFLICT,
+                ErrorTypes.SUBSCRIPTION_MUTATION_CONFLICT,
+                "Subscription Mutation Conflict",
+                "Subscription cannot be updated in its current state.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(InvalidCheckoutSessionException.class)
