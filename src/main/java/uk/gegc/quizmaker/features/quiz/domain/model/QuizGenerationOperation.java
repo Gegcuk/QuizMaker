@@ -51,7 +51,7 @@ public class QuizGenerationOperation {
     @Column(name = "idempotency_key", nullable = false, updatable = false, length = 128)
     private String idempotencyKey;
 
-    @Column(name = "request_hash", nullable = false, updatable = false, length = 64)
+    @Column(name = "request_hash", nullable = false, updatable = false, length = 64, columnDefinition = "CHAR(64)")
     private String requestHash;
 
     @Column(name = "canonicalization_version", nullable = false, updatable = false, length = 16)
