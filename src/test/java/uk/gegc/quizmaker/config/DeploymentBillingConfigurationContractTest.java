@@ -22,11 +22,12 @@ class DeploymentBillingConfigurationContractTest {
         String compose = Files.readString(DEPLOYMENT_COMPOSE_FILE);
 
         String canonicalFallback = "BILLING_TOKEN_TO_LLM_RATIO=\"${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1000' }}\"";
-        String preflightCommand = "docker run --rm --env-file .env -e SPRING_PROFILES_ACTIVE=prod \"$release_image\" --config-preflight";
+        String preflightCommand = "docker compose --env-file .env run --rm --no-deps quizmaker-backend --config-preflight";
         String mysqlStartup = "docker compose --env-file .env up -d mysql";
         String candidateStartup = "docker compose --env-file .env run -d --name \"$candidate\" --no-deps quizmaker-backend";
 
         assertThat(workflow).contains(canonicalFallback, preflightCommand, mysqlStartup, candidateStartup);
+        assertThat(workflow).doesNotContain("docker run --rm --env-file .env");
         assertThat(compose).contains("- BILLING_TOKEN_TO_LLM_RATIO=${BILLING_TOKEN_TO_LLM_RATIO}");
         assertThat(workflow.indexOf(preflightCommand)).isLessThan(workflow.indexOf(mysqlStartup));
         assertThat(workflow.indexOf(preflightCommand)).isLessThan(workflow.indexOf(candidateStartup));
