@@ -26,6 +26,10 @@ Verify that the architecture reference is complete, discoverable from the relate
 
    Expected result: no migration or client rewrite is implied by the document.
 
+5. Open `docs/open-issue-roadmap.md` and read Wave 3.
+
+   Expected result: it identifies #497, #488, #498, and #269 as the active flashcard/learning work, and does not instruct readers to implement the closed horizontal issue ranges.
+
 ## GitHub Verification After The Documentation Branch Is Pushed And Merged
 
 1. Open the [architecture tracker](https://github.com/Gegcuk/QuizMaker/issues/472).
@@ -39,6 +43,10 @@ Verify that the architecture reference is complete, discoverable from the relate
 3. Click the reference link after the document branch is merged.
 
    Expected result: GitHub opens the document on `master`; all internal relative and issue links resolve.
+
+4. Open [the roadmap](https://github.com/Gegcuk/QuizMaker/blob/master/docs/open-issue-roadmap.md) and [issue #488](https://github.com/Gegcuk/QuizMaker/issues/488).
+
+   Expected result: their successor references agree with the closed old flashcard issue ranges.
 
 ## Runtime Impact
 
