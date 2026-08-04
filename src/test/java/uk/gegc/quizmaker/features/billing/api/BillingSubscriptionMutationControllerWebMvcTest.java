@@ -212,4 +212,30 @@ class BillingSubscriptionMutationControllerWebMvcTest {
         assertThat(specification.at("/components/schemas/CancelSubscriptionRequest/required").toString())
                 .contains("subscriptionId");
     }
+
+    @Test
+    @WithMockUser(authorities = "BILLING_READ")
+    @DisplayName("Billing OpenAPI documents the per-valid-question maximum quote without making new fields required")
+    void billingOpenApi_documentsTariffQuoteCompatibility() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1estimate~1quiz-generation/post/responses/200/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/EstimationDto");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/estimatedBillingTokens/description").asText())
+                .contains("never charged more");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/tariffVersion/description").asText())
+                .contains("pricing rule");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingTokensPerValidQuestion/description").asText())
+                .contains("valid accepted question");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedQuestionCount/description").asText())
+                .contains("maximum quote");
+        assertThat(specification.at("/components/schemas/EstimationDto/required").toString())
+                .doesNotContain("tariffVersion")
+                .doesNotContain("billingTokensPerValidQuestion")
+                .doesNotContain("quotedQuestionCount");
+    }
 }

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.impl.GenerationTariffServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.impl.EstimationServiceImpl;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
@@ -35,7 +36,13 @@ class EstimationServiceTest {
         promptTemplateService = mock(PromptTemplateService.class);
         billingProperties = new BillingProperties();
         // Defaults: ratio=1000, safety=1.2, currency=usd
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
+        estimationService = new EstimationServiceImpl(
+                billingProperties,
+                documentRepository,
+                documentChunkRepository,
+                promptTemplateService,
+                new GenerationTariffServiceImpl(billingProperties)
+        );
 
         // Stub template loads to fixed lengths → predictable token counts (length/4)
         when(promptTemplateService.buildSystemPrompt()).thenReturn("x".repeat(100)); // 25 tokens
@@ -120,9 +127,9 @@ class EstimationServiceTest {
 
         assertEquals(192, one.estimatedLlmTokens());
         assertEquals(384, two.estimatedLlmTokens());
-        // Billing tokens both round up by ratio
+        // Customer quote tracks the requested question count, not LLM usage.
         assertEquals(1, one.estimatedBillingTokens());
-        assertEquals(1, two.estimatedBillingTokens());
+        assertEquals(2, two.estimatedBillingTokens());
     }
 
     @Test
@@ -277,7 +284,7 @@ class EstimationServiceTest {
 
         assertNotNull(result.humanizedEstimate());
         assertTrue(result.humanizedEstimate().contains("1 billing token"));
-        assertTrue(result.humanizedEstimate().contains("192 LLM tokens"));
+        assertTrue(result.humanizedEstimate().contains("1 valid question"));
     }
 
     @Test

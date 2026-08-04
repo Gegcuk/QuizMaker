@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.billing.application;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -66,5 +68,30 @@ public class BillingProperties {
      */
     @Positive
     private long reservationSweeperMs = 60000L;
+
+    /**
+     * Customer-facing quiz-generation pricing. Provider LLM usage remains
+     * operational telemetry and is never converted into a customer charge.
+     */
+    @Valid
+    private GenerationPricing generation = new GenerationPricing();
+
+    @Data
+    public static class GenerationPricing {
+
+        /**
+         * Immutable identifier captured on each generation job. A future tariff
+         * may add other inputs without changing already quoted jobs.
+         */
+        @NotBlank
+        private String tariffVersion = "v1-per-valid-question";
+
+        /**
+         * Billing tokens charged for each valid question accepted into a
+         * successful generated quiz.
+         */
+        @Positive
+        private long tokensPerValidQuestion = 1L;
+    }
 
 }

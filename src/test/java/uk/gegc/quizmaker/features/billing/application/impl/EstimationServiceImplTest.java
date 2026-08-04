@@ -12,6 +12,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.FixedRatePerValidQuestionTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
@@ -52,6 +54,7 @@ class EstimationServiceImplTest {
     private PromptTemplateService promptTemplateService;
 
     private EstimationServiceImpl estimationService;
+    private GenerationTariffService generationTariffService;
 
     @BeforeEach
     void setUp() {
@@ -59,8 +62,15 @@ class EstimationServiceImplTest {
         billingProperties.setTokenToLlmRatio(1000L);
         billingProperties.setSafetyFactor(1.2);
         billingProperties.setCurrency("usd");
+        generationTariffService = () -> new FixedRatePerValidQuestionTariff("v1-per-valid-question", 2L);
 
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
+        estimationService = new EstimationServiceImpl(
+                billingProperties,
+                documentRepository,
+                documentChunkRepository,
+                promptTemplateService,
+                generationTariffService
+        );
         
         // Default prompt templates - using lenient stubbing to avoid unnecessary stubbing warnings
         lenient().when(promptTemplateService.buildSystemPrompt()).thenReturn("System prompt content");
@@ -161,8 +171,8 @@ class EstimationServiceImplTest {
     class EmptyDocumentTests {
 
         @Test
-        @DisplayName("Should return zero estimate for document with no chunks")
-        void shouldReturnZeroEstimateForDocumentWithNoChunks() {
+        @DisplayName("Quotes requested questions when an entire document has no persisted chunks")
+        void quotesRequestedQuestionsWhenEntireDocumentHasNoPersistedChunks() {
             // Given
             UUID documentId = UUID.randomUUID();
             Document document = createDocumentWithChunks(List.of());
@@ -175,7 +185,10 @@ class EstimationServiceImplTest {
 
             // Then
             assertThat(result.estimatedLlmTokens()).isEqualTo(1000L);
-            assertThat(result.estimatedBillingTokens()).isEqualTo(1L);
+            assertThat(result.estimatedBillingTokens()).isEqualTo(10L);
+            assertThat(result.tariffVersion()).isEqualTo("v1-per-valid-question");
+            assertThat(result.billingTokensPerValidQuestion()).isEqualTo(2L);
+            assertThat(result.quotedQuestionCount()).isEqualTo(5);
             assertThat(result.estimate()).isTrue();
             assertThat(result.humanizedEstimate()).isNotEmpty();
         }
@@ -226,6 +239,26 @@ class EstimationServiceImplTest {
             assertThat(result.estimatedBillingTokens()).isGreaterThan(0L);
             assertThat(result.estimate()).isTrue();
             assertThat(result.currency()).isEqualTo("usd");
+        }
+
+        @Test
+        @DisplayName("Quotes a fixed per-question maximum across all selected chunks")
+        void quotesFixedPerQuestionMaximumAcrossSelectedChunks() {
+            UUID documentId = UUID.randomUUID();
+            Document document = createDocumentWithChunks(createSampleChunks());
+            GenerateQuizFromDocumentRequest request = createRequestWithQuestionTypes(Map.of(
+                    QuestionType.MCQ_SINGLE, 3,
+                    QuestionType.FILL_GAP, 2
+            ));
+            when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
+
+            EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
+
+            assertThat(result.estimatedLlmTokens()).isGreaterThan(0L);
+            assertThat(result.quotedQuestionCount()).isEqualTo(10);
+            assertThat(result.billingTokensPerValidQuestion()).isEqualTo(2L);
+            assertThat(result.estimatedBillingTokens()).isEqualTo(20L);
+            assertThat(result.humanizedEstimate()).isEqualTo("Up to 20 billing tokens for 10 valid questions");
         }
 
         @Test

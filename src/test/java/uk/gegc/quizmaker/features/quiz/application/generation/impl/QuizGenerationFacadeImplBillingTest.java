@@ -29,7 +29,6 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
-import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -95,9 +94,6 @@ class QuizGenerationFacadeImplBillingTest {
     
     @Mock
     private TransactionTemplate transactionTemplate;
-    
-    @Mock
-    private QuizJobProperties quizJobProperties;
     
     @Mock
     private QuizAssemblyService quizAssemblyService;
@@ -456,6 +452,66 @@ class QuizGenerationFacadeImplBillingTest {
             assertThat(job.getWasCappedAtReserved()).isFalse();
             assertThat(job.getLastBillingError()).isNull();
         }
+
+        @Test
+        @DisplayName("Tariff snapshot settles valid accepted questions without using provider telemetry")
+        void tariffSnapshot_settlesValidAcceptedQuestionsWithoutUsingProviderTelemetry() {
+            job.captureGenerationTariff("v1-per-valid-question", 2L, 10);
+            job.setBillingEstimatedTokens(20L);
+            job.setProviderLlmTokens(4_321L);
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(20L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 20L, 0L));
+
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(20L),
+                    eq("quiz-generation"), anyString());
+            verify(estimationService, never()).computeActualBillingTokens(any(), any(), anyLong());
+            assertThat(job.getBillingValidQuestionCount()).isEqualTo(10);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(20L);
+            assertThat(job.getProviderLlmTokens()).isEqualTo(4_321L);
+            assertThat(job.getActualTokens()).isNull();
+        }
+
+        @Test
+        @DisplayName("Tariff snapshot caps settlement at the persisted maximum quote")
+        void tariffSnapshot_capsSettlementAtPersistedMaximumQuote() {
+            job.captureGenerationTariff("v1-per-valid-question", 3L, 10);
+            job.setBillingEstimatedTokens(20L);
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(20L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 20L, 0L));
+
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(20L),
+                    eq("quiz-generation"), anyString());
+            assertThat(job.getBillingValidQuestionCount()).isEqualTo(10);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(20L);
+            assertThat(job.getWasCappedAtReserved()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Tariff snapshot releases the quote when no valid question is accepted")
+        void tariffSnapshot_releasesQuoteWhenNoValidQuestionIsAccepted() {
+            job.captureGenerationTariff("v1-per-valid-question", 2L, 10);
+            job.setBillingEstimatedTokens(20L);
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            facade.commitTokensForSuccessfulGeneration(job, List.of(), originalRequest);
+
+            verify(internalBillingService).release(eq(job.getBillingReservationId()), eq("zero-valid-questions"),
+                    eq("quiz-generation"), contains("release-zero-valid"));
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingValidQuestionCount()).isZero();
+            assertThat(job.getBillingCommittedTokens()).isZero();
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+        }
         
         @Test
         @DisplayName("Actual exceeds reserved - capped at reserved")
@@ -773,7 +829,7 @@ class QuizGenerationFacadeImplBillingTest {
                     userRepository, jobRepository, jobService, aiQuizGenerationService,
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, featureFlags, applicationEventPublisher,
-                    transactionTemplate, quizJobProperties, quizAssemblyService,
+                    transactionTemplate, quizAssemblyService,
                     idempotencyService, requestCanonicalizer
             );
             

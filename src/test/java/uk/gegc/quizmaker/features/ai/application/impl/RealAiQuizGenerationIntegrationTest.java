@@ -34,6 +34,7 @@ import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParserImpl;
 import uk.gegc.quizmaker.features.ai.infra.parser.TrueFalseQuestionParser;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.impl.GenerationTariffServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.impl.EstimationServiceImpl;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
@@ -193,7 +194,13 @@ class RealAiQuizGenerationIntegrationTest {
         );
 
         BillingProperties billingProperties = new BillingProperties();
-        estimationService = new EstimationServiceImpl(billingProperties, documentRepository, documentChunkRepository, promptTemplateService);
+        estimationService = new EstimationServiceImpl(
+                billingProperties,
+                documentRepository,
+                documentChunkRepository,
+                promptTemplateService,
+                new GenerationTariffServiceImpl(billingProperties)
+        );
     }
 
     @Test

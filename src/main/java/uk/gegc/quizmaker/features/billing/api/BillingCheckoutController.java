@@ -231,14 +231,15 @@ public class BillingCheckoutController {
     }
 
     @Operation(
-            summary = "Estimate quiz generation cost",
-            description = "Estimates token cost for quiz generation from a document. Requires BILLING_READ permission."
+            summary = "Quote the maximum quiz generation charge",
+            description = "Returns an operational LLM estimate and the customer-facing maximum charge for quiz generation. " +
+                    "The maximum is based on requested valid questions; settlement never exceeds it. Requires BILLING_READ permission."
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Estimation completed",
-                    content = @Content(schema = @Schema(implementation = EstimationDto.class))
+                    description = "Operational estimate and maximum generation charge returned",
+                    content = @Content(mediaType = "application/json", schema = @Schema(implementation = EstimationDto.class))
             ),
             @ApiResponse(responseCode = "400", description = "Invalid request",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
@@ -270,8 +271,13 @@ public class BillingCheckoutController {
         
         EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
         
-        log.info("Estimation completed: {} billing tokens ({} LLM tokens) for user: {}", 
-                estimation.estimatedBillingTokens(), estimation.estimatedLlmTokens(), currentUserId);
+        log.info("Generation quote completed: maximum {} billing tokens for {} requested questions under tariff {}. " +
+                        "Operational LLM estimate: {} tokens for user {}",
+                estimation.estimatedBillingTokens(),
+                estimation.quotedQuestionCount(),
+                estimation.tariffVersion(),
+                estimation.estimatedLlmTokens(),
+                currentUserId);
         
         return ResponseEntity.ok(estimation);
     }

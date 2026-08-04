@@ -165,8 +165,11 @@ class QuizGenerationFacadeImplTest {
                 null,           // approxCostCents
                 "usd",          // currency
                 true,           // estimate
-                "~1200 billing tokens (1,000 LLM tokens)",  // humanizedEstimate
-                UUID.randomUUID()  // estimationId
+                "Up to 1200 billing tokens for 10 valid questions",  // humanizedEstimate
+                UUID.randomUUID(),  // estimationId
+                "v1-per-valid-question",
+                120L,
+                10
         );
         
         reservation = new ReservationDto(

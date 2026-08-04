@@ -19,8 +19,27 @@ class BillingConfigurationPreflightTest {
         preflightContext(null).run(context -> {
             assertThat(context.getStartupFailure()).isNull();
             assertThat(context.getBean(BillingProperties.class).getTokenToLlmRatio()).isEqualTo(1000L);
+            assertThat(context.getBean(BillingProperties.class).getGeneration().getTariffVersion())
+                    .isEqualTo("v1-per-valid-question");
+            assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerValidQuestion())
+                    .isEqualTo(1L);
             BillingConfigurationPreflight.verifyConfiguredRatio(context.getEnvironment());
         });
+    }
+
+    @Test
+    @DisplayName("accepts a positive per-valid-question tariff rate")
+    void preflight_withValidGenerationTariffRate_acceptsTypedConfiguration() {
+        preflightContext(null)
+                .withPropertyValues(
+                        "billing.generation.tariff-version=v1-per-valid-question",
+                        "billing.generation.tokens-per-valid-question=3"
+                )
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).isNull();
+                    assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerValidQuestion())
+                            .isEqualTo(3L);
+                });
     }
 
     @Test
