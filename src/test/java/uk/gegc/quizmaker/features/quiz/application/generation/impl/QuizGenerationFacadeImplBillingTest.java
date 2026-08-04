@@ -483,6 +483,37 @@ class QuizGenerationFacadeImplBillingTest {
         }
 
         @Test
+        @DisplayName("Tariff snapshot charges each distinct accepted type once regardless of question count")
+        void tariffSnapshot_chargesEachDistinctAcceptedTypeOnceRegardlessOfQuestionCount() {
+            job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
+                    new java.math.BigDecimal("0.35"), 4_000L, 2);
+            job.setBillingEstimatedTokens(7L);
+            List<Question> mixedAcceptedQuestions = List.of(
+                    createQuestion(QuestionType.MCQ_SINGLE),
+                    createQuestion(QuestionType.MCQ_SINGLE),
+                    createQuestion(QuestionType.OPEN)
+            );
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(7L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 7L, 0L));
+
+            facade.commitTokensForSuccessfulGeneration(job, mixedAcceptedQuestions, originalRequest);
+
+            verify(generationTariffService).fromSnapshot(
+                    eq("v1-content-length-per-question-type"),
+                    eq(3L),
+                    eq(new java.math.BigDecimal("0.35"))
+            );
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(7L),
+                    eq("quiz-generation"), anyString());
+            assertThat(job.getBillingAcceptedQuestionTypeCount()).isEqualTo(2);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(7L);
+            assertThat(job.getWasCappedAtReserved()).isFalse();
+        }
+
+        @Test
         @DisplayName("Tariff snapshot caps settlement at the persisted maximum quote")
         void tariffSnapshot_capsSettlementAtPersistedMaximumQuote() {
             job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
@@ -940,13 +971,15 @@ class QuizGenerationFacadeImplBillingTest {
     
     private List<Question> createQuestions(int count) {
         return java.util.stream.IntStream.range(0, count)
-                .mapToObj(i -> {
-                    Question q = new Question();
-                    q.setId(UUID.randomUUID());
-                    q.setQuestionText("Question " + i);
-                    q.setType(QuestionType.MCQ_SINGLE);
-                    return q;
-                })
+                .mapToObj(i -> createQuestion(QuestionType.MCQ_SINGLE))
                 .collect(Collectors.toList());
+    }
+
+    private Question createQuestion(QuestionType type) {
+        Question question = new Question();
+        question.setId(UUID.randomUUID());
+        question.setQuestionText("Question " + UUID.randomUUID());
+        question.setType(type);
+        return question;
     }
 }

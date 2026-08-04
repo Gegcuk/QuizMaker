@@ -2,8 +2,12 @@ package uk.gegc.quizmaker.features.billing.application;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigDecimal;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -18,19 +22,31 @@ class ContentLengthPerQuestionTypeTariffTest {
             new BigDecimal("0.35")
     );
 
-    @Test
-    @DisplayName("matches the frontend quote formula for source length and active question types")
-    void quote_matchesFrontendFormula() {
-        assertThat(tariff.quoteForContent(4_000L, 2)).isEqualTo(7L);
-        assertThat(tariff.quoteForContent(1L, 1)).isEqualTo(4L);
-        assertThat(tariff.quoteForContent(0L, 0)).isEqualTo(3L);
+    @ParameterizedTest(name = "{0} characters and {1} active types quotes {2} billing tokens")
+    @MethodSource("tariffFormulaVectors")
+    @DisplayName("quotes the tariff contract across minimum and rounding boundaries")
+    void quote_matchesTariffContractAcrossMinimumAndRoundingBoundaries(
+            long sourceCharacters,
+            int activeQuestionTypes,
+            long expectedBillingTokens
+    ) {
+        assertThat(tariff.quoteForContent(sourceCharacters, activeQuestionTypes))
+                .isEqualTo(expectedBillingTokens);
     }
 
-    @Test
-    @DisplayName("adds source-content work for each active question type")
-    void quote_addsSourceContentWorkForEachActiveQuestionType() {
-        assertThat(tariff.quoteForContent(10_000L, 1)).isEqualTo(7L);
-        assertThat(tariff.quoteForContent(10_000L, 2)).isEqualTo(11L);
+    private static Stream<Arguments> tariffFormulaVectors() {
+        return Stream.of(
+                Arguments.of(0L, 0, 3L),
+                Arguments.of(0L, 1, 3L),
+                Arguments.of(1L, 1, 4L),
+                Arguments.of(2_857L, 1, 4L),
+                Arguments.of(2_858L, 1, 5L),
+                Arguments.of(2_857L, 2, 5L),
+                Arguments.of(2_858L, 2, 7L),
+                Arguments.of(4_000L, 2, 7L),
+                Arguments.of(10_000L, 1, 7L),
+                Arguments.of(10_000L, 2, 11L)
+        );
     }
 
     @Test
