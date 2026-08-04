@@ -12,7 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
-import uk.gegc.quizmaker.features.billing.application.FixedRatePerValidQuestionTariff;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
 import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 
 import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,7 +63,11 @@ class EstimationServiceImplTest {
         billingProperties.setTokenToLlmRatio(1000L);
         billingProperties.setSafetyFactor(1.2);
         billingProperties.setCurrency("usd");
-        generationTariffService = () -> new FixedRatePerValidQuestionTariff("v1-per-valid-question", 2L);
+        generationTariffService = () -> new ContentLengthPerQuestionTypeTariff(
+                "v1-content-length-per-question-type",
+                3L,
+                new BigDecimal("0.35")
+        );
 
         estimationService = new EstimationServiceImpl(
                 billingProperties,
@@ -171,8 +176,8 @@ class EstimationServiceImplTest {
     class EmptyDocumentTests {
 
         @Test
-        @DisplayName("Quotes requested questions when an entire document has no persisted chunks")
-        void quotesRequestedQuestionsWhenEntireDocumentHasNoPersistedChunks() {
+        @DisplayName("Quotes the frontend minimum when an entire document has no persisted chunks")
+        void quotesFrontendMinimumWhenEntireDocumentHasNoPersistedChunks() {
             // Given
             UUID documentId = UUID.randomUUID();
             Document document = createDocumentWithChunks(List.of());
@@ -185,21 +190,23 @@ class EstimationServiceImplTest {
 
             // Then
             assertThat(result.estimatedLlmTokens()).isEqualTo(1000L);
-            assertThat(result.estimatedBillingTokens()).isEqualTo(10L);
-            assertThat(result.tariffVersion()).isEqualTo("v1-per-valid-question");
-            assertThat(result.billingTokensPerValidQuestion()).isEqualTo(2L);
-            assertThat(result.quotedQuestionCount()).isEqualTo(5);
+            assertThat(result.estimatedBillingTokens()).isEqualTo(3L);
+            assertThat(result.tariffVersion()).isEqualTo("v1-content-length-per-question-type");
+            assertThat(result.billingBaseTokens()).isEqualTo(3L);
+            assertThat(result.billingTokensPerThousandCharacters()).isEqualByComparingTo("0.35");
+            assertThat(result.quotedContentCharacters()).isZero();
+            assertThat(result.quotedQuestionTypeCount()).isOne();
             assertThat(result.estimate()).isTrue();
             assertThat(result.humanizedEstimate()).isNotEmpty();
         }
 
         @Test
-        @DisplayName("Should return zero estimate for empty scope")
-        void shouldReturnZeroEstimateForEmptyScope() {
+        @DisplayName("Returns the frontend minimum quote for an empty selected scope")
+        void returnsFrontendMinimumQuoteForEmptyScope() {
             // Given
             UUID documentId = UUID.randomUUID();
             Document document = createDocumentWithChunks(createSampleChunks());
-            GenerateQuizFromDocumentRequest request = createRequestWithScope(QuizScope.SPECIFIC_CHUNKS, List.of());
+            GenerateQuizFromDocumentRequest request = createRequestWithScope(QuizScope.SPECIFIC_CHUNKS, List.of(999));
             
             when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
 
@@ -208,7 +215,7 @@ class EstimationServiceImplTest {
 
             // Then
             assertThat(result.estimatedLlmTokens()).isEqualTo(0L);
-            assertThat(result.estimatedBillingTokens()).isEqualTo(0L);
+            assertThat(result.estimatedBillingTokens()).isEqualTo(3L);
             assertThat(result.estimate()).isTrue();
         }
     }
@@ -242,8 +249,8 @@ class EstimationServiceImplTest {
         }
 
         @Test
-        @DisplayName("Quotes a fixed per-question maximum across all selected chunks")
-        void quotesFixedPerQuestionMaximumAcrossSelectedChunks() {
+        @DisplayName("Quotes source length and requested question types using the frontend formula")
+        void quotesSourceLengthAndRequestedQuestionTypesUsingFrontendFormula() {
             UUID documentId = UUID.randomUUID();
             Document document = createDocumentWithChunks(createSampleChunks());
             GenerateQuizFromDocumentRequest request = createRequestWithQuestionTypes(Map.of(
@@ -255,10 +262,27 @@ class EstimationServiceImplTest {
             EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
 
             assertThat(result.estimatedLlmTokens()).isGreaterThan(0L);
-            assertThat(result.quotedQuestionCount()).isEqualTo(10);
-            assertThat(result.billingTokensPerValidQuestion()).isEqualTo(2L);
-            assertThat(result.estimatedBillingTokens()).isEqualTo(20L);
-            assertThat(result.humanizedEstimate()).isEqualTo("Up to 20 billing tokens for 10 valid questions");
+            assertThat(result.quotedQuestionTypeCount()).isEqualTo(2);
+            assertThat(result.billingBaseTokens()).isEqualTo(3L);
+            assertThat(result.billingTokensPerThousandCharacters()).isEqualByComparingTo("0.35");
+            assertThat(result.estimatedBillingTokens()).isEqualTo(5L);
+            assertThat(result.humanizedEstimate()).contains("2 question types");
+        }
+
+        @Test
+        @DisplayName("Does not increase the quote when a selected type requests more questions")
+        void doesNotIncreaseQuoteWhenSelectedTypeRequestsMoreQuestions() {
+            UUID documentId = UUID.randomUUID();
+            Document document = createDocumentWithChunks(createSampleChunks());
+            GenerateQuizFromDocumentRequest oneQuestion = createRequestWithQuestionTypes(Map.of(QuestionType.MCQ_SINGLE, 1));
+            GenerateQuizFromDocumentRequest tenQuestions = createRequestWithQuestionTypes(Map.of(QuestionType.MCQ_SINGLE, 10));
+            when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
+
+            EstimationDto oneQuestionResult = estimationService.estimateQuizGeneration(documentId, oneQuestion);
+            EstimationDto tenQuestionResult = estimationService.estimateQuizGeneration(documentId, tenQuestions);
+
+            assertThat(tenQuestionResult.estimatedBillingTokens()).isEqualTo(oneQuestionResult.estimatedBillingTokens());
+            assertThat(tenQuestionResult.quotedQuestionTypeCount()).isOne();
         }
 
         @Test
@@ -281,6 +305,23 @@ class EstimationServiceImplTest {
             // Should still have some overhead from system prompts and templates
             assertThat(result.estimatedLlmTokens()).isGreaterThan(0L);
             assertThat(result.estimatedBillingTokens()).isGreaterThan(0L);
+        }
+
+        @Test
+        @DisplayName("Uses persisted source text rather than stale character-count metadata for the quote")
+        void usesPersistedSourceTextRatherThanStaleCharacterCountMetadataForQuote() {
+            UUID documentId = UUID.randomUUID();
+            DocumentChunk chunk = new DocumentChunk();
+            chunk.setChunkIndex(0);
+            chunk.setContent("nine chars");
+            chunk.setCharacterCount(999_999);
+            Document document = createDocumentWithChunks(List.of(chunk));
+            when(documentRepository.findByIdWithChunks(documentId)).thenReturn(java.util.Optional.of(document));
+
+            EstimationDto result = estimationService.estimateQuizGeneration(documentId, createBasicRequest());
+
+            assertThat(result.quotedContentCharacters()).isEqualTo(chunk.getContent().length());
+            assertThat(result.estimatedBillingTokens()).isEqualTo(4L);
         }
 
         @Test

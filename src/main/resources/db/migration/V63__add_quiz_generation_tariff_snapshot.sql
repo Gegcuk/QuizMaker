@@ -3,6 +3,8 @@
 ALTER TABLE quiz_generation_jobs
     ADD COLUMN provider_llm_tokens BIGINT NULL,
     ADD COLUMN billing_tariff_version VARCHAR(100) NULL,
-    ADD COLUMN billing_tokens_per_valid_question BIGINT NULL,
-    ADD COLUMN billing_quoted_question_count INT NULL,
-    ADD COLUMN billing_valid_question_count INT NULL;
+    ADD COLUMN billing_base_tokens BIGINT NULL,
+    ADD COLUMN billing_tokens_per_thousand_characters DECIMAL(10,4) NULL,
+    ADD COLUMN billing_quoted_content_characters BIGINT NULL,
+    ADD COLUMN billing_quoted_question_type_count INT NULL,
+    ADD COLUMN billing_accepted_question_type_count INT NULL;

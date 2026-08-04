@@ -68,7 +68,8 @@ public class EstimationServiceImpl implements EstimationService {
         List<DocumentChunk> chunks = selectChunks(document, request);
         log.info("Found {} chunks for document {} with scope {}", chunks.size(), documentId, request.quizScope());
         GenerationTariff tariff = generationTariffService.currentTariff();
-        int requestedQuestionCount = calculateRequestedQuestionCount(chunks, request);
+        int requestedQuestionTypeCount = calculateRequestedQuestionTypeCount(request);
+        long quotedContentCharacters = calculateQuotedContentCharacters(chunks);
         
         if (chunks.isEmpty()) {
             // If ENTIRE_DOCUMENT requested but chunks are empty, calculate estimate based on document content
@@ -77,45 +78,17 @@ public class EstimationServiceImpl implements EstimationService {
                 
                 // Calculate estimate based on document content directly
                 long estimatedLlmTokens = calculateEstimateFromDocumentContent(document, request);
-                long estimatedBillingTokens = tariff.quoteForRequestedQuestions(requestedQuestionCount);
-                
-                log.info("Fallback pricing quote: {} billing tokens for {} requested questions under tariff {}",
-                        estimatedBillingTokens, requestedQuestionCount, tariff.version());
-                
-                UUID estimationId = UUID.randomUUID();
-                String humanizedEstimate = EstimationDto.createHumanizedEstimate(estimatedBillingTokens, requestedQuestionCount);
-                return new EstimationDto(
+                return createQuote(
                         estimatedLlmTokens,
-                        estimatedBillingTokens,
-                        null,
-                        billingProperties.getCurrency(),
-                        true,
-                        humanizedEstimate,
-                        estimationId,
-                        tariff.version(),
-                        tariff.tokensPerValidQuestion(),
-                        requestedQuestionCount
+                        tariff,
+                        quotedContentCharacters,
+                        requestedQuestionTypeCount
                 );
             }
 
-            // For scopes that explicitly select nothing (e.g., SPECIFIC_CHUNKS with empty indices),
-            // keep returning a zeroed estimate as before.
-            long llmZero = 0L;
-            long billingZero = tariff.quoteForRequestedQuestions(requestedQuestionCount);
-            UUID estimationId = UUID.randomUUID();
-            String humanizedEstimate = EstimationDto.createHumanizedEstimate(billingZero, requestedQuestionCount);
-            return new EstimationDto(
-                    llmZero,
-                    billingZero,
-                    null,
-                    billingProperties.getCurrency(),
-                    true,
-                    humanizedEstimate,
-                    estimationId,
-                    tariff.version(),
-                    tariff.tokensPerValidQuestion(),
-                    requestedQuestionCount
-            );
+            // Match the frontend estimator: absent selected content still shows
+            // the configured minimum quote rather than an unpriced request.
+            return createQuote(0L, tariff, quotedContentCharacters, requestedQuestionTypeCount);
         }
 
         long totalLlmTokens = calculateChunkBasedEstimate(chunks, request);
@@ -123,45 +96,72 @@ public class EstimationServiceImpl implements EstimationService {
         double safetyFactor = billingProperties.getSafetyFactor();
         long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
 
-        long billingTokens = tariff.quoteForRequestedQuestions(requestedQuestionCount);
-        
-        log.info("Generation pricing quote: {} billing tokens for {} requested questions under tariff {}. " +
-                        "Operational LLM estimate is {} tokens (safety factor: {})",
-                billingTokens, requestedQuestionCount, tariff.version(), adjustedLlm, safetyFactor);
+        long billingTokens = tariff.quoteForContent(quotedContentCharacters, requestedQuestionTypeCount);
 
+        log.info("Generation pricing quote: {} billing tokens for {} source characters and {} requested question types under tariff {}. " +
+                        "Operational LLM estimate is {} tokens (safety factor: {})",
+                billingTokens, quotedContentCharacters, requestedQuestionTypeCount, tariff.version(), adjustedLlm, safetyFactor);
+
+        return createQuote(adjustedLlm, tariff, quotedContentCharacters, requestedQuestionTypeCount);
+    }
+
+    private EstimationDto createQuote(
+            long estimatedLlmTokens,
+            GenerationTariff tariff,
+            long quotedContentCharacters,
+            int requestedQuestionTypeCount
+    ) {
+        long estimatedBillingTokens = tariff.quoteForContent(quotedContentCharacters, requestedQuestionTypeCount);
         UUID estimationId = UUID.randomUUID();
-        String humanizedEstimate = EstimationDto.createHumanizedEstimate(billingTokens, requestedQuestionCount);
-        
+        String humanizedEstimate = EstimationDto.createHumanizedEstimate(
+                estimatedBillingTokens,
+                quotedContentCharacters,
+                requestedQuestionTypeCount
+        );
         return new EstimationDto(
-                adjustedLlm,
-                billingTokens,
-                null, // approxCostCents not implemented in MVP
+                estimatedLlmTokens,
+                estimatedBillingTokens,
+                null,
                 billingProperties.getCurrency(),
-                true, // explicitly an estimate, not a quote
+                true,
                 humanizedEstimate,
                 estimationId,
                 tariff.version(),
-                tariff.tokensPerValidQuestion(),
-                requestedQuestionCount
+                tariff.baseTokens(),
+                tariff.tokensPerThousandCharacters(),
+                quotedContentCharacters,
+                requestedQuestionTypeCount
         );
     }
 
-    private int calculateRequestedQuestionCount(List<DocumentChunk> chunks, GenerateQuizFromDocumentRequest request) {
-        long questionsPerChunk = request.questionsPerType() == null
+    private int calculateRequestedQuestionTypeCount(GenerateQuizFromDocumentRequest request) {
+        long questionTypeCount = request.questionsPerType() == null
                 ? 0L
                 : request.questionsPerType().values().stream()
                         .filter(Objects::nonNull)
                         .filter(questionCount -> questionCount > 0)
-                        .mapToLong(Integer::longValue)
-                        .sum();
+                        .count();
 
-        if (questionsPerChunk == 0L) {
-            return 0;
+        return Math.toIntExact(questionTypeCount);
+    }
+
+    private long calculateQuotedContentCharacters(List<DocumentChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return 0L;
         }
+        return chunks.stream()
+                .mapToLong(this::resolveQuoteCharacterCount)
+                .sum();
+    }
 
-        QuizScope scope = request.quizScope() == null ? QuizScope.ENTIRE_DOCUMENT : request.quizScope();
-        int pricedChunkCount = chunks.isEmpty() && scope == QuizScope.ENTIRE_DOCUMENT ? 1 : chunks.size();
-        return Math.toIntExact(Math.multiplyExact(questionsPerChunk, pricedChunkCount));
+    private long resolveQuoteCharacterCount(DocumentChunk chunk) {
+        if (chunk == null) {
+            return 0L;
+        }
+        if (chunk.getContent() != null && !chunk.getContent().isEmpty()) {
+            return chunk.getContent().length();
+        }
+        return chunk.getCharacterCount() == null ? 0L : Math.max(0, chunk.getCharacterCount());
     }
 
     @Override

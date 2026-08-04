@@ -12,7 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
-import uk.gegc.quizmaker.features.billing.application.FixedRatePerValidQuestionTariff;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
 import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
@@ -59,7 +59,11 @@ class SafetyFactorTest {
 
     @BeforeEach
     void setUp() {
-        generationTariffService = () -> new FixedRatePerValidQuestionTariff("v1-per-valid-question", 1L);
+        generationTariffService = () -> new ContentLengthPerQuestionTypeTariff(
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35")
+        );
         estimationService = new EstimationServiceImpl(
             billingProperties,
             documentRepository,

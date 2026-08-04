@@ -284,8 +284,9 @@ class RealAiQuizGenerationIntegrationTest {
         );
 
         assertThat(actualBillingTokens).isPositive();
-        long difference = Math.abs(actualBillingTokens - estimation.estimatedBillingTokens());
-        assertThat(difference).isLessThanOrEqualTo(estimation.estimatedBillingTokens() + 1);
+        assertThat(estimation.estimatedBillingTokens()).isEqualTo(4L);
+        assertThat(estimation.tariffVersion()).isEqualTo("v1-content-length-per-question-type");
+        assertThat(estimation.quotedQuestionTypeCount()).isEqualTo(1);
     }
 
     @Test

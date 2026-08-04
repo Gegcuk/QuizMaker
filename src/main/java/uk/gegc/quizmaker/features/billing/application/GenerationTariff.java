@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.billing.application;
 
+import java.math.BigDecimal;
+
 /**
  * Customer-facing pricing rules for one version of quiz generation.
  *
@@ -11,9 +13,15 @@ public interface GenerationTariff {
 
     String version();
 
-    long tokensPerValidQuestion();
+    long baseTokens();
 
-    long quoteForRequestedQuestions(int requestedQuestionCount);
+    BigDecimal tokensPerThousandCharacters();
 
-    long settlementForAcceptedQuestions(int acceptedQuestionCount, long maximumQuotedTokens);
+    long quoteForContent(long sourceCharacterCount, int requestedQuestionTypeCount);
+
+    long settlementForAcceptedQuestionTypes(
+            long sourceCharacterCount,
+            int acceptedQuestionTypeCount,
+            long maximumQuotedTokens
+    );
 }

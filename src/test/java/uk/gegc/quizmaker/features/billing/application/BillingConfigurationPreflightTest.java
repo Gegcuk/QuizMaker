@@ -20,25 +20,41 @@ class BillingConfigurationPreflightTest {
             assertThat(context.getStartupFailure()).isNull();
             assertThat(context.getBean(BillingProperties.class).getTokenToLlmRatio()).isEqualTo(1000L);
             assertThat(context.getBean(BillingProperties.class).getGeneration().getTariffVersion())
-                    .isEqualTo("v1-per-valid-question");
-            assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerValidQuestion())
-                    .isEqualTo(1L);
+                    .isEqualTo("v1-content-length-per-question-type");
+            assertThat(context.getBean(BillingProperties.class).getGeneration().getBaseTokens())
+                    .isEqualTo(3L);
+            assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerThousandCharacters())
+                    .isEqualByComparingTo("0.35");
             BillingConfigurationPreflight.verifyConfiguredRatio(context.getEnvironment());
         });
     }
 
     @Test
-    @DisplayName("accepts a positive per-valid-question tariff rate")
+    @DisplayName("accepts a positive content-length per-question-type tariff rate")
     void preflight_withValidGenerationTariffRate_acceptsTypedConfiguration() {
         preflightContext(null)
                 .withPropertyValues(
-                        "billing.generation.tariff-version=v1-per-valid-question",
-                        "billing.generation.tokens-per-valid-question=3"
+                        "billing.generation.tariff-version=v1-content-length-per-question-type",
+                        "billing.generation.base-tokens=5",
+                        "billing.generation.tokens-per-thousand-characters=0.75"
                 )
                 .run(context -> {
                     assertThat(context.getStartupFailure()).isNull();
-                    assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerValidQuestion())
-                            .isEqualTo(3L);
+                    assertThat(context.getBean(BillingProperties.class).getGeneration().getBaseTokens()).isEqualTo(5L);
+                    assertThat(context.getBean(BillingProperties.class).getGeneration().getTokensPerThousandCharacters())
+                            .isEqualByComparingTo("0.75");
+                });
+    }
+
+    @Test
+    @DisplayName("rejects a zero content-length tariff rate before the application starts")
+    void preflight_withZeroGenerationTariffRate_rejectsConfiguration() {
+        preflightContext(null)
+                .withPropertyValues("billing.generation.tokens-per-thousand-characters=0")
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).isNotNull();
+                    assertThat(context.getStartupFailure())
+                            .hasStackTraceContaining("billing.generation.tokens-per-thousand-characters");
                 });
     }
 

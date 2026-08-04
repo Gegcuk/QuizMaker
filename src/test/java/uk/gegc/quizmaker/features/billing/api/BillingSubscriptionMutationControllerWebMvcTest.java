@@ -215,7 +215,7 @@ class BillingSubscriptionMutationControllerWebMvcTest {
 
     @Test
     @WithMockUser(authorities = "BILLING_READ")
-    @DisplayName("Billing OpenAPI documents the per-valid-question maximum quote without making new fields required")
+    @DisplayName("Billing OpenAPI documents the content-length per-question-type quote without making new fields required")
     void billingOpenApi_documentsTariffQuoteCompatibility() throws Exception {
         JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
                 .andExpect(status().isOk())
@@ -229,13 +229,19 @@ class BillingSubscriptionMutationControllerWebMvcTest {
                 .contains("never charged more");
         assertThat(specification.at("/components/schemas/EstimationDto/properties/tariffVersion/description").asText())
                 .contains("pricing rule");
-        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingTokensPerValidQuestion/description").asText())
-                .contains("valid accepted question");
-        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedQuestionCount/description").asText())
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingBaseTokens/description").asText())
+                .contains("base billing tokens");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingTokensPerThousandCharacters/description").asText())
+                .contains("per 1,000 source characters");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedContentCharacters/description").asText())
+                .contains("maximum quote");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedQuestionTypeCount/description").asText())
                 .contains("maximum quote");
         assertThat(specification.at("/components/schemas/EstimationDto/required").toString())
                 .doesNotContain("tariffVersion")
-                .doesNotContain("billingTokensPerValidQuestion")
-                .doesNotContain("quotedQuestionCount");
+                .doesNotContain("billingBaseTokens")
+                .doesNotContain("billingTokensPerThousandCharacters")
+                .doesNotContain("quotedContentCharacters")
+                .doesNotContain("quotedQuestionTypeCount");
     }
 }

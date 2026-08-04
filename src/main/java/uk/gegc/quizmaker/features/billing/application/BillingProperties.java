@@ -4,10 +4,13 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.annotation.Validated;
+
+import java.math.BigDecimal;
 
 /**
  * Billing configuration (token accounting parameters).
@@ -84,14 +87,21 @@ public class BillingProperties {
          * may add other inputs without changing already quoted jobs.
          */
         @NotBlank
-        private String tariffVersion = "v1-per-valid-question";
+        private String tariffVersion = "v1-content-length-per-question-type";
 
         /**
-         * Billing tokens charged for each valid question accepted into a
-         * successful generated quiz.
+         * Fixed part of a quiz-generation quote. This matches the frontend
+         * estimator's base charge before source-content work is added.
          */
-        @Positive
-        private long tokensPerValidQuestion = 1L;
+        @PositiveOrZero
+        private long baseTokens = 3L;
+
+        /**
+         * Billing tokens per 1,000 source characters for each requested
+         * question type. One provider request is made per type and chunk.
+         */
+        @DecimalMin(value = "0.0", inclusive = false)
+        private BigDecimal tokensPerThousandCharacters = new BigDecimal("0.35");
     }
 
 }

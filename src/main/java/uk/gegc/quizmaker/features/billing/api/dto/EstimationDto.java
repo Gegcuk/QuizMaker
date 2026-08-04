@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.billing.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Schema(name = "EstimationDto", description = "Quiz-generation operational estimate and customer maximum charge")
@@ -21,20 +22,26 @@ public record EstimationDto(
         @Schema(description = "Whether this is an estimate (always true)", example = "true")
         boolean estimate,
         
-        @Schema(description = "Human-readable maximum charge based on requested valid questions", example = "Up to 10 billing tokens for 10 valid questions")
+        @Schema(description = "Human-readable maximum charge based on source length and requested question types", example = "Up to 7 billing tokens for 2 question types from 4,000 source characters")
         String humanizedEstimate,
         
         @Schema(description = "Unique estimation ID for correlation", example = "d290f1ee-6c54-4b01-90e6-d701748f0851")
         UUID estimationId,
 
-        @Schema(description = "Version of the pricing rule used for the maximum quote. Optional for responses produced by legacy code.", example = "v1-per-valid-question", nullable = true)
+        @Schema(description = "Version of the pricing rule used for the maximum quote. Optional for responses produced by legacy code.", example = "v1-content-length-per-question-type", nullable = true)
         String tariffVersion,
 
-        @Schema(description = "Billing tokens charged for each valid accepted question under this quote. Optional for legacy responses.", example = "1", nullable = true)
-        Long billingTokensPerValidQuestion,
+        @Schema(description = "Fixed base billing tokens included in this quote. Optional for legacy responses.", example = "3", nullable = true)
+        Long billingBaseTokens,
 
-        @Schema(description = "Requested question count used to calculate the maximum quote. Optional for legacy responses.", example = "10", nullable = true)
-        Integer quotedQuestionCount
+        @Schema(description = "Billing-token rate per 1,000 source characters for each requested question type. Optional for legacy responses.", example = "0.35", nullable = true)
+        BigDecimal billingTokensPerThousandCharacters,
+
+        @Schema(description = "Source character count used to calculate the maximum quote. Optional for legacy responses.", example = "4000", nullable = true)
+        Long quotedContentCharacters,
+
+        @Schema(description = "Requested question-type count used to calculate the maximum quote. Optional for legacy responses.", example = "2", nullable = true)
+        Integer quotedQuestionTypeCount
 ) {
 
     /**
@@ -57,6 +64,8 @@ public record EstimationDto(
                 estimate,
                 humanizedEstimate,
                 estimationId,
+                null,
+                null,
                 null,
                 null,
                 null
@@ -82,17 +91,22 @@ public record EstimationDto(
         return String.format("~%s (%s)", billingPart, llmPart);
     }
 
-    public static String createHumanizedEstimate(long maximumBillingTokens, int requestedQuestionCount) {
-        if (maximumBillingTokens == 0L || requestedQuestionCount == 0) {
+    public static String createHumanizedEstimate(
+            long maximumBillingTokens,
+            long sourceCharacterCount,
+            int requestedQuestionTypeCount
+    ) {
+        if (maximumBillingTokens == 0L) {
             return "No tokens required";
         }
 
         String billingPart = maximumBillingTokens == 1L
                 ? "1 billing token"
                 : maximumBillingTokens + " billing tokens";
-        String questionPart = requestedQuestionCount == 1
-                ? "1 valid question"
-                : requestedQuestionCount + " valid questions";
-        return "Up to " + billingPart + " for " + questionPart;
+        String questionTypePart = requestedQuestionTypeCount == 1
+                ? "1 question type"
+                : requestedQuestionTypeCount + " question types";
+        return "Up to " + billingPart + " for " + questionTypePart
+                + " from " + sourceCharacterCount + " source characters";
     }
 }

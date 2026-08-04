@@ -233,7 +233,7 @@ public class BillingCheckoutController {
     @Operation(
             summary = "Quote the maximum quiz generation charge",
             description = "Returns an operational LLM estimate and the customer-facing maximum charge for quiz generation. " +
-                    "The maximum is based on requested valid questions; settlement never exceeds it. Requires BILLING_READ permission."
+                    "The maximum is based on selected source length and requested question types; settlement never exceeds it. Requires BILLING_READ permission."
     )
     @ApiResponses({
             @ApiResponse(
@@ -271,10 +271,11 @@ public class BillingCheckoutController {
         
         EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
         
-        log.info("Generation quote completed: maximum {} billing tokens for {} requested questions under tariff {}. " +
+        log.info("Generation quote completed: maximum {} billing tokens for {} source characters and {} requested question types under tariff {}. " +
                         "Operational LLM estimate: {} tokens for user {}",
                 estimation.estimatedBillingTokens(),
-                estimation.quotedQuestionCount(),
+                estimation.quotedContentCharacters(),
+                estimation.quotedQuestionTypeCount(),
                 estimation.tariffVersion(),
                 estimation.estimatedLlmTokens(),
                 currentUserId);

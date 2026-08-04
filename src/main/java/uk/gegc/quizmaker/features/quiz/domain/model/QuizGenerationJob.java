@@ -121,14 +121,20 @@ public class QuizGenerationJob {
     @Column(name = "billing_tariff_version")
     private String billingTariffVersion;
 
-    @Column(name = "billing_tokens_per_valid_question")
-    private Long billingTokensPerValidQuestion;
+    @Column(name = "billing_base_tokens")
+    private Long billingBaseTokens;
 
-    @Column(name = "billing_quoted_question_count")
-    private Integer billingQuotedQuestionCount;
+    @Column(name = "billing_tokens_per_thousand_characters", precision = 10, scale = 4)
+    private BigDecimal billingTokensPerThousandCharacters;
 
-    @Column(name = "billing_valid_question_count")
-    private Integer billingValidQuestionCount;
+    @Column(name = "billing_quoted_content_characters")
+    private Long billingQuotedContentCharacters;
+
+    @Column(name = "billing_quoted_question_type_count")
+    private Integer billingQuotedQuestionTypeCount;
+
+    @Column(name = "billing_accepted_question_type_count")
+    private Integer billingAcceptedQuestionTypeCount;
 
     @Column(name = "was_capped")
     private Boolean wasCappedAtReserved = false;
@@ -348,29 +354,47 @@ public class QuizGenerationJob {
         return billingState != null && billingState.isCommitted();
     }
 
-    public void captureGenerationTariff(String tariffVersion, long tokensPerValidQuestion, int quotedQuestionCount) {
+    public void captureGenerationTariff(
+            String tariffVersion,
+            long baseTokens,
+            BigDecimal tokensPerThousandCharacters,
+            long quotedContentCharacters,
+            int quotedQuestionTypeCount
+    ) {
         if (tariffVersion == null || tariffVersion.isBlank()) {
             throw new IllegalArgumentException("tariffVersion must not be blank");
         }
-        if (tokensPerValidQuestion <= 0) {
-            throw new IllegalArgumentException("tokensPerValidQuestion must be greater than zero");
+        if (baseTokens < 0L) {
+            throw new IllegalArgumentException("baseTokens must not be negative");
         }
-        if (quotedQuestionCount < 0) {
-            throw new IllegalArgumentException("quotedQuestionCount must not be negative");
+        if (tokensPerThousandCharacters == null || tokensPerThousandCharacters.signum() <= 0) {
+            throw new IllegalArgumentException("tokensPerThousandCharacters must be greater than zero");
+        }
+        if (quotedContentCharacters < 0L) {
+            throw new IllegalArgumentException("quotedContentCharacters must not be negative");
+        }
+        if (quotedQuestionTypeCount < 0) {
+            throw new IllegalArgumentException("quotedQuestionTypeCount must not be negative");
         }
 
         this.billingTariffVersion = tariffVersion;
-        this.billingTokensPerValidQuestion = tokensPerValidQuestion;
-        this.billingQuotedQuestionCount = quotedQuestionCount;
+        this.billingBaseTokens = baseTokens;
+        this.billingTokensPerThousandCharacters = tokensPerThousandCharacters;
+        this.billingQuotedContentCharacters = quotedContentCharacters;
+        this.billingQuotedQuestionTypeCount = quotedQuestionTypeCount;
     }
 
     public boolean hasGenerationTariffSnapshot() {
         return billingTariffVersion != null
                 && !billingTariffVersion.isBlank()
-                && billingTokensPerValidQuestion != null
-                && billingTokensPerValidQuestion > 0
-                && billingQuotedQuestionCount != null
-                && billingQuotedQuestionCount >= 0;
+                && billingBaseTokens != null
+                && billingBaseTokens >= 0L
+                && billingTokensPerThousandCharacters != null
+                && billingTokensPerThousandCharacters.signum() > 0
+                && billingQuotedContentCharacters != null
+                && billingQuotedContentCharacters >= 0L
+                && billingQuotedQuestionTypeCount != null
+                && billingQuotedQuestionTypeCount >= 0;
     }
 
     public void addProviderLlmTokens(long tokens) {

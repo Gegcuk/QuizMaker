@@ -99,7 +99,7 @@ class EstimationServiceTest {
         EstimationDto out = estimationService.estimateQuizGeneration(docId, req);
 
         assertEquals(192, out.estimatedLlmTokens());
-        assertEquals(1, out.estimatedBillingTokens());
+        assertEquals(4, out.estimatedBillingTokens());
         assertTrue(out.estimate());
         assertEquals(billingProperties.getCurrency(), out.currency());
     }
@@ -127,9 +127,10 @@ class EstimationServiceTest {
 
         assertEquals(192, one.estimatedLlmTokens());
         assertEquals(384, two.estimatedLlmTokens());
-        // Customer quote tracks the requested question count, not LLM usage.
-        assertEquals(1, one.estimatedBillingTokens());
-        assertEquals(2, two.estimatedBillingTokens());
+        // Frontend-compatible quote: ceil(totalCharacters / 1000 * 0.35) * types + 3.
+        // Both small documents round to one content token for their one active type.
+        assertEquals(4, one.estimatedBillingTokens());
+        assertEquals(4, two.estimatedBillingTokens());
     }
 
     @Test
@@ -195,7 +196,7 @@ class EstimationServiceTest {
 
         EstimationDto out = estimationService.estimateQuizGeneration(docId, req);
         assertEquals(0, out.estimatedLlmTokens());
-        assertEquals(0, out.estimatedBillingTokens());
+        assertEquals(3, out.estimatedBillingTokens());
         assertTrue(out.estimate());
         assertEquals(billingProperties.getCurrency(), out.currency());
     }
@@ -283,8 +284,8 @@ class EstimationServiceTest {
         EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
 
         assertNotNull(result.humanizedEstimate());
-        assertTrue(result.humanizedEstimate().contains("1 billing token"));
-        assertTrue(result.humanizedEstimate().contains("1 valid question"));
+        assertTrue(result.humanizedEstimate().contains("4 billing tokens"));
+        assertTrue(result.humanizedEstimate().contains("1 question type"));
     }
 
     @Test
@@ -324,7 +325,7 @@ class EstimationServiceTest {
     }
 
     @Test
-    void estimateQuizGeneration_zeroTokensHumanizedEstimate() {
+    void estimateQuizGeneration_emptySelectedScopeUsesMinimumQuote() {
         Document doc = new Document();
         doc.setId(UUID.randomUUID());
         doc.setChunks(List.of()); // No chunks - this should trigger the zero estimate path
@@ -334,11 +335,11 @@ class EstimationServiceTest {
 
         Map<QuestionType, Integer> qpt = Map.of(QuestionType.TRUE_FALSE, 1);
         var req = requestFor(qpt);
-        // Set scope to SPECIFIC_CHUNKS with empty indices to trigger zero estimate
+        // Use a valid but unmatched index to create an empty selected scope.
         req = new GenerateQuizFromDocumentRequest(
                 docId,
                 QuizScope.SPECIFIC_CHUNKS,
-                List.of(), // Empty chunk indices
+                List.of(999),
                 null, null, req.quizTitle(), req.quizDescription(),
                 req.questionsPerType(), req.difficulty(), req.estimatedTimePerQuestion(),
                 req.categoryId(), req.tagIds()
@@ -346,9 +347,9 @@ class EstimationServiceTest {
 
         EstimationDto result = estimationService.estimateQuizGeneration(docId, req);
 
-        assertEquals("No tokens required", result.humanizedEstimate());
+        assertTrue(result.humanizedEstimate().contains("Up to 3 billing tokens"));
         assertEquals(0, result.estimatedLlmTokens());
-        assertEquals(0, result.estimatedBillingTokens());
+        assertEquals(3, result.estimatedBillingTokens());
     }
 
     @Test
@@ -368,7 +369,7 @@ class EstimationServiceTest {
 
         // Should be higher than single question type due to multiple types
         assertTrue(result.estimatedLlmTokens() > 192); // Single TRUE_FALSE baseline
-        assertTrue(result.estimatedBillingTokens() >= 1);
+        assertEquals(6, result.estimatedBillingTokens());
     }
 
     @Test

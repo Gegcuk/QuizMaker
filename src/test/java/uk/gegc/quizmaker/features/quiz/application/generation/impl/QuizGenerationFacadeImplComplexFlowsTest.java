@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
@@ -95,6 +96,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     
     @Mock
     private EstimationService estimationService;
+
+    @Mock
+    private GenerationTariffService generationTariffService;
     
     @Mock
     private FeatureFlags featureFlags;
@@ -154,11 +158,13 @@ class QuizGenerationFacadeImplComplexFlowsTest {
                 null,
                 "usd",
                 true,
-                "Up to 1200 billing tokens for 10 valid questions",
+                "Up to 1200 billing tokens for 2 question types from 100,000 source characters",
                 UUID.randomUUID(),
-                "v1-per-valid-question",
-                120L,
-                10
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35"),
+                100_000L,
+                2
         );
         
         reservation = new ReservationDto(
@@ -338,9 +344,11 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             assertThat(savedJob.getBillingState()).isEqualTo(BillingState.RESERVED);
             assertThat(savedJob.getInputPromptTokens()).isEqualTo(1000L);
             assertThat(savedJob.getEstimationVersion()).isEqualTo("v1.0");
-            assertThat(savedJob.getBillingTariffVersion()).isEqualTo("v1-per-valid-question");
-            assertThat(savedJob.getBillingTokensPerValidQuestion()).isEqualTo(120L);
-            assertThat(savedJob.getBillingQuotedQuestionCount()).isEqualTo(10);
+            assertThat(savedJob.getBillingTariffVersion()).isEqualTo("v1-content-length-per-question-type");
+            assertThat(savedJob.getBillingBaseTokens()).isEqualTo(3L);
+            assertThat(savedJob.getBillingTokensPerThousandCharacters()).isEqualByComparingTo("0.35");
+            assertThat(savedJob.getBillingQuotedContentCharacters()).isEqualTo(100_000L);
+            assertThat(savedJob.getBillingQuotedQuestionTypeCount()).isEqualTo(2);
             assertThat(savedJob.getBillingIdempotencyKeys()).contains("\"reserve\"");
         }
         
