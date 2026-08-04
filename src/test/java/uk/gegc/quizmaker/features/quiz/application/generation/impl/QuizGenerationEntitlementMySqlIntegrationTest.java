@@ -203,8 +203,12 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
 
     @AfterEach
     void cleanUp() {
-        quizRepository.deleteAllInBatch();
-        jobRepository.deleteAllInBatch();
+        if (userId != null) {
+            quizRepository.deleteAllInBatch(quizRepository.findByCreatorId(userId));
+        }
+        if (jobId != null && jobRepository.existsById(jobId)) {
+            jobRepository.deleteById(jobId);
+        }
         categoryRepository.findByName("Entitlement integration category").ifPresent(categoryRepository::delete);
         if (userId != null) {
             userRepository.findById(userId).ifPresent(userRepository::delete);
