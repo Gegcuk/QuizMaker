@@ -134,7 +134,7 @@ jobs:
             MEDIA_ARTICLE_PREFIX="${{ secrets.MEDIA_ARTICLE_PREFIX || 'articles' }}"
             MEDIA_LIBRARY_PREFIX="${{ secrets.MEDIA_LIBRARY_PREFIX || 'library' }}"
             FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"
-            BILLING_TOKEN_TO_LLM_RATIO="${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1.0' }}"
+            BILLING_TOKEN_TO_LLM_RATIO="${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1000' }}"
             BILLING_RESERVATION_TTL_MINUTES="${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}"
             BILLING_SAFETY_FACTOR="${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}"
             BILLING_CURRENCY="${{ secrets.BILLING_CURRENCY || 'USD' }}"
@@ -146,6 +146,7 @@ jobs:
             rm -f quizmaker-backend.tar
             docker image inspect "$release_image" >/dev/null
             docker compose --env-file .env config --quiet
+            docker run --rm --env-file .env -e SPRING_PROFILES_ACTIVE=prod "$release_image" --config-preflight
 
             wait_for_health() {
               local container="$1"
