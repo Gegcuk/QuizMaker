@@ -151,6 +151,19 @@ public class QuizGenerationJob {
     @Column(name = "completed_tasks")
     private Integer completedTasks = 0;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "finalization_state", nullable = false)
+    private QuizGenerationFinalizationState finalizationState = QuizGenerationFinalizationState.NOT_STARTED;
+
+    @Column(name = "finalization_started_at")
+    private LocalDateTime finalizationStartedAt;
+
+    @Column(name = "finalization_completed_at")
+    private LocalDateTime finalizationCompletedAt;
+
+    @Column(name = "finalization_error", length = 255)
+    private String finalizationError;
+
     @Version
     @Column(name = "version")
     private Long version;
@@ -184,7 +197,38 @@ public class QuizGenerationJob {
         if (completedTasks == null) {
             completedTasks = 0;
         }
+        if (finalizationState == null) {
+            finalizationState = QuizGenerationFinalizationState.NOT_STARTED;
+        }
         progressPercentage = normalizeProgressPercentage(progressPercentage);
+    }
+
+    public void beginFinalization(LocalDateTime now) {
+        if (finalizationState != QuizGenerationFinalizationState.NOT_STARTED) {
+            throw new IllegalStateException("Quiz generation finalization has already started: " + finalizationState);
+        }
+        finalizationState = QuizGenerationFinalizationState.FINALIZING;
+        finalizationStartedAt = now;
+        finalizationCompletedAt = null;
+        finalizationError = null;
+    }
+
+    public void markFinalizationSucceeded(LocalDateTime now) {
+        finalizationState = QuizGenerationFinalizationState.SUCCEEDED;
+        finalizationCompletedAt = now;
+        finalizationError = null;
+    }
+
+    public void markFinalizationFailed(String message, LocalDateTime now) {
+        finalizationState = QuizGenerationFinalizationState.FAILED;
+        finalizationCompletedAt = now;
+        finalizationError = message;
+    }
+
+    public void markFinalizationCancelled(LocalDateTime now) {
+        finalizationState = QuizGenerationFinalizationState.CANCELLED;
+        finalizationCompletedAt = now;
+        finalizationError = null;
     }
 
     @PreUpdate

@@ -382,6 +382,28 @@ public class BillingServiceImpl implements BillingService {
         reservationRepository.save(reservation);
     }
 
+    /**
+     * Heartbeats an ACTIVE generation reservation. The row lock serializes this
+     * with cancellation and settlement, so the sweeper cannot release active
+     * work between provider calls.
+     */
+    @Transactional
+    public ReservationDto renewReservationLeaseInternal(UUID userId, UUID reservationId, UUID jobId) {
+        Reservation reservation = reservationRepository.findByIdAndUserIdForUpdate(reservationId, userId)
+                .orElseThrow(() -> new ReservationNotActiveException(
+                        "Reservation is not active or does not belong to the generation user"));
+
+        if (reservation.getState() != ReservationState.ACTIVE) {
+            throw new ReservationNotActiveException("Reservation must be ACTIVE before its lease can be renewed");
+        }
+        if (!jobId.equals(reservation.getJobId())) {
+            throw new IdempotencyConflictException("Reservation is not linked to this generation job");
+        }
+
+        reservation.setExpiresAt(LocalDateTime.now().plusMinutes(billingProperties.getReservationTtlMinutes()));
+        return reservationMapper.toDto(reservationRepository.save(reservation));
+    }
+
     private ReleaseResultDto performRelease(UUID reservationId, String reason, String ref, String idempotencyKey) {
         // Idempotency handling
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {

@@ -26,6 +26,12 @@ public interface InternalBillingService {
     void attachReservationToJob(UUID userId, UUID reservationId, UUID jobId);
 
     /**
+     * Extends an ACTIVE reservation owned by a running generation job.
+     * This is a short internal lease renewal, not a new reservation or charge.
+     */
+    ReservationDto renewReservationLease(UUID userId, UUID reservationId, UUID jobId);
+
+    /**
      * Credit tokens to a user's account from a purchase.
      * This is an internal operation used by webhooks and subscription services.
      * 

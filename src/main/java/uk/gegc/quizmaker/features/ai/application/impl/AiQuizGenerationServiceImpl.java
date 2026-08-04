@@ -1384,11 +1384,22 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-                if (job != null && !Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
-                    job.setHasStartedAiCalls(true);
-                    job.setFirstAiCallAt(java.time.LocalDateTime.now());
+                if (job != null) {
+                    if (!Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
+                        job.setHasStartedAiCalls(true);
+                        job.setFirstAiCallAt(java.time.LocalDateTime.now());
+                    }
+                    if (job.getBillingReservationId() != null
+                            && job.getBillingState() == BillingState.RESERVED) {
+                        var renewedReservation = internalBillingService.renewReservationLease(
+                                job.getUser().getId(),
+                                job.getBillingReservationId(),
+                                jobId
+                        );
+                        job.setReservationExpiresAt(renewedReservation.expiresAt());
+                    }
                     jobRepository.save(job);
-                    log.debug("Recorded first AI call for job {}", jobId);
+                    log.debug("Recorded AI call and refreshed reservation lease for job {}", jobId);
                 }
             });
         } catch (Exception e) {

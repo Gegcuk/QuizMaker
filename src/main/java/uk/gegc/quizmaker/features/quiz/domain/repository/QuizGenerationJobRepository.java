@@ -11,6 +11,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -121,6 +123,16 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      * Find job by billing reservation ID
      */
     Optional<QuizGenerationJob> findByBillingReservationId(UUID billingReservationId);
+
+    List<QuizGenerationJob> findByFinalizationStateAndFinalizationStartedAtBefore(
+            QuizGenerationFinalizationState finalizationState,
+            LocalDateTime cutoffTime
+    );
+
+    List<QuizGenerationJob> findByFinalizationStateAndBillingState(
+            QuizGenerationFinalizationState finalizationState,
+            BillingState billingState
+    );
 
     /**
      * Atomically increment completed tasks counter for a job

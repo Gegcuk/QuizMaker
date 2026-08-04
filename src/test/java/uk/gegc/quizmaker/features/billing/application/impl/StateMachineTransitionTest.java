@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.billing.domain.exception.ReservationNotActiveException;
 import uk.gegc.quizmaker.features.billing.domain.exception.CommitExceedsReservedException;
 import uk.gegc.quizmaker.features.billing.domain.model.*;
@@ -110,6 +111,81 @@ class StateMachineTransitionTest {
         
         // Setup common mocks
         lenient().when(billingProperties.getReservationTtlMinutes()).thenReturn(30);
+    }
+
+    @Nested
+    @DisplayName("Generation reservation lease")
+    class GenerationReservationLeaseTests {
+
+        @Test
+        @DisplayName("Active reservation linked to the job renews its expiry")
+        void activeReservationLinkedToJob_renewsExpiry() {
+            UUID userId = UUID.randomUUID();
+            UUID reservationId = UUID.randomUUID();
+            UUID jobId = UUID.randomUUID();
+            Reservation reservation = new Reservation();
+            reservation.setId(reservationId);
+            reservation.setUserId(userId);
+            reservation.setJobId(jobId);
+            reservation.setState(ReservationState.ACTIVE);
+            reservation.setEstimatedTokens(120L);
+            reservation.setCommittedTokens(0L);
+            reservation.setExpiresAt(LocalDateTime.now().minusMinutes(1));
+            LocalDateTime beforeRenewal = LocalDateTime.now();
+
+            when(reservationRepository.findByIdAndUserIdForUpdate(reservationId, userId))
+                    .thenReturn(Optional.of(reservation));
+            when(reservationRepository.save(reservation)).thenReturn(reservation);
+            when(reservationMapper.toDto(reservation)).thenAnswer(invocation -> new uk.gegc.quizmaker.features.billing.api.dto.ReservationDto(
+                    reservation.getId(), reservation.getUserId(), reservation.getState(),
+                    reservation.getEstimatedTokens(), reservation.getCommittedTokens(), reservation.getExpiresAt(),
+                    reservation.getJobId(), reservation.getCreatedAt(), reservation.getUpdatedAt()));
+
+            var result = billingService.renewReservationLeaseInternal(userId, reservationId, jobId);
+
+            assertThat(result.expiresAt()).isAfter(beforeRenewal);
+            assertThat(result.jobId()).isEqualTo(jobId);
+            verify(reservationRepository).save(reservation);
+        }
+
+        @Test
+        @DisplayName("Released reservation cannot be renewed")
+        void releasedReservation_cannotBeRenewed() {
+            UUID userId = UUID.randomUUID();
+            UUID reservationId = UUID.randomUUID();
+            Reservation reservation = new Reservation();
+            reservation.setId(reservationId);
+            reservation.setUserId(userId);
+            reservation.setState(ReservationState.RELEASED);
+
+            when(reservationRepository.findByIdAndUserIdForUpdate(reservationId, userId))
+                    .thenReturn(Optional.of(reservation));
+
+            assertThatThrownBy(() -> billingService.renewReservationLeaseInternal(userId, reservationId, UUID.randomUUID()))
+                    .isInstanceOf(ReservationNotActiveException.class);
+
+            verify(reservationRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Reservation linked to another job cannot be renewed")
+        void reservationLinkedToAnotherJob_cannotBeRenewed() {
+            UUID userId = UUID.randomUUID();
+            UUID reservationId = UUID.randomUUID();
+            Reservation reservation = new Reservation();
+            reservation.setId(reservationId);
+            reservation.setUserId(userId);
+            reservation.setJobId(UUID.randomUUID());
+            reservation.setState(ReservationState.ACTIVE);
+
+            when(reservationRepository.findByIdAndUserIdForUpdate(reservationId, userId))
+                    .thenReturn(Optional.of(reservation));
+
+            assertThatThrownBy(() -> billingService.renewReservationLeaseInternal(userId, reservationId, UUID.randomUUID()))
+                    .isInstanceOf(IdempotencyConflictException.class);
+
+            verify(reservationRepository, never()).save(any());
+        }
     }
 
     @Nested

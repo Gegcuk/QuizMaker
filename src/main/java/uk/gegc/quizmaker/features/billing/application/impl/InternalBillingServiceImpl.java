@@ -41,6 +41,11 @@ public class InternalBillingServiceImpl implements InternalBillingService {
     }
 
     @Override
+    public ReservationDto renewReservationLease(UUID userId, UUID reservationId, UUID jobId) {
+        return billingServiceImpl.renewReservationLeaseInternal(userId, reservationId, jobId);
+    }
+
+    @Override
     public void creditPurchase(UUID userId, long tokens, String idempotencyKey, String ref, String metaJson) {
         billingServiceImpl.creditPurchase(userId, tokens, idempotencyKey, ref, metaJson);
     }

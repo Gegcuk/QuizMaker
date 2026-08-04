@@ -11,7 +11,7 @@ public record QuizGenerationStatus(
         @Schema(description = "Unique job identifier", example = "d290f1ee-6c54-4b01-90e6-d701748f0851")
         String jobId,
 
-        @Schema(description = "Current status of the generation job", example = "PROCESSING")
+        @Schema(description = "Current status of the generation job. COMPLETED means the generated quiz and its billing settlement were durably finalized and the quiz is available to its owner.", example = "PROCESSING")
         GenerationStatus status,
 
         @Schema(description = "Total number of chunks to process", example = "10")

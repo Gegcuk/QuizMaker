@@ -36,6 +36,7 @@ import uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestF
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -117,6 +118,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
 
     @Mock
     private QuizGenerationRequestCanonicalizer requestCanonicalizer;
+
+    @Mock
+    private QuizJobProperties quizJobProperties;
 
     @Mock
     private QuizGenerationOperation generationOperation;
@@ -754,8 +758,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus status = 
@@ -764,9 +767,11 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Then
             assertThat(status).isNotNull();
             
-            verify(jobService).cancelJob(job.getId(), "testuser");
+            verify(jobService, never()).cancelJob(any(), any());
             verify(jobRepository, atLeastOnce()).save(job);
             assertThat(job.getErrorMessage()).isEqualTo("Cancelled by user");
+            assertThat(job.getFinalizationState())
+                    .isEqualTo(uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState.CANCELLED);
             
             // Verify released (not committed) since no work started
             verify(billingService).release(eq(job.getBillingReservationId()), eq("Job cancelled by user"), 
@@ -780,7 +785,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             job.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.COMPLETED);
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When & Then
             assertThatThrownBy(() -> facade.cancelGenerationJob(job.getId(), "testuser"))
@@ -800,8 +805,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingReservationId(reservation.id());
             job.setBillingEstimatedTokens(1200L);
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
@@ -825,8 +829,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingReservationId(reservation.id());
             job.setBillingEstimatedTokens(1200L);
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
@@ -848,8 +851,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingReservationId(reservation.id());
             job.setBillingEstimatedTokens(500L);
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
@@ -869,8 +871,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             when(featureFlags.isBilling()).thenReturn(false);
             
             // When
@@ -888,8 +889,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Given
             job.setBillingReservationId(null);
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus status = 
@@ -897,7 +897,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             // Then
             assertThat(status).isNotNull();
-            verify(jobService).cancelJob(job.getId(), "testuser");
+            verify(jobService, never()).cancelJob(any(), any());
             
             // No billing operations
             verifyNoInteractions(billingService);
@@ -905,15 +905,14 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         }
         
         @Test
-        @DisplayName("Release fails - error saved to job")
-        void releaseFails_errorSavedToJob() {
+        @DisplayName("Release fails - generic recovery marker is saved without provider error details")
+        void releaseFails_genericRecoveryMarkerSaved() {
             // Given
             job.setHasStartedAiCalls(false);
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             doThrow(new RuntimeException("Release failed"))
                     .when(billingService).release(any(), anyString(), anyString(), anyString());
@@ -924,20 +923,19 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             // Then - job still cancelled, error logged
             assertThat(status).isNotNull();
-            assertThat(job.getLastBillingError()).contains("Failed to release reservation");
+            assertThat(job.getLastBillingError()).isEqualTo("{\"reason\":\"Cancellation release pending\"}");
         }
         
         @Test
         @DisplayName("Job not found - throws exception")
         void jobNotFound_throwsException() {
             // Given
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser"))
-                    .thenThrow(new ResourceNotFoundException("Job not found"));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.empty());
             
             // When & Then
             assertThatThrownBy(() -> facade.cancelGenerationJob(job.getId(), "testuser"))
                     .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Job not found");
+                    .hasMessageContaining("Quiz generation job not found");
         }
         
         @Test
@@ -947,8 +945,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setBillingState(BillingState.COMMITTED);  // already committed
             job.setBillingReservationId(reservation.id());
             
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");

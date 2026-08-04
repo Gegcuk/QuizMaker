@@ -37,6 +37,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
@@ -213,8 +214,8 @@ class QuizServiceDatabaseFailureScenariosTest {
     }
 
     @Test
-    @DisplayName("Scenario 4.2: quiz creation failure marks job failed and releases reservation")
-    void handleQuizGenerationCompleted_cleansUpWhenQuizCreationFails() {
+    @DisplayName("Scenario 4.2: quiz creation failure delegates durable compensation")
+    void handleQuizGenerationCompleted_delegatesCompensationWhenQuizCreationFails() {
         QuizGenerationJob job = new QuizGenerationJob();
         UUID jobId = UUID.fromString("660e8400-e29b-41d4-a716-446655440010");
         job.setId(jobId);
@@ -229,6 +230,8 @@ class QuizServiceDatabaseFailureScenariosTest {
         doThrow(new RuntimeException("quiz persistence failed"))
                 .when(quizGenerationFacade)
                 .createQuizCollectionFromGeneratedQuestions(eq(jobId), anyMap(), any());
+        when(quizGenerationFacade.claimQuizGenerationFinalization(jobId))
+                .thenReturn(QuizGenerationFinalizationClaim.CLAIMED);
 
         Question question = new Question();
         question.setQuestionText("Sample question");
@@ -247,7 +250,9 @@ class QuizServiceDatabaseFailureScenariosTest {
         quizService.handleQuizGenerationCompleted(event);
 
         // Verify delegation occurred
+        verify(quizGenerationFacade).claimQuizGenerationFinalization(jobId);
         verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), anyMap(), any());
+        verify(quizGenerationFacade).handleQuizGenerationFinalizationFailure(jobId);
     }
 
     @Test
