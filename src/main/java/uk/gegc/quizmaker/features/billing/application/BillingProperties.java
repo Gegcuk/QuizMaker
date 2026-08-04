@@ -1,11 +1,16 @@
 package uk.gegc.quizmaker.features.billing.application;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.annotation.Validated;
+
+import java.math.BigDecimal;
 
 /**
  * Billing configuration (token accounting parameters).
@@ -66,5 +71,37 @@ public class BillingProperties {
      */
     @Positive
     private long reservationSweeperMs = 60000L;
+
+    /**
+     * Customer-facing quiz-generation pricing. Provider LLM usage remains
+     * operational telemetry and is never converted into a customer charge.
+     */
+    @Valid
+    private GenerationPricing generation = new GenerationPricing();
+
+    @Data
+    public static class GenerationPricing {
+
+        /**
+         * Immutable identifier captured on each generation job. A future tariff
+         * may add other inputs without changing already quoted jobs.
+         */
+        @NotBlank
+        private String tariffVersion = "v1-content-length-per-question-type";
+
+        /**
+         * Fixed part of a quiz-generation quote. This matches the frontend
+         * estimator's base charge before source-content work is added.
+         */
+        @PositiveOrZero
+        private long baseTokens = 3L;
+
+        /**
+         * Billing tokens per 1,000 source characters for each requested
+         * question type. One provider request is made per type and chunk.
+         */
+        @DecimalMin(value = "0.0", inclusive = false)
+        private BigDecimal tokensPerThousandCharacters = new BigDecimal("0.35");
+    }
 
 }

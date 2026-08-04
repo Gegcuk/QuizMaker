@@ -11,11 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
-import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
@@ -35,7 +36,6 @@ import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyServic
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
-import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType;
@@ -78,10 +78,10 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final BillingService billingService;
     private final InternalBillingService internalBillingService;
     private final EstimationService estimationService;
+    private final GenerationTariffService generationTariffService;
     private final FeatureFlags featureFlags;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final TransactionTemplate transactionTemplate;
-    private final QuizJobProperties quizJobProperties;
     private final QuizAssemblyService quizAssemblyService;
     private final QuizGenerationIdempotencyService idempotencyService;
     private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
@@ -346,6 +346,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 job.setBillingState(BillingState.RESERVED);
                 job.setInputPromptTokens(estimation.estimatedLlmTokens());
                 job.setEstimationVersion("v1.0");
+                captureGenerationTariff(job, estimation);
                 job.setBillingIdempotencyKeys(objectMapper.writeValueAsString(Map.of("reserve", reservationIdempotencyKey)));
                 jobRepository.save(job);
                 internalBillingService.attachReservationToJob(user.getId(), reservation.id(), job.getId());
@@ -367,6 +368,27 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         return userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+    }
+
+    private void captureGenerationTariff(QuizGenerationJob job, EstimationDto estimation) {
+        if (estimation.tariffVersion() == null
+                || estimation.tariffVersion().isBlank()
+                || estimation.billingBaseTokens() == null
+                || estimation.billingTokensPerThousandCharacters() == null
+                || estimation.quotedContentCharacters() == null
+                || estimation.quotedQuestionTypeCount() == null) {
+            log.warn("Generation quote for job {} has no tariff snapshot; preserving legacy settlement compatibility",
+                    job.getId());
+            return;
+        }
+
+        job.captureGenerationTariff(
+                estimation.tariffVersion(),
+                estimation.billingBaseTokens(),
+                estimation.billingTokensPerThousandCharacters(),
+                estimation.quotedContentCharacters(),
+                estimation.quotedQuestionTypeCount()
+        );
     }
 
     private QuizGenerationOperation claimOperation(
@@ -493,54 +515,13 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         jobRepository.save(job);
 
         if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
-            boolean hasStartedWork = Boolean.TRUE.equals(job.getHasStartedAiCalls());
-            boolean commitOnCancel = quizJobProperties.getCancellation().isCommitOnCancel();
-
-            if (hasStartedWork && featureFlags.isBilling() && commitOnCancel) {
-                handleCancellationCommit(jobId, job);
-            } else {
-                handleCancellationRelease(jobId, job);
-            }
+            // A cancelled job does not deliver a successful quiz. V1 charges
+            // only valid questions accepted into a successful quiz, so the full
+            // reservation is released even if an AI call already started.
+            handleCancellationRelease(jobId, job);
         }
 
         return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
-    }
-
-    private void handleCancellationCommit(UUID jobId, QuizGenerationJob job) {
-        try {
-            long actualTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
-            long estimatedTokens = job.getBillingEstimatedTokens();
-            long minStartFeeTokens = quizJobProperties.getCancellation().getMinStartFeeTokens();
-
-            long tokensToCommit = Math.max(actualTokens, minStartFeeTokens);
-            tokensToCommit = Math.min(tokensToCommit, estimatedTokens);
-
-            if (tokensToCommit > 0) {
-                String commitIdempotencyKey = "quiz:" + jobId + ":commit-cancel";
-                CommitResultDto commitResult = internalBillingService.commit(
-                        job.getBillingReservationId(),
-                        tokensToCommit,
-                        jobId.toString(),
-                        commitIdempotencyKey
-                );
-                job.setBillingCommittedTokens(tokensToCommit);
-                job.setBillingState(BillingState.COMMITTED);
-                job.addBillingIdempotencyKey("commit-cancel", commitIdempotencyKey);
-                log.info("Committed {} tokens for cancelled job {} (actual tokens used: {})", tokensToCommit, jobId, actualTokens);
-
-                if (commitResult.releasedTokens() > 0) {
-                    log.info("Released {} tokens back to user after cancel commit", commitResult.releasedTokens());
-                }
-            } else {
-                handleCancellationRelease(jobId, job);
-                return;
-            }
-            jobRepository.save(job);
-        } catch (Exception billingError) {
-            log.error("Failed to commit/release billing for cancelled job {}", jobId, billingError);
-            job.setLastBillingError("{\"error\":\"Failed to process billing on cancel: " + billingError.getMessage() + "\"}");
-            jobRepository.save(job);
-        }
     }
 
     private void handleCancellationRelease(UUID jobId, QuizGenerationJob job) {
@@ -698,27 +679,60 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 return;
             }
 
-            long inputPromptTokens = lockedJob.getInputPromptTokens() != null ? lockedJob.getInputPromptTokens() : 0L;
-
-            long actualBillingTokens = estimationService.computeActualBillingTokens(
-                    allQuestions,
-                    originalRequest.difficulty(),
-                    inputPromptTokens
-            );
-
             long reservedTokens = lockedJob.getBillingEstimatedTokens();
-            long tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
-            boolean wasCapped = actualBillingTokens > reservedTokens;
+            int acceptedQuestionTypeCount = allQuestions == null
+                    ? 0
+                    : (int) allQuestions.stream()
+                            .map(Question::getType)
+                            .filter(Objects::nonNull)
+                            .distinct()
+                            .count();
+            boolean usesTariffSnapshot = lockedJob.hasGenerationTariffSnapshot();
+            long actualBillingTokens;
+            long tokensToCommit;
+            boolean wasCapped;
 
-            if (wasCapped) {
-                long underestimationDelta = actualBillingTokens - reservedTokens;
-                log.warn("BILLING_UNDERESTIMATION: Actual tokens ({}) exceed reserved tokens ({}) for job {} (reservationId: {}). " +
-                                "Delta: {}, Committing reserved amount to avoid overcharging user.",
-                        actualBillingTokens, reservedTokens, jobId, lockedJob.getBillingReservationId(), underestimationDelta);
+            if (usesTariffSnapshot) {
+                GenerationTariff tariff = generationTariffService.fromSnapshot(
+                        lockedJob.getBillingTariffVersion(),
+                        lockedJob.getBillingBaseTokens(),
+                        lockedJob.getBillingTokensPerThousandCharacters()
+                );
+                actualBillingTokens = tariff.quoteForContent(
+                        lockedJob.getBillingQuotedContentCharacters(),
+                        acceptedQuestionTypeCount
+                );
+                tokensToCommit = tariff.settlementForAcceptedQuestionTypes(
+                        lockedJob.getBillingQuotedContentCharacters(),
+                        acceptedQuestionTypeCount,
+                        reservedTokens
+                );
+                wasCapped = actualBillingTokens > reservedTokens;
+                lockedJob.setBillingAcceptedQuestionTypeCount(acceptedQuestionTypeCount);
+            } else {
+                long inputPromptTokens = lockedJob.getInputPromptTokens() != null ? lockedJob.getInputPromptTokens() : 0L;
+                actualBillingTokens = estimationService.computeActualBillingTokens(
+                        allQuestions,
+                        originalRequest.difficulty(),
+                        inputPromptTokens
+                );
+                tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
+                wasCapped = actualBillingTokens > reservedTokens;
             }
 
-            log.info("Committing {} billing tokens for job {} (actual: {}, reserved: {}, inputPromptTokens: {}, questions: {}) [correlationId={}]",
-                    tokensToCommit, jobId, actualBillingTokens, reservedTokens, inputPromptTokens, allQuestions.size(), correlationId);
+            if (wasCapped) {
+                log.warn("Generation settlement for job {} reached its stored maximum quote: actual {}, quote {}",
+                        jobId, actualBillingTokens, reservedTokens);
+            }
+
+            if (tokensToCommit == 0L && usesTariffSnapshot) {
+                releaseZeroAcceptedQuestionTypeQuote(lockedJob, acceptedQuestionTypeCount, correlationId);
+                return;
+            }
+
+            log.info("Committing {} billing tokens for job {} (actual: {}, quote: {}, acceptedQuestionTypes: {}, tariffVersion: {}) [correlationId={}]",
+                    tokensToCommit, jobId, actualBillingTokens, reservedTokens, acceptedQuestionTypeCount,
+                    lockedJob.getBillingTariffVersion(), correlationId);
 
             var commitResult = internalBillingService.commit(
                     lockedJob.getBillingReservationId(),
@@ -739,7 +753,10 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 }
             }
 
-            lockedJob.setActualTokens(actualBillingTokens);
+            if (!usesTariffSnapshot) {
+                // Historical rows retain the original heuristic settlement model.
+                lockedJob.setActualTokens(actualBillingTokens);
+            }
             lockedJob.setBillingCommittedTokens(tokensToCommit);
             lockedJob.setWasCappedAtReserved(wasCapped);
             lockedJob.setBillingState(BillingState.COMMITTED);
@@ -750,7 +767,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
             jobRepository.save(lockedJob);
 
-            log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, wasCappedAtReserved: {}) [correlationId={}]",
+            log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, cappedAtQuote: {}) [correlationId={}]",
                     tokensToCommit, jobId, actualBillingTokens,
                     commitResult != null ? commitResult.releasedTokens() : 0L, wasCapped, correlationId);
 
@@ -761,6 +778,29 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
             log.error("Unexpected error during commit for job {} [correlationId={}]", jobId, correlationId, e);
             storeBillingError(job, e, correlationId);
         }
+    }
+
+    private void releaseZeroAcceptedQuestionTypeQuote(
+            QuizGenerationJob lockedJob,
+            int acceptedQuestionTypeCount,
+            String correlationId
+    ) {
+        String releaseIdempotencyKey = "quiz:" + lockedJob.getId() + ":release-zero-accepted-types";
+        internalBillingService.release(
+                lockedJob.getBillingReservationId(),
+                "zero-accepted-question-types",
+                "quiz-generation",
+                releaseIdempotencyKey
+        );
+        lockedJob.setBillingAcceptedQuestionTypeCount(acceptedQuestionTypeCount);
+        lockedJob.setBillingCommittedTokens(0L);
+        lockedJob.setBillingState(BillingState.RELEASED);
+        lockedJob.setWasCappedAtReserved(false);
+        updateBillingIdempotencyKeys(lockedJob, "release-zero-accepted-types", releaseIdempotencyKey);
+        lockedJob.setLastBillingError(null);
+        jobRepository.save(lockedJob);
+        log.info("Released generation quote for job {} because no accepted question type was generated [correlationId={}]",
+                lockedJob.getId(), correlationId);
     }
 
     private void storeBillingError(QuizGenerationJob job, Exception e, String correlationId) {

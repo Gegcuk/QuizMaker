@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
@@ -98,6 +99,9 @@ class QuizGenerationFacadeImplTest {
     
     @Mock
     private EstimationService estimationService;
+
+    @Mock
+    private GenerationTariffService generationTariffService;
     
     @Mock
     private FeatureFlags featureFlags;
@@ -165,8 +169,13 @@ class QuizGenerationFacadeImplTest {
                 null,           // approxCostCents
                 "usd",          // currency
                 true,           // estimate
-                "~1200 billing tokens (1,000 LLM tokens)",  // humanizedEstimate
-                UUID.randomUUID()  // estimationId
+                "Up to 1200 billing tokens for 2 question types from 100,000 source characters",  // humanizedEstimate
+                UUID.randomUUID(),  // estimationId
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35"),
+                100_000L,
+                2
         );
         
         reservation = new ReservationDto(

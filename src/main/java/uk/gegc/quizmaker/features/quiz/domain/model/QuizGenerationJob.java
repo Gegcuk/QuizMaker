@@ -107,6 +107,35 @@ public class QuizGenerationJob {
     @Column(name = "actual_tokens")
     private Long actualTokens;
 
+    /**
+     * Provider-reported LLM usage. This is operational telemetry and is never
+     * overwritten with, or used as, the customer billing amount.
+     */
+    @Column(name = "provider_llm_tokens")
+    private Long providerLlmTokens;
+
+    /**
+     * Immutable customer-pricing snapshot for new jobs. Null fields identify a
+     * job created before tariff snapshots existed and preserve its legacy path.
+     */
+    @Column(name = "billing_tariff_version")
+    private String billingTariffVersion;
+
+    @Column(name = "billing_base_tokens")
+    private Long billingBaseTokens;
+
+    @Column(name = "billing_tokens_per_thousand_characters", precision = 10, scale = 4)
+    private BigDecimal billingTokensPerThousandCharacters;
+
+    @Column(name = "billing_quoted_content_characters")
+    private Long billingQuotedContentCharacters;
+
+    @Column(name = "billing_quoted_question_type_count")
+    private Integer billingQuotedQuestionTypeCount;
+
+    @Column(name = "billing_accepted_question_type_count")
+    private Integer billingAcceptedQuestionTypeCount;
+
     @Column(name = "was_capped")
     private Boolean wasCappedAtReserved = false;
 
@@ -323,6 +352,56 @@ public class QuizGenerationJob {
      */
     public boolean hasCommittedTokens() {
         return billingState != null && billingState.isCommitted();
+    }
+
+    public void captureGenerationTariff(
+            String tariffVersion,
+            long baseTokens,
+            BigDecimal tokensPerThousandCharacters,
+            long quotedContentCharacters,
+            int quotedQuestionTypeCount
+    ) {
+        if (tariffVersion == null || tariffVersion.isBlank()) {
+            throw new IllegalArgumentException("tariffVersion must not be blank");
+        }
+        if (baseTokens < 0L) {
+            throw new IllegalArgumentException("baseTokens must not be negative");
+        }
+        if (tokensPerThousandCharacters == null || tokensPerThousandCharacters.signum() <= 0) {
+            throw new IllegalArgumentException("tokensPerThousandCharacters must be greater than zero");
+        }
+        if (quotedContentCharacters < 0L) {
+            throw new IllegalArgumentException("quotedContentCharacters must not be negative");
+        }
+        if (quotedQuestionTypeCount < 0) {
+            throw new IllegalArgumentException("quotedQuestionTypeCount must not be negative");
+        }
+
+        this.billingTariffVersion = tariffVersion;
+        this.billingBaseTokens = baseTokens;
+        this.billingTokensPerThousandCharacters = tokensPerThousandCharacters;
+        this.billingQuotedContentCharacters = quotedContentCharacters;
+        this.billingQuotedQuestionTypeCount = quotedQuestionTypeCount;
+    }
+
+    public boolean hasGenerationTariffSnapshot() {
+        return billingTariffVersion != null
+                && !billingTariffVersion.isBlank()
+                && billingBaseTokens != null
+                && billingBaseTokens >= 0L
+                && billingTokensPerThousandCharacters != null
+                && billingTokensPerThousandCharacters.signum() > 0
+                && billingQuotedContentCharacters != null
+                && billingQuotedContentCharacters >= 0L
+                && billingQuotedQuestionTypeCount != null
+                && billingQuotedQuestionTypeCount >= 0;
+    }
+
+    public void addProviderLlmTokens(long tokens) {
+        if (tokens < 0) {
+            throw new IllegalArgumentException("provider LLM tokens must not be negative");
+        }
+        providerLlmTokens = Math.addExact(providerLlmTokens == null ? 0L : providerLlmTokens, tokens);
     }
 
     /**

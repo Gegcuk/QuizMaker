@@ -9,6 +9,8 @@ import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
@@ -34,6 +36,7 @@ public class EstimationServiceImpl implements EstimationService {
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
     private final PromptTemplateService promptTemplateService;
+    private final GenerationTariffService generationTariffService;
 
     // Conservative average completion tokens per question output by type (rough heuristic)
     private static final Map<QuestionType, Integer> COMPLETION_TOKENS_PER_QUESTION;
@@ -64,6 +67,9 @@ public class EstimationServiceImpl implements EstimationService {
 
         List<DocumentChunk> chunks = selectChunks(document, request);
         log.info("Found {} chunks for document {} with scope {}", chunks.size(), documentId, request.quizScope());
+        GenerationTariff tariff = generationTariffService.currentTariff();
+        int requestedQuestionTypeCount = calculateRequestedQuestionTypeCount(request);
+        long quotedContentCharacters = calculateQuotedContentCharacters(chunks);
         
         if (chunks.isEmpty()) {
             // If ENTIRE_DOCUMENT requested but chunks are empty, calculate estimate based on document content
@@ -72,22 +78,17 @@ public class EstimationServiceImpl implements EstimationService {
                 
                 // Calculate estimate based on document content directly
                 long estimatedLlmTokens = calculateEstimateFromDocumentContent(document, request);
-                long estimatedBillingTokens = Math.max(1L, llmTokensToBillingTokens(estimatedLlmTokens));
-                
-                log.info("Fallback calculation result: {} LLM tokens -> {} billing tokens", estimatedLlmTokens, estimatedBillingTokens);
-                
-                UUID estimationId = UUID.randomUUID();
-                String humanizedEstimate = EstimationDto.createHumanizedEstimate(estimatedLlmTokens, estimatedBillingTokens, billingProperties.getCurrency());
-                return new EstimationDto(estimatedLlmTokens, estimatedBillingTokens, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
+                return createQuote(
+                        estimatedLlmTokens,
+                        tariff,
+                        quotedContentCharacters,
+                        requestedQuestionTypeCount
+                );
             }
 
-            // For scopes that explicitly select nothing (e.g., SPECIFIC_CHUNKS with empty indices),
-            // keep returning a zeroed estimate as before.
-            long llmZero = 0L;
-            long billingZero = llmTokensToBillingTokens(llmZero);
-            UUID estimationId = UUID.randomUUID();
-            String humanizedEstimate = EstimationDto.createHumanizedEstimate(llmZero, billingZero, billingProperties.getCurrency());
-            return new EstimationDto(llmZero, billingZero, null, billingProperties.getCurrency(), true, humanizedEstimate, estimationId);
+            // Match the frontend estimator: absent selected content still shows
+            // the configured minimum quote rather than an unpriced request.
+            return createQuote(0L, tariff, quotedContentCharacters, requestedQuestionTypeCount);
         }
 
         long totalLlmTokens = calculateChunkBasedEstimate(chunks, request);
@@ -95,23 +96,72 @@ public class EstimationServiceImpl implements EstimationService {
         double safetyFactor = billingProperties.getSafetyFactor();
         long adjustedLlm = (long) Math.ceil(totalLlmTokens * safetyFactor);
 
-        long billingTokens = llmTokensToBillingTokens(adjustedLlm);
-        
-        log.info("Heuristic estimation result: {} LLM tokens -> {} billing tokens (safety factor: {})", 
-                adjustedLlm, billingTokens, safetyFactor);
+        long billingTokens = tariff.quoteForContent(quotedContentCharacters, requestedQuestionTypeCount);
 
+        log.info("Generation pricing quote: {} billing tokens for {} source characters and {} requested question types under tariff {}. " +
+                        "Operational LLM estimate is {} tokens (safety factor: {})",
+                billingTokens, quotedContentCharacters, requestedQuestionTypeCount, tariff.version(), adjustedLlm, safetyFactor);
+
+        return createQuote(adjustedLlm, tariff, quotedContentCharacters, requestedQuestionTypeCount);
+    }
+
+    private EstimationDto createQuote(
+            long estimatedLlmTokens,
+            GenerationTariff tariff,
+            long quotedContentCharacters,
+            int requestedQuestionTypeCount
+    ) {
+        long estimatedBillingTokens = tariff.quoteForContent(quotedContentCharacters, requestedQuestionTypeCount);
         UUID estimationId = UUID.randomUUID();
-        String humanizedEstimate = EstimationDto.createHumanizedEstimate(adjustedLlm, billingTokens, billingProperties.getCurrency());
-        
-        return new EstimationDto(
-                adjustedLlm,
-                billingTokens,
-                null, // approxCostCents not implemented in MVP
-                billingProperties.getCurrency(),
-                true, // explicitly an estimate, not a quote
-                humanizedEstimate,
-                estimationId
+        String humanizedEstimate = EstimationDto.createHumanizedEstimate(
+                estimatedBillingTokens,
+                quotedContentCharacters,
+                requestedQuestionTypeCount
         );
+        return new EstimationDto(
+                estimatedLlmTokens,
+                estimatedBillingTokens,
+                null,
+                billingProperties.getCurrency(),
+                true,
+                humanizedEstimate,
+                estimationId,
+                tariff.version(),
+                tariff.baseTokens(),
+                tariff.tokensPerThousandCharacters(),
+                quotedContentCharacters,
+                requestedQuestionTypeCount
+        );
+    }
+
+    private int calculateRequestedQuestionTypeCount(GenerateQuizFromDocumentRequest request) {
+        long questionTypeCount = request.questionsPerType() == null
+                ? 0L
+                : request.questionsPerType().values().stream()
+                        .filter(Objects::nonNull)
+                        .filter(questionCount -> questionCount > 0)
+                        .count();
+
+        return Math.toIntExact(questionTypeCount);
+    }
+
+    private long calculateQuotedContentCharacters(List<DocumentChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return 0L;
+        }
+        return chunks.stream()
+                .mapToLong(this::resolveQuoteCharacterCount)
+                .sum();
+    }
+
+    private long resolveQuoteCharacterCount(DocumentChunk chunk) {
+        if (chunk == null) {
+            return 0L;
+        }
+        if (chunk.getContent() != null && !chunk.getContent().isEmpty()) {
+            return chunk.getContent().length();
+        }
+        return chunk.getCharacterCount() == null ? 0L : Math.max(0, chunk.getCharacterCount());
     }
 
     @Override

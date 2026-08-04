@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeSubscriptionUnavailableException;
@@ -211,5 +212,86 @@ class BillingSubscriptionMutationControllerWebMvcTest {
                 .contains("subscriptionId").contains("newPriceLookupKey");
         assertThat(specification.at("/components/schemas/CancelSubscriptionRequest/required").toString())
                 .contains("subscriptionId");
+    }
+
+    @Test
+    @WithMockUser(authorities = "BILLING_READ")
+    @DisplayName("Billing OpenAPI documents the content-length per-question-type quote without making new fields required")
+    void billingOpenApi_documentsTariffQuoteCompatibility() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/billing"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1estimate~1quiz-generation/post/responses/200/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/EstimationDto");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/estimatedBillingTokens/description").asText())
+                .contains("never charged more");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/tariffVersion/description").asText())
+                .contains("pricing rule");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingBaseTokens/description").asText())
+                .contains("base billing tokens");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/billingTokensPerThousandCharacters/description").asText())
+                .contains("per 1,000 source characters");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedContentCharacters/description").asText())
+                .contains("maximum quote");
+        assertThat(specification.at("/components/schemas/EstimationDto/properties/quotedQuestionTypeCount/description").asText())
+                .contains("maximum quote");
+        assertThat(specification.at("/components/schemas/EstimationDto/required").toString())
+                .doesNotContain("tariffVersion")
+                .doesNotContain("billingBaseTokens")
+                .doesNotContain("billingTokensPerThousandCharacters")
+                .doesNotContain("quotedContentCharacters")
+                .doesNotContain("quotedQuestionTypeCount");
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_READ")
+    @DisplayName("POST estimate quiz generation returns the quoted tariff breakdown")
+    void estimateQuizGeneration_withTariffSnapshot_returnsQuotedBreakdown() throws Exception {
+        UUID documentId = UUID.fromString("a3b6cb5d-9c4c-4a5b-9e2a-9ef60e2e8e03");
+        EstimationDto quote = new EstimationDto(
+                7_000L,
+                7L,
+                null,
+                "usd",
+                true,
+                "Up to 7 billing tokens for 2 question types from 4,000 source characters",
+                UUID.randomUUID(),
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35"),
+                4_000L,
+                2
+        );
+        when(featureFlags.isBilling()).thenReturn(true);
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        when(estimationService.estimateQuizGeneration(eq(documentId), any())).thenReturn(quote);
+
+        mockMvc.perform(post("/api/v1/billing/estimate/quiz-generation")
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "documentId": "%s",
+                                  "quizScope": "ENTIRE_DOCUMENT",
+                                  "questionsPerType": {
+                                    "MCQ_SINGLE": 3,
+                                    "FILL_GAP": 2
+                                  },
+                                  "difficulty": "MEDIUM"
+                                }
+                                """.formatted(documentId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estimatedBillingTokens").value(7))
+                .andExpect(jsonPath("$.tariffVersion").value("v1-content-length-per-question-type"))
+                .andExpect(jsonPath("$.billingBaseTokens").value(3))
+                .andExpect(jsonPath("$.billingTokensPerThousandCharacters").value(0.35))
+                .andExpect(jsonPath("$.quotedContentCharacters").value(4_000))
+                .andExpect(jsonPath("$.quotedQuestionTypeCount").value(2));
+
+        verify(rateLimitService).checkRateLimit("quiz-estimation", USER_ID.toString(), 10);
+        verify(estimationService).estimateQuizGeneration(eq(documentId), any());
     }
 }

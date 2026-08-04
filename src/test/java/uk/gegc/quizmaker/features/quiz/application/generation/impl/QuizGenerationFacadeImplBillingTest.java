@@ -15,7 +15,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidJobStateForCommitException;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
@@ -29,7 +31,6 @@ import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
-import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -86,6 +87,9 @@ class QuizGenerationFacadeImplBillingTest {
     
     @Mock
     private EstimationService estimationService;
+
+    @Mock
+    private GenerationTariffService generationTariffService;
     
     @Mock
     private FeatureFlags featureFlags;
@@ -95,9 +99,6 @@ class QuizGenerationFacadeImplBillingTest {
     
     @Mock
     private TransactionTemplate transactionTemplate;
-    
-    @Mock
-    private QuizJobProperties quizJobProperties;
     
     @Mock
     private QuizAssemblyService quizAssemblyService;
@@ -456,6 +457,100 @@ class QuizGenerationFacadeImplBillingTest {
             assertThat(job.getWasCappedAtReserved()).isFalse();
             assertThat(job.getLastBillingError()).isNull();
         }
+
+        @Test
+        @DisplayName("Tariff snapshot settles accepted question types without using provider telemetry")
+        void tariffSnapshot_settlesAcceptedQuestionTypesWithoutUsingProviderTelemetry() {
+            job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
+                    new java.math.BigDecimal("0.35"), 4_000L, 2);
+            job.setBillingEstimatedTokens(7L);
+            job.setProviderLlmTokens(4_321L);
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(5L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 5L, 2L));
+
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(5L),
+                    eq("quiz-generation"), anyString());
+            verify(estimationService, never()).computeActualBillingTokens(any(), any(), anyLong());
+            assertThat(job.getBillingAcceptedQuestionTypeCount()).isEqualTo(1);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(5L);
+            assertThat(job.getProviderLlmTokens()).isEqualTo(4_321L);
+            assertThat(job.getActualTokens()).isNull();
+        }
+
+        @Test
+        @DisplayName("Tariff snapshot charges each distinct accepted type once regardless of question count")
+        void tariffSnapshot_chargesEachDistinctAcceptedTypeOnceRegardlessOfQuestionCount() {
+            job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
+                    new java.math.BigDecimal("0.35"), 4_000L, 2);
+            job.setBillingEstimatedTokens(7L);
+            List<Question> mixedAcceptedQuestions = List.of(
+                    createQuestion(QuestionType.MCQ_SINGLE),
+                    createQuestion(QuestionType.MCQ_SINGLE),
+                    createQuestion(QuestionType.OPEN)
+            );
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(7L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 7L, 0L));
+
+            facade.commitTokensForSuccessfulGeneration(job, mixedAcceptedQuestions, originalRequest);
+
+            verify(generationTariffService).fromSnapshot(
+                    eq("v1-content-length-per-question-type"),
+                    eq(3L),
+                    eq(new java.math.BigDecimal("0.35"))
+            );
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(7L),
+                    eq("quiz-generation"), anyString());
+            assertThat(job.getBillingAcceptedQuestionTypeCount()).isEqualTo(2);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(7L);
+            assertThat(job.getWasCappedAtReserved()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Tariff snapshot caps settlement at the persisted maximum quote")
+        void tariffSnapshot_capsSettlementAtPersistedMaximumQuote() {
+            job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
+                    new java.math.BigDecimal("0.35"), 4_000L, 2);
+            job.setBillingEstimatedTokens(4L);
+
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+            when(internalBillingService.commit(eq(job.getBillingReservationId()), eq(4L),
+                    eq("quiz-generation"), anyString()))
+                    .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+
+            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+
+            verify(internalBillingService).commit(eq(job.getBillingReservationId()), eq(4L),
+                    eq("quiz-generation"), anyString());
+            assertThat(job.getBillingAcceptedQuestionTypeCount()).isEqualTo(1);
+            assertThat(job.getBillingCommittedTokens()).isEqualTo(4L);
+            assertThat(job.getWasCappedAtReserved()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Tariff snapshot releases the quote when no question type is accepted")
+        void tariffSnapshot_releasesQuoteWhenNoQuestionTypeIsAccepted() {
+            job.captureGenerationTariff("v1-content-length-per-question-type", 3L,
+                    new java.math.BigDecimal("0.35"), 4_000L, 2);
+            job.setBillingEstimatedTokens(7L);
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            facade.commitTokensForSuccessfulGeneration(job, List.of(), originalRequest);
+
+            verify(internalBillingService).release(eq(job.getBillingReservationId()), eq("zero-accepted-question-types"),
+                    eq("quiz-generation"), contains("release-zero-accepted-types"));
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingAcceptedQuestionTypeCount()).isZero();
+            assertThat(job.getBillingCommittedTokens()).isZero();
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+        }
         
         @Test
         @DisplayName("Actual exceeds reserved - capped at reserved")
@@ -772,8 +867,8 @@ class QuizGenerationFacadeImplBillingTest {
             QuizGenerationFacadeImpl spyFacade = new QuizGenerationFacadeImpl(
                     userRepository, jobRepository, jobService, aiQuizGenerationService,
                     documentProcessingService, billingService, internalBillingService,
-                    estimationService, featureFlags, applicationEventPublisher,
-                    transactionTemplate, quizJobProperties, quizAssemblyService,
+                    estimationService, generationTariffService, featureFlags, applicationEventPublisher,
+                    transactionTemplate, quizAssemblyService,
                     idempotencyService, requestCanonicalizer
             );
             
@@ -863,19 +958,28 @@ class QuizGenerationFacadeImplBillingTest {
         job.setBillingReservationId(UUID.randomUUID());
         job.setBillingEstimatedTokens(1200L);
         job.setInputPromptTokens(1000L);
+
+        lenient().when(generationTariffService.fromSnapshot(anyString(), anyLong(), any()))
+                .thenAnswer(invocation -> new ContentLengthPerQuestionTypeTariff(
+                        invocation.getArgument(0, String.class),
+                        invocation.getArgument(1, Long.class),
+                        invocation.getArgument(2, java.math.BigDecimal.class)
+                ));
         job.setEstimationVersion("v1.0");
         return job;
     }
     
     private List<Question> createQuestions(int count) {
         return java.util.stream.IntStream.range(0, count)
-                .mapToObj(i -> {
-                    Question q = new Question();
-                    q.setId(UUID.randomUUID());
-                    q.setQuestionText("Question " + i);
-                    q.setType(QuestionType.MCQ_SINGLE);
-                    return q;
-                })
+                .mapToObj(i -> createQuestion(QuestionType.MCQ_SINGLE))
                 .collect(Collectors.toList());
+    }
+
+    private Question createQuestion(QuestionType type) {
+        Question question = new Question();
+        question.setId(UUID.randomUUID());
+        question.setQuestionText("Question " + UUID.randomUUID());
+        question.setType(type);
+        return question;
     }
 }

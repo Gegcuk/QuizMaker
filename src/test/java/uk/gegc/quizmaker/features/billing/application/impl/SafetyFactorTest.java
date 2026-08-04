@@ -12,6 +12,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus;
@@ -53,14 +55,21 @@ class SafetyFactorTest {
     private PromptTemplateService promptTemplateService;
 
     private EstimationServiceImpl estimationService;
+    private GenerationTariffService generationTariffService;
 
     @BeforeEach
     void setUp() {
+        generationTariffService = () -> new ContentLengthPerQuestionTypeTariff(
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35")
+        );
         estimationService = new EstimationServiceImpl(
             billingProperties,
             documentRepository,
             documentChunkRepository,
-            promptTemplateService
+            promptTemplateService,
+            generationTariffService
         );
         
         // Setup properties with known values using lenient stubbing

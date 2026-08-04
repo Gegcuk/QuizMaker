@@ -12,6 +12,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingProperties;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus;
@@ -32,6 +34,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -56,14 +60,21 @@ class EstimationActualsTest {
     private PromptTemplateService promptTemplateService;
 
     private EstimationServiceImpl estimationService;
+    private GenerationTariffService generationTariffService;
 
     @BeforeEach
     void setUp() {
+        generationTariffService = () -> new ContentLengthPerQuestionTypeTariff(
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35")
+        );
         estimationService = new EstimationServiceImpl(
             billingProperties,
             documentRepository,
             documentChunkRepository,
-            promptTemplateService
+            promptTemplateService,
+            generationTariffService
         );
         
         // Setup default properties with lenient stubbing
@@ -216,15 +227,14 @@ class EstimationActualsTest {
         }
 
         @Test
-        @DisplayName("Should use ceiling for final token calculation")
-        void shouldUseCeilingForFinalTokenCalculation() {
+        @DisplayName("Keeps the customer quote independent from the operational LLM-token ratio")
+        void keepsCustomerQuoteIndependentFromOperationalLlmTokenRatio() {
             // Given
             UUID documentId = UUID.randomUUID();
             Document document = createDocumentWithChunks(documentId, 1);
             
-            // Set up to create fractional result
+            // Safety factor changes the operational estimate, not the customer quote.
             when(billingProperties.getSafetyFactor()).thenReturn(1.1); // Small factor
-            when(billingProperties.getTokenToLlmRatio()).thenReturn(1330L); // Fractional ratio
             
             GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 documentId,
@@ -248,11 +258,10 @@ class EstimationActualsTest {
             // When
             EstimationDto result = estimationService.estimateQuizGeneration(documentId, request);
 
-            // Then - should round up
-            // The actual calculation involves multiple components and ceiling operations
-            // This test verifies that the method handles fractional results correctly
-            assertThat(result.estimatedBillingTokens()).isGreaterThan(0L);
+            // Then
+            assertThat(result.estimatedBillingTokens()).isEqualTo(4L);
             assertThat(result.estimatedLlmTokens()).isGreaterThan(0L);
+            verify(billingProperties, never()).getTokenToLlmRatio();
         }
 
         private Document createDocumentWithChunks(UUID documentId, int chunkCount) {

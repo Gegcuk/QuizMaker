@@ -1398,7 +1398,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     /**
-     * Track token usage for a job. Accumulates actualTokens from LLM responses.
+     * Tracks provider-reported LLM usage separately from the customer-facing
+     * generation tariff. Missing provider usage is not estimated or settled.
      * Uses TransactionTemplate to avoid self-invocation issues.
      */
     public void trackTokenUsage(UUID jobId, long tokensUsed) {
@@ -1410,10 +1411,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
                 if (job != null) {
-                    long currentTokens = job.getActualTokens() != null ? job.getActualTokens() : 0L;
-                    job.setActualTokens(currentTokens + tokensUsed);
+                    job.addProviderLlmTokens(tokensUsed);
                     jobRepository.save(job);
-                    log.debug("Tracked {} tokens for job {} (total: {})", tokensUsed, jobId, job.getActualTokens());
+                    log.debug("Tracked {} provider LLM tokens for job {} (total: {})",
+                            tokensUsed, jobId, job.getProviderLlmTokens());
                 }
             });
         } catch (Exception e) {

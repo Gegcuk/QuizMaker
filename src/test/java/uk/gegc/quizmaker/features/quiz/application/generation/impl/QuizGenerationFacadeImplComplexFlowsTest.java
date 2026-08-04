@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.domain.exception.InsufficientTokensException;
 import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
@@ -35,7 +36,6 @@ import uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestF
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
-import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -96,6 +96,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     
     @Mock
     private EstimationService estimationService;
+
+    @Mock
+    private GenerationTariffService generationTariffService;
     
     @Mock
     private FeatureFlags featureFlags;
@@ -105,9 +108,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     
     @Mock
     private TransactionTemplate transactionTemplate;
-    
-    @Mock
-    private QuizJobProperties quizJobProperties;
     
     @Mock
     private QuizAssemblyService quizAssemblyService;
@@ -158,8 +158,13 @@ class QuizGenerationFacadeImplComplexFlowsTest {
                 null,
                 "usd",
                 true,
-                "~1200 billing tokens (1,000 LLM tokens)",
-                UUID.randomUUID()
+                "Up to 1200 billing tokens for 2 question types from 100,000 source characters",
+                UUID.randomUUID(),
+                "v1-content-length-per-question-type",
+                3L,
+                new java.math.BigDecimal("0.35"),
+                100_000L,
+                2
         );
         
         reservation = new ReservationDto(
@@ -339,6 +344,11 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             assertThat(savedJob.getBillingState()).isEqualTo(BillingState.RESERVED);
             assertThat(savedJob.getInputPromptTokens()).isEqualTo(1000L);
             assertThat(savedJob.getEstimationVersion()).isEqualTo("v1.0");
+            assertThat(savedJob.getBillingTariffVersion()).isEqualTo("v1-content-length-per-question-type");
+            assertThat(savedJob.getBillingBaseTokens()).isEqualTo(3L);
+            assertThat(savedJob.getBillingTokensPerThousandCharacters()).isEqualByComparingTo("0.35");
+            assertThat(savedJob.getBillingQuotedContentCharacters()).isEqualTo(100_000L);
+            assertThat(savedJob.getBillingQuotedQuestionTypeCount()).isEqualTo(2);
             assertThat(savedJob.getBillingIdempotencyKeys()).contains("\"reserve\"");
         }
         
@@ -735,15 +745,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
     @Nested
     @DisplayName("cancelGenerationJob() Tests")
     class CancelGenerationJobTests {
-        
-        private QuizJobProperties.Cancellation cancellationConfig;
-        
-        @BeforeEach
-        void setUp() {
-            cancellationConfig = mock(QuizJobProperties.Cancellation.class);
-            when(quizJobProperties.getCancellation()).thenReturn(cancellationConfig);
-        }
-        
+
         @Test
         @DisplayName("Successful cancellation - no work started - releases reservation")
         void successfulCancellation_noWorkStarted_releasesReservation() {
@@ -754,8 +756,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
             
             // When
             uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus status = 
@@ -791,40 +791,33 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         }
         
         @Test
-        @DisplayName("Work started - commitOnCancel - commits min start fee")
-        void workStarted_commitOnCancel_commitsMinStartFee() {
+        @DisplayName("Work started - provider usage does not become a cancellation charge")
+        void workStarted_providerUsageDoesNotBecomeCancellationCharge() {
             // Given
             job.setHasStartedAiCalls(true);
-            job.setActualTokens(50L);
+            job.setProviderLlmTokens(50L);
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
             job.setBillingEstimatedTokens(1200L);
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
-            when(cancellationConfig.getMinStartFeeTokens()).thenReturn(100L);
-            
-            uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto commitResult = 
-                new uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto(
-                    reservation.id(), 100L, 1100L
-                );
-            when(internalBillingService.commit(eq(reservation.id()), eq(100L), anyString(), anyString()))
-                    .thenReturn(commitResult);
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
             
             // Then
-            verify(internalBillingService).commit(eq(reservation.id()), eq(100L), eq(job.getId().toString()), anyString());
-            assertThat(job.getBillingCommittedTokens()).isEqualTo(100L);
-            assertThat(job.getBillingState()).isEqualTo(BillingState.COMMITTED);
+            verify(billingService).release(eq(reservation.id()), eq("Job cancelled by user"),
+                    eq(job.getId().toString()), anyString());
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingCommittedTokens()).isZero();
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+            assertThat(job.getProviderLlmTokens()).isEqualTo(50L);
         }
         
         @Test
-        @DisplayName("Work started - commitOnCancel - commits actual if higher than min")
-        void workStarted_commitOnCancel_commitsActualIfHigher() {
+        @DisplayName("Work started - legacy actual token field does not become a cancellation charge")
+        void workStarted_legacyActualTokensDoNotBecomeCancellationCharge() {
             // Given
             job.setHasStartedAiCalls(true);
             job.setActualTokens(150L);
@@ -834,59 +827,42 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
-            when(cancellationConfig.getMinStartFeeTokens()).thenReturn(100L);
-            
-            uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto commitResult = 
-                new uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto(
-                    reservation.id(), 150L, 1050L
-                );
-            when(internalBillingService.commit(eq(reservation.id()), eq(150L), anyString(), anyString()))
-                    .thenReturn(commitResult);
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
             
             // Then
-            verify(internalBillingService).commit(eq(reservation.id()), eq(150L), anyString(), anyString());
-            assertThat(job.getBillingCommittedTokens()).isEqualTo(150L);
+            verify(billingService).release(eq(reservation.id()), anyString(), anyString(), anyString());
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+            assertThat(job.getActualTokens()).isEqualTo(150L);
         }
         
         @Test
-        @DisplayName("Work started - commitOnCancel - capped at estimated")
-        void workStarted_commitOnCancel_cappedAtEstimated() {
+        @DisplayName("Work started - releases the whole quote even when provider use exceeds the quote")
+        void workStarted_releasesWholeQuoteWhenProviderUsageExceedsQuote() {
             // Given
             job.setHasStartedAiCalls(true);
-            job.setActualTokens(1500L);  // more than estimated
+            job.setProviderLlmTokens(1500L);
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
-            job.setBillingEstimatedTokens(500L);  // lower estimated
+            job.setBillingEstimatedTokens(500L);
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
-            when(cancellationConfig.getMinStartFeeTokens()).thenReturn(100L);
-            
-            uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto commitResult = 
-                new uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto(
-                    reservation.id(), 500L, 0L
-                );
-            when(internalBillingService.commit(eq(reservation.id()), eq(500L), anyString(), anyString()))
-                    .thenReturn(commitResult);
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
             
-            // Then - should commit 500 (capped at estimated), not 1500
-            verify(internalBillingService).commit(eq(reservation.id()), eq(500L), anyString(), anyString());
-            assertThat(job.getBillingCommittedTokens()).isEqualTo(500L);
+            // Then
+            verify(billingService).release(eq(reservation.id()), anyString(), anyString(), anyString());
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
         }
         
         @Test
-        @DisplayName("Work started - no commitOnCancel - releases reservation")
-        void workStarted_noCommitOnCancel_releasesReservation() {
+        @DisplayName("Work started - releases reservation when billing feature reporting is disabled")
+        void workStarted_billingFeatureReportingDisabled_releasesReservation() {
             // Given
             job.setHasStartedAiCalls(true);
             job.setActualTokens(150L);
@@ -895,8 +871,7 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(false);  // commit disabled
+            when(featureFlags.isBilling()).thenReturn(false);
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
@@ -908,27 +883,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         }
         
         @Test
-        @DisplayName("Work started - billing disabled - releases reservation")
-        void workStarted_billingDisabled_releasesReservation() {
-            // Given
-            job.setHasStartedAiCalls(true);
-            job.setActualTokens(150L);
-            job.setBillingState(BillingState.RESERVED);
-            job.setBillingReservationId(reservation.id());
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(false);  // billing disabled
-            
-            // When
-            facade.cancelGenerationJob(job.getId(), "testuser");
-            
-            // Then - should release, not commit
-            verify(billingService).release(eq(job.getBillingReservationId()), anyString(), anyString(), anyString());
-            verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
-        }
-        
-        @Test
         @DisplayName("No reservation - cancellation succeeds")
         void noReservation_cancellationSucceeds() {
             // Given
@@ -936,7 +890,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
             
             // When
             uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus status = 
@@ -952,35 +905,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
         }
         
         @Test
-        @DisplayName("Commit fails - error saved to job")
-        void commitFails_errorSavedToJob() {
-            // Given
-            job.setHasStartedAiCalls(true);
-            job.setActualTokens(150L);
-            job.setBillingState(BillingState.RESERVED);
-            job.setBillingReservationId(reservation.id());
-            job.setBillingEstimatedTokens(1200L);
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
-            when(cancellationConfig.getMinStartFeeTokens()).thenReturn(100L);
-            
-            when(internalBillingService.commit(any(), anyLong(), anyString(), anyString()))
-                    .thenThrow(new RuntimeException("Billing service error"));
-            
-            // When
-            uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus status = 
-                facade.cancelGenerationJob(job.getId(), "testuser");
-            
-            // Then - job still cancelled, error logged
-            assertThat(status).isNotNull();
-            assertThat(job.getLastBillingError()).contains("Failed to process billing on cancel");
-            verify(jobRepository, atLeastOnce()).save(job);
-        }
-        
-        @Test
         @DisplayName("Release fails - error saved to job")
         void releaseFails_errorSavedToJob() {
             // Given
@@ -990,7 +914,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
             
             doThrow(new RuntimeException("Release failed"))
                     .when(billingService).release(any(), anyString(), anyString(), anyString());
@@ -1002,30 +925,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             // Then - job still cancelled, error logged
             assertThat(status).isNotNull();
             assertThat(job.getLastBillingError()).contains("Failed to release reservation");
-        }
-        
-        @Test
-        @DisplayName("Tokens to commit zero - releases instead")
-        void tokensToCommit_zero_releasesInstead() {
-            // Given
-            job.setHasStartedAiCalls(true);
-            job.setActualTokens(0L);
-            job.setBillingState(BillingState.RESERVED);
-            job.setBillingReservationId(reservation.id());
-            job.setBillingEstimatedTokens(1200L);
-            
-            when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
-            when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
-            when(cancellationConfig.isCommitOnCancel()).thenReturn(true);
-            when(cancellationConfig.getMinStartFeeTokens()).thenReturn(0L);  // min is 0
-            
-            // When
-            facade.cancelGenerationJob(job.getId(), "testuser");
-            
-            // Then - should release instead of commit with 0
-            verify(billingService).release(eq(job.getBillingReservationId()), anyString(), anyString(), anyString());
-            verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
         }
         
         @Test
@@ -1050,7 +949,6 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             when(jobService.getJobByIdAndUsername(job.getId(), "testuser")).thenReturn(job);
             when(jobRepository.findById(job.getId())).thenReturn(Optional.of(job));
-            when(featureFlags.isBilling()).thenReturn(true);
             
             // When
             facade.cancelGenerationJob(job.getId(), "testuser");
