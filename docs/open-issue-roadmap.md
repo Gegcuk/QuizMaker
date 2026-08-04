@@ -66,14 +66,14 @@ Complete this before new feature implementation. It prevents duplicate work and 
 
 - #32 and #272 both request broad audit logging. Keep one epic and make the other a scoped implementation slice.
 - #274 and #318 both address PII protection in AI prompts. Merge policy and implementation expectations.
-- #259, #269, and #302 overlap on AI/generation rate limiting. Define one shared policy and separate only endpoint-specific tests.
+- #269 and #302 overlap on AI/generation rate limiting. Keep #269 as the shared rate-policy contract and narrow #302 to link-generation-specific integration after that contract exists.
 - #56, #311, and #312 overlap on observability. Keep #56 as the platform epic and the others as ingestion-specific metrics.
 - #75 and #414 are coupled: organization context cannot be delivered safely without a real membership source.
 
 ### Reframe oversized issues
 
 - Split #416 into preferences, paginated activity, and statistics contracts unless one small shared data model genuinely supports all three.
-- Reframe #262. Adding annotations to "all controllers" is not a security design. Define authorization per use case and enforce it at the reusable service boundary, with route rules where appropriate.
+- Former #262 was closed as an unsafe horizontal annotation task. Each vertical slice must define authorization per use case and enforce it at the reusable service boundary, with route rules where appropriate.
 - Treat #31 as an incremental convention, not a repository-wide mapper rewrite.
 
 ### Normalize labels
@@ -142,67 +142,26 @@ These guardrails should land before the two largest feature streams.
 
 ## Wave 3: Flashcards And Spaced Repetition
 
-Issues #179 through #266 are mostly horizontal implementation tasks. Execute them as the vertical slices below. Tests and OpenAPI are part of each slice, not a final cleanup phase.
+The former horizontal backlog #179 through #268 and #270, plus the old flashcard AI fragments #249 through #261, was closed on 2026-08-04. It prescribed classes, migrations, and controllers rather than independently verifiable product behavior. Do not reopen individual fragments; use the current vertical slices and the [Policy-Driven Quiz Execution Architecture](architecture/policy-driven-quiz-execution.md).
 
-### 3A. Data and domain foundation
+### 3A. Private deck and card authoring
 
-1. Schema design and migrations: #179, #180, #181, #182, #183, #184, #185, #186.
-2. Aggregates and value objects: #187, #188, #189, #190.
-3. Repositories and mappings: #191, #192, #193, #194, #195.
-4. Domain ownership/events/lifecycle: #196, #197, #198.
+1. [#497](https://github.com/Gegcuk/QuizMaker/issues/497): private deck/card authoring with immutable card revisions, ownership, pagination, OpenAPI, MySQL constraints, and compatibility coverage.
 
-Gate: migrations are additive, constraints/indexes are tested against MySQL, associations are lazy, concurrency uses `@Version`, and soft-delete uniqueness semantics are explicit.
+This is the content foundation for learning. It intentionally excludes public sharing, tags, bulk operations, attachments, and AI generation until a future focused issue is ready.
 
-### 3B. Deck vertical slice
+### 3B. Learning and spaced repetition
 
-Recommended order:
+1. [#488](https://github.com/Gegcuk/QuizMaker/issues/488): separate learning-session bounded context using immutable content/forms, deterministic versioned scheduling, answer/response abuse protection, and private progress.
 
-1. Contracts and service boundary: #206, #207, #208.
-2. Authorization and visibility: #263, #264, #210.
-3. Endpoints: #200, #201, #202, #203, #204, #205.
-4. Caching and audit: #209, #211.
-5. Treat #199 as the deck-controller epic and close it when the endpoint slices are complete.
+Learning schedules are not assessment attempts or result data. Use deterministic `Clock`-based tests and preserve existing repetition data through explicit adapters/migration decisions.
 
-Deliver create/read/update/delete/list/stats with ownership, pagination, typed errors, OpenAPI examples, unit tests, MVC tests, repository tests, and one authenticated integration path.
+### 3C. AI flashcard draft generation
 
-### 3C. Flashcard management vertical slice
+1. [#498](https://github.com/Gegcuk/QuizMaker/issues/498): idempotent AI job, structured parsing/validation/deduplication, protected draft preview, and explicit owner acceptance into #497 card revisions.
+2. [#269](https://github.com/Gegcuk/QuizMaker/issues/269): cross-generation rate-policy contract, retained separately because it applies beyond flashcards and is blocked on the distributed-limiter decision.
 
-1. Business core: #226, #231, #225, #228, #229, #230, #227.
-2. Permissions: #265, #266.
-3. CRUD/search/action endpoints: #213, #214, #215, #216, #217, #218, #219, #220, #221, #222, #223, #224.
-4. Treat #212 as the controller epic and close it after the endpoint slices.
-
-Bulk move must be idempotent, ordering must be concurrency-safe, and suspend/reset operations must document effects on review scheduling.
-
-### 3D. Review and learning slice
-
-1. Service and algorithm: #240, #241.
-2. Due selection/order and grading: #242, #243, #244.
-3. Concurrency/session/limits: #248, #245, #246.
-4. Core review APIs: #233, #234, #235, #236.
-5. Optional session APIs only after the core flow is stable: #237, #238, #239.
-6. Treat #232 as the controller epic.
-7. Protection and telemetry: #270, #247.
-
-Use deterministic `Clock`-based tests and published SM-2 examples. Do not test the algorithm only through controllers.
-
-### 3E. AI flashcard generation
-
-1. Application boundary and prompts: #252, #253, #254.
-2. Provider adapter, parsing, and deduplication: #255, #256, #257.
-3. Validation and confidence behavior: #260, #261.
-4. Jobs, quotas, and rate limiting: #258, #259.
-5. Endpoints and status: #250, #251; treat #249 as the controller epic.
-
-Use a service interface plus implementation, structured schemas, fake AI responses, idempotent job creation, and no real provider calls in automated tests.
-
-### 3F. Security cleanup
-
-- #262 must be narrowed to uncovered routes/use cases discovered by a route-to-permission audit. Do not add duplicate controller annotations where service-level checks already protect reusable behavior.
-
-### Untracked repetition proposal
-
-[The Phase 2 repetition proposal](repetition-phase-2-proposal.md) retains decisions that are not represented by a current open issue. Resolve its question-level gating and compatibility decision before turning any part of it into implementation work; it does not override the issue order above.
+Use a project-owned provider port, fake providers in tests, and no automatic publishing of raw model output.
 
 ## Wave 4: Link, Audio, And Video Ingestion
 

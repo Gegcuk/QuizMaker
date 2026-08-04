@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.billing.application.CheckoutPackResolver;
 import uk.gegc.quizmaker.features.billing.application.CheckoutReadService;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -51,6 +52,9 @@ class BillingCheckoutPacksControllerTest {
 
     @MockitoBean
     private StripeService stripeService;
+
+    @MockitoBean
+    private SubscriptionMutationService subscriptionMutationService;
 
     @MockitoBean
     private EstimationService estimationService;

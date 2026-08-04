@@ -52,21 +52,26 @@ public interface StripeService {
     SubscriptionResponse createSubscription(String customerId, String priceId) throws com.stripe.exception.StripeException;
 
     /**
-     * Update a Stripe Subscription to a new price.
+     * Update a subscription that has already passed ownership validation without retrieving it again.
      *
-     * @param subscriptionId    Stripe subscription ID
-     * @param newPriceId        New Stripe price ID
+     * @param subscription verified Stripe subscription
+     * @param newPriceId server-resolved Stripe price identifier
      * @return updated subscription information
      */
-    com.stripe.model.Subscription updateSubscription(String subscriptionId, String newPriceId) throws com.stripe.exception.StripeException;
+    com.stripe.model.Subscription updateSubscription(
+            com.stripe.model.Subscription subscription,
+            String newPriceId
+    ) throws com.stripe.exception.StripeException;
 
     /**
-     * Cancel a Stripe Subscription.
+     * Cancel a subscription that has already passed ownership validation without retrieving it again.
      *
-     * @param subscriptionId Stripe subscription ID
+     * @param subscription verified Stripe subscription
      * @return cancelled subscription information
      */
-    com.stripe.model.Subscription cancelSubscription(String subscriptionId) throws com.stripe.exception.StripeException;
+    com.stripe.model.Subscription cancelSubscription(
+            com.stripe.model.Subscription subscription
+    ) throws com.stripe.exception.StripeException;
 
     /**
      * Retrieve a Stripe Subscription by ID.
