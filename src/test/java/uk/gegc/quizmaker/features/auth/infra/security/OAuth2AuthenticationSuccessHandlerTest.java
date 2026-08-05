@@ -172,17 +172,11 @@ class OAuth2AuthenticationSuccessHandlerTest {
     }
 
     @Test
-    @DisplayName("determineTargetUrl: logs successful authentication")
-    void determineTargetUrl_LogsSuccessfulAuthentication() {
-        // Given
-        when(authentication.getName()).thenReturn("johndoe");
-
-        // When
+    @DisplayName("determineTargetUrl: does not read an authentication subject for logging")
+    void determineTargetUrl_DoesNotReadAuthenticationSubject() {
         handler.determineTargetUrl(request, response, authentication);
 
-        // Then
-        verify(authentication).getName();
-        // Log statement is executed (verified by code coverage)
+        verifyNoInteractions(authentication);
     }
 
     @Test
@@ -231,17 +225,12 @@ class OAuth2AuthenticationSuccessHandlerTest {
     }
 
     @Test
-    @DisplayName("onAuthenticationSuccess: handles null authentication name gracefully")
-    void onAuthenticationSuccess_NullAuthenticationName_HandlesGracefully() throws IOException {
-        // Given
-        when(authentication.getName()).thenReturn(null);
-
-        // When
+    @DisplayName("onAuthenticationSuccess: does not require an authentication name to redirect")
+    void onAuthenticationSuccess_DoesNotRequireAuthenticationName() throws IOException {
         handler.onAuthenticationSuccess(request, response, authentication);
 
-        // Then
         verify(redirectStrategy).sendRedirect(any(), any(), any());
-        // Should not throw exception
+        verifyNoInteractions(authentication);
     }
 
     @Test

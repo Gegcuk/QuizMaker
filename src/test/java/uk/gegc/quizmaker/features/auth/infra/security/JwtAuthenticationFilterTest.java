@@ -21,6 +21,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.io.IOException;
@@ -45,6 +46,9 @@ public class JwtAuthenticationFilterTest {
     AuthSessionService authSessionService;
 
     @Mock
+    AuthSessionMetricsService authSessionMetricsService;
+
+    @Mock
     TrustedProxyUtil trustedProxyUtil;
 
     JwtAuthenticationFilter authenticationFilter;
@@ -54,7 +58,11 @@ public class JwtAuthenticationFilterTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        authenticationFilter = new JwtAuthenticationFilter(authSessionService, trustedProxyUtil);
+        authenticationFilter = new JwtAuthenticationFilter(
+                authSessionService,
+                authSessionMetricsService,
+                trustedProxyUtil
+        );
         SecurityContextHolder.clearContext();
         
         // Set up log capture
@@ -148,7 +156,7 @@ public class JwtAuthenticationFilterTest {
 
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
-                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "Successfully authenticated user: {}")));
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "Successfully authenticated session")));
     }
 
     @Test
@@ -179,5 +187,19 @@ public class JwtAuthenticationFilterTest {
         
         assertThat(warnEvent).isNotNull();
         assertThat(warnEvent.getArgumentArray()).containsExactly(clientIp, requestUri, userAgent);
+    }
+
+    @Test
+    @DisplayName("Session-store failure fails closed and increments a bounded operational counter")
+    void sessionStoreFailure_doesNotAuthenticateAndRecordsMetric() throws ServletException, IOException {
+        when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer valid-token");
+        when(authSessionService.authenticateAccessToken("valid-token"))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(authSessionMetricsService).recordSessionStoreFailure();
+        verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
     }
 }

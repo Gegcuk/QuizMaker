@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.io.IOException;
@@ -19,10 +20,16 @@ import java.io.IOException;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final AuthSessionService authSessionService;
+    private final AuthSessionMetricsService authSessionMetricsService;
     private final TrustedProxyUtil trustedProxyUtil;
 
-    public JwtAuthenticationFilter(AuthSessionService authSessionService, TrustedProxyUtil trustedProxyUtil) {
+    public JwtAuthenticationFilter(
+            AuthSessionService authSessionService,
+            AuthSessionMetricsService authSessionMetricsService,
+            TrustedProxyUtil trustedProxyUtil
+    ) {
         this.authSessionService = authSessionService;
+        this.authSessionMetricsService = authSessionMetricsService;
         this.trustedProxyUtil = trustedProxyUtil;
     }
 
@@ -35,13 +42,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Authentication authentication = authSessionService.authenticateAccessToken(token);
                 if (authentication != null) {
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-                log.debug("Successfully authenticated user: {}", authentication.getName());
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                    log.debug("Successfully authenticated session");
                 } else {
                     logInvalidToken(request);
                 }
             } catch (RuntimeException ex) {
                 // A session-store outage must fail closed. Do not expose token data in logs or responses.
+                authSessionMetricsService.recordSessionStoreFailure();
                 log.error("Authentication session validation failed", ex);
             }
         }

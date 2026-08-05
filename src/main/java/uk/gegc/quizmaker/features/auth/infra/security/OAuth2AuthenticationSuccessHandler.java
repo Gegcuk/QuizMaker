@@ -38,7 +38,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         String targetUrl = determineTargetUrl(request, response, authentication);
 
         if (response.isCommitted()) {
-            log.debug("Response has already been committed. Unable to redirect to {}", targetUrl);
+            log.debug("OAuth2 authentication response was already committed before redirect");
             return;
         }
 
@@ -54,7 +54,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         // Generate JWT tokens for the authenticated user
         JwtResponse tokens = authSessionService.issueTokens(authentication);
         
-        log.info("OAuth2 authentication successful for user: {}", authentication.getName());
+        log.info("OAuth2 authentication successful");
 
         // Build redirect URL with tokens as query parameters
         return UriComponentsBuilder.fromUriString(oauth2RedirectUri)

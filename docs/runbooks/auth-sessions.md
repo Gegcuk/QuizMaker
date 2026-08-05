@@ -56,3 +56,19 @@ return `401`; investigate database availability before retrying requests.
 Operational logs must never include a JWT, refresh verifier, or session ID.
 The application emits only bounded events for session revocation, replay
 rejection, validation failures, and expired-session cleanup.
+
+## Metrics
+
+The application exposes fixed-cardinality Micrometer counters. None use user,
+token, or session identifiers as tags:
+
+- `auth.sessions.issued`
+- `auth.sessions.refresh.succeeded`
+- `auth.sessions.logout.succeeded`
+- `auth.sessions.rejected` with `operation` and `reason`
+- `auth.sessions.store.failures`
+- `auth.sessions.expired.purged`
+
+Alert on a sustained increase in `auth.sessions.store.failures` and investigate
+database availability. Treat a rise in `replayed_token` rejections as a
+security signal; it can indicate a retried request or stolen refresh material.
