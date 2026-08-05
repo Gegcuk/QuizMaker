@@ -28,6 +28,7 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/register"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/login"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/refresh"),
+                Arguments.of(HttpMethod.POST, "/api/v1/auth/logout"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/forgot-password"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/reset-password"),
                 Arguments.of(HttpMethod.GET, "/oauth2/authorization/google"),

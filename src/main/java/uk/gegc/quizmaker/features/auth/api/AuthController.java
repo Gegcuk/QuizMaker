@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
 import java.time.LocalDateTime;
 
@@ -91,7 +92,8 @@ public class AuthController {
 
     @Operation(
             summary = "Refresh tokens",
-            description = "Exchanges a valid refresh token for a new access token (and optionally a new refresh token)."
+            description = "Exchanges a current `type=refresh` token for a new access and refresh token. "
+                    + "Refresh tokens are single-use: a replay revokes the session and requires login again."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tokens refreshed"),
@@ -105,14 +107,16 @@ public class AuthController {
                     required = true,
                     content = @Content(schema = @Schema(implementation = RefreshRequest.class))
             )
-            @RequestBody RefreshRequest refreshRequest
+            @Valid @RequestBody RefreshRequest refreshRequest
     ) {
         return ResponseEntity.ok(authService.refresh(refreshRequest));
     }
 
     @Operation(
             summary = "Logout",
-            description = "Revokes the provided access token."
+            description = "Revokes the current session identified by a valid `type=access` bearer token. "
+                    + "The endpoint permits an idempotent retry, but validates the header itself; both access and refresh "
+                    + "capabilities are denied after logout."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Logout successful"),
@@ -120,7 +124,7 @@ public class AuthController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/logout")
-    public void logout(
+    public ResponseEntity<Void> logout(
             @Parameter(
                     description = "Bearer access token",
                     in = ParameterIn.HEADER,
@@ -128,10 +132,14 @@ public class AuthController {
                     required = true,
                     schema = @Schema(type = "string", example = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
             )
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String header
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String header
     ) {
-        String token = header.replaceFirst("^Bearer\\s+", "");
+        if (header == null || !header.startsWith("Bearer ") || header.length() <= "Bearer ".length()) {
+            throw new UnauthorizedException("Invalid access token");
+        }
+        String token = header.substring("Bearer ".length());
         authService.logout(token);
+        return ResponseEntity.noContent().build();
     }
 
     @Operation(

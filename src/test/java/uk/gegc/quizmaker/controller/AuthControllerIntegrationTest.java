@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
@@ -355,8 +356,8 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/refresh with access token → returns 400 BAD_REQUEST")
-    void refreshWithAccessToken_returns400() throws Exception {
+    @DisplayName("POST /api/v1/auth/refresh with access token → returns 401 UNAUTHORIZED")
+    void refreshWithAccessToken_returns401() throws Exception {
         var reg = new RegisterRequest("user1", "u1@ex.com", "ValidPass123!");
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -372,9 +373,55 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
 
         var refreshReq = new RefreshRequest(accessToken);
         mockMvc.perform(post("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(refreshReq)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Refresh tokens never authenticate protected routes and logout revokes both token capabilities")
+    void sessionSecurity_refreshTokenIsNotBearerAndLogoutRevokesSession() throws Exception {
+        RegisterRequest registration = new RegisterRequest("sessionUser", "session@example.com", "ValidPass123!");
+        mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(refreshReq)))
-                .andExpect(status().isBadRequest());
+                        .content(objectMapper.writeValueAsString(registration)))
+                .andExpect(status().isCreated());
+
+        String loginJson = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new LoginRequest("sessionUser", "ValidPass123!"))))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String accessToken = objectMapper.readTree(loginJson).get("accessToken").asText();
+        String refreshToken = objectMapper.readTree(loginJson).get("refreshToken").asText();
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .with(anonymous())
+                        .header("Authorization", "Bearer " + refreshToken))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(anonymous())
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/auth/me")
+                        .with(anonymous())
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RefreshRequest(refreshToken))))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(anonymous())
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
     }
 
     @Test
