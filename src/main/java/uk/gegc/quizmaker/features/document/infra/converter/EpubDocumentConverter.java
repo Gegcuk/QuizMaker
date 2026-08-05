@@ -3,9 +3,12 @@ package uk.gegc.quizmaker.features.document.infra.converter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
 import org.apache.tika.metadata.Metadata;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
 import java.io.InputStream;
 import java.util.Arrays;
@@ -27,6 +30,17 @@ public class EpubDocumentConverter implements DocumentConverter {
             ".epub"
     );
 
+    private final DocumentProcessingLimits limits;
+
+    public EpubDocumentConverter() {
+        this(DocumentProcessingLimits.defaults());
+    }
+
+    @Autowired
+    public EpubDocumentConverter(DocumentProcessingLimits limits) {
+        this.limits = limits;
+    }
+
     @Override
     public boolean canConvert(String contentType, String filename) {
         boolean canConvert = SUPPORTED_CONTENT_TYPES.contains(contentType) ||
@@ -39,8 +53,11 @@ public class EpubDocumentConverter implements DocumentConverter {
         Tika tika = new Tika();
         Metadata metadata = new Metadata();
 
-        // Extract text content using Tika
-        String textContent = tika.parseToString(inputStream, metadata);
+        // Ask Tika for one extra character so a capped result is distinguishable from valid content at the limit.
+        String textContent = tika.parseToString(inputStream, metadata, limits.getMaxExtractedCharacters() + 1);
+        if (textContent.length() > limits.getMaxExtractedCharacters()) {
+            throw new DocumentResourceLimitException("Extracted EPUB text exceeds the configured limit");
+        }
 
         ConvertedDocument convertedDocument = new ConvertedDocument();
         convertedDocument.setOriginalFilename(filename);
@@ -231,4 +248,4 @@ public class EpubDocumentConverter implements DocumentConverter {
     public String getConverterType() {
         return "EPUB_DOCUMENT_CONVERTER";
     }
-} 
+}

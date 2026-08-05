@@ -33,6 +33,10 @@ public final class ErrorTypes {
     public static final URI UNSUPPORTED_OPERATION = URI.create(BASE_URL + "/unsupported-operation");
     public static final URI UNSUPPORTED_QUESTION_TYPE = URI.create(BASE_URL + "/unsupported-question-type");
     public static final URI UNSUPPORTED_FILE_TYPE = URI.create(BASE_URL + "/unsupported-file-type");
+    public static final URI DOCUMENT_TYPE_MISMATCH = URI.create(BASE_URL + "/document-type-mismatch");
+    public static final URI DOCUMENT_SIZE_LIMIT_EXCEEDED = URI.create(BASE_URL + "/document-size-limit-exceeded");
+    public static final URI DOCUMENT_RESOURCE_LIMIT_EXCEEDED = URI.create(BASE_URL + "/document-resource-limit-exceeded");
+    public static final URI DOCUMENT_PROCESSING_CAPACITY_EXCEEDED = URI.create(BASE_URL + "/document-processing-capacity-exceeded");
     public static final URI UNSUPPORTED_FORMAT = URI.create(BASE_URL + "/unsupported-format");
     public static final URI QUIZ_GENERATION_FAILED = URI.create(BASE_URL + "/quiz-generation-failed");
     public static final URI QUIZ_GENERATION_UNAVAILABLE = URI.create(BASE_URL + "/quiz-generation-unavailable");

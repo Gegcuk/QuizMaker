@@ -1,21 +1,21 @@
 package uk.gegc.quizmaker.features.document.application.impl;
 
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
-import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
-
-import java.io.IOException;
+import uk.gegc.quizmaker.shared.exception.DocumentUploadLimitExceededException;
 
 @Service
-@Slf4j
+@RequiredArgsConstructor
 public class DocumentValidationServiceImpl implements DocumentValidationService {
 
-    private static final long MAX_FILE_SIZE = 150 * 1024 * 1024; // 150MB
     private static final int MIN_CHUNK_SIZE = 100;
     private static final int MAX_CHUNK_SIZE = 100000;
+
+    private final DocumentProcessingLimits limits;
 
     @Override
     public void validateFileUpload(MultipartFile file, String chunkingStrategy, Integer maxChunkSize) {
@@ -29,33 +29,10 @@ public class DocumentValidationServiceImpl implements DocumentValidationService 
             throw new IllegalArgumentException("File is empty");
         }
 
-        // Validate file content is not null
-        try {
-            byte[] bytes = file.getBytes();
-            if (bytes == null) {
-                throw new IllegalArgumentException("File content is null");
-            }
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Error reading file content: " + e.getMessage());
-        }
-
-        // Validate file size
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new IllegalArgumentException("File size exceeds maximum limit");
-        }
-
-        // Validate file type
-        String contentType = file.getContentType();
-        if (contentType == null || !isSupportedFileType(contentType)) {
-            // Check if this is the specific test case for invalid content type
-            if ("invalid/content-type".equals(contentType)) {
-                throw new IllegalArgumentException("Invalid content type: " + contentType);
-            }
-            // For other cases, use the extension-based message
-            String filename = file.getOriginalFilename();
-            String extension = filename != null && filename.contains(".") ?
-                    filename.substring(filename.lastIndexOf(".")) : "";
-            throw new UnsupportedFileTypeException("Unsupported file type: " + extension);
+        // Reject based on metadata before opening a stream. The staging service then
+        // enforces the same cap while copying because multipart metadata is untrusted.
+        if (file.getSize() > limits.getMaxUploadBytes()) {
+            throw new DocumentUploadLimitExceededException();
         }
 
         // Validate chunk size if provided
@@ -97,4 +74,4 @@ public class DocumentValidationServiceImpl implements DocumentValidationService 
                         contentType.equals("text/plain")
         );
     }
-} 
+}

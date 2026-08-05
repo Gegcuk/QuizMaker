@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
@@ -64,7 +65,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
         DocumentDto documentDto = createTestDocumentDto();
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -91,7 +92,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
         DocumentDto documentDto = createTestDocumentDto();
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -333,7 +334,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         documentDto.setTotalChunks(50); // Large document with many chunks
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("large_test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -356,7 +357,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new RuntimeException("Processing failed"));
 
         // Act & Assert
@@ -381,7 +382,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new DocumentProcessingException("Custom processing error"));
 
         // Act & Assert
@@ -406,7 +407,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new DocumentStorageException("File storage failed"));
 
         // Act & Assert
@@ -459,4 +460,4 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED);
         return request;
     }
-} 
+}

@@ -30,8 +30,12 @@ import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
+import uk.gegc.quizmaker.shared.exception.DocumentUploadLimitExceededException;
 import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 
 import java.util.List;
@@ -87,7 +91,8 @@ public class DocumentController {
 
     @Operation(
             summary = "Upload and process document",
-            description = "Uploads a document, extracts text, and chunks it for quiz generation"
+            description = "Uploads a PDF, EPUB, or UTF-8 text document, extracts text, and chunks it for quiz generation. "
+                    + "The server verifies content type from the staged file; filenames and multipart content types are not trusted."
     )
     @ApiResponses({
             @ApiResponse(
@@ -99,7 +104,13 @@ public class DocumentController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = "Access denied",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "422", description = "Processing failed",
+            @ApiResponse(responseCode = "413", description = "Document exceeds the configured upload size limit",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "415", description = "Detected document type is unsupported or conflicts with filename or declared content type",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Document exceeds a server-owned extraction, page, archive, or processing-time limit",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Document processing capacity is temporarily unavailable",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -126,7 +137,7 @@ public class DocumentController {
 
         try {
             DocumentDto document = documentProcessingService.uploadAndProcessDocument(
-                    username, file.getBytes(), file.getOriginalFilename(), request);
+                    username, file, request);
 
             return ResponseEntity.status(HttpStatus.CREATED).body(document);
         } catch (DocumentStorageException e) {
@@ -134,6 +145,11 @@ public class DocumentController {
             throw e;
         } catch (DocumentProcessingException e) {
             log.error("Error uploading document - processing issue", e);
+            throw e;
+        } catch (DocumentUploadLimitExceededException
+                 | DocumentTypeMismatchException
+                 | DocumentResourceLimitException
+                 | DocumentProcessingCapacityExceededException e) {
             throw e;
         } catch (Exception e) {
             log.error("Error uploading document", e);
@@ -358,7 +374,11 @@ public class DocumentController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "422", description = "Reprocessing failed",
+            @ApiResponse(responseCode = "415", description = "Stored document content is unsupported or invalid for its recorded type",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Document exceeds a server-owned extraction, page, archive, or processing-time limit",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Document processing capacity is temporarily unavailable",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/{documentId}/reprocess")
@@ -389,6 +409,10 @@ public class DocumentController {
             throw e;
         } catch (DocumentProcessingException e) {
             log.error("Error reprocessing document - processing issue: {}", documentId, e);
+            throw e;
+        } catch (DocumentTypeMismatchException
+                 | DocumentResourceLimitException
+                 | DocumentProcessingCapacityExceededException e) {
             throw e;
         } catch (Exception e) {
             log.error("Error reprocessing document: {}", documentId, e);

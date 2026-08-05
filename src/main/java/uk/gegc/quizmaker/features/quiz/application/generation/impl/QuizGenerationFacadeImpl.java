@@ -52,6 +52,10 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
+import uk.gegc.quizmaker.shared.exception.DocumentUploadLimitExceededException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
@@ -142,6 +146,11 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
             throw e;
         } catch (IdempotencyConflictException | GenerationOperationInProgressException | GenerationOperationInconsistentException e) {
             throw e;
+        } catch (DocumentUploadLimitExceededException
+                 | DocumentTypeMismatchException
+                 | DocumentResourceLimitException
+                 | DocumentProcessingCapacityExceededException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to start quiz generation from upload for user: {}", username, e);
             throw new RuntimeException("Failed to generate quiz from upload: " + e.getMessage(), e);
@@ -192,21 +201,15 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     }
 
     @Override
-    @Transactional
     public DocumentDto processDocumentCompletely(String username, MultipartFile file, GenerateQuizFromUploadRequest request) {
-        try {
-            log.info("Starting document processing for user: {}", username);
-            DocumentDto document = documentProcessingService.uploadAndProcessDocument(
-                    username,
-                    file.getBytes(),
-                    file.getOriginalFilename(),
-                    request.toProcessDocumentRequest()
-            );
-            log.info("Document processed successfully: {} with {} chunks", document.getId(), document.getTotalChunks());
-            return document;
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read file bytes: " + e.getMessage(), e);
-        }
+        log.info("Starting document processing for user: {}", username);
+        DocumentDto document = documentProcessingService.uploadAndProcessDocument(
+                username,
+                file,
+                request.toProcessDocumentRequest()
+        );
+        log.info("Document processed successfully: {} with {} chunks", document.getId(), document.getTotalChunks());
+        return document;
     }
 
     @Override

@@ -49,6 +49,7 @@ import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Instant;
@@ -569,12 +570,8 @@ class QuizGenerationFacadeImplTest {
         @DisplayName("Successful upload - processes and starts generation")
         void successfulUpload_processesAndStartsGeneration() throws Exception {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
             when(documentProcessingService.uploadAndProcessDocument(
-                    eq("testuser"), eq(fileBytes), eq("test.pdf"), any()))
+                    eq("testuser"), same(mockFile), any()))
                     .thenReturn(processedDocument);
             
             when(aiQuizGenerationService.calculateTotalChunks(eq(processedDocument.getId()), any())).thenReturn(3);
@@ -598,22 +595,19 @@ class QuizGenerationFacadeImplTest {
             assertThat(response).isNotNull();
             assertThat(response.jobId()).isEqualTo(job.getId());
             
-            verify(mockFile).getBytes();
-            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), eq(fileBytes), eq("test.pdf"), any());
+            verify(mockFile, never()).getBytes();
+            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), same(mockFile), any());
             verify(aiQuizGenerationService, atLeastOnce()).calculateTotalChunks(eq(processedDocument.getId()), any());
             verify(internalBillingService).reserve(eq(testUser.getId()), anyLong(), eq("quiz-generation"), any());
         }
 
         @Test
         @DisplayName("Email identity uses the resolved username for upload processing")
-        void emailIdentity_usesResolvedUsernameForUploadProcessing() throws Exception {
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
+        void emailIdentity_usesResolvedUsernameForUploadProcessing() {
             when(userRepository.findByUsername("testuser@example.com")).thenReturn(Optional.empty());
             when(userRepository.findByEmail("testuser@example.com")).thenReturn(Optional.of(testUser));
             when(documentProcessingService.uploadAndProcessDocument(
-                    eq(testUser.getUsername()), eq(fileBytes), eq("test.pdf"), any()))
+                    eq(testUser.getUsername()), same(mockFile), any()))
                     .thenThrow(new RuntimeException("Document processing failed"));
 
             assertThatThrownBy(() -> facade.generateQuizFromUpload("testuser@example.com", mockFile, uploadRequest))
@@ -621,32 +615,42 @@ class QuizGenerationFacadeImplTest {
                     .hasMessageContaining("Failed to generate quiz from upload");
 
             verify(documentProcessingService).uploadAndProcessDocument(
-                    eq(testUser.getUsername()), eq(fileBytes), eq("test.pdf"), any());
+                    eq(testUser.getUsername()), same(mockFile), any());
         }
         
         @Test
-        @DisplayName("File read error - throws RuntimeException")
-        void fileReadError_throwsRuntimeException() throws Exception {
+        @DisplayName("Document staging failure is propagated through upload generation")
+        void documentStagingFailure_isWrappedByGenerationFacade() throws Exception {
             // Given
-            when(mockFile.getBytes()).thenThrow(new java.io.IOException("Failed to read file"));
+            when(documentProcessingService.uploadAndProcessDocument(
+                    eq("testuser"), same(mockFile), any()))
+                    .thenThrow(new RuntimeException("Failed to stage document upload"));
             
             // When & Then
             assertThatThrownBy(() -> facade.generateQuizFromUpload("testuser", mockFile, uploadRequest))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Failed to read file bytes");
+                    .hasMessageContaining("Failed to generate quiz from upload");
             
-            verifyNoInteractions(documentProcessingService);
+            verify(mockFile, never()).getBytes();
+        }
+
+        @Test
+        @DisplayName("Document resource limits remain client-visible through upload generation")
+        void documentResourceLimit_isNotWrappedAsGenerationFailure() {
+            when(documentProcessingService.uploadAndProcessDocument(
+                    eq("testuser"), same(mockFile), any()))
+                    .thenThrow(new DocumentResourceLimitException("Document processing exceeded the configured time limit"));
+
+            assertThatThrownBy(() -> facade.generateQuizFromUpload("testuser", mockFile, uploadRequest))
+                    .isInstanceOf(DocumentResourceLimitException.class)
+                    .hasMessageContaining("configured time limit");
         }
         
         @Test
         @DisplayName("Document processing fails - throws RuntimeException")
-        void documentProcessingFails_throwsRuntimeException() throws Exception {
+        void documentProcessingFails_throwsRuntimeException() {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenThrow(new RuntimeException("Document processing failed"));
             
             // When & Then
@@ -654,18 +658,14 @@ class QuizGenerationFacadeImplTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("Failed to generate quiz from upload");
             
-            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), eq(fileBytes), eq("test.pdf"), any());
+            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), same(mockFile), any());
         }
         
         @Test
         @DisplayName("No chunks available - throws RuntimeException")
-        void noChunksAvailable_throwsRuntimeException() throws Exception {
+        void noChunksAvailable_throwsRuntimeException() {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenReturn(processedDocument);
             
             when(aiQuizGenerationService.calculateTotalChunks(eq(processedDocument.getId()), any())).thenReturn(0);
@@ -680,13 +680,9 @@ class QuizGenerationFacadeImplTest {
         
         @Test
         @DisplayName("Insufficient tokens - propagates exception")
-        void insufficientTokens_propagatesException() throws Exception {
+        void insufficientTokens_propagatesException() {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenReturn(processedDocument);
             
             when(aiQuizGenerationService.calculateTotalChunks(eq(processedDocument.getId()), any())).thenReturn(3);
@@ -710,7 +706,7 @@ class QuizGenerationFacadeImplTest {
                     .isInstanceOf(InsufficientTokensException.class)
                     .hasMessageContaining("Insufficient tokens");
             
-            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), eq(fileBytes), eq("test.pdf"), any());
+            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), same(mockFile), any());
         }
         
         @Test
@@ -729,12 +725,8 @@ class QuizGenerationFacadeImplTest {
         
         @Test
         @DisplayName("Large file - processed successfully")
-        void largeFile_processedSuccessfully() throws Exception {
+        void largeFile_processedSuccessfully() {
             // Given
-            byte[] largeFileBytes = new byte[5 * 1024 * 1024]; // 5MB
-            when(mockFile.getBytes()).thenReturn(largeFileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("large-document.pdf");
-            
             DocumentDto largeDocument = new DocumentDto();
             largeDocument.setId(UUID.randomUUID());
             largeDocument.setOriginalFilename("large-document.pdf");
@@ -743,7 +735,7 @@ class QuizGenerationFacadeImplTest {
             largeDocument.setStatus(uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus.PROCESSED);
             largeDocument.setTotalChunks(10);
             
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenReturn(largeDocument);
             
             when(aiQuizGenerationService.calculateTotalChunks(eq(largeDocument.getId()), any())).thenReturn(10);
@@ -769,13 +761,9 @@ class QuizGenerationFacadeImplTest {
         
         @Test
         @DisplayName("Empty file - handled gracefully")
-        void emptyFile_handledGracefully() throws Exception {
+        void emptyFile_handledGracefully() {
             // Given
-            byte[] emptyBytes = new byte[0];
-            when(mockFile.getBytes()).thenReturn(emptyBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("empty.pdf");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenThrow(new RuntimeException("Empty file"));
             
             // When & Then
@@ -1161,10 +1149,6 @@ class QuizGenerationFacadeImplTest {
         @DisplayName("Successful processing - returns DocumentDto")
         void successfulProcessing_returnsDocumentDto() throws Exception {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
             DocumentDto expectedDoc = new DocumentDto();
             expectedDoc.setId(UUID.randomUUID());
             expectedDoc.setOriginalFilename("test.pdf");
@@ -1172,7 +1156,7 @@ class QuizGenerationFacadeImplTest {
             expectedDoc.setStatus(uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus.PROCESSED);
             
             when(documentProcessingService.uploadAndProcessDocument(
-                    eq("testuser"), eq(fileBytes), eq("test.pdf"), any()))
+                    eq("testuser"), same(mockFile), any()))
                     .thenReturn(expectedDoc);
             
             // When
@@ -1184,35 +1168,31 @@ class QuizGenerationFacadeImplTest {
             assertThat(result.getOriginalFilename()).isEqualTo("test.pdf");
             assertThat(result.getTotalChunks()).isEqualTo(3);
             
-            verify(mockFile).getBytes();
-            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), eq(fileBytes), eq("test.pdf"), any());
+            verify(mockFile, never()).getBytes();
+            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), same(mockFile), any());
         }
         
         @Test
-        @DisplayName("IOException - throws RuntimeException")
-        void ioException_throwsRuntimeException() throws Exception {
+        @DisplayName("Document stream failure is delegated to the document service")
+        void documentStreamFailure_isPropagated() throws Exception {
             // Given
-            when(mockFile.getBytes()).thenThrow(new java.io.IOException("Cannot read file"));
+            when(documentProcessingService.uploadAndProcessDocument(
+                    eq("testuser"), same(mockFile), any()))
+                    .thenThrow(new RuntimeException("Cannot read file"));
             
             // When & Then
             assertThatThrownBy(() -> facade.processDocumentCompletely("testuser", mockFile, uploadRequest))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Failed to read file bytes")
-                    .hasCauseInstanceOf(java.io.IOException.class);
+                    .hasMessageContaining("Cannot read file");
             
-            verify(mockFile).getBytes();
-            verifyNoInteractions(documentProcessingService);
+            verify(mockFile, never()).getBytes();
         }
         
         @Test
         @DisplayName("Document service fails - propagates exception")
-        void documentServiceFails_propagatesException() throws Exception {
+        void documentServiceFails_propagatesException() {
             // Given
-            byte[] fileBytes = "test content".getBytes();
-            when(mockFile.getBytes()).thenReturn(fileBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("test.pdf");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenThrow(new RuntimeException("Processing failed"));
             
             // When & Then
@@ -1220,17 +1200,13 @@ class QuizGenerationFacadeImplTest {
                     .isInstanceOf(RuntimeException.class)
                     .hasMessageContaining("Processing failed");
             
-            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), eq(fileBytes), eq("test.pdf"), any());
+            verify(documentProcessingService).uploadAndProcessDocument(eq("testuser"), same(mockFile), any());
         }
         
         @Test
         @DisplayName("PDF file - processed with chunks")
-        void pdfFile_processedWithChunks() throws Exception {
+        void pdfFile_processedWithChunks() {
             // Given
-            byte[] pdfBytes = "%PDF-1.4 mock content".getBytes();
-            when(mockFile.getBytes()).thenReturn(pdfBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("document.pdf");
-            
             DocumentDto pdfDoc = new DocumentDto();
             pdfDoc.setId(UUID.randomUUID());
             pdfDoc.setOriginalFilename("document.pdf");
@@ -1240,7 +1216,7 @@ class QuizGenerationFacadeImplTest {
             pdfDoc.setStatus(uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus.PROCESSED);
             
             when(documentProcessingService.uploadAndProcessDocument(
-                    eq("testuser"), eq(pdfBytes), eq("document.pdf"), any()))
+                    eq("testuser"), same(mockFile), any()))
                     .thenReturn(pdfDoc);
             
             // When
@@ -1254,13 +1230,9 @@ class QuizGenerationFacadeImplTest {
         
         @Test
         @DisplayName("Invalid file format - handled by service")
-        void invalidFileFormat_handledByService() throws Exception {
+        void invalidFileFormat_handledByService() {
             // Given
-            byte[] invalidBytes = "invalid content".getBytes();
-            when(mockFile.getBytes()).thenReturn(invalidBytes);
-            when(mockFile.getOriginalFilename()).thenReturn("invalid.xyz");
-            
-            when(documentProcessingService.uploadAndProcessDocument(any(), any(), any(), any()))
+            when(documentProcessingService.uploadAndProcessDocument(anyString(), any(MultipartFile.class), any()))
                     .thenThrow(new RuntimeException("Unsupported file format"));
             
             // When & Then

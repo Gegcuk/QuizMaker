@@ -3,11 +3,15 @@ package uk.gegc.quizmaker.features.document.infra.converter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
 import java.io.InputStream;
+import java.io.Writer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -25,6 +29,17 @@ public class PdfDocumentConverter implements DocumentConverter {
             ".pdf"
     );
 
+    private final DocumentProcessingLimits limits;
+
+    public PdfDocumentConverter() {
+        this(DocumentProcessingLimits.defaults());
+    }
+
+    @Autowired
+    public PdfDocumentConverter(DocumentProcessingLimits limits) {
+        this.limits = limits;
+    }
+
     @Override
     public boolean canConvert(String contentType, String filename) {
         return SUPPORTED_CONTENT_TYPES.contains(contentType) ||
@@ -34,8 +49,13 @@ public class PdfDocumentConverter implements DocumentConverter {
     @Override
     public ConvertedDocument convert(InputStream inputStream, String filename, Long fileSize) throws Exception {
         try (PDDocument document = PDDocument.load(inputStream)) {
+            if (document.getNumberOfPages() > limits.getMaxPdfPages()) {
+                throw new DocumentResourceLimitException("PDF exceeds the configured page limit");
+            }
             PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
+            BoundedTextWriter writer = new BoundedTextWriter(limits.getMaxExtractedCharacters());
+            stripper.writeText(document, writer);
+            String text = writer.toString();
 
             ConvertedDocument convertedDocument = new ConvertedDocument();
             convertedDocument.setFullContent(text);
@@ -223,4 +243,37 @@ public class PdfDocumentConverter implements DocumentConverter {
     public String getConverterType() {
         return "PDF_DOCUMENT_CONVERTER";
     }
-} 
+
+    private static final class BoundedTextWriter extends Writer {
+
+        private final int limit;
+        private final StringBuilder content = new StringBuilder();
+
+        private BoundedTextWriter(int limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public void write(char[] buffer, int offset, int length) {
+            if (content.length() + length > limit) {
+                throw new DocumentResourceLimitException("Extracted PDF text exceeds the configured limit");
+            }
+            content.append(buffer, offset, length);
+        }
+
+        @Override
+        public void flush() {
+            // No external resource.
+        }
+
+        @Override
+        public void close() {
+            // No external resource.
+        }
+
+        @Override
+        public String toString() {
+            return content.toString();
+        }
+    }
+}

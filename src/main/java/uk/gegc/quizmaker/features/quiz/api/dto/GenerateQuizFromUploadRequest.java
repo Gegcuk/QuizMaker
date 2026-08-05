@@ -68,7 +68,8 @@ public record GenerateQuizFromUploadRequest(
     public GenerateQuizFromUploadRequest {
         // Set default values
         chunkingStrategy = (chunkingStrategy == null) ? ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED : chunkingStrategy;
-        maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
+        // Keep the server default inside the documented and validated 1,000-100,000 range.
+        maxChunkSize = (maxChunkSize == null) ? 100000 : maxChunkSize;
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
         language = (language == null || language.isBlank()) ? "en" : language.trim();
