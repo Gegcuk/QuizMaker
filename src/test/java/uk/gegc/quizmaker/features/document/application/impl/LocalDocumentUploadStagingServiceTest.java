@@ -85,14 +85,14 @@ class LocalDocumentUploadStagingServiceTest {
     }
 
     @Test
-    @DisplayName("Stages frontend-extracted text that retains the selected PDF filename")
-    void stagesFrontendExtractedTextWithPdfFilename() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
-        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+    @DisplayName("Stages selected UTF-8 text when detection ends within a multibyte character")
+    void stagesSelectedUtf8TextWithIncompleteProbeCharacter() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(17 * 1024));
+        byte[] extractedText = utf8TextWithMultibyteCharacterAcrossDetectionBoundary();
 
         StagedDocumentUpload staged = service.stage(
                 new ByteArrayInputStream(extractedText),
-                "functional-programming.pdf",
+                "selected-functional-programming.pdf.txt",
                 "text/plain",
                 extractedText.length
         );
@@ -103,66 +103,32 @@ class LocalDocumentUploadStagingServiceTest {
     }
 
     @Test
-    @DisplayName("Rejects frontend-extracted text when a non-PDF source filename is retained")
-    void rejectsFrontendExtractedTextWithNonPdfFilename() {
+    @DisplayName("Rejects malformed UTF-8 text extracted from a source document")
+    void rejectsMalformedUtf8ExtractedText() {
         LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
-        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+        byte[] malformedText = {(byte) 0xC3, (byte) 0x28};
 
         assertThatThrownBy(() -> service.stage(
-                new ByteArrayInputStream(extractedText),
-                "book.epub",
+                new ByteArrayInputStream(malformedText),
+                "selected-functional-programming.epub.txt",
                 "text/plain",
-                extractedText.length
+                malformedText.length
         )).isInstanceOf(DocumentTypeMismatchException.class);
 
         assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
     }
 
     @Test
-    @DisplayName("Rejects PDF-named plain text without an explicit text declaration")
-    void rejectsPdfNamedPlainTextWithGenericContentType() {
+    @DisplayName("Rejects a truncated UTF-8 character when the probe contains the whole upload")
+    void rejectsTruncatedUtf8WhenProbeContainsWholeUpload() {
         LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
-        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+        byte[] truncatedText = {(byte) 0xD0};
 
         assertThatThrownBy(() -> service.stage(
-                new ByteArrayInputStream(extractedText),
-                "functional-programming.pdf",
-                "application/octet-stream",
-                extractedText.length
-        )).isInstanceOf(DocumentTypeMismatchException.class);
-
-        assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
-    }
-
-    @Test
-    @DisplayName("Recognizes a PDF header after a standards-permitted leading preamble")
-    void recognizesPdfHeaderWithinFirstKilobyte() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(2048));
-        byte[] pdf = pdfWithHeaderAtOffset(3);
-
-        StagedDocumentUpload staged = service.stage(
-                new ByteArrayInputStream(pdf),
-                "book.pdf",
-                "application/pdf",
-                pdf.length
-        );
-
-        assertThat(staged.detectedContentType()).isEqualTo("application/pdf");
-
-        service.discard(staged.stagingPath());
-    }
-
-    @Test
-    @DisplayName("Rejects a PDF header that begins after the first kilobyte")
-    void rejectsPdfHeaderAfterFirstKilobyte() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(2048));
-        byte[] pdf = pdfWithHeaderAtOffset(1024);
-
-        assertThatThrownBy(() -> service.stage(
-                new ByteArrayInputStream(pdf),
-                "book.pdf",
-                "application/pdf",
-                pdf.length
+                new ByteArrayInputStream(truncatedText),
+                "selected-functional-programming.pdf.txt",
+                "text/plain",
+                truncatedText.length
         )).isInstanceOf(DocumentTypeMismatchException.class);
 
         assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
@@ -212,10 +178,11 @@ class LocalDocumentUploadStagingServiceTest {
         return limits;
     }
 
-    private byte[] pdfWithHeaderAtOffset(int offset) {
-        byte[] content = new byte[offset + 5];
+    private byte[] utf8TextWithMultibyteCharacterAcrossDetectionBoundary() {
+        byte[] content = new byte[(16 * 1024) + 1];
         Arrays.fill(content, (byte) ' ');
-        System.arraycopy("%PDF-".getBytes(StandardCharsets.US_ASCII), 0, content, offset, 5);
+        content[(16 * 1024) - 1] = (byte) 0xD0;
+        content[16 * 1024] = (byte) 0x90;
         return content;
     }
 

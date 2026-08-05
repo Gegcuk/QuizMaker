@@ -52,20 +52,22 @@ Expected result:
 - A generic multipart MIME type is accepted when the file content and filename extension identify a supported document.
 - No new frontend field is required.
 
-### Compatibility: client-extracted PDF text
+### Compatibility: client-extracted selected text
 
-The current frontend extracts text from selected PDFs before calling this endpoint. It continues to work without a request-shape change when it sends the extracted UTF-8 bytes as `text/plain` while retaining the selected `.pdf` filename.
+The current frontend extracts selected text from PDFs, EPUBs, and other supported source documents before calling this endpoint. It wraps that extracted content in a generated `selected-<source-name>.txt` file with `text/plain`; this remains supported without a frontend request-shape change.
 
 Run locally:
 
-1. `printf 'Extracted PDF text for quiz generation.' > /tmp/extracted-source.pdf`
-2. `curl --fail-with-body -X POST "$API_BASE_URL/api/v1/quizzes/generate-from-upload" -H "Authorization: Bearer $ACCESS_TOKEN" -F "file=@/tmp/extracted-source.pdf;type=text/plain" -F "questionsPerTypeJson={\"MULTIPLE_CHOICE\":2}" -F "quizScope=PERSONAL"`
+1. `head -c 16383 /dev/zero | tr '\0' 'a' > /tmp/selected-source.epub.txt`
+2. `printf '\320\220' >> /tmp/selected-source.epub.txt`
+3. `curl --fail-with-body -X POST "$API_BASE_URL/api/v1/quizzes/generate-from-upload" -H "Authorization: Bearer $ACCESS_TOKEN" -F "file=@/tmp/selected-source.epub.txt;type=text/plain" -F "questionsPerTypeJson={\"MULTIPLE_CHOICE\":2}" -F "quizScope=PERSONAL"`
 
 Expected result:
 
 - HTTP `202` with the existing quiz-generation response shape.
-- The upload is processed as detected `text/plain`; the server does not treat the filename alone as proof of PDF content.
-- The same `.pdf` filename with generic or `application/pdf` multipart type remains rejected unless the bytes contain a PDF header.
+- The upload is processed as detected `text/plain`.
+- Valid UTF-8 selected text does not cause a false `415` response when the bounded staging probe ends inside a multibyte character.
+- Malformed UTF-8 content within the staged probe remains rejected with HTTP `415`.
 
 ## Rejected type mismatch
 

@@ -93,7 +93,7 @@ public class DocumentController {
             summary = "Upload and process document",
             description = "Uploads a PDF, EPUB, or UTF-8 text document, extracts text, and chunks it for quiz generation. "
                     + "The server verifies staged content bytes; a filename and multipart content type alone never determine the accepted type. "
-                    + "For compatibility, explicitly declared UTF-8 text extracted by an existing client may retain its original PDF filename and is processed as text."
+                    + "Client-extracted selected text is supported when sent as UTF-8 text with a .txt or .text filename."
     )
     @ApiResponses({
             @ApiResponse(

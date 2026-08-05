@@ -704,7 +704,7 @@ public class QuizController {
             summary = "Upload document and generate quiz in one operation (Async)",
             description = "Upload a PDF, EPUB, or UTF-8 text document, process it, and start quiz generation in one operation. "
                     + "The server streams the upload into bounded staging and verifies the staged content bytes; a filename and multipart content type alone never determine the accepted type. "
-                    + "For compatibility, explicitly declared UTF-8 text extracted by an existing client may retain its original PDF filename and is processed as text. "
+                    + "Client-extracted selected text is supported when sent as UTF-8 text with a .txt or .text filename. "
                     + "Reuse the same Idempotency-Key only for a retry of the same upload command; changing material settings with the same key returns 409. "
                     + "The raw upload is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),

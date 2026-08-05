@@ -186,7 +186,7 @@ class QuizOpenApiContractTest {
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/503");
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generate-from-upload/post/description").asText())
                 .contains("streams the upload into bounded staging")
-                .contains("original PDF filename");
+                .contains("Client-extracted selected text");
 
         BulkQuizUpdateRequest bulkRequest = strictObjectMapper().treeToValue(
                 specification.at("/paths/~1api~1v1~1quizzes~1bulk-update/patch/requestBody/content/application~1json/examples/Update quiz visibility and timer/value"),
