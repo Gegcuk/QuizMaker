@@ -90,6 +90,7 @@ class DocumentOpenApiContractTest {
                 .getContentAsString());
 
         assertThat(specification.path("paths").has("/api/documents")).isTrue();
+        assertThat(specification.path("paths").has("/api/documents/upload")).isTrue();
         assertThat(specification.path("paths").has("/api/v1/documentProcess/documents/{id}")).isTrue();
         assertThat(specification.path("paths").has("/api/v1/documentProcess/documents/{id}/structure")).isTrue();
 
@@ -101,6 +102,16 @@ class DocumentOpenApiContractTest {
                 .isEqualTo("PROCESSED");
         assertThat(specification.at("/components/schemas/DocumentDto/properties/status/enum").toString())
                 .contains("PROCESSED");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1upload/post/responses/413");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1upload/post/responses/415");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1upload/post/responses/422");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1upload/post/responses/503");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1{documentId}~1reprocess/post/responses/415");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1{documentId}~1reprocess/post/responses/422");
+        assertResponseDocumented(specification, "/paths/~1api~1documents~1{documentId}~1reprocess/post/responses/503");
+        assertThat(specification.at("/paths/~1api~1documents~1upload/post/description").asText())
+                .contains("verifies staged content bytes")
+                .contains("Client-extracted selected text");
 
         JsonNode documentPageExample = specification.at("/paths/~1api~1documents/get/responses/200/content/application~1json/examples/Processed documents/value");
         DocumentPageResponse page = strictObjectMapper().treeToValue(documentPageExample, DocumentPageResponse.class);
@@ -152,6 +163,10 @@ class DocumentOpenApiContractTest {
 
     private ObjectMapper strictObjectMapper() {
         return objectMapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
+
+    private void assertResponseDocumented(JsonNode specification, String responsePointer) {
+        assertThat(specification.at(responsePointer).isMissingNode()).isFalse();
     }
 
     private JsonNode parameterNamed(JsonNode parameters, String name) {

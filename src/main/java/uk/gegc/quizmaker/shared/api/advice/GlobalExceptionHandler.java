@@ -104,6 +104,74 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.badRequest().body(problem);
     }
 
+    @ExceptionHandler(DocumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentTypeMismatch(RuntimeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                ErrorTypes.DOCUMENT_TYPE_MISMATCH,
+                "Unsupported Document Type",
+                "The document type does not match supported content.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(problem);
+    }
+
+    @ExceptionHandler(DocumentUploadLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentUploadLimit(RuntimeException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                ErrorTypes.DOCUMENT_SIZE_LIMIT_EXCEEDED,
+                "Document Too Large",
+                "The document exceeds the configured upload limit.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(problem);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request
+    ) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                ErrorTypes.DOCUMENT_SIZE_LIMIT_EXCEEDED,
+                "Document Too Large",
+                "The document exceeds the configured upload limit.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).headers(headers).body(problem);
+    }
+
+    @ExceptionHandler(DocumentResourceLimitException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentResourceLimit(DocumentResourceLimitException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                ErrorTypes.DOCUMENT_RESOURCE_LIMIT_EXCEEDED,
+                "Document Processing Limit Reached",
+                "The document exceeds a configured processing limit.",
+                request
+        );
+        return ResponseEntity.unprocessableEntity().body(problem);
+    }
+
+    @ExceptionHandler(DocumentProcessingCapacityExceededException.class)
+    public ResponseEntity<ProblemDetail> handleDocumentProcessingCapacity(
+            DocumentProcessingCapacityExceededException ex,
+            HttpServletRequest request
+    ) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ErrorTypes.DOCUMENT_PROCESSING_CAPACITY_EXCEEDED,
+                "Document Processing Unavailable",
+                "Document processing capacity is temporarily unavailable. Please retry later.",
+                request
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(problem);
+    }
+
     @ExceptionHandler({ApiError.class, QuizGenerationException.class})
     public ResponseEntity<ProblemDetail> handleQuizGeneration(RuntimeException ex, HttpServletRequest request) {
         ProblemDetail problem = ProblemDetailBuilder.create(

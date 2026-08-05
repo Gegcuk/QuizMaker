@@ -14,6 +14,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingConfig;
@@ -85,7 +86,7 @@ class DocumentControllerFileTypeTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(testDocumentDto);
 
         // Act & Assert
@@ -118,7 +119,7 @@ class DocumentControllerFileTypeTest {
         txtDocumentDto.setTotalChunks(3);
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.txt"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(txtDocumentDto);
 
         // Act & Assert
@@ -153,7 +154,7 @@ class DocumentControllerFileTypeTest {
         bookDocumentDto.setAuthor("Test Author");
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("book.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(bookDocumentDto);
 
         // Act & Assert
@@ -187,7 +188,7 @@ class DocumentControllerFileTypeTest {
         articleDocumentDto.setTotalChunks(6);
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("article.txt"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(articleDocumentDto);
 
         // Act & Assert
@@ -220,7 +221,7 @@ class DocumentControllerFileTypeTest {
         largeDocumentDto.setFileSize(5L * 1024 * 1024); // 5MB
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("large_document.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(largeDocumentDto);
 
         // Act & Assert
@@ -253,7 +254,7 @@ class DocumentControllerFileTypeTest {
         specialDocumentDto.setTotalChunks(4);
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("special-chars-文档.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(specialDocumentDto);
 
         // Act & Assert
@@ -285,7 +286,7 @@ class DocumentControllerFileTypeTest {
         unicodeDocumentDto.setTotalChunks(2);
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("unicode-测试.txt"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(unicodeDocumentDto);
 
         // Act & Assert
@@ -317,7 +318,7 @@ class DocumentControllerFileTypeTest {
         mixedDocumentDto.setTotalChunks(8);
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("mixed-content.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(mixedDocumentDto);
 
         // Act & Assert
@@ -343,10 +344,10 @@ class DocumentControllerFileTypeTest {
         String content = """
                 Chapter 1: Introduction
                 This is the introduction chapter.
-                
+
                 Chapter 2: Main Content
                 This is the main content chapter.
-                
+
                 Chapter 3: Conclusion
                 This is the conclusion chapter.
                 """;
@@ -357,10 +358,10 @@ class DocumentControllerFileTypeTest {
         String content = """
                 Section 1.1: Background
                 This section provides background information.
-                
+
                 Section 1.2: Objectives
                 This section outlines the objectives.
-                
+
                 Section 2.1: Methodology
                 This section describes the methodology.
                 """;
@@ -385,10 +386,10 @@ class DocumentControllerFileTypeTest {
         String content = """
                 Chapter 1: Special Characters
                 This document contains special characters: é, ñ, ü, ©, ®, ™, €, £, ¥, ¢.
-                
+
                 Chapter 2: Mathematical Symbols
                 Mathematical symbols: α, β, γ, δ, ε, π, Σ, ∫, ∞, ±.
-                
+
                 Chapter 3: Currency Symbols
                 Currency symbols: $, €, £, ¥, ¢, ₽, ₹, ₩.
                 """;
@@ -399,13 +400,13 @@ class DocumentControllerFileTypeTest {
         String content = """
                 Chapter 1: Unicode Test
                 This document contains Unicode characters: α, β, γ, δ, ε.
-                
+
                 Chapter 2: Chinese Characters
                 Chinese characters: 你好世界，这是一个测试文档。
-                
+
                 Chapter 3: Japanese Characters
                 Japanese characters: こんにちは世界、これはテスト文書です。
-                
+
                 Chapter 4: Korean Characters
                 Korean characters: 안녕하세요 세계, 이것은 테스트 문서입니다.
                 """;
@@ -416,7 +417,7 @@ class DocumentControllerFileTypeTest {
         String content = """
                 Chapter 1: Text Content
                 This chapter contains plain text content.
-                
+
                 Chapter 2: Mixed Content
                 This chapter contains:
                 - Bullet points
@@ -424,7 +425,7 @@ class DocumentControllerFileTypeTest {
                 - Tables and data
                 - Mathematical formulas: E = mc²
                 - Special characters: ©, ®, ™
-                
+
                 Chapter 3: Complex Structure
                 This chapter has:
                 1.1 Subsection A
@@ -434,4 +435,4 @@ class DocumentControllerFileTypeTest {
                 """;
         return content.getBytes();
     }
-} 
+}

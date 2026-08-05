@@ -1,13 +1,19 @@
 package uk.gegc.quizmaker.features.document.infra.converter;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -28,6 +34,17 @@ public class TextDocumentConverter implements DocumentConverter {
             ".text"
     );
 
+    private final DocumentProcessingLimits limits;
+
+    public TextDocumentConverter() {
+        this(DocumentProcessingLimits.defaults());
+    }
+
+    @Autowired
+    public TextDocumentConverter(DocumentProcessingLimits limits) {
+        this.limits = limits;
+    }
+
     @Override
     public boolean canConvert(String contentType, String filename) {
         return SUPPORTED_CONTENT_TYPES.contains(contentType) ||
@@ -39,12 +56,21 @@ public class TextDocumentConverter implements DocumentConverter {
     public ConvertedDocument convert(InputStream inputStream, String filename, Long fileSize) throws Exception {
         // Read the text content
         StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                inputStream,
+                StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        ))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                if (content.length() + line.length() + 1 > limits.getMaxExtractedCharacters()) {
+                    throw new DocumentResourceLimitException("Extracted text exceeds the configured limit");
+                }
                 content.append(line).append("\n");
             }
+        } catch (CharacterCodingException e) {
+            throw new DocumentTypeMismatchException("Text documents must be valid UTF-8");
         }
 
         String text = content.toString();
@@ -258,4 +284,4 @@ public class TextDocumentConverter implements DocumentConverter {
     public String getConverterType() {
         return "TEXT_DOCUMENT_CONVERTER";
     }
-} 
+}

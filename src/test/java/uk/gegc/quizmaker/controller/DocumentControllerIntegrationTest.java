@@ -2,12 +2,14 @@ package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
@@ -26,6 +28,7 @@ import java.util.Arrays;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,7 +67,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
         DocumentDto documentDto = createTestDocumentDto();
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -91,7 +94,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
         DocumentDto documentDto = createTestDocumentDto();
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -294,23 +297,29 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     @WithMockUser(username = "testuser")
-    void uploadDocument_InvalidFile_ReturnsError() throws Exception {
+    @DisplayName("Forwards generic multipart MIME types for staged content verification")
+    void uploadDocument_GenericContentType_IsDelegatedToProcessing() throws Exception {
         // Arrange
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "test.txt",
-                "application/octet-stream", // Unsupported content type
-                "This is not a supported file".getBytes()
+                "application/octet-stream",
+                "This is supported plain text".getBytes()
         );
+        DocumentDto documentDto = createTestDocumentDto();
+        when(documentProcessingService.uploadAndProcessDocument(
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
+                .thenReturn(documentDto);
 
-        // Act & Assert - should fail at file type validation before reaching service
+        // Generic multipart MIME types are common. The processing service stages and
+        // verifies the bytes rather than treating the client-provided MIME type as authoritative.
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-file-type"))
-                .andExpect(jsonPath("$.title").value("Unsupported File Type"))
-                .andExpect(jsonPath("$.detail", org.hamcrest.Matchers.containsString("Unsupported file type")))
-                .andExpect(jsonPath("$.timestamp").exists());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(documentDto.getId().toString()));
+
+        verify(documentProcessingService).uploadAndProcessDocument(
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
     @Test
@@ -333,7 +342,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         documentDto.setTotalChunks(50); // Large document with many chunks
 
         when(documentProcessingService.uploadAndProcessDocument(
-                eq("testuser"), any(byte[].class), eq("large_test.pdf"), any(ProcessDocumentRequest.class)))
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenReturn(documentDto);
 
         // Act & Assert
@@ -356,7 +365,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new RuntimeException("Processing failed"));
 
         // Act & Assert
@@ -381,7 +390,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new DocumentProcessingException("Custom processing error"));
 
         // Act & Assert
@@ -406,7 +415,7 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         );
 
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new DocumentStorageException("File storage failed"));
 
         // Act & Assert
@@ -459,4 +468,4 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
         request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED);
         return request;
     }
-} 
+}

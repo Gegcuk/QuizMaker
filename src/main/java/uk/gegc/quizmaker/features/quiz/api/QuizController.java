@@ -702,7 +702,11 @@ public class QuizController {
 
     @Operation(
             summary = "Upload document and generate quiz in one operation (Async)",
-            description = "Upload a document, process it, and start quiz generation in one operation. Reuse the same Idempotency-Key only for a retry of the same upload command; changing material settings with the same key returns 409. The raw upload is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
+            description = "Upload a PDF, EPUB, or UTF-8 text document, process it, and start quiz generation in one operation. "
+                    + "The server streams the upload into bounded staging and verifies the staged content bytes; a filename and multipart content type alone never determine the accepted type. "
+                    + "Client-extracted selected text is supported when sent as UTF-8 text with a .txt or .text filename. "
+                    + "Reuse the same Idempotency-Key only for a retry of the same upload command; changing material settings with the same key returns 409. "
+                    + "The raw upload is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -736,8 +740,18 @@ public class QuizController {
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
+                            responseCode = "413",
+                            description = "Document exceeds the configured upload size limit",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
+                            responseCode = "415",
+                            description = "Detected document type is unsupported or conflicts with filename or declared content type",
+                            content = @Content(schema = @Schema(implementation = ProblemDetail.class))
+                    ),
+                    @ApiResponse(
                             responseCode = "422",
-                            description = "Document processing failed",
+                            description = "Document exceeds a server-owned extraction, page, archive, or processing-time limit",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     ),
                     @ApiResponse(
@@ -752,7 +766,7 @@ public class QuizController {
                     ),
                     @ApiResponse(
                             responseCode = "503",
-                            description = "Matching generation request is still initializing or cannot be resumed safely",
+                            description = "Matching generation request is still initializing, or document processing capacity is temporarily unavailable",
                             content = @Content(schema = @Schema(implementation = ProblemDetail.class))
                     )
             }

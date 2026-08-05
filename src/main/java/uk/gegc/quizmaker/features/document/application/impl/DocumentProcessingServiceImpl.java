@@ -6,13 +6,19 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
 import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
+import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
+import uk.gegc.quizmaker.features.document.application.DocumentUploadStagingService;
+import uk.gegc.quizmaker.features.document.application.StagedDocumentUpload;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
@@ -23,9 +29,9 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,7 +39,6 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service("documentProcessingService")
 @RequiredArgsConstructor
@@ -46,130 +51,104 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private final DocumentMapper documentMapper;
     private final DocumentConversionService documentConversionService;
     private final DocumentChunkingService documentChunkingService;
+    private final DocumentUploadStagingService uploadStagingService;
+    private final DocumentParseExecutor documentParseExecutor;
+    private final DocumentProcessingLimits limits;
+    private final TransactionTemplate transactionTemplate;
 
     @Override
     public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
                                                 ProcessDocumentRequest request) {
-        // Step 1: File operations (non-transactional)
-        String filePath = saveFileToDisk(fileContent, filename);
-
-        // Step 2: Create document entity (transactional)
-        Document document = createDocumentEntity(username, filename, fileContent, filePath);
-
-        // Step 3: Process document (non-transactional file operations, transactional DB operations)
-        try {
-            processDocument(document, fileContent, request);
-        } catch (Exception e) {
-            // Update document status on failure (transactional)
-            updateDocumentStatusOnFailure(document, e.getMessage());
-            throw new DocumentProcessingException("Failed to process document: " + e.getMessage(), e);
+        if (fileContent == null) {
+            throw new IllegalArgumentException("File content is required");
         }
-
-        return documentMapper.toDto(document);
+        StagedDocumentUpload upload = uploadStagingService.stage(
+                new ByteArrayInputStream(fileContent), filename, null, fileContent.length);
+        return processStagedUpload(username, upload, request);
     }
 
-    /**
-     * Non-transactional file operations
-     */
-    private String saveFileToDisk(byte[] fileContent, String filename) {
+    @Override
+    public DocumentDto uploadAndProcessDocument(String username, MultipartFile file,
+                                                ProcessDocumentRequest request) {
+        return processStagedUpload(username, uploadStagingService.stage(file), request);
+    }
+
+    private DocumentDto processStagedUpload(String username, StagedDocumentUpload upload,
+                                            ProcessDocumentRequest request) {
+        Path publishedPath = null;
         try {
-            Path uploadDir = Paths.get("uploads/documents");
-            Files.createDirectories(uploadDir);
-
-            String uniqueFilename = UUID.randomUUID() + "_" + filename;
-            Path filePath = uploadDir.resolve(uniqueFilename);
-            Files.write(filePath, fileContent);
-
-            return filePath.toString();
-        } catch (IOException e) {
-            throw new DocumentStorageException("Failed to save file to disk: " + e.getMessage(), e);
+            ConvertedDocument convertedDocument = convertWithinLimits(username, upload);
+            List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
+            boolean storeChunks = shouldStoreChunks(request);
+            publishedPath = uploadStagingService.promote(upload);
+            Path finalPublishedPath = publishedPath;
+            Document document = transactionTemplate.execute(status -> publishNewDocument(
+                    username, upload, finalPublishedPath, convertedDocument, chunks, storeChunks));
+            return documentMapper.toDto(document);
+        } catch (RuntimeException e) {
+            uploadStagingService.discard(publishedPath);
+            throw e;
+        } finally {
+            uploadStagingService.discard(upload.stagingPath());
         }
     }
 
-    /**
-     * Transactional database operation for creating document entity
-     */
-    @Transactional
-    public Document createDocumentEntity(String username, String filename, byte[] fileContent, String filePath) {
+    private ConvertedDocument convertWithinLimits(String username, StagedDocumentUpload upload) {
+        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, () ->
+                documentConversionService.convertDocument(
+                        upload.stagingPath(),
+                        upload.originalFilename(),
+                        upload.detectedContentType(),
+                        upload.sizeBytes()
+                )
+        );
+        if (convertedDocument.getFullContent() == null || convertedDocument.getFullContent().isBlank()) {
+            throw new DocumentProcessingException("Document contains no extractable text");
+        }
+        if (convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
+            throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
+                    "Extracted document text exceeds the configured limit");
+        }
+        return convertedDocument;
+    }
+
+    private Document publishNewDocument(
+            String username,
+            StagedDocumentUpload upload,
+            Path publishedPath,
+            ConvertedDocument convertedDocument,
+            List<UniversalChunker.Chunk> chunks,
+            boolean storeChunks
+    ) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
         Document document = new Document();
-        document.setOriginalFilename(filename);
-        document.setContentType(detectContentType(filename));
-        document.setFileSize((long) fileContent.length);
-        document.setFilePath(filePath);
-        document.setStatus(Document.DocumentStatus.UPLOADED);
+        document.setOriginalFilename(upload.originalFilename());
+        document.setContentType(upload.detectedContentType());
+        document.setFileSize(upload.sizeBytes());
+        document.setFilePath(publishedPath.toString());
+        document.setStatus(Document.DocumentStatus.PROCESSED);
         document.setUploadedAt(LocalDateTime.now());
+        document.setProcessedAt(LocalDateTime.now());
         document.setUploadedBy(user);
+        applyConvertedMetadata(document, convertedDocument, chunks.size());
+        Document persistedDocument = documentRepository.save(document);
 
-        return documentRepository.save(document);
-    }
-
-    /**
-     * Non-transactional document processing with separate transactional DB operations
-     */
-    private void processDocument(Document document, byte[] fileContent, ProcessDocumentRequest request) throws Exception {
-        // Update status to processing (transactional)
-        updateDocumentStatus(document, Document.DocumentStatus.PROCESSING);
-
-        try {
-            // Convert the document using the new converter system
-            ConvertedDocument convertedDocument = documentConversionService.convertDocument(
-                    fileContent, document.getOriginalFilename(), document.getContentType()
-            );
-
-            // Update document metadata (transactional)
-            updateDocumentMetadata(document, convertedDocument);
-
-            // Chunk the document using the new universal chunking system
-            List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
-
-            // Store chunks if requested (transactional)
-            if (request.getStoreChunks() != null && request.getStoreChunks()) {
-                storeChunksTransactionally(document, chunks);
-            }
-
-            // Update final status (transactional)
-            updateDocumentStatusToProcessed(document, chunks.size());
-
-        } catch (Exception e) {
-            // Update status on failure (transactional)
-            updateDocumentStatusOnFailure(document, e.getMessage());
-            throw e;
+        if (storeChunks) {
+            chunkRepository.saveAll(chunks.stream()
+                    .map(chunk -> createDocumentChunk(persistedDocument, chunk))
+                    .toList());
         }
+        return persistedDocument;
     }
 
-    /**
-     * Transactional database operation for updating document status
-     */
-    @Transactional
-    public void updateDocumentStatus(Document document, Document.DocumentStatus status) {
-        document.setStatus(status);
-        documentRepository.save(document);
-    }
-
-    /**
-     * Transactional database operation for updating document metadata
-     */
-    @Transactional
-    public void updateDocumentMetadata(Document document, ConvertedDocument convertedDocument) {
+    private void applyConvertedMetadata(Document document, ConvertedDocument convertedDocument, int chunkCount) {
         document.setTitle(convertedDocument.getTitle());
         document.setAuthor(convertedDocument.getAuthor());
         document.setTotalPages(convertedDocument.getTotalPages());
-        documentRepository.save(document);
-    }
-
-    /**
-     * Transactional database operation for storing chunks with batch optimization
-     */
-    @Transactional
-    public void storeChunksTransactionally(Document document, List<UniversalChunker.Chunk> chunks) {
-        List<DocumentChunk> entities = chunks.stream()
-                .map(chunk -> createDocumentChunk(document, chunk))
-                .collect(Collectors.toList());
-
-        chunkRepository.saveAll(entities);
+        document.setTotalChunks(chunkCount);
+        document.setProcessingError(null);
     }
 
     /**
@@ -194,28 +173,6 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         documentChunk.setChunkType(mapChunkType(chunk.getChunkType()));
 
         return documentChunk;
-    }
-
-    /**
-     * Transactional database operation for updating document to processed status
-     */
-    @Transactional
-    public void updateDocumentStatusToProcessed(Document document, int totalChunks) {
-        document.setTotalChunks(totalChunks);
-        document.setStatus(Document.DocumentStatus.PROCESSED);
-        document.setProcessedAt(LocalDateTime.now());
-        documentRepository.save(document);
-    }
-
-    /**
-     * Transactional database operation for updating document status on failure
-     */
-    @Transactional
-    public void updateDocumentStatusOnFailure(Document document, String errorMessage) {
-        document.setStatus(Document.DocumentStatus.FAILED);
-        document.setProcessingError(errorMessage);
-        document.setProcessedAt(LocalDateTime.now());
-        documentRepository.save(document);
     }
 
     @Override
@@ -330,24 +287,58 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     @Override
     public DocumentDto reprocessDocument(String username, UUID documentId, ProcessDocumentRequest request) {
-        // Step 1: Get document and validate authorization (transactional)
+        // Parse first. Existing chunks remain available until the replacement is ready.
         Document document = getDocumentForReprocessing(username, documentId);
+        Path source = Paths.get(document.getFilePath());
+        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, () ->
+                documentConversionService.convertDocument(
+                        source,
+                        document.getOriginalFilename(),
+                        document.getContentType(),
+                        document.getFileSize()
+                )
+        );
+        if (convertedDocument.getFullContent() == null
+                || convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
+            throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
+                    "Extracted document text exceeds the configured limit");
+        }
+        List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
+        boolean storeChunks = shouldStoreChunks(request);
+        Document updated = transactionTemplate.execute(status -> replaceDocumentChunks(
+                username, documentId, convertedDocument, chunks, storeChunks));
+        return documentMapper.toDto(updated);
+    }
 
-        // Step 2: Read file content (non-transactional)
-        byte[] fileContent = readFileContent(document.getFilePath());
-
-        // Step 3: Delete existing chunks (transactional)
-        deleteExistingChunks(document);
-
-        // Step 4: Reprocess document (non-transactional processing, transactional DB operations)
-        try {
-            processDocument(document, fileContent, request);
-        } catch (Exception e) {
-            updateDocumentStatusOnFailure(document, e.getMessage());
-            throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);
+    private Document replaceDocumentChunks(
+            String username,
+            UUID documentId,
+            ConvertedDocument convertedDocument,
+            List<UniversalChunker.Chunk> chunks,
+            boolean storeChunks
+    ) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (!document.getUploadedBy().equals(user)) {
+            throw new UserNotAuthorizedException(username, documentId.toString(), "reprocess");
         }
 
-        return documentMapper.toDto(document);
+        chunkRepository.deleteByDocument(document);
+        if (storeChunks) {
+            chunkRepository.saveAll(chunks.stream()
+                    .map(chunk -> createDocumentChunk(document, chunk))
+                    .toList());
+        }
+        applyConvertedMetadata(document, convertedDocument, chunks.size());
+        document.setStatus(Document.DocumentStatus.PROCESSED);
+        document.setProcessedAt(LocalDateTime.now());
+        return documentRepository.save(document);
+    }
+
+    private boolean shouldStoreChunks(ProcessDocumentRequest request) {
+        return request.getStoreChunks() == null || request.getStoreChunks();
     }
 
     /**
@@ -355,7 +346,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
      */
     @Transactional
     public Document getDocumentForReprocessing(String username, UUID documentId) {
-        Document document = documentRepository.findById(documentId)
+        Document document = documentRepository.findByIdWithChunksAndUser(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
 
         User user = userRepository.findByUsername(username)
@@ -368,40 +359,9 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         return document;
     }
 
-    /**
-     * Non-transactional file reading operation
-     */
-    private byte[] readFileContent(String filePath) {
-        try {
-            return Files.readAllBytes(Paths.get(filePath));
-        } catch (IOException e) {
-            throw new DocumentStorageException("Failed to read document file: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Transactional database operation for deleting existing chunks
-     */
-    @Transactional
-    public void deleteExistingChunks(Document document) {
-        chunkRepository.deleteByDocument(document);
-    }
-
     @Override
     public DocumentDto getDocumentStatus(UUID documentId, String username) {
         return getDocumentById(documentId, username);
-    }
-
-    // Helper methods (unchanged)
-    private String detectContentType(String filename) {
-        if (filename.toLowerCase().endsWith(".pdf")) {
-            return "application/pdf";
-        } else if (filename.toLowerCase().endsWith(".txt")) {
-            return "text/plain";
-        } else if (filename.toLowerCase().endsWith(".epub")) {
-            return "application/epub+zip";
-        }
-        return "application/octet-stream";
     }
 
     private DocumentChunk.ChunkType mapChunkType(ProcessDocumentRequest.ChunkingStrategy strategy) {
@@ -412,4 +372,4 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             case SIZE_BASED, AUTO -> DocumentChunk.ChunkType.SIZE_BASED;
         };
     }
-} 
+}

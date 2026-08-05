@@ -12,6 +12,8 @@ import uk.gegc.quizmaker.features.document.application.DocumentConversionService
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
 import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 
 import java.io.ByteArrayInputStream;
 import java.util.Arrays;
@@ -108,6 +110,40 @@ class DocumentConversionServiceTest {
     }
 
     @Test
+    void convertDocument_ConverterReachesResourceLimit_PropagatesResourceLimit() throws Exception {
+        byte[] fileContent = "test content".getBytes();
+        String filename = "test.pdf";
+        String contentType = "application/pdf";
+        DocumentResourceLimitException expected = new DocumentResourceLimitException("PDF exceeds the configured page limit");
+
+        when(converterFactory.findConverter(contentType, filename)).thenReturn(mockConverter);
+        when(mockConverter.convert(any(ByteArrayInputStream.class), eq(filename), eq((long) fileContent.length)))
+                .thenThrow(expected);
+
+        assertSame(expected, assertThrows(
+                DocumentResourceLimitException.class,
+                () -> conversionService.convertDocument(fileContent, filename, contentType)
+        ));
+    }
+
+    @Test
+    void convertDocument_ConverterDetectsInvalidStoredContent_PropagatesTypeMismatch() throws Exception {
+        byte[] fileContent = "test content".getBytes();
+        String filename = "test.txt";
+        String contentType = "text/plain";
+        DocumentTypeMismatchException expected = new DocumentTypeMismatchException("Text documents must be valid UTF-8");
+
+        when(converterFactory.findConverter(contentType, filename)).thenReturn(mockConverter);
+        when(mockConverter.convert(any(ByteArrayInputStream.class), eq(filename), eq((long) fileContent.length)))
+                .thenThrow(expected);
+
+        assertSame(expected, assertThrows(
+                DocumentTypeMismatchException.class,
+                () -> conversionService.convertDocument(fileContent, filename, contentType)
+        ));
+    }
+
+    @Test
     void getSupportedContentTypes_ReturnsFromFactory() {
         // Arrange
         List<String> expectedContentTypes = Arrays.asList("application/pdf", "text/plain");
@@ -181,4 +217,4 @@ class DocumentConversionServiceTest {
         assertEquals(Arrays.asList("application/pdf"), result.get(0).supportedContentTypes());
         assertEquals(Arrays.asList(".pdf"), result.get(0).supportedExtensions());
     }
-} 
+}

@@ -4,9 +4,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -28,22 +33,38 @@ public class DocumentConversionService {
      * Convert a document file to the standardized ConvertedDocument format
      */
     public ConvertedDocument convertDocument(byte[] fileContent, String filename, String contentType) {
+        try (InputStream inputStream = new ByteArrayInputStream(fileContent)) {
+            return convertDocument(inputStream, filename, contentType, (long) fileContent.length);
+        } catch (IOException e) {
+            throw new DocumentProcessingException("Failed to close document input", e);
+        }
+    }
+
+    /** Converts an already-bounded staged file without creating a second byte array. */
+    public ConvertedDocument convertDocument(Path filePath, String filename, String contentType, long fileSize) {
+        try (InputStream inputStream = Files.newInputStream(filePath)) {
+            return convertDocument(inputStream, filename, contentType, fileSize);
+        } catch (IOException e) {
+            throw new DocumentProcessingException("Failed to read staged document", e);
+        }
+    }
+
+    private ConvertedDocument convertDocument(InputStream inputStream, String filename, String contentType, long fileSize) {
         try {
             log.info("Starting document conversion for file: {} (content type: {})", filename, contentType);
 
             // Find the appropriate converter
             DocumentConverter converter = converterFactory.findConverter(contentType, filename);
 
-            // Convert the document
-            try (InputStream inputStream = new ByteArrayInputStream(fileContent)) {
-                ConvertedDocument convertedDocument = converter.convert(inputStream, filename, (long) fileContent.length);
+            ConvertedDocument convertedDocument = converter.convert(inputStream, filename, fileSize);
 
-                log.info("Successfully converted document: {} ({} characters, {} chapters)",
-                        filename, convertedDocument.getFullContent().length(), convertedDocument.getChapters().size());
+            log.info("Successfully converted document: {} ({} characters, {} chapters)",
+                    filename, convertedDocument.getFullContent().length(), convertedDocument.getChapters().size());
 
-                return convertedDocument;
-            }
+            return convertedDocument;
 
+        } catch (DocumentResourceLimitException | DocumentTypeMismatchException e) {
+            throw e;
         } catch (Exception e) {
             String errorMessage = String.format("Failed to convert document %s: %s", filename, e.getMessage());
             log.error(errorMessage, e);
@@ -99,4 +120,4 @@ public class DocumentConversionService {
             List<String> supportedExtensions
     ) {
     }
-} 
+}

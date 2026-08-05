@@ -1,7 +1,8 @@
 package uk.gegc.quizmaker.features.document.application;
 
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentChunkDto;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
@@ -15,6 +16,13 @@ public interface DocumentProcessingService {
      * Upload and process a document file
      */
     DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
+                                         ProcessDocumentRequest request);
+
+    /**
+     * Streams a multipart upload into bounded staging before conversion.
+     * Implementations must not call MultipartFile#getBytes().
+     */
+    DocumentDto uploadAndProcessDocument(String username, MultipartFile file,
                                          ProcessDocumentRequest request);
 
     /**
@@ -51,4 +59,4 @@ public interface DocumentProcessingService {
      * Get processing status of a document with authorization check
      */
     DocumentDto getDocumentStatus(UUID documentId, String username);
-} 
+}

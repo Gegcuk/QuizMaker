@@ -10,6 +10,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.DocumentController;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
@@ -18,8 +19,12 @@ import uk.gegc.quizmaker.features.document.application.DocumentProcessingService
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
+import uk.gegc.quizmaker.shared.exception.DocumentUploadLimitExceededException;
 import uk.gegc.quizmaker.shared.exception.UnsupportedFileTypeException;
 
 import java.util.UUID;
@@ -173,7 +178,7 @@ class DocumentControllerErrorTest {
 
         // Setup processing service to throw exception
         when(documentProcessingService.uploadAndProcessDocument(
-                anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class)))
+                anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
                 .thenThrow(new DocumentProcessingException("Failed to process document"));
 
         // Act & Assert
@@ -187,7 +192,7 @@ class DocumentControllerErrorTest {
                 .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
-        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
     @Test
@@ -210,7 +215,7 @@ class DocumentControllerErrorTest {
         // Explicitly setup the processing service to throw exception
         doThrow(new DocumentStorageException("Failed to store document file"))
                 .when(documentProcessingService).uploadAndProcessDocument(
-                        anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
 
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
@@ -223,7 +228,7 @@ class DocumentControllerErrorTest {
                 .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
-        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
     @Test
@@ -425,6 +430,42 @@ class DocumentControllerErrorTest {
 
     @Test
     @WithMockUser(username = "testuser")
+    void reprocessDocument_InvalidStoredContent_ReturnsUnsupportedMediaType() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        when(documentProcessingService.reprocessDocument(eq("testuser"), eq(documentId), any(ProcessDocumentRequest.class)))
+                .thenThrow(new DocumentTypeMismatchException("Text documents must be valid UTF-8"));
+
+        mockMvc.perform(reprocessRequest(documentId))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-type-mismatch"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void reprocessDocument_ParserResourceLimit_ReturnsUnprocessableEntity() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        when(documentProcessingService.reprocessDocument(eq("testuser"), eq(documentId), any(ProcessDocumentRequest.class)))
+                .thenThrow(new DocumentResourceLimitException("Document processing exceeded the configured time limit"));
+
+        mockMvc.perform(reprocessRequest(documentId))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-resource-limit-exceeded"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void reprocessDocument_ParserCapacity_ReturnsServiceUnavailable() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        when(documentProcessingService.reprocessDocument(eq("testuser"), eq(documentId), any(ProcessDocumentRequest.class)))
+                .thenThrow(new DocumentProcessingCapacityExceededException());
+
+        mockMvc.perform(reprocessRequest(documentId))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-capacity-exceeded"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
     void reprocessDocument_InvalidRequest_ReturnsError() throws Exception {
         // Arrange
         UUID documentId = UUID.randomUUID();
@@ -539,7 +580,7 @@ class DocumentControllerErrorTest {
         // Setup processing service to return success
         doReturn(testDocumentDto)
                 .when(documentProcessingService).uploadAndProcessDocument(
-                        anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
 
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
@@ -550,7 +591,7 @@ class DocumentControllerErrorTest {
 
         // Verify that validation service was called
         verify(documentValidationService).validateFileUpload(any(), any(), any());
-        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
     @Test
@@ -573,7 +614,7 @@ class DocumentControllerErrorTest {
         // Setup processing service to return success
         doReturn(testDocumentDto)
                 .when(documentProcessingService).uploadAndProcessDocument(
-                        anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
 
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
@@ -583,7 +624,7 @@ class DocumentControllerErrorTest {
                 .andExpect(jsonPath("$.id").value(testDocumentDto.getId().toString()));
 
         // Verify that processing service was called
-        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
 
@@ -607,7 +648,7 @@ class DocumentControllerErrorTest {
         // Explicitly setup the processing service to throw exception
         doThrow(new RuntimeException("Unexpected error"))
                 .when(documentProcessingService).uploadAndProcessDocument(
-                        anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
 
         // Act & Assert
         mockMvc.perform(multipart("/api/documents/upload")
@@ -620,8 +661,84 @@ class DocumentControllerErrorTest {
                 .andExpect(jsonPath("$.timestamp").exists());
 
         // Verify that processing service was called
-        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(byte[].class), anyString(), any(ProcessDocumentRequest.class));
+        verify(documentProcessingService).uploadAndProcessDocument(anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ServerUploadLimit_ReturnsPayloadTooLarge() throws Exception {
+        MockMultipartFile file = uploadFile();
+        doThrow(new DocumentUploadLimitExceededException())
+                .when(documentValidationService).validateFileUpload(any(), any(), any());
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-size-limit-exceeded"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_DetectedTypeMismatch_ReturnsUnsupportedMediaType() throws Exception {
+        MockMultipartFile file = uploadFile();
+        doThrow(new DocumentTypeMismatchException("Filename extension does not match detected document type"))
+                .when(documentProcessingService).uploadAndProcessDocument(
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-type-mismatch"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ParserResourceLimit_ReturnsUnprocessableEntity() throws Exception {
+        MockMultipartFile file = uploadFile();
+        doThrow(new DocumentResourceLimitException("Document processing exceeded the configured time limit"))
+                .when(documentProcessingService).uploadAndProcessDocument(
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-resource-limit-exceeded"));
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void uploadDocument_ParserCapacity_ReturnsServiceUnavailable() throws Exception {
+        MockMultipartFile file = uploadFile();
+        doThrow(new DocumentProcessingCapacityExceededException())
+                .when(documentProcessingService).uploadAndProcessDocument(
+                        anyString(), any(MultipartFile.class), any(ProcessDocumentRequest.class));
+
+        mockMvc.perform(multipart("/api/documents/upload")
+                        .file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-processing-capacity-exceeded"))
+                .andExpect(jsonPath("$.detail").value("Document processing capacity is temporarily unavailable. Please retry later."));
+    }
+
+    private MockMultipartFile uploadFile() {
+        return new MockMultipartFile(
+                "file",
+                "test.pdf",
+                "application/pdf",
+                "test content".getBytes()
+        );
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder reprocessRequest(UUID documentId) {
+        return post("/api/documents/{id}/reprocess", documentId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"maxChunkSize\": 3000, \"chunkingStrategy\": \"CHAPTER_BASED\"}")
+                .with(SecurityMockMvcRequestPostProcessors.csrf());
     }
 
 
-} 
+}
