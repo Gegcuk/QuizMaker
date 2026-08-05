@@ -9,7 +9,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSession;
+import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRejectionReason;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRevocationReason;
 import uk.gegc.quizmaker.features.auth.domain.repository.AuthSessionRepository;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
@@ -50,6 +52,9 @@ class AuthSessionServiceImplTest {
     private JwtTokenService jwtTokenService;
 
     @Mock
+    private AuthSessionMetricsService authSessionMetricsService;
+
+    @Mock
     private Authentication authentication;
 
     private AuthSessionServiceImpl service;
@@ -60,7 +65,13 @@ class AuthSessionServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new AuthSessionServiceImpl(authSessionRepository, userRepository, jwtTokenService, clock);
+        service = new AuthSessionServiceImpl(
+                authSessionRepository,
+                userRepository,
+                jwtTokenService,
+                authSessionMetricsService,
+                clock
+        );
     }
 
     @Test
@@ -88,6 +99,7 @@ class AuthSessionServiceImplTest {
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo("refresh-token");
         assertThat(result.refreshExpiresInMs()).isEqualTo(604_800_000L);
+        verify(authSessionMetricsService).recordSessionIssued();
     }
 
     @Test
@@ -114,6 +126,7 @@ class AuthSessionServiceImplTest {
         assertThat(session.getRefreshTokenHash()).isEqualTo("next-hash");
         assertThat(session.getRefreshedAt()).isEqualTo(now);
         verify(authSessionRepository).save(session);
+        verify(authSessionMetricsService).recordRefreshSucceeded();
     }
 
     @Test
@@ -132,6 +145,7 @@ class AuthSessionServiceImplTest {
         assertThat(session.getRevocationReason()).isEqualTo(AuthSessionRevocationReason.REFRESH_TOKEN_REPLAY);
         assertThat(session.getRevokedAt()).isEqualTo(now);
         verify(authSessionRepository).save(session);
+        verify(authSessionMetricsService).recordRefreshRejected(AuthSessionRejectionReason.REPLAYED_TOKEN);
         verify(jwtTokenService, never()).generateAccessToken(any(Authentication.class), any(UUID.class));
     }
 
@@ -149,6 +163,7 @@ class AuthSessionServiceImplTest {
         assertThat(session.getRevocationReason()).isEqualTo(AuthSessionRevocationReason.LOGOUT);
         assertThat(session.getRevokedAt()).isEqualTo(now);
         verify(authSessionRepository).save(session);
+        verify(authSessionMetricsService, org.mockito.Mockito.times(2)).recordLogoutSucceeded();
     }
 
     @Test
@@ -160,6 +175,7 @@ class AuthSessionServiceImplTest {
 
         assertThat(service.authenticateAccessToken("access-token")).isNull();
         verify(jwtTokenService, never()).getAuthentication(claims);
+        verify(authSessionMetricsService).recordAccessRejected(AuthSessionRejectionReason.INACTIVE_SESSION);
     }
 
     @Test
@@ -180,5 +196,6 @@ class AuthSessionServiceImplTest {
 
         assertThat(service.purgeExpiredSessions()).isEqualTo(2);
         verify(authSessionRepository).deleteByExpiresAtBefore(now);
+        verify(authSessionMetricsService).recordExpiredSessionsPurged(2);
     }
 }
