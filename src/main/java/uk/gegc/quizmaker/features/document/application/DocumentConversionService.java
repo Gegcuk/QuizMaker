@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -61,7 +63,7 @@ public class DocumentConversionService {
 
             return convertedDocument;
 
-        } catch (RuntimeException e) {
+        } catch (DocumentResourceLimitException | DocumentTypeMismatchException e) {
             throw e;
         } catch (Exception e) {
             String errorMessage = String.format("Failed to convert document %s: %s", filename, e.getMessage());
