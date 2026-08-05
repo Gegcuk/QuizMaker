@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -27,6 +28,7 @@ import java.util.Arrays;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -295,23 +297,29 @@ class DocumentControllerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     @WithMockUser(username = "testuser")
-    void uploadDocument_InvalidFile_ReturnsError() throws Exception {
+    @DisplayName("Forwards generic multipart MIME types for staged content verification")
+    void uploadDocument_GenericContentType_IsDelegatedToProcessing() throws Exception {
         // Arrange
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "test.txt",
-                "application/octet-stream", // Unsupported content type
-                "This is not a supported file".getBytes()
+                "application/octet-stream",
+                "This is supported plain text".getBytes()
         );
+        DocumentDto documentDto = createTestDocumentDto();
+        when(documentProcessingService.uploadAndProcessDocument(
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class)))
+                .thenReturn(documentDto);
 
-        // Act & Assert - should fail at file type validation before reaching service
+        // Generic multipart MIME types are common. The processing service stages and
+        // verifies the bytes rather than treating the client-provided MIME type as authoritative.
         mockMvc.perform(multipart("/api/documents/upload")
                         .file(file))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-file-type"))
-                .andExpect(jsonPath("$.title").value("Unsupported File Type"))
-                .andExpect(jsonPath("$.detail", org.hamcrest.Matchers.containsString("Unsupported file type")))
-                .andExpect(jsonPath("$.timestamp").exists());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(documentDto.getId().toString()));
+
+        verify(documentProcessingService).uploadAndProcessDocument(
+                eq("testuser"), any(MultipartFile.class), any(ProcessDocumentRequest.class));
     }
 
     @Test
