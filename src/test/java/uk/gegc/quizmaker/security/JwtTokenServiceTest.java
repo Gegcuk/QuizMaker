@@ -25,10 +25,12 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import javax.crypto.SecretKey;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,6 +51,7 @@ public class JwtTokenServiceTest {
     private ListAppender<ILoggingEvent> logWatcher;
     private Logger jwtProviderLogger;
     private final Map<String, LocalDateTime> passwordVersionStore = new ConcurrentHashMap<>();
+    private final Map<String, UUID> userIds = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
@@ -56,6 +59,7 @@ public class JwtTokenServiceTest {
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
 
         passwordVersionStore.clear();
+        userIds.clear();
         userRepository = mock(UserRepository.class);
         when(userRepository.findByUsername(anyString()))
                 .thenAnswer(invocation -> {
@@ -66,6 +70,7 @@ public class JwtTokenServiceTest {
                     );
                     uk.gegc.quizmaker.features.user.domain.model.User user = new uk.gegc.quizmaker.features.user.domain.model.User();
                     user.setUsername(username);
+                    user.setId(userIds.computeIfAbsent(username, key -> UUID.nameUUIDFromBytes(key.getBytes())));
                     user.setPasswordChangedAt(passwordChangedAt);
                     return java.util.Optional.of(user);
                 });
@@ -102,7 +107,8 @@ public class JwtTokenServiceTest {
                 "Alice", null, List.of(new SimpleGrantedAuthority("ROLE_USER"))
         );
 
-        String token = jwtTokenService.generateAccessToken(authentication);
+        UUID sessionId = UUID.randomUUID();
+        String token = jwtTokenService.generateAccessToken(authentication, sessionId);
         assertThat(token).isNotBlank();
 
         Claims claims = Jwts.parser()
@@ -113,6 +119,8 @@ public class JwtTokenServiceTest {
 
         assertThat(claims.getSubject()).isEqualTo("Alice");
         assertThat(claims.get("type", String.class)).isEqualTo("access");
+        assertThat(claims.get("sid", String.class)).isEqualTo(sessionId.toString());
+        assertThat(claims.get("uid", String.class)).isEqualTo(userIds.get("Alice").toString());
 
         Date issuedAt = claims.getIssuedAt();
         Date expirationDate = claims.getExpiration();
@@ -126,9 +134,10 @@ public class JwtTokenServiceTest {
     void generateAccessToken_edge_twoCalls_differentIssuedAtAndExpiry() throws InterruptedException {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Bob", null, List.of());
 
-        String token1 = jwtTokenService.generateAccessToken(authentication);
+        UUID sessionId = UUID.randomUUID();
+        String token1 = jwtTokenService.generateAccessToken(authentication, sessionId);
         Thread.sleep(1000);
-        String token2 = jwtTokenService.generateAccessToken(authentication);
+        String token2 = jwtTokenService.generateAccessToken(authentication, sessionId);
 
         assertThat(token1).isNotEqualTo(token2);
 
@@ -144,7 +153,12 @@ public class JwtTokenServiceTest {
     void generateRefreshToken_happyPath_containsRefreshTypeAndSubjectAndExpiry() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Carol", null, List.of());
 
-        String token = jwtTokenService.generateRefreshToken(authentication);
+        UUID sessionId = UUID.randomUUID();
+        String token = jwtTokenService.generateRefreshToken(
+                authentication,
+                sessionId,
+                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+        );
         assertThat(token).isNotBlank();
 
         Claims claims = Jwts.parser()
@@ -155,6 +169,7 @@ public class JwtTokenServiceTest {
 
         assertThat(claims.getSubject()).isEqualTo("Carol");
         assertThat(claims.get("type")).isEqualTo("refresh");
+        assertThat(claims.get("sid", String.class)).isEqualTo(sessionId.toString());
 
         Date issuedAt = claims.getIssuedAt();
         Date expiration = claims.getExpiration();
@@ -166,17 +181,54 @@ public class JwtTokenServiceTest {
     @DisplayName("validateToken: valid access token returns true")
     void validateToken_happyPath_validTokenReturnsTrue() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("John", null, List.of());
-        String validToken = jwtTokenService.generateAccessToken(authentication);
+        String validToken = jwtTokenService.generateAccessToken(authentication, UUID.randomUUID());
 
         boolean result = jwtTokenService.validateToken(validToken);
         assertThat(result).isTrue();
     }
 
     @Test
+    @DisplayName("purpose validation accepts only the token type requested by the caller")
+    void validateTokenForPurpose_rejectsOppositeTokenType() {
+        Authentication authentication = new UsernamePasswordAuthenticationToken("Purpose", null, List.of());
+        UUID sessionId = UUID.randomUUID();
+        String accessToken = jwtTokenService.generateAccessToken(authentication, sessionId);
+        String refreshToken = jwtTokenService.generateRefreshToken(
+                authentication,
+                sessionId,
+                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+        );
+
+        assertThat(jwtTokenService.validateAccessToken(accessToken)).isPresent();
+        assertThat(jwtTokenService.validateRefreshToken(accessToken)).isEmpty();
+        assertThat(jwtTokenService.validateRefreshToken(refreshToken)).isPresent();
+        assertThat(jwtTokenService.validateAccessToken(refreshToken)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("access validation rejects a correctly signed legacy token without a session identity")
+    void validateAccessToken_legacyTokenWithoutSessionIdentity_returnsEmpty() {
+        Date issuedAt = new Date();
+        String legacyAccessToken = Jwts.builder()
+                .subject("Legacy")
+                .issuedAt(issuedAt)
+                .expiration(new Date(issuedAt.getTime() + accessTokenValidityInMs))
+                .claim("type", "access")
+                .claim("pwdChangedAt", passwordVersionStore
+                        .computeIfAbsent("Legacy", ignored -> LocalDateTime.now().minusMinutes(5))
+                        .toInstant(ZoneOffset.UTC)
+                        .toEpochMilli())
+                .signWith(secretKey)
+                .compact();
+
+        assertThat(jwtTokenService.validateAccessToken(legacyAccessToken)).isEmpty();
+    }
+
+    @Test
     @DisplayName("validateToken: rejects token if passwordChangedAt is newer than claim")
     void validateToken_passwordChangedAfterIssuance_returnsFalse() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Versioned", null, List.of());
-        String token = jwtTokenService.generateAccessToken(authentication);
+        String token = jwtTokenService.generateAccessToken(authentication, UUID.randomUUID());
 
         passwordVersionStore.put("Versioned", LocalDateTime.now().plusMinutes(1));
 
@@ -226,7 +278,11 @@ public class JwtTokenServiceTest {
     void getUsername_happyPath_returnsCorrectUsername() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Lenny", null, List.of());
 
-        String token = jwtTokenService.generateRefreshToken(authentication);
+        String token = jwtTokenService.generateRefreshToken(
+                authentication,
+                UUID.randomUUID(),
+                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+        );
         String username = jwtTokenService.getUsername(token);
         assertThat(username).isEqualTo("Lenny");
     }
@@ -250,7 +306,7 @@ public class JwtTokenServiceTest {
         provider.init();
 
         Authentication initial = new UsernamePasswordAuthenticationToken("Bill", null, List.of());
-        String token = provider.generateAccessToken(initial);
+        String token = provider.generateAccessToken(initial, UUID.randomUUID());
 
         Authentication result = provider.getAuthentication(token);
 

@@ -21,11 +21,11 @@ import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.domain.model.EmailVerificationToken;
 import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
 import uk.gegc.quizmaker.features.auth.domain.repository.EmailVerificationTokenRepository;
 import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
@@ -58,7 +58,7 @@ public class AuthServiceImpl implements AuthService {
     private final RoleRepository roleRepository;
     private final UserMapper userMapper;
     private final AuthenticationManager authManager;
-    private final JwtTokenService jwtTokenService;
+    private final AuthSessionService authSessionService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailService emailService;
@@ -133,44 +133,21 @@ public class AuthServiceImpl implements AuthService {
                     new UsernamePasswordAuthenticationToken(loginRequest.username(), loginRequest.password())
             );
 
-            String accessToken = jwtTokenService.generateAccessToken(authentication);
-            String refreshToken = jwtTokenService.generateRefreshToken(authentication);
-            long accessExpiresInMs = jwtTokenService.getAccessTokenValidityInMs();
-            long refreshExpiresInMs = jwtTokenService.getRefreshTokenValidityInMs();
-
-            return new JwtResponse(accessToken, refreshToken, accessExpiresInMs, refreshExpiresInMs);
+            return authSessionService.issueTokens(authentication);
         } catch (AuthenticationException ex) {
             throw new UnauthorizedException("Invalid username or password");
-        } catch (Exception exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid username or password");
         }
     }
 
     @Override
     public JwtResponse refresh(RefreshRequest refreshRequest) {
 
-        String token = refreshRequest.refreshToken();
-
-        if (!jwtTokenService.validateToken(token)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
-        }
-
-        String type = jwtTokenService.getClaims(token).get("type", String.class);
-        if (!"refresh".equals(type)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is not a refresh token");
-        }
-
-        Authentication authentication = jwtTokenService.getAuthentication(token);
-
-        return new JwtResponse(jwtTokenService.generateAccessToken(authentication),
-                token,
-                jwtTokenService.getAccessTokenValidityInMs(),
-                jwtTokenService.getRefreshTokenValidityInMs());
+        return authSessionService.refresh(refreshRequest.refreshToken());
     }
 
     @Override
     public void logout(String token) {
-
+        authSessionService.logout(token);
     }
 
     @Override

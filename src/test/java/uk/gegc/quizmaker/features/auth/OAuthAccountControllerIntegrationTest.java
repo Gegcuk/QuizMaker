@@ -11,10 +11,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.auth.api.dto.UnlinkAccountRequest;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -53,7 +53,7 @@ class OAuthAccountControllerIntegrationTest extends BaseIntegrationTest {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private JwtTokenService jwtTokenService;
+    private AuthSessionService authSessionService;
 
     @Autowired
     private EntityManager entityManager;
@@ -87,7 +87,7 @@ class OAuthAccountControllerIntegrationTest extends BaseIntegrationTest {
                                 .map(role -> new org.springframework.security.core.authority.SimpleGrantedAuthority(role.getRoleName()))
                                 .toList()
                 );
-        accessToken = jwtTokenService.generateAccessToken(authToken);
+        accessToken = authSessionService.issueTokens(authToken).accessToken();
     }
 
     @Test
@@ -197,4 +197,3 @@ class OAuthAccountControllerIntegrationTest extends BaseIntegrationTest {
         return oauthAccountRepository.save(account);
     }
 }
-

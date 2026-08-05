@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.io.IOException;
 import java.util.List;
@@ -40,7 +42,10 @@ public class JwtAuthenticationFilterTest {
     FilterChain filterChain;
 
     @Mock
-    JwtTokenService jwtTokenService;
+    AuthSessionService authSessionService;
+
+    @Mock
+    TrustedProxyUtil trustedProxyUtil;
 
     JwtAuthenticationFilter authenticationFilter;
     private ListAppender<ILoggingEvent> logWatcher;
@@ -49,7 +54,7 @@ public class JwtAuthenticationFilterTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        authenticationFilter = new JwtAuthenticationFilter(jwtTokenService);
+        authenticationFilter = new JwtAuthenticationFilter(authSessionService, trustedProxyUtil);
         SecurityContextHolder.clearContext();
         
         // Set up log capture
@@ -84,13 +89,11 @@ public class JwtAuthenticationFilterTest {
         Authentication authentication = mock(Authentication.class);
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenService.validateToken(token)).thenReturn(true);
-        when(jwtTokenService.getAuthentication(token)).thenReturn(authentication);
+        when(authSessionService.authenticateAccessToken(token)).thenReturn(authentication);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenService).validateToken(token);
-        verify(jwtTokenService).getAuthentication(token);
+        verify(authSessionService).authenticateAccessToken(token);
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication())
@@ -103,12 +106,11 @@ public class JwtAuthenticationFilterTest {
         String token = "invalid-token";
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenService.validateToken(token)).thenReturn(false);
+        when(authSessionService.authenticateAccessToken(token)).thenReturn(null);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenService).validateToken(token);
-        verify(jwtTokenService, never()).getAuthentication(anyString());
+        verify(authSessionService).authenticateAccessToken(token);
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
@@ -121,7 +123,7 @@ public class JwtAuthenticationFilterTest {
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
-        verify(jwtTokenService, never()).validateToken(anyString());
+        verify(authSessionService, never()).authenticateAccessToken(anyString());
         verify(filterChain).doFilter(httpServletRequest, httpServletResponse);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
@@ -134,8 +136,7 @@ public class JwtAuthenticationFilterTest {
         when(authentication.getName()).thenReturn("testuser");
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(jwtTokenService.validateToken(token)).thenReturn(true);
-        when(jwtTokenService.getAuthentication(token)).thenReturn(authentication);
+        when(authSessionService.authenticateAccessToken(token)).thenReturn(authentication);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
@@ -159,16 +160,16 @@ public class JwtAuthenticationFilterTest {
         String userAgent = "TestClient/1.0";
 
         when(httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + token);
-        when(httpServletRequest.getRemoteAddr()).thenReturn(clientIp);
         when(httpServletRequest.getRequestURI()).thenReturn(requestUri);
         when(httpServletRequest.getHeader("User-Agent")).thenReturn(userAgent);
-        when(jwtTokenService.validateToken(token)).thenReturn(false);
+        when(trustedProxyUtil.getClientIp(httpServletRequest)).thenReturn(clientIp);
+        when(authSessionService.authenticateAccessToken(token)).thenReturn(null);
 
         authenticationFilter.doFilterInternal(httpServletRequest, httpServletResponse, filterChain);
 
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
-                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}")));
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid access token received from IP: {}, URI: {}, User-Agent: {}")));
                 
         // Verify we logged the security details
         ILoggingEvent warnEvent = logWatcher.list.stream()

@@ -20,9 +20,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import java.io.IOException;
 import org.springframework.web.cors.CorsConfigurationSource;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
@@ -36,7 +36,7 @@ import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 @EnableAspectJAutoProxy
 public class SecurityConfig {
 
-    private final JwtTokenService jwtTokenService;
+    private final AuthSessionService authSessionService;
     private final CorsConfigurationSource corsConfigurationSource;
     private final TrustedProxyUtil trustedProxyUtil;
     private final CustomOAuth2UserService customOAuth2UserService;
@@ -80,7 +80,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/documents/**").authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(
-                        new JwtAuthenticationFilter(jwtTokenService, trustedProxyUtil),
+                        new JwtAuthenticationFilter(authSessionService, trustedProxyUtil),
                         UsernamePasswordAuthenticationFilter.class
                 )
                 .cors(cors -> cors.configurationSource(corsConfigurationSource));

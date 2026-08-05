@@ -10,6 +10,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.io.IOException;
@@ -17,17 +18,12 @@ import java.io.IOException;
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private final JwtTokenService jwtTokenService;
+    private final AuthSessionService authSessionService;
     private final TrustedProxyUtil trustedProxyUtil;
 
-    public JwtAuthenticationFilter(JwtTokenService jwtTokenService, TrustedProxyUtil trustedProxyUtil) {
-        this.jwtTokenService = jwtTokenService;
+    public JwtAuthenticationFilter(AuthSessionService authSessionService, TrustedProxyUtil trustedProxyUtil) {
+        this.authSessionService = authSessionService;
         this.trustedProxyUtil = trustedProxyUtil;
-    }
-
-    // Backward-compatible constructor for any old usages/tests
-    public JwtAuthenticationFilter(JwtTokenService jwtTokenService) {
-        this(jwtTokenService, new TrustedProxyUtil());
     }
 
     @Override
@@ -36,20 +32,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
-            if (jwtTokenService.validateToken(token)) {
-                Authentication authentication = jwtTokenService.getAuthentication(token);
+            try {
+                Authentication authentication = authSessionService.authenticateAccessToken(token);
+                if (authentication != null) {
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 log.debug("Successfully authenticated user: {}", authentication.getName());
-            } else {
-                // Log failed token validation with request details for security monitoring
-                String clientIp = trustedProxyUtil != null ? trustedProxyUtil.getClientIp(request) : request.getRemoteAddr();
-                log.warn("Invalid JWT token received from IP: {}, URI: {}, User-Agent: {}", 
-                    clientIp, 
-                    request.getRequestURI(),
-                    request.getHeader("User-Agent"));
+                } else {
+                    logInvalidToken(request);
+                }
+            } catch (RuntimeException ex) {
+                // A session-store outage must fail closed. Do not expose token data in logs or responses.
+                log.error("Authentication session validation failed", ex);
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void logInvalidToken(HttpServletRequest request) {
+        String clientIp = trustedProxyUtil != null ? trustedProxyUtil.getClientIp(request) : request.getRemoteAddr();
+        log.warn("Invalid access token received from IP: {}, URI: {}, User-Agent: {}",
+                clientIp,
+                request.getRequestURI(),
+                request.getHeader("User-Agent"));
     }
 }

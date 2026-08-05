@@ -9,6 +9,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
+import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 
 import java.io.IOException;
 
@@ -21,7 +23,7 @@ import java.io.IOException;
 @Slf4j
 public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
-    private final JwtTokenService jwtTokenService;
+    private final AuthSessionService authSessionService;
 
     @Value("${app.oauth2.redirect-uri:http://localhost:3000/oauth2/redirect}")
     private String oauth2RedirectUri;
@@ -50,17 +52,15 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         Authentication authentication
     ) {
         // Generate JWT tokens for the authenticated user
-        String accessToken = jwtTokenService.generateAccessToken(authentication);
-        String refreshToken = jwtTokenService.generateRefreshToken(authentication);
+        JwtResponse tokens = authSessionService.issueTokens(authentication);
         
         log.info("OAuth2 authentication successful for user: {}", authentication.getName());
 
         // Build redirect URL with tokens as query parameters
         return UriComponentsBuilder.fromUriString(oauth2RedirectUri)
-                .queryParam("accessToken", accessToken)
-                .queryParam("refreshToken", refreshToken)
+                .queryParam("accessToken", tokens.accessToken())
+                .queryParam("refreshToken", tokens.refreshToken())
                 .build()
                 .toUriString();
     }
 }
-

@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.service.auth;
 
-import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,9 +22,9 @@ import uk.gegc.quizmaker.features.auth.api.dto.LoginRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.RegisterRequest;
 import uk.gegc.quizmaker.features.auth.application.impl.AuthServiceImpl;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.domain.model.PasswordResetToken;
 import uk.gegc.quizmaker.features.auth.domain.repository.PasswordResetTokenRepository;
-import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
 import uk.gegc.quizmaker.features.user.domain.model.Role;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
@@ -67,7 +66,7 @@ class AuthServiceImplTest {
     @Mock
     private AuthenticationManager authManager;
     @Mock
-    private JwtTokenService jwtTokenService;
+    private AuthSessionService authSessionService;
 
     @Mock
     private PasswordResetTokenRepository passwordResetTokenRepository;
@@ -207,21 +206,13 @@ class AuthServiceImplTest {
         Authentication auth = mock(Authentication.class);
         when(authManager.authenticate(any()))
                 .thenReturn(auth);
-        when(jwtTokenService.generateAccessToken(auth))
-                .thenReturn("access.jwt");
-        when(jwtTokenService.generateRefreshToken(auth))
-                .thenReturn("refresh.jwt");
-        when(jwtTokenService.getAccessTokenValidityInMs())
-                .thenReturn(1000L);
-        when(jwtTokenService.getRefreshTokenValidityInMs())
-                .thenReturn(5000L);
+        JwtResponse expected = new JwtResponse("access.jwt", "refresh.jwt", 1000L, 5000L);
+        when(authSessionService.issueTokens(auth)).thenReturn(expected);
 
         JwtResponse resp = authService.login(req);
 
-        assertEquals("access.jwt", resp.accessToken());
-        assertEquals("refresh.jwt", resp.refreshToken());
-        assertEquals(1000L, resp.accessExpiresInMs());
-        assertEquals(5000L, resp.refreshExpiresInMs());
+        assertEquals(expected, resp);
+        verify(authSessionService).issueTokens(auth);
     }
 
     @Test
@@ -239,54 +230,35 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("refresh: valid refresh token returns new access token")
+    @DisplayName("refresh: delegates session-bound token rotation")
     void refresh_happy() {
         var req = new RefreshRequest("valid.token");
-        when(jwtTokenService.validateToken("valid.token")).thenReturn(true);
-        Claims claims = mock(Claims.class);
-        when(claims.get("type", String.class)).thenReturn("refresh");
-        when(jwtTokenService.getClaims("valid.token")).thenReturn(claims);
-
-        Authentication auth = mock(Authentication.class);
-        when(jwtTokenService.getAuthentication("valid.token")).thenReturn(auth);
-        when(jwtTokenService.generateAccessToken(auth)).thenReturn("new.access");
-        when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(1234L);
-        when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(5678L);
+        JwtResponse expected = new JwtResponse("new.access", "new.refresh", 1234L, 5678L);
+        when(authSessionService.refresh("valid.token")).thenReturn(expected);
 
         JwtResponse out = authService.refresh(req);
 
-        assertEquals("new.access", out.accessToken());
-        assertEquals("valid.token", out.refreshToken());
-        assertEquals(1234L, out.accessExpiresInMs());
-        assertEquals(5678L, out.refreshExpiresInMs());
+        assertEquals(expected, out);
+        verify(authSessionService).refresh("valid.token");
     }
 
     @Test
-    @DisplayName("refresh: invalid token yields 401")
+    @DisplayName("refresh: invalid token failure is preserved")
     void refresh_invalidToken() {
-        when(jwtTokenService.validateToken("bad")).thenReturn(false);
-        var ex = assertThrows(ResponseStatusException.class,
-                () -> authService.refresh(new RefreshRequest("bad")));
-        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        UnauthorizedException expected = new UnauthorizedException("Invalid refresh token");
+        when(authSessionService.refresh("bad")).thenThrow(expected);
+
+        assertSame(expected, assertThrows(
+                UnauthorizedException.class,
+                () -> authService.refresh(new RefreshRequest("bad"))
+        ));
     }
 
     @Test
-    @DisplayName("refresh: wrong token type yields 400")
-    void refresh_wrongType() {
-        when(jwtTokenService.validateToken("t")).thenReturn(true);
-        Claims claims = mock(Claims.class);
-        when(claims.get("type", String.class)).thenReturn("access");
-        when(jwtTokenService.getClaims("t")).thenReturn(claims);
-
-        var ex = assertThrows(ResponseStatusException.class,
-                () -> authService.refresh(new RefreshRequest("t")));
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
-    }
-
-    @Test
-    @DisplayName("logout: always succeeds (no-op)")
-    void logout_noException() {
+    @DisplayName("logout: delegates current-session revocation")
+    void logout_delegatesCurrentSessionRevocation() {
         assertDoesNotThrow(() -> authService.logout("any.token"));
+        verify(authSessionService).logout("any.token");
     }
 
     @Test

@@ -14,6 +14,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.web.RedirectStrategy;
 import org.springframework.test.util.ReflectionTestUtils;
+import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -33,7 +35,7 @@ import static org.mockito.Mockito.*;
 class OAuth2AuthenticationSuccessHandlerTest {
 
     @Mock
-    private JwtTokenService jwtTokenService;
+    private AuthSessionService authSessionService;
 
     @Mock
     private HttpServletRequest request;
@@ -55,15 +57,15 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
     @BeforeEach
     void setUp() {
-        handler = new OAuth2AuthenticationSuccessHandler(jwtTokenService);
+        handler = new OAuth2AuthenticationSuccessHandler(authSessionService);
         ReflectionTestUtils.setField(handler, "oauth2RedirectUri", testRedirectUri);
         
         // Set mock redirect strategy
         handler.setRedirectStrategy(redirectStrategy);
 
         // Setup default mocks with lenient for optional usage
-        lenient().when(jwtTokenService.generateAccessToken(any(Authentication.class))).thenReturn(testAccessToken);
-        lenient().when(jwtTokenService.generateRefreshToken(any(Authentication.class))).thenReturn(testRefreshToken);
+        lenient().when(authSessionService.issueTokens(any(Authentication.class)))
+                .thenReturn(new JwtResponse(testAccessToken, testRefreshToken, 1L, 1L));
         lenient().when(response.isCommitted()).thenReturn(false);
         lenient().when(authentication.getName()).thenReturn("testuser");
     }
@@ -75,8 +77,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(request, response, authentication);
 
         // Then
-        verify(jwtTokenService).generateAccessToken(authentication);
-        verify(jwtTokenService).generateRefreshToken(authentication);
+        verify(authSessionService).issueTokens(authentication);
         
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         verify(redirectStrategy).sendRedirect(eq(request), eq(response), urlCaptor.capture());
@@ -98,8 +99,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
         // Then
         verify(redirectStrategy, never()).sendRedirect(any(), any(), any());
-        verify(jwtTokenService).generateAccessToken(authentication);
-        verify(jwtTokenService).generateRefreshToken(authentication);
+        verify(authSessionService).issueTokens(authentication);
     }
 
     @Test
@@ -122,8 +122,9 @@ class OAuth2AuthenticationSuccessHandlerTest {
     void determineTargetUrl_EncodesSpecialCharacters() {
         // Given - tokens with special characters that need encoding
         String tokenWithSpecialChars = "token.with-special_chars+and/symbols";
-        when(jwtTokenService.generateAccessToken(any())).thenReturn(tokenWithSpecialChars);
-        when(jwtTokenService.generateRefreshToken(any())).thenReturn(tokenWithSpecialChars);
+        when(authSessionService.issueTokens(any())).thenReturn(
+                new JwtResponse(tokenWithSpecialChars, tokenWithSpecialChars, 1L, 1L)
+        );
 
         // When
         String targetUrl = handler.determineTargetUrl(request, response, authentication);
@@ -156,8 +157,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         handler.determineTargetUrl(request, response, authentication);
 
         // Then
-        verify(jwtTokenService).generateAccessToken(authentication);
-        verify(jwtTokenService).generateRefreshToken(authentication);
+        verify(authSessionService).issueTokens(authentication);
     }
 
     @Test
@@ -208,8 +208,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(request, response, oauth2Authentication);
 
         // Then
-        verify(jwtTokenService).generateAccessToken(oauth2Authentication);
-        verify(jwtTokenService).generateRefreshToken(oauth2Authentication);
+        verify(authSessionService).issueTokens(oauth2Authentication);
         verify(redirectStrategy).sendRedirect(any(), any(), any());
     }
 
@@ -279,10 +278,9 @@ class OAuth2AuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(request, response, authentication);
 
         // Then - verify execution order
-        var inOrder = inOrder(jwtTokenService, response, redirectStrategy);
+        var inOrder = inOrder(authSessionService, response, redirectStrategy);
         
-        inOrder.verify(jwtTokenService).generateAccessToken(authentication);
-        inOrder.verify(jwtTokenService).generateRefreshToken(authentication);
+        inOrder.verify(authSessionService).issueTokens(authentication);
         inOrder.verify(response).isCommitted();
         inOrder.verify(redirectStrategy).sendRedirect(eq(request), eq(response), anyString());
     }
@@ -327,8 +325,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(request, response, customAuth);
 
         // Then
-        verify(jwtTokenService).generateAccessToken(customAuth);
-        verify(jwtTokenService).generateRefreshToken(customAuth);
+        verify(authSessionService).issueTokens(customAuth);
         
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         verify(redirectStrategy).sendRedirect(any(), any(), urlCaptor.capture());
@@ -338,4 +335,3 @@ class OAuth2AuthenticationSuccessHandlerTest {
         assertThat(redirectUrl).contains("refreshToken=");
     }
 }
-

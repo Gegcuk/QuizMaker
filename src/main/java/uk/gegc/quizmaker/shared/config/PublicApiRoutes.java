@@ -21,6 +21,7 @@ public final class PublicApiRoutes {
             anyMethod("/api/v1/auth/register"),
             anyMethod("/api/v1/auth/login"),
             anyMethod("/api/v1/auth/refresh"),
+            anyMethod("/api/v1/auth/logout"),
             anyMethod("/api/v1/auth/forgot-password"),
             anyMethod("/api/v1/auth/reset-password"),
             anyMethod("/api/v1/auth/2fa/setup"),
