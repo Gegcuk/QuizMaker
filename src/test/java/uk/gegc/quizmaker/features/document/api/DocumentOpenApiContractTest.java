@@ -110,7 +110,8 @@ class DocumentOpenApiContractTest {
         assertResponseDocumented(specification, "/paths/~1api~1documents~1{documentId}~1reprocess/post/responses/422");
         assertResponseDocumented(specification, "/paths/~1api~1documents~1{documentId}~1reprocess/post/responses/503");
         assertThat(specification.at("/paths/~1api~1documents~1upload/post/description").asText())
-                .contains("verifies content type");
+                .contains("verifies staged content bytes")
+                .contains("original PDF filename");
 
         JsonNode documentPageExample = specification.at("/paths/~1api~1documents/get/responses/200/content/application~1json/examples/Processed documents/value");
         DocumentPageResponse page = strictObjectMapper().treeToValue(documentPageExample, DocumentPageResponse.class);

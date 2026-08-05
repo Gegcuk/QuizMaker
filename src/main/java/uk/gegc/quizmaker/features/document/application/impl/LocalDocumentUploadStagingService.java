@@ -44,6 +44,8 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
 
     private static final int COPY_BUFFER_SIZE = 16 * 1024;
     private static final int DETECTION_BYTES = 16 * 1024;
+    private static final int PDF_HEADER_MAX_OFFSET = 1023;
+    private static final byte[] PDF_HEADER = "%PDF-".getBytes(StandardCharsets.US_ASCII);
     private static final Set<String> GENERIC_CONTENT_TYPES = Set.of(
             "application/octet-stream", "binary/octet-stream"
     );
@@ -87,7 +89,7 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             cleanupExpiredStagingFiles(stagingDirectory);
             stagedFile = Files.createTempFile(stagingDirectory, "document-", ".upload");
             long actualSize = copyWithLimit(source, stagedFile);
-            String detectedContentType = detectContentType(stagedFile, filename);
+            String detectedContentType = detectContentType(stagedFile, filename, declaredContentType);
             validateDeclaredType(filename, declaredContentType, detectedContentType);
             return new StagedDocumentUpload(stagedFile, filename, detectedContentType, actualSize);
         } catch (DocumentUploadLimitExceededException | DocumentTypeMismatchException | DocumentResourceLimitException e) {
@@ -177,18 +179,18 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
         return total;
     }
 
-    private String detectContentType(Path path, String filename) throws IOException {
+    private String detectContentType(Path path, String filename, String declaredContentType) throws IOException {
         byte[] header;
         try (InputStream input = Files.newInputStream(path)) {
             header = input.readNBytes(DETECTION_BYTES);
         }
-        if (startsWith(header, "%PDF-".getBytes(StandardCharsets.US_ASCII))) {
+        if (hasPdfHeaderWithinFirstKilobyte(header)) {
             return "application/pdf";
         }
         if (isZip(header)) {
             return validateEpubArchive(path);
         }
-        if (isTextFilename(filename) && isUtf8Text(header)) {
+        if ((isTextFilename(filename) || declaresPlainText(declaredContentType)) && isUtf8Text(header)) {
             return "text/plain";
         }
         throw new DocumentTypeMismatchException("Uploaded content is not a supported PDF, EPUB, or UTF-8 text document");
@@ -247,16 +249,39 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
 
     private void validateDeclaredType(String filename, String declaredContentType, String detectedContentType) {
         String expectedFromExtension = contentTypeForExtension(filename);
-        if (expectedFromExtension == null || !expectedFromExtension.equals(detectedContentType)) {
+        String normalizedDeclaredType = declaredContentType == null || declaredContentType.isBlank()
+                ? null
+                : normalizeDeclaredContentType(declaredContentType);
+        if (expectedFromExtension == null || (!expectedFromExtension.equals(detectedContentType)
+                && !isFrontendExtractedPdfText(expectedFromExtension, normalizedDeclaredType, detectedContentType))) {
             throw new DocumentTypeMismatchException("Filename extension does not match detected document type");
         }
-        if (declaredContentType == null || declaredContentType.isBlank()) {
+        if (normalizedDeclaredType == null) {
             return;
         }
-        String normalizedDeclaredType = normalizeDeclaredContentType(declaredContentType);
         if (!GENERIC_CONTENT_TYPES.contains(normalizedDeclaredType) && !normalizedDeclaredType.equals(detectedContentType)) {
             throw new DocumentTypeMismatchException("Declared content type does not match detected document type");
         }
+    }
+
+    private boolean declaresPlainText(String declaredContentType) {
+        return declaredContentType != null
+                && !declaredContentType.isBlank()
+                && "text/plain".equals(normalizeDeclaredContentType(declaredContentType));
+    }
+
+    /**
+     * Legacy browser clients extract PDF text before upload but preserve the selected PDF filename.
+     * The text declaration and UTF-8 content are both required; generic or PDF-declared uploads do not use this path.
+     */
+    private boolean isFrontendExtractedPdfText(
+            String expectedFromExtension,
+            String declaredContentType,
+            String detectedContentType
+    ) {
+        return "application/pdf".equals(expectedFromExtension)
+                && "text/plain".equals(declaredContentType)
+                && "text/plain".equals(detectedContentType);
     }
 
     private boolean isUtf8Text(byte[] bytes) {
@@ -276,16 +301,21 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
         return value.chars().noneMatch(character -> character < 0x09 || (character > 0x0D && character < 0x20));
     }
 
-    private boolean startsWith(byte[] content, byte[] prefix) {
-        if (content.length < prefix.length) {
-            return false;
-        }
-        for (int index = 0; index < prefix.length; index++) {
-            if (content[index] != prefix[index]) {
-                return false;
+    private boolean hasPdfHeaderWithinFirstKilobyte(byte[] content) {
+        int lastPossibleOffset = Math.min(PDF_HEADER_MAX_OFFSET, content.length - PDF_HEADER.length);
+        for (int offset = 0; offset <= lastPossibleOffset; offset++) {
+            boolean matches = true;
+            for (int index = 0; index < PDF_HEADER.length; index++) {
+                if (content[offset + index] != PDF_HEADER[index]) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                return true;
             }
         }
-        return true;
+        return false;
     }
 
     private boolean isZip(byte[] header) {

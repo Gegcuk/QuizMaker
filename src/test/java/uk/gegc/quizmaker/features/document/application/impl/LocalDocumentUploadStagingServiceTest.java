@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -84,6 +85,90 @@ class LocalDocumentUploadStagingServiceTest {
     }
 
     @Test
+    @DisplayName("Stages frontend-extracted text that retains the selected PDF filename")
+    void stagesFrontendExtractedTextWithPdfFilename() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+
+        StagedDocumentUpload staged = service.stage(
+                new ByteArrayInputStream(extractedText),
+                "functional-programming.pdf",
+                "text/plain",
+                extractedText.length
+        );
+
+        assertThat(staged.detectedContentType()).isEqualTo("text/plain");
+
+        service.discard(staged.stagingPath());
+    }
+
+    @Test
+    @DisplayName("Rejects frontend-extracted text when a non-PDF source filename is retained")
+    void rejectsFrontendExtractedTextWithNonPdfFilename() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> service.stage(
+                new ByteArrayInputStream(extractedText),
+                "book.epub",
+                "text/plain",
+                extractedText.length
+        )).isInstanceOf(DocumentTypeMismatchException.class);
+
+        assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
+    }
+
+    @Test
+    @DisplayName("Rejects PDF-named plain text without an explicit text declaration")
+    void rejectsPdfNamedPlainTextWithGenericContentType() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        byte[] extractedText = "Extracted PDF text for quiz generation.".getBytes(StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> service.stage(
+                new ByteArrayInputStream(extractedText),
+                "functional-programming.pdf",
+                "application/octet-stream",
+                extractedText.length
+        )).isInstanceOf(DocumentTypeMismatchException.class);
+
+        assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
+    }
+
+    @Test
+    @DisplayName("Recognizes a PDF header after a standards-permitted leading preamble")
+    void recognizesPdfHeaderWithinFirstKilobyte() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(2048));
+        byte[] pdf = pdfWithHeaderAtOffset(3);
+
+        StagedDocumentUpload staged = service.stage(
+                new ByteArrayInputStream(pdf),
+                "book.pdf",
+                "application/pdf",
+                pdf.length
+        );
+
+        assertThat(staged.detectedContentType()).isEqualTo("application/pdf");
+
+        service.discard(staged.stagingPath());
+    }
+
+    @Test
+    @DisplayName("Rejects a PDF header that begins after the first kilobyte")
+    void rejectsPdfHeaderAfterFirstKilobyte() {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(2048));
+        byte[] pdf = pdfWithHeaderAtOffset(1024);
+
+        assertThatThrownBy(() -> service.stage(
+                new ByteArrayInputStream(pdf),
+                "book.pdf",
+                "application/pdf",
+                pdf.length
+        )).isInstanceOf(DocumentTypeMismatchException.class);
+
+        assertThat(storageRoot.resolve(".staging")).isEmptyDirectory();
+    }
+
+    @Test
     @DisplayName("Rejects content that conflicts with the filename or declared content type")
     void rejectsTypeMismatches() {
         LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
@@ -125,6 +210,13 @@ class LocalDocumentUploadStagingServiceTest {
         limits.setStorageRoot(storageRoot.toString());
         limits.setMaxUploadBytes(maxUploadBytes);
         return limits;
+    }
+
+    private byte[] pdfWithHeaderAtOffset(int offset) {
+        byte[] content = new byte[offset + 5];
+        Arrays.fill(content, (byte) ' ');
+        System.arraycopy("%PDF-".getBytes(StandardCharsets.US_ASCII), 0, content, offset, 5);
+        return content;
     }
 
     private byte[] epubWithTwoEntries() throws IOException {
