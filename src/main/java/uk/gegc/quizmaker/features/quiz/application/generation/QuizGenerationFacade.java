@@ -70,4 +70,10 @@ public interface QuizGenerationFacade {
             List<Question> allQuestions,
             GenerateQuizFromDocumentRequest originalRequest
     );
+
+    QuizGenerationFinalizationClaim claimQuizGenerationFinalization(UUID jobId);
+
+    void handleQuizGenerationFinalizationFailure(UUID jobId);
+
+    int recoverStalledQuizGenerationFinalizations();
 }

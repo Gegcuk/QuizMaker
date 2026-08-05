@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.application.impl;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -77,6 +78,23 @@ class InternalBillingServiceImplTest {
 
         assertThat(result).isSameAs(release);
         verify(billingServiceImpl).releaseInternal(reservationId, "reason", "quiz", "release-key");
+    }
+
+    @Test
+    @DisplayName("Delegates a generation reservation lease renewal without changing its arguments")
+    void renewReservationLeaseDelegatesToBillingServiceImpl() {
+        UUID userId = UUID.randomUUID();
+        UUID reservationId = UUID.randomUUID();
+        UUID jobId = UUID.randomUUID();
+        ReservationDto reservation = new ReservationDto(
+                reservationId, userId, ReservationState.ACTIVE, 120L, 0L,
+                LocalDateTime.now().plusMinutes(30), jobId, LocalDateTime.now(), LocalDateTime.now());
+        when(billingServiceImpl.renewReservationLeaseInternal(userId, reservationId, jobId)).thenReturn(reservation);
+
+        ReservationDto result = internalBillingService.renewReservationLease(userId, reservationId, jobId);
+
+        assertThat(result).isSameAs(reservation);
+        verify(billingServiceImpl).renewReservationLeaseInternal(userId, reservationId, jobId);
     }
 
     @Test

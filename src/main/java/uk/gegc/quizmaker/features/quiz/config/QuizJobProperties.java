@@ -39,6 +39,9 @@ public class QuizJobProperties {
      */
     private Cancellation cancellation = new Cancellation();
 
+    /** Durable recovery policy for the short post-AI entitlement transaction. */
+    private Finalization finalization = new Finalization();
+
     /**
      * Rate limit settings for job starts
      */
@@ -58,6 +61,15 @@ public class QuizJobProperties {
          * Default: 0
          */
         private long minStartFeeTokens = 0;
+    }
+
+    @Data
+    public static class Finalization {
+        /** A FINALIZING marker older than this is treated as interrupted. */
+        private int recoveryGraceSeconds = 300;
+
+        /** Fixed delay between recovery scans. */
+        private int recoveryFixedDelaySeconds = 60;
     }
 
     @Data
@@ -92,4 +104,3 @@ public class QuizJobProperties {
         }
     }
 }
-

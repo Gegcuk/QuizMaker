@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -194,8 +195,12 @@ public class QuizServiceImpl implements QuizService {
 
     @EventListener
     @Async("generalTaskExecutor")
-    @Transactional
     public void handleQuizGenerationCompleted(QuizGenerationCompletedEvent event) {
+        QuizGenerationFinalizationClaim claim = quizGenerationFacade.claimQuizGenerationFinalization(event.getJobId());
+        if (!claim.shouldFinalize()) {
+            log.info("Skipping quiz-generation finalization for job {} because claim is {}", event.getJobId(), claim);
+            return;
+        }
         try {
             quizGenerationFacade.createQuizCollectionFromGeneratedQuestions(
                     event.getJobId(),
@@ -204,6 +209,7 @@ public class QuizServiceImpl implements QuizService {
             );
         } catch (Exception e) {
             log.error("Failed to create quiz collection for job {}", event.getJobId(), e);
+            quizGenerationFacade.handleQuizGenerationFinalizationFailure(event.getJobId());
         }
     }
 

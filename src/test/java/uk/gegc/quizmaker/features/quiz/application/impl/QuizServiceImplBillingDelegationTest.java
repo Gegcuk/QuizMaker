@@ -28,6 +28,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -261,12 +262,15 @@ class QuizServiceImplBillingDelegationTest {
     }
 
     @Test
-    void handleQuizGenerationCompletedFailureReleasesReservationViaInternalService() {
+    @DisplayName("Completed event claims finalization and records compensation when assembly fails")
+    void handleQuizGenerationCompletedFailureRecordsCompensation() {
         UUID jobId = UUID.randomUUID();
 
         // Configure facade to throw exception (delegation test)
         doThrow(new RuntimeException("boom"))
                 .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), any());
+        when(quizGenerationFacade.claimQuizGenerationFinalization(jobId))
+                .thenReturn(QuizGenerationFinalizationClaim.CLAIMED);
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 UUID.randomUUID(),
@@ -294,6 +298,8 @@ class QuizServiceImplBillingDelegationTest {
         quizService.handleQuizGenerationCompleted(event);
 
         // Verify delegation to facade
+        verify(quizGenerationFacade).claimQuizGenerationFinalization(jobId);
         verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), eq(request));
+        verify(quizGenerationFacade).handleQuizGenerationFinalizationFailure(jobId);
     }
 }

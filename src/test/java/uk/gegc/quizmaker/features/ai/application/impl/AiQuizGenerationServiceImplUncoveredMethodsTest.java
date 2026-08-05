@@ -16,12 +16,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
+import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
+import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -29,8 +32,10 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -136,12 +141,48 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
         });
 
         lenient().doAnswer(inv -> {
-            Object callback = inv.getArgument(0);
-            if (callback instanceof org.springframework.transaction.support.TransactionCallback) {
-                ((org.springframework.transaction.support.TransactionCallback<?>) callback).doInTransaction(null);
-            }
+            Consumer<org.springframework.transaction.TransactionStatus> callback = inv.getArgument(0);
+            callback.accept(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+    }
+
+    @Nested
+    @DisplayName("Generation reservation lease tracking")
+    class GenerationReservationLeaseTrackingTests {
+
+        @Test
+        @DisplayName("Each AI call renews its active generation reservation while preserving the first-call timestamp")
+        void eachAiCallRenewsActiveReservation_preservesFirstCallTimestamp() {
+            UUID jobId = UUID.randomUUID();
+            UUID reservationId = UUID.randomUUID();
+            User user = new User();
+            user.setId(UUID.randomUUID());
+            QuizGenerationJob job = new QuizGenerationJob();
+            job.setId(jobId);
+            job.setUser(user);
+            job.setBillingState(BillingState.RESERVED);
+            job.setBillingReservationId(reservationId);
+            LocalDateTime firstAiCallAt = LocalDateTime.now().minusMinutes(1);
+            job.setHasStartedAiCalls(true);
+            job.setFirstAiCallAt(firstAiCallAt);
+            LocalDateTime renewedExpiry = LocalDateTime.now().plusMinutes(30);
+            ReservationDto renewedReservation = new ReservationDto(
+                    reservationId, user.getId(), ReservationState.ACTIVE, 100L, 0L,
+                    renewedExpiry, jobId, LocalDateTime.now(), LocalDateTime.now());
+
+            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(billingService.renewReservationLease(user.getId(), reservationId, jobId))
+                    .thenReturn(renewedReservation);
+
+            service.recordAiCallStarted(jobId);
+            service.recordAiCallStarted(jobId);
+
+            assertThat(job.getFirstAiCallAt()).isEqualTo(firstAiCallAt);
+            assertThat(job.getReservationExpiresAt()).isEqualTo(renewedExpiry);
+            verify(billingService, times(2)).renewReservationLease(user.getId(), reservationId, jobId);
+            verify(jobRepository, times(2)).save(job);
+        }
     }
 
     @Nested
@@ -352,13 +393,17 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
             // Given
             UUID jobId = UUID.randomUUID();
             int totalChunks = 15;
+            QuizGenerationJob job = new QuizGenerationJob();
+            job.setId(jobId);
+            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
 
-            // When - Lines 1306-1311 covered (method executes transaction)
-            assertThatCode(() -> service.updateJobTotalChunks(jobId, totalChunks))
-                    .doesNotThrowAnyException();
+            // When
+            service.updateJobTotalChunks(jobId, totalChunks);
 
-            // Then - Transaction should be executed
+            // Then
+            assertThat(job.getTotalChunks()).isEqualTo(totalChunks);
             verify(transactionTemplate).executeWithoutResult(any());
+            verify(jobRepository).save(job);
         }
     }
 
@@ -396,4 +441,3 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
         }
     }
 }
-

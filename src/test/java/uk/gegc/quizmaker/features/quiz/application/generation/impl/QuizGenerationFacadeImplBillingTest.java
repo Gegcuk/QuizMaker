@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
@@ -29,11 +30,14 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
@@ -44,6 +48,7 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.*;
@@ -108,6 +113,9 @@ class QuizGenerationFacadeImplBillingTest {
 
     @Mock
     private QuizGenerationRequestCanonicalizer requestCanonicalizer;
+
+    @Mock
+    private QuizJobProperties quizJobProperties;
     
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -154,6 +162,82 @@ class QuizGenerationFacadeImplBillingTest {
         consolidatedQuiz.setId(UUID.randomUUID());
         consolidatedQuiz.setTitle("Test Quiz");
         consolidatedQuiz.setCreator(testUser);
+
+        lenient().when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(null);
+        });
+        lenient().doAnswer(invocation -> {
+            Consumer<org.springframework.transaction.TransactionStatus> callback = invocation.getArgument(0);
+            callback.accept(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
+    }
+
+    @Nested
+    @DisplayName("durable finalization claim and recovery")
+    class FinalizationRecoveryTests {
+
+        @Test
+        @DisplayName("First completion event claims finalization and a duplicate event is ignored")
+        void firstCompletionEventClaimsFinalization_duplicateEventIsInProgress() {
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            QuizGenerationFinalizationClaim firstClaim = facade.claimQuizGenerationFinalization(jobId);
+            QuizGenerationFinalizationClaim duplicateClaim = facade.claimQuizGenerationFinalization(jobId);
+
+            assertThat(firstClaim).isEqualTo(QuizGenerationFinalizationClaim.CLAIMED);
+            assertThat(duplicateClaim).isEqualTo(QuizGenerationFinalizationClaim.IN_PROGRESS);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
+            verify(jobRepository, times(1)).save(job);
+        }
+
+        @Test
+        @DisplayName("Finalization failure releases its reservation and leaves no completed content claim")
+        void finalizationFailureReleasesReservation() {
+            job.setBillingReservationId(UUID.randomUUID());
+            job.setBillingState(BillingState.RESERVED);
+            job.beginFinalization(LocalDateTime.now());
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            facade.handleQuizGenerationFinalizationFailure(jobId);
+
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.FAILED);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FAILED);
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+            verify(internalBillingService).release(
+                    eq(job.getBillingReservationId()),
+                    eq("generation-finalization-failed"),
+                    eq("quiz-generation"),
+                    eq("quiz:" + jobId + ":finalization-release")
+            );
+        }
+
+        @Test
+        @DisplayName("Recovery retries an interrupted finalization and releases the held reservation")
+        void recoveryRetriesInterruptedFinalization() {
+            job.setBillingReservationId(UUID.randomUUID());
+            job.setBillingState(BillingState.RESERVED);
+            job.beginFinalization(LocalDateTime.now().minusMinutes(10));
+            QuizJobProperties.Finalization finalization = new QuizJobProperties.Finalization();
+            finalization.setRecoveryGraceSeconds(60);
+            when(quizJobProperties.getFinalization()).thenReturn(finalization);
+            when(jobRepository.findByFinalizationStateAndFinalizationStartedAtBefore(
+                    eq(QuizGenerationFinalizationState.FINALIZING), any(LocalDateTime.class)))
+                    .thenReturn(List.of(job));
+            when(jobRepository.findByFinalizationStateAndBillingState(
+                    QuizGenerationFinalizationState.FAILED, BillingState.RESERVED))
+                    .thenReturn(List.of());
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+            assertThat(recovered).isEqualTo(1);
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.FAILED);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FAILED);
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
+            verify(internalBillingService).release(any(), anyString(), anyString(), anyString());
+        }
     }
     
     // ============================================================================
@@ -171,7 +255,7 @@ class QuizGenerationFacadeImplBillingTest {
             List<Question> questions = createQuestions(5);
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, questions);
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             when(quizAssemblyService.createConsolidatedQuiz(
@@ -202,7 +286,7 @@ class QuizGenerationFacadeImplBillingTest {
                     2, chunk3
             );
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             
@@ -232,18 +316,16 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Job not found - throws RuntimeException with cause")
-        void jobNotFound_throwsRuntimeException() {
+        @DisplayName("Job not found - exposes the missing job to the finalization listener")
+        void jobNotFound_exposesMissingJob() {
             // Given
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.empty());
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.empty());
             
             // When & Then
             assertThatThrownBy(() -> facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Failed to create quiz collection from generated questions")
-                    .hasCauseInstanceOf(ResourceNotFoundException.class);
+                    .isInstanceOf(ResourceNotFoundException.class);
         }
         
         @Test
@@ -253,7 +335,7 @@ class QuizGenerationFacadeImplBillingTest {
             job.setStatus(GenerationStatus.COMPLETED);
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
             // When
             facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest);
@@ -273,7 +355,7 @@ class QuizGenerationFacadeImplBillingTest {
             chunkQuestions.put(2, List.of());  // empty chunk
             chunkQuestions.put(3, createQuestions(2));
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             
@@ -296,12 +378,12 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Chunk quiz creation fails - handles failure")
-        void chunkQuizCreationFails_handlesFailure() {
+        @DisplayName("Quiz assembly failure propagates so the listener can compensate")
+        void quizAssemblyFailure_propagatesForCompensation() {
             // Given
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             when(quizAssemblyService.createConsolidatedQuiz(any(), anyList(), any(), any(), any(), any(), anyInt()))
@@ -310,20 +392,19 @@ class QuizGenerationFacadeImplBillingTest {
             // When & Then
             assertThatThrownBy(() -> facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("Failed to create quiz collection from generated questions");
-            
-            // Verify job marked as failed and billing released
-            assertThat(job.getStatus()).isEqualTo(GenerationStatus.FAILED);
-            assertThat(job.getErrorMessage()).contains("Failed to create quiz collection");
+                    .hasMessageContaining("Quiz creation failed");
+
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+            verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
         }
         
         @Test
-        @DisplayName("Consolidated quiz creation fails - handles failure")
-        void consolidatedQuizCreationFails_handlesFailure() {
+        @DisplayName("Consolidated quiz creation failure does not publish a false completion")
+        void consolidatedQuizCreationFailure_doesNotMarkCompleted() {
             // Given
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             when(quizAssemblyService.createConsolidatedQuiz(any(), anyList(), any(), any(), any(), any(), anyInt()))
@@ -333,7 +414,7 @@ class QuizGenerationFacadeImplBillingTest {
             assertThatThrownBy(() -> facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest))
                     .isInstanceOf(RuntimeException.class);
             
-            assertThat(job.getStatus()).isEqualTo(GenerationStatus.FAILED);
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
         }
         
         @Test
@@ -343,7 +424,7 @@ class QuizGenerationFacadeImplBillingTest {
             List<Question> questions = createQuestions(5);
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, questions);
             
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
             when(quizAssemblyService.createConsolidatedQuiz(any(), anyList(), any(), any(), any(), any(), anyInt()))
@@ -366,9 +447,7 @@ class QuizGenerationFacadeImplBillingTest {
             // Given
             Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
             
-            when(jobRepository.findById(jobId))
-                    .thenReturn(Optional.of(job))
-                    .thenReturn(Optional.empty());  // second call fails
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
             when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
             when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
@@ -379,34 +458,27 @@ class QuizGenerationFacadeImplBillingTest {
             assertThatThrownBy(() -> facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest))
                     .isInstanceOf(RuntimeException.class);
             
-            // Error logged, no exception from save failure
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
         }
         
         @Test
-        @DisplayName("Billing release fails after failure - error saved to job")
-        void billingReleaseFailsAfterFailure_errorSavedToJob() {
+        @DisplayName("Finalization release failure is persisted for the recovery scheduler")
+        void finalizationReleaseFailure_isPersistedForRecovery() {
             // Given
             job.setBillingReservationId(UUID.randomUUID());
             job.setBillingState(BillingState.RESERVED);
             
-            Map<Integer, List<Question>> chunkQuestions = Map.of(0, createQuestions(5));
-            
-            when(jobRepository.findById(jobId)).thenReturn(Optional.of(job));
-            when(quizAssemblyService.getOrCreateAICategory()).thenReturn(category);
-            when(quizAssemblyService.resolveTags(originalRequest)).thenReturn(tags);
-            when(quizAssemblyService.createConsolidatedQuiz(any(), anyList(), any(), any(), any(), any(), anyInt()))
-                    .thenThrow(new RuntimeException("Quiz failed"));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
             doThrow(new RuntimeException("Release failed"))
                     .when(internalBillingService).release(any(), anyString(), anyString(), anyString());
             
-            // When & Then
-            assertThatThrownBy(() -> facade.createQuizCollectionFromGeneratedQuestions(jobId, chunkQuestions, originalRequest))
-                    .isInstanceOf(RuntimeException.class);
-            
-            // Verify release was attempted
+            facade.handleQuizGenerationFinalizationFailure(jobId);
+
             verify(internalBillingService).release(any(), anyString(), anyString(), anyString());
-            assertThat(job.getLastBillingError()).contains("Failed to release reservation");
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.FAILED);
+            assertThat(job.getFinalizationState()).isEqualTo(uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState.FAILED);
+            assertThat(job.getLastBillingError()).contains("Finalization release pending");
         }
     }
     
@@ -577,10 +649,11 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("No reservation ID - returns early")
+        @DisplayName("Legacy job without billing reservation completes without settlement")
         void noReservationId_returnsEarly() {
             // Given
             job.setBillingReservationId(null);
+            job.setBillingState(BillingState.NONE);
             
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
@@ -625,15 +698,16 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Reservation expired - returns early")
-        void reservationExpired_returnsEarly() {
+        @DisplayName("Expired reservation rejects finalization instead of allowing uncharged content")
+        void reservationExpired_rejectsFinalization() {
             // Given
             job.setReservationExpiresAt(LocalDateTime.now().minusHours(1));  // expired
             
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
-            // When
-            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+            assertThatThrownBy(() -> facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest))
+                    .isInstanceOf(InvalidJobStateForCommitException.class)
+                    .hasMessageContaining("expired");
             
             // Then
             verifyNoInteractions(internalBillingService);
@@ -790,16 +864,14 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Job not found during commit - throws IllegalStateException")
+        @DisplayName("Job not found during commit fails the enclosing finalization transaction")
         void jobNotFoundDuringCommit_throwsIllegalStateException() {
             // Given
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.empty());
             
-            // When
-            facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
-            
-            // Then - error logged, doesn't throw (fails gracefully)
-            // The method catches all exceptions and stores them
+            assertThatThrownBy(() -> facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("not found during commit");
             verify(jobRepository).findByIdForUpdate(jobId);
         }
         
@@ -869,7 +941,7 @@ class QuizGenerationFacadeImplBillingTest {
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, generationTariffService, featureFlags, applicationEventPublisher,
                     transactionTemplate, quizAssemblyService,
-                    idempotencyService, requestCanonicalizer
+                    idempotencyService, requestCanonicalizer, quizJobProperties
             );
             
             job.setBillingIdempotencyKeys(null); // Start with null to test creation path
@@ -894,19 +966,16 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Invalid job state - handled without throwing exception")
-        void invalidJobState_handledWithoutThrowingException() {
+        @DisplayName("Invalid job state fails the enclosing finalization transaction")
+        void invalidJobState_failsFinalization() {
             // Given - Job that will trigger InvalidJobStateForCommitException
             job.setBillingState(BillingState.RELEASED); // Invalid state for commit (not RESERVED)
             job.setStatus(GenerationStatus.COMPLETED);
             
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
-            // When - this will trigger InvalidJobStateForCommitException, caught and handled
-            // Should NOT throw exception
-            assertThatNoException().isThrownBy(() -> 
-                facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest)
-            );
+            assertThatThrownBy(() -> facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest))
+                    .isInstanceOf(InvalidJobStateForCommitException.class);
             
             // Then - verify method entered (find was called)
             verify(jobRepository).findByIdForUpdate(jobId);
@@ -915,18 +984,16 @@ class QuizGenerationFacadeImplBillingTest {
         }
         
         @Test
-        @DisplayName("Job with NONE billing state - handled gracefully")
-        void jobWithNoneBillingState_handledGracefully() {
+        @DisplayName("Job with inconsistent NONE billing state fails finalization")
+        void jobWithNoneBillingState_failsFinalization() {
             // Given - Job that will trigger InvalidJobStateForCommitException
             job.setBillingState(BillingState.NONE); // Invalid state for commit
             job.setStatus(GenerationStatus.COMPLETED);
             
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
             
-            // When - should NOT throw exception (error caught and handled)
-            assertThatNoException().isThrownBy(() -> 
-                facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest)
-            );
+            assertThatThrownBy(() -> facade.commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest))
+                    .isInstanceOf(InvalidJobStateForCommitException.class);
             
             // Then - verify method executed
             verify(jobRepository).findByIdForUpdate(jobId);
@@ -954,9 +1021,9 @@ class QuizGenerationFacadeImplBillingTest {
         job.setDocumentId(documentId);
         job.setStatus(GenerationStatus.PROCESSING);
         job.setTotalChunks(3);
-        job.setBillingState(BillingState.RESERVED);
-        job.setBillingReservationId(UUID.randomUUID());
-        job.setBillingEstimatedTokens(1200L);
+        job.setBillingState(BillingState.NONE);
+        job.setBillingReservationId(null);
+        job.setBillingEstimatedTokens(0L);
         job.setInputPromptTokens(1000L);
 
         lenient().when(generationTariffService.fromSnapshot(anyString(), anyLong(), any()))

@@ -890,7 +890,7 @@ public class QuizController {
 
     @Operation(
             summary = "Get quiz generation job status",
-            description = "Get the current status and progress of a quiz generation job. Returns detailed information about the generation progress including processed chunks, estimated completion time, and any errors.",
+            description = "Get the current status and progress of a quiz generation job. COMPLETED means the generated quiz and billing settlement were durably finalized; clients must not treat any earlier state as entitled content.",
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(
@@ -930,7 +930,7 @@ public class QuizController {
 
     @Operation(
             summary = "Get generated quiz from completed job",
-            description = "Retrieve the final generated quiz once the generation job is completed. This endpoint should only be called after the generation status indicates completion.",
+            description = "Retrieve the final generated quiz once the generation job is COMPLETED. COMPLETED is emitted only after the quiz and its billing settlement are durably finalized.",
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(

@@ -148,6 +148,10 @@ class QuizOpenApiContractTest {
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generation-jobs/get/responses/401");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/enum").toString())
                 .contains("PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/description").asText())
+                .contains("durably finalized");
+        assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generated-quiz~1{jobId}/get/description").asText())
+                .contains("billing settlement");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/terminal/description").asText())
                 .contains("no longer active");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/active/description").asText())

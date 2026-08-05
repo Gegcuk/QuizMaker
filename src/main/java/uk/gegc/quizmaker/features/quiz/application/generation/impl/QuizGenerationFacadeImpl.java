@@ -33,6 +33,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
@@ -41,7 +42,9 @@ import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationOperation;
+import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInProgressException;
 import uk.gegc.quizmaker.features.quiz.domain.exception.GenerationOperationInconsistentException;
@@ -54,6 +57,7 @@ import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +89,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final QuizAssemblyService quizAssemblyService;
     private final QuizGenerationIdempotencyService idempotencyService;
     private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
+    private final QuizJobProperties quizJobProperties;
 
     @Override
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
@@ -503,14 +508,20 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     @Override
     @Transactional
     public QuizGenerationStatus cancelGenerationJob(UUID jobId, String username) {
-        QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
+
+        if (!job.getUser().getUsername().equals(username)) {
+            throw new ValidationException("Access denied: job does not belong to user");
+        }
 
         if (job.getStatus().isTerminal()) {
             throw new ValidationException("Cannot cancel job that is already in terminal state: " + job.getStatus());
         }
 
-        jobService.cancelJob(jobId, username);
-        job = jobRepository.findById(jobId).orElseThrow();
+        job.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.CANCELLED);
+        job.setCompletedAt(LocalDateTime.now());
+        job.markFinalizationCancelled(LocalDateTime.now());
         job.setErrorMessage("Cancelled by user");
         jobRepository.save(job);
 
@@ -539,7 +550,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
             log.info("Released billing reservation {} for cancelled job {}", job.getBillingReservationId(), jobId);
         } catch (Exception billingError) {
             log.error("Failed to release billing reservation for cancelled job {}", jobId, billingError);
-            job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+            job.setLastBillingError("{\"reason\":\"Cancellation release pending\"}");
             jobRepository.save(job);
         }
     }
@@ -551,91 +562,64 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
             Map<Integer, List<Question>> chunkQuestions,
             GenerateQuizFromDocumentRequest originalRequest
     ) {
-        try {
-            QuizGenerationJob job = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
-            if (job.isTerminal()) {
-                log.info("Job {} already in terminal state {}, skipping quiz creation", jobId, job.getStatus());
-                return;
-            }
-
-            int chunkCount = (int) chunkQuestions.values().stream()
-                    .filter(Objects::nonNull)
-                    .filter(list -> !list.isEmpty())
-                    .count();
-
-            List<Question> allQuestions = chunkQuestions.values().stream()
-                    .filter(Objects::nonNull)
-                    .flatMap(List::stream)
-                    .collect(Collectors.toList());
-
-            User user = job.getUser();
-            UUID documentId = originalRequest.documentId();
-
-            Category category = quizAssemblyService.getOrCreateAICategory();
-            Set<Tag> tags = quizAssemblyService.resolveTags(originalRequest);
-
-            if (chunkCount > 1) {
-                for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
-                    int chunkIndex = entry.getKey();
-                    List<Question> questions = entry.getValue();
-
-                    if (questions == null || questions.isEmpty()) {
-                        continue;
-                    }
-
-                    quizAssemblyService.createChunkQuiz(
-                            user, questions, chunkIndex, originalRequest, category, tags, documentId
-                    );
-                }
-            }
-
-            Quiz consolidatedQuiz = quizAssemblyService.createConsolidatedQuiz(
-                    user, allQuestions, originalRequest, category, tags, documentId, chunkCount
-            );
-
-            int totalQuestions = allQuestions.size();
-            job.markCompleted(consolidatedQuiz.getId(), totalQuestions);
-            jobRepository.save(job);
-
-            commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
-        } catch (Exception e) {
-            handleQuizCollectionFailure(jobId, e);
-            throw new RuntimeException("Failed to create quiz collection from generated questions", e);
+        if (job.isTerminal()) {
+            log.info("Job {} already in terminal state {}, skipping quiz creation", jobId, job.getStatus());
+            return;
         }
-    }
 
-    private void handleQuizCollectionFailure(UUID jobId, Exception exception) {
-        log.error("Failed to create quiz collection for job {}", jobId, exception);
-        try {
-            QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-            if (job != null) {
-                job.markFailed("Failed to create quiz collection: " + exception.getMessage());
+        if (job.getFinalizationState() == QuizGenerationFinalizationState.NOT_STARTED) {
+            // Compatibility for legacy in-process callers. Production event handling
+            // claims finalization in its own transaction before reaching this method.
+            job.beginFinalization(LocalDateTime.now());
+        }
+        if (job.getFinalizationState() != QuizGenerationFinalizationState.FINALIZING) {
+            throw new IllegalStateException("Job " + jobId + " is not eligible for quiz finalization");
+        }
 
-                if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
-                    try {
-                        String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                        internalBillingService.release(
-                                job.getBillingReservationId(),
-                                "Quiz creation failed: " + exception.getMessage(),
-                                jobId.toString(),
-                                releaseIdempotencyKey
-                        );
-                        job.setBillingState(BillingState.RELEASED);
-                        job.addBillingIdempotencyKey("release", releaseIdempotencyKey);
-                        log.info("Released billing reservation {} for failed quiz creation job {}", job.getBillingReservationId(), jobId);
-                    } catch (Exception billingError) {
-                        log.error("Failed to release billing reservation for quiz creation failure job {}", jobId, billingError);
-                        job.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
-                    }
+        int chunkCount = (int) chunkQuestions.values().stream()
+                .filter(Objects::nonNull)
+                .filter(list -> !list.isEmpty())
+                .count();
+
+        List<Question> allQuestions = chunkQuestions.values().stream()
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+
+        User user = job.getUser();
+        UUID documentId = originalRequest.documentId();
+
+        Category category = quizAssemblyService.getOrCreateAICategory();
+        Set<Tag> tags = quizAssemblyService.resolveTags(originalRequest);
+
+        if (chunkCount > 1) {
+            for (Map.Entry<Integer, List<Question>> entry : chunkQuestions.entrySet()) {
+                int chunkIndex = entry.getKey();
+                List<Question> questions = entry.getValue();
+
+                if (questions == null || questions.isEmpty()) {
+                    continue;
                 }
 
-                jobRepository.save(job);
+                quizAssemblyService.createChunkQuiz(
+                        user, questions, chunkIndex, originalRequest, category, tags, documentId
+                );
             }
-        } catch (Exception saveError) {
-            log.error("Failed to update job status after quiz creation failure for job {}", jobId, saveError);
         }
+
+        Quiz consolidatedQuiz = quizAssemblyService.createConsolidatedQuiz(
+                user, allQuestions, originalRequest, category, tags, documentId, chunkCount
+        );
+
+        // The job completion, quizzes, and ledger commit share this transaction.
+        // Any settlement exception rolls all of them back before content is visible.
+        job.markCompleted(consolidatedQuiz.getId(), allQuestions.size());
+        commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
+        job.markFinalizationSucceeded(LocalDateTime.now());
+        jobRepository.save(job);
     }
 
     @Override
@@ -644,55 +628,59 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         String jobId = job.getId().toString();
         String correlationId = "commit-" + jobId + "-" + System.currentTimeMillis();
 
-        try {
-            log.info("Starting token commit for job {} [correlationId={}]", jobId, correlationId);
+        log.info("Starting token commit for job {} [correlationId={}]", jobId, correlationId);
 
-            QuizGenerationJob lockedJob = jobRepository.findByIdForUpdate(job.getId())
-                    .orElseThrow(() -> new IllegalStateException("Job " + jobId + " not found during commit"));
+        QuizGenerationJob lockedJob = jobRepository.findByIdForUpdate(job.getId())
+                .orElseThrow(() -> new IllegalStateException("Job " + jobId + " not found during commit"));
 
-            if (lockedJob.getBillingReservationId() == null) {
-                log.warn("Job {} has no reservation ID, cannot commit [correlationId={}]", jobId, correlationId);
+        if (lockedJob.getBillingReservationId() == null) {
+            if (lockedJob.getBillingState() == BillingState.NONE) {
+                log.info("Job {} predates billing reservation enforcement; no settlement is required [correlationId={}]",
+                        jobId, correlationId);
                 return;
             }
+            throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(),
+                    "A reserved billing state requires a reservation ID");
+        }
 
-            if (!lockedJob.getBillingState().isReserved()) {
-                if (lockedJob.getBillingState() == BillingState.COMMITTED) {
-                    log.info("Job {} already committed, returning success [correlationId={}]", jobId, correlationId);
-                    return;
-                }
-                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState());
-            }
-
-            String commitIdempotencyKey = "quiz:" + lockedJob.getId() + ":commit";
-            if (hasBillingIdempotencyKey(lockedJob, "commit")) {
-                log.info("Job {} already has commit idempotency key, returning success [correlationId={}]", jobId, correlationId);
+        if (!lockedJob.getBillingState().isReserved()) {
+            if (lockedJob.getBillingState() == BillingState.COMMITTED) {
+                log.info("Job {} already committed, returning success [correlationId={}]", jobId, correlationId);
                 return;
             }
+            throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState());
+        }
 
-            if (!lockedJob.getStatus().isSuccess()) {
-                throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(),
-                        "Job must be in COMPLETED status to commit tokens. Current status: " + lockedJob.getStatus());
-            }
+        String commitIdempotencyKey = "quiz:" + lockedJob.getId() + ":commit";
+        if (hasBillingIdempotencyKey(lockedJob, "commit")) {
+            log.info("Job {} already has commit idempotency key, returning success [correlationId={}]", jobId, correlationId);
+            return;
+        }
 
-            if (lockedJob.isReservationExpired()) {
-                log.warn("Reservation for job {} has expired, skipping commit [correlationId={}]", jobId, correlationId);
-                return;
-            }
+        if (!lockedJob.getStatus().isSuccess()) {
+            throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(),
+                    "Job must be in COMPLETED status to commit tokens. Current status: " + lockedJob.getStatus());
+        }
 
-            long reservedTokens = lockedJob.getBillingEstimatedTokens();
-            int acceptedQuestionTypeCount = allQuestions == null
+        if (lockedJob.isReservationExpired()) {
+            throw new InvalidJobStateForCommitException(jobId, lockedJob.getBillingState(),
+                    "Reservation expired before the generation could be finalized");
+        }
+
+        long reservedTokens = lockedJob.getBillingEstimatedTokens();
+        int acceptedQuestionTypeCount = allQuestions == null
                     ? 0
                     : (int) allQuestions.stream()
                             .map(Question::getType)
                             .filter(Objects::nonNull)
                             .distinct()
                             .count();
-            boolean usesTariffSnapshot = lockedJob.hasGenerationTariffSnapshot();
-            long actualBillingTokens;
-            long tokensToCommit;
-            boolean wasCapped;
+        boolean usesTariffSnapshot = lockedJob.hasGenerationTariffSnapshot();
+        long actualBillingTokens;
+        long tokensToCommit;
+        boolean wasCapped;
 
-            if (usesTariffSnapshot) {
+        if (usesTariffSnapshot) {
                 GenerationTariff tariff = generationTariffService.fromSnapshot(
                         lockedJob.getBillingTariffVersion(),
                         lockedJob.getBillingBaseTokens(),
@@ -709,7 +697,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 );
                 wasCapped = actualBillingTokens > reservedTokens;
                 lockedJob.setBillingAcceptedQuestionTypeCount(acceptedQuestionTypeCount);
-            } else {
+        } else {
                 long inputPromptTokens = lockedJob.getInputPromptTokens() != null ? lockedJob.getInputPromptTokens() : 0L;
                 actualBillingTokens = estimationService.computeActualBillingTokens(
                         allQuestions,
@@ -718,66 +706,58 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 );
                 tokensToCommit = Math.min(actualBillingTokens, reservedTokens);
                 wasCapped = actualBillingTokens > reservedTokens;
-            }
+        }
 
-            if (wasCapped) {
+        if (wasCapped) {
                 log.warn("Generation settlement for job {} reached its stored maximum quote: actual {}, quote {}",
                         jobId, actualBillingTokens, reservedTokens);
-            }
+        }
 
-            if (tokensToCommit == 0L && usesTariffSnapshot) {
-                releaseZeroAcceptedQuestionTypeQuote(lockedJob, acceptedQuestionTypeCount, correlationId);
-                return;
-            }
+        if (tokensToCommit == 0L && usesTariffSnapshot) {
+            releaseZeroAcceptedQuestionTypeQuote(lockedJob, acceptedQuestionTypeCount, correlationId);
+            return;
+        }
 
-            log.info("Committing {} billing tokens for job {} (actual: {}, quote: {}, acceptedQuestionTypes: {}, tariffVersion: {}) [correlationId={}]",
+        log.info("Committing {} billing tokens for job {} (actual: {}, quote: {}, acceptedQuestionTypes: {}, tariffVersion: {}) [correlationId={}]",
                     tokensToCommit, jobId, actualBillingTokens, reservedTokens, acceptedQuestionTypeCount,
                     lockedJob.getBillingTariffVersion(), correlationId);
 
-            var commitResult = internalBillingService.commit(
-                    lockedJob.getBillingReservationId(),
-                    tokensToCommit,
-                    "quiz-generation",
-                    commitIdempotencyKey
-            );
+        var commitResult = internalBillingService.commit(
+                lockedJob.getBillingReservationId(),
+                tokensToCommit,
+                "quiz-generation",
+                commitIdempotencyKey
+        );
 
-            long reserved = lockedJob.getBillingEstimatedTokens();
+        long reserved = lockedJob.getBillingEstimatedTokens();
             long remainder = Math.max(0, reserved - tokensToCommit);
-            if (remainder > 0 && (commitResult == null || commitResult.releasedTokens() == 0)) {
-                try {
-                    log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", remainder, jobId, correlationId);
-                    internalBillingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
-                } catch (Exception ex) {
-                    log.warn("Failed to explicitly release remainder {} for reservation {}: {} [correlationId={}]",
-                            remainder, lockedJob.getBillingReservationId(), ex.getMessage(), correlationId);
-                }
+        if (remainder > 0 && (commitResult == null || commitResult.releasedTokens() == 0)) {
+            try {
+                log.info("Explicitly releasing remainder {} tokens for job {} [correlationId={}]", remainder, jobId, correlationId);
+                internalBillingService.release(lockedJob.getBillingReservationId(), "commit-remainder", "quiz-generation", null);
+            } catch (Exception ex) {
+                log.warn("Failed to explicitly release remainder {} for reservation {} [correlationId={}]",
+                        remainder, lockedJob.getBillingReservationId(), correlationId, ex);
             }
+        }
 
-            if (!usesTariffSnapshot) {
+        if (!usesTariffSnapshot) {
                 // Historical rows retain the original heuristic settlement model.
                 lockedJob.setActualTokens(actualBillingTokens);
-            }
-            lockedJob.setBillingCommittedTokens(tokensToCommit);
-            lockedJob.setWasCappedAtReserved(wasCapped);
-            lockedJob.setBillingState(BillingState.COMMITTED);
-
-            updateBillingIdempotencyKeys(lockedJob, "commit", commitIdempotencyKey);
-
-            lockedJob.setLastBillingError(null);
-
-            jobRepository.save(lockedJob);
-
-            log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, cappedAtQuote: {}) [correlationId={}]",
-                    tokensToCommit, jobId, actualBillingTokens,
-                    commitResult != null ? commitResult.releasedTokens() : 0L, wasCapped, correlationId);
-
-        } catch (InvalidJobStateForCommitException e) {
-            log.error("Business rule violation during commit for job {} [correlationId={}]: {}", jobId, correlationId, e.getMessage());
-            storeBillingError(job, e, correlationId);
-        } catch (Exception e) {
-            log.error("Unexpected error during commit for job {} [correlationId={}]", jobId, correlationId, e);
-            storeBillingError(job, e, correlationId);
         }
+        lockedJob.setBillingCommittedTokens(tokensToCommit);
+        lockedJob.setWasCappedAtReserved(wasCapped);
+        lockedJob.setBillingState(BillingState.COMMITTED);
+
+        updateBillingIdempotencyKeys(lockedJob, "commit", commitIdempotencyKey);
+
+        lockedJob.setLastBillingError(null);
+
+        jobRepository.save(lockedJob);
+
+        log.info("Successfully committed {} tokens for job {} (actual: {}, remainder released: {}, cappedAtQuote: {}) [correlationId={}]",
+                    tokensToCommit, jobId, actualBillingTokens,
+                commitResult != null ? commitResult.releasedTokens() : 0L, wasCapped, correlationId);
     }
 
     private void releaseZeroAcceptedQuestionTypeQuote(
@@ -803,22 +783,131 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 lockedJob.getId(), correlationId);
     }
 
-    private void storeBillingError(QuizGenerationJob job, Exception e, String correlationId) {
-        try {
-            BillingError billingError = new BillingError(
-                    e.getMessage(),
-                    e.getClass().getSimpleName(),
-                    java.time.Instant.now(),
-                    correlationId
-            );
-            job.setLastBillingError(objectMapper.writeValueAsString(billingError));
+    @Override
+    public QuizGenerationFinalizationClaim claimQuizGenerationFinalization(UUID jobId) {
+        QuizGenerationFinalizationClaim claim = transactionTemplate.execute(status -> {
+            QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+            if (job.getStatus().isTerminal()) {
+                if (job.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.CANCELLED
+                        && job.getFinalizationState() != QuizGenerationFinalizationState.CANCELLED) {
+                    job.markFinalizationCancelled(LocalDateTime.now());
+                    jobRepository.save(job);
+                }
+                return job.getFinalizationState() == QuizGenerationFinalizationState.SUCCEEDED
+                        ? QuizGenerationFinalizationClaim.ALREADY_FINALIZED
+                        : QuizGenerationFinalizationClaim.TERMINAL;
+            }
+
+            if (job.getFinalizationState() == QuizGenerationFinalizationState.FINALIZING) {
+                return QuizGenerationFinalizationClaim.IN_PROGRESS;
+            }
+            if (job.getFinalizationState() != QuizGenerationFinalizationState.NOT_STARTED) {
+                return QuizGenerationFinalizationClaim.TERMINAL;
+            }
+
+            job.beginFinalization(LocalDateTime.now());
             jobRepository.save(job);
-        } catch (Exception saveError) {
-            log.error("Failed to save billing error for job {} [correlationId={}]", job.getId(), correlationId, saveError);
+            return QuizGenerationFinalizationClaim.CLAIMED;
+        });
+        return Objects.requireNonNull(claim, "Finalization claim transaction returned no result");
+    }
+
+    @Override
+    public void handleQuizGenerationFinalizationFailure(UUID jobId) {
+        FailureReleaseCandidate candidate = transactionTemplate.execute(status -> markFinalizationFailed(jobId));
+        if (candidate == null || candidate.reservationId() == null) {
+            return;
+        }
+
+        String releaseIdempotencyKey = "quiz:" + jobId + ":finalization-release";
+        try {
+            internalBillingService.release(
+                    candidate.reservationId(),
+                    "generation-finalization-failed",
+                    "quiz-generation",
+                    releaseIdempotencyKey
+            );
+            transactionTemplate.executeWithoutResult(status -> markFinalizationReservationReleased(jobId, releaseIdempotencyKey));
+            log.info("Released reservation for failed quiz-generation finalization {}", jobId);
+        } catch (Exception exception) {
+            log.error("Reservation release is pending for failed quiz-generation finalization {}", jobId, exception);
+            transactionTemplate.executeWithoutResult(status -> markFinalizationReleasePending(jobId));
         }
     }
 
-    private record BillingError(String error, String errorType, java.time.Instant timestamp, String correlationId) {}
+    @Override
+    public int recoverStalledQuizGenerationFinalizations() {
+        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(
+                quizJobProperties.getFinalization().getRecoveryGraceSeconds());
+        List<UUID> stalledJobIds = jobRepository
+                .findByFinalizationStateAndFinalizationStartedAtBefore(QuizGenerationFinalizationState.FINALIZING, cutoff)
+                .stream()
+                .map(QuizGenerationJob::getId)
+                .toList();
+        List<UUID> releasePendingJobIds = jobRepository
+                .findByFinalizationStateAndBillingState(QuizGenerationFinalizationState.FAILED, BillingState.RESERVED)
+                .stream()
+                .map(QuizGenerationJob::getId)
+                .toList();
+
+        stalledJobIds.forEach(this::handleQuizGenerationFinalizationFailure);
+        releasePendingJobIds.stream()
+                .filter(jobId -> !stalledJobIds.contains(jobId))
+                .forEach(this::handleQuizGenerationFinalizationFailure);
+        return stalledJobIds.size() + (int) releasePendingJobIds.stream()
+                .filter(jobId -> !stalledJobIds.contains(jobId))
+                .count();
+    }
+
+    private FailureReleaseCandidate markFinalizationFailed(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        if (job.getFinalizationState() == QuizGenerationFinalizationState.SUCCEEDED
+                || job.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.COMPLETED) {
+            return FailureReleaseCandidate.none();
+        }
+        if (job.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.CANCELLED) {
+            job.markFinalizationCancelled(LocalDateTime.now());
+            jobRepository.save(job);
+            return FailureReleaseCandidate.none();
+        }
+
+        job.markFailed("Generation could not be finalized. No quiz was created; any reserved balance will be released automatically.");
+        job.markFinalizationFailed("Finalization failed; reservation release is pending or complete.", LocalDateTime.now());
+        jobRepository.save(job);
+
+        return job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED
+                ? new FailureReleaseCandidate(job.getBillingReservationId())
+                : FailureReleaseCandidate.none();
+    }
+
+    private void markFinalizationReservationReleased(UUID jobId, String releaseIdempotencyKey) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        if (job.getBillingState() == BillingState.RESERVED) {
+            job.setBillingState(BillingState.RELEASED);
+            job.addBillingIdempotencyKey("finalization-release", releaseIdempotencyKey);
+            job.setLastBillingError(null);
+            jobRepository.save(job);
+        }
+    }
+
+    private void markFinalizationReleasePending(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        if (job.getBillingState() == BillingState.RESERVED) {
+            job.setLastBillingError("{\"reason\":\"Finalization release pending\"}");
+            jobRepository.save(job);
+        }
+    }
+
+    private record FailureReleaseCandidate(UUID reservationId) {
+        static FailureReleaseCandidate none() {
+            return new FailureReleaseCandidate(null);
+        }
+    }
 
     private void updateBillingIdempotencyKeys(QuizGenerationJob job, String operation, String idempotencyKey) {
         try {
