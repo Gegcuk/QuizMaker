@@ -8,19 +8,22 @@ import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.annotation.Commit;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +57,9 @@ class QuizGenerationJobRepositoryTaskProgressTest {
 
     @Autowired
     private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     private User testUser;
     private QuizGenerationJob testJob;
@@ -175,26 +181,64 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     }
 
     @Test
-    @DisplayName("incrementCompletedTasks handles concurrent updates correctly")
-    void incrementCompletedTasks_handlesConcurrentUpdates() throws InterruptedException {
-        // Note: This test verifies thread-safety of the atomic UPDATE query.
-        // In @DataJpaTest, each thread's repository call may not auto-commit,
-        // so we verify the call succeeds rather than the final count.
-        // Full concurrency testing should use @SpringBootTest with real transactions.
-        
-        // Given: 5 sequential tasks (simpler than concurrent for @DataJpaTest)
-        int taskCount = 5;
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("incrementCompletedTasks preserves every simultaneous transaction")
+    void incrementCompletedTasks_handlesConcurrentUpdates() throws Exception {
+        int workerCount = 5;
+        long initialVersion = testJob.getVersion() == null ? 0L : testJob.getVersion();
+        CyclicBarrier readyToUpdate = new CyclicBarrier(workerCount);
+        AtomicInteger activeTransactions = new AtomicInteger();
+        AtomicInteger maximumOverlappingTransactions = new AtomicInteger();
+        ExecutorService executor = Executors.newFixedThreadPool(workerCount);
 
-        // When: increment sequentially
-        for (int i = 0; i < taskCount; i++) {
-            jobRepository.incrementCompletedTasks(testJob.getId(), 1, "Task " + i);
+        try {
+            List<java.util.concurrent.Future<Integer>> updates = new ArrayList<>();
+            for (int worker = 0; worker < workerCount; worker++) {
+                int taskNumber = worker;
+                updates.add(executor.submit(() -> transactionTemplate.execute(status -> {
+                    int active = activeTransactions.incrementAndGet();
+                    maximumOverlappingTransactions.accumulateAndGet(active, Math::max);
+                    try {
+                        await(readyToUpdate);
+                        return jobRepository.incrementCompletedTasks(
+                                testJob.getId(),
+                                1,
+                                "Concurrent task " + taskNumber
+                        );
+                    } finally {
+                        activeTransactions.decrementAndGet();
+                    }
+                })));
+            }
+
+            for (java.util.concurrent.Future<Integer> update : updates) {
+                assertEquals(1, update.get(15, TimeUnit.SECONDS));
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(15, TimeUnit.SECONDS), "Worker threads must stop");
         }
-        entityManager.flush();
+
         entityManager.clear();
-        
-        // Then: all increments applied
         QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
-        assertEquals(taskCount, reloaded.getCompletedTasks());
+
+        assertEquals(workerCount, maximumOverlappingTransactions.get(),
+                "The barrier must release all worker transactions together");
+        assertEquals(workerCount, reloaded.getCompletedTasks(),
+                "The atomic database update must not lose any concurrent increments");
+        assertEquals(initialVersion + workerCount, reloaded.getVersion(),
+                "Each successful atomic update must advance the optimistic-lock version");
+    }
+
+    private void await(CyclicBarrier barrier) {
+        try {
+            barrier.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while synchronizing concurrent updates", exception);
+        } catch (BrokenBarrierException | java.util.concurrent.TimeoutException exception) {
+            throw new AssertionError("Concurrent update workers did not reach the barrier", exception);
+        }
     }
 
     @Test

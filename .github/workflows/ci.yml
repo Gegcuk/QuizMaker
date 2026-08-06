@@ -327,12 +327,12 @@ jobs:
           echo "Checking if application-test-mysql.properties exists:"
           ls -la src/test/resources/application-test-mysql.properties || echo "⚠️ application-test-mysql.properties not found"
 
-      - name: Run tests
+      - name: Verify backend offline release gate
         run: |
           echo "⏳ Waiting 2 seconds before starting tests to ensure database is fully ready..."
           sleep 2
-          # Run tests and capture exit code
-          ./mvnw -B -T 1C -DskipTests=false test
+          # This is the canonical offline release gate: both Surefire lanes, JaCoCo check, and package.
+          ./mvnw -B -T 1C -DskipTests=false verify
           TEST_EXIT_CODE=$?
           
           # Always show root cause errors if any tests failed
@@ -355,9 +355,6 @@ jobs:
           
           exit $TEST_EXIT_CODE
         continue-on-error: false
-
-      - name: Package tested application
-        run: ./mvnw -B -DskipTests package
 
       - name: Upload tested backend artifact
         uses: actions/upload-artifact@v4
@@ -392,3 +389,6 @@ jobs:
           path: |
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
+            **/target/*.dump
+            **/target/*.dumpstream
+            **/target/site/jacoco/**

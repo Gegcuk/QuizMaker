@@ -27,6 +27,8 @@
 
     <properties>
         <java.version>17</java.version>
+        <real-provider-excluded-groups>real-provider</real-provider-excluded-groups>
+        <live-provider-tests.enabled>false</live-provider-tests.enabled>
     </properties>
 
     <dependencies>
@@ -301,6 +303,30 @@
 
     <build>
         <plugins>
+            <!-- Fail before compilation when Maven is not running on the supported toolchain. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>require-java-17</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[17,18)</version>
+                                    <message>QuizMaker builds require JDK 17. Set JAVA_HOME to a JDK 17 installation and retry.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Spring Boot plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -375,12 +401,14 @@
                         <phase>test</phase>
                         <goals><goal>test</goal></goals>
                         <configuration>
-                            <useUnlimitedThreads>true</useUnlimitedThreads>
-                            <excludedGroups>db-serial</excludedGroups>
+                            <excludedGroups>db-serial,real-provider</excludedGroups>
                             <failIfNoTests>false</failIfNoTests>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=true
+                                    junit.jupiter.execution.parallel.config.strategy=fixed
+                                    junit.jupiter.execution.parallel.config.fixed.parallelism=4
+                                    junit.jupiter.execution.parallel.config.fixed.max-pool-size=4
                                 </configurationParameters>
                             </properties>
                         </configuration>
@@ -393,7 +421,11 @@
                         <configuration>
                             <useUnlimitedThreads>false</useUnlimitedThreads>
                             <groups>db-serial</groups>
+                            <excludedGroups>${real-provider-excluded-groups}</excludedGroups>
                             <failIfNoTests>false</failIfNoTests>
+                            <systemPropertyVariables>
+                                <quizmaker.tests.live-provider>${live-provider-tests.enabled}</quizmaker.tests.live-provider>
+                            </systemPropertyVariables>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=false
@@ -505,5 +537,16 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Never activate this profile in CI. It is for an explicit, human-run provider smoke test only. -->
+        <profile>
+            <id>live-provider-tests</id>
+            <properties>
+                <real-provider-excluded-groups></real-provider-excluded-groups>
+                <live-provider-tests.enabled>true</live-provider-tests.enabled>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>
