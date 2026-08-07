@@ -57,9 +57,7 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.GET, "/api/v1/api-summary"),
                 Arguments.of(HttpMethod.GET, "/api/v1/diagnostic/springdoc-groups"),
                 Arguments.of(HttpMethod.GET, "/api/v1/health"),
-                Arguments.of(HttpMethod.GET, "/actuator/health/liveness"),
-                Arguments.of(HttpMethod.GET, "/actuator/health/readiness"),
-                Arguments.of(HttpMethod.GET, "/actuator/health/startup")
+                Arguments.of(HttpMethod.GET, "/actuator/health/liveness")
         );
     }
 
@@ -75,6 +73,8 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.GET, "/actuator/health"),
                 Arguments.of(HttpMethod.GET, "/actuator/health/awsSes"),
                 Arguments.of(HttpMethod.GET, "/actuator/health/db"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/readiness"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/startup"),
                 Arguments.of(HttpMethod.HEAD, "/actuator/health/readiness"),
                 Arguments.of(HttpMethod.GET, "/api/documents")
         );

@@ -1,33 +1,38 @@
 # Quizzence Backend Deep Review
 
-**Review date:** 2026-08-01 (Europe/London)  
-**Reviewed revision:** `3fd3320beebc86aa7451618b6412463b1f7e913a` (`fix(openapi): document anonymous route security`, 2026-07-22)  
-**Branch at review time:** `codex/issue-422-anonymous-openapi`  
-**Repository state:** clean  
-**Reviewer stance:** independent principal backend engineer; adversarial, read-only product-logic and production-readiness audit  
-**Decision:** **NOT APPROVED for public beta or production**
+**Original review date:** 2026-08-01 (Europe/London)<br>
+**Original reviewed revision:** `3fd3320beebc86aa7451618b6412463b1f7e913a` (`fix(openapi): document anonymous route security`, 2026-07-22)<br>
+**Original branch:** `codex/issue-422-anonymous-openapi`<br>
+**Revalidation date:** 2026-08-07 (Europe/London)<br>
+**Revalidated revision:** `e78220104b1afa075e78f1e955cbe0dcb71603fd` (`fix(health): separate public probes from diagnostics (#588)`)<br>
+**Revalidated branch:** `origin/master`; local `fix/459-minimal-health-probes` has the same source tree (`f6dcddd221f0e85729e0ebcdd9d307adf0878870`)<br>
+**Repository state before this report update:** clean<br>
+**Reviewer stance:** independent principal backend engineer; adversarial, read-only product-logic and production-readiness audit<br>
+**Current decision:** **NOT APPROVED for public beta or production**
 
 ## 1. Executive summary
 
-Quizzence has a meaningful amount of solid engineering: feature-oriented packages, a large automated test corpus, DTO boundaries in many newer APIs, server-side Stripe retrieval, signed webhooks, versioned balance/reservation entities, database uniqueness around active generation jobs, strict AI JSON schemas, stable question identifiers, non-root containers, immutable-SHA deployment mechanics, and broadly applied authorization and ownership checks.
+The 2026-08-07 revalidation confirms substantial, useful remediation. The original cheap-price/expensive-pack arbitrage is no longer reachable through the inspected checkout path, Stripe checkout settlement is now session-idempotent, refresh JWTs are rejected as access credentials, logout has server-side session state, generation billing has durable operation/finalization records, document uploads are streamed through a bounded staging boundary, deployment configuration is validated before mutation, and the Java 17 CI gate now completes both Maven lanes and JaCoCo.
 
-Those strengths do not offset the confirmed release blockers. The review found **32 issues: 1 Critical, 16 High, 13 Medium, and 2 Low**. The Critical path lets a checkout request combine a cheap Stripe price with an expensive internal token pack; the server creates the session from the client-supplied price, later resolves credit from the independent pack ID, and deliberately swallows the strict price/pack amount mismatch. This is a direct token-credit arbitrage path.
+The fixes are not uniformly complete. Against the full issue contracts, **2 of the original 32 findings are resolved, 10 are partially remediated, and 20 remain open or unimplemented**. “Partial” is deliberately strict: in several cases the original exploit is closed, but a concrete acceptance criterion remains false. Examples include refresh-token rotation producing the same JWT within one NumericDate second and replay revocation rolling back, uploaded/text idempotency omitting source identity and the active tariff, pre-finalization AI results remaining process-local, PDFBox loading adversarial PDFs in-process before the page limit, and real-Stripe nested tests escaping the default offline exclusions.
 
-Other release-blocking defects include refresh tokens being accepted as ordinary bearer tokens, answer keys being exposed before attempt completion, race-prone duplicate answers that can inflate score, mutable questions changing historical results, raw and unversioned score comparisons, an AI execution model that escapes its named bounded executor into the common pool, loss of in-flight AI jobs on restart, semantically invalid AI questions being persisted, a theoretical retry/fallback amplification of up to 40 provider calls per chunk/type before redistribution, delayed-payment webhooks that can credit twice, completed quizzes surviving failed billing commits, arbitrary subscription mutation without ownership validation, and an upload pipeline with severe memory/decompression exposure.
-
-The application is suitable only for controlled, non-paying internal development while the Critical and High findings are remediated. It is not safe to expose billing, scored attempts, public answer-bearing quiz endpoints, or unbounded AI/document generation to external users.
+There is no longer a confirmed Critical token-credit exploit at the revalidated SHA. Release is nevertheless still blocked by unresolved High attempt, scoring, AI durability/concurrency/validation, document-parser, and Flyway findings, plus the High residual in authentication-session replay handling. The appropriate environment remains controlled internal development; paid settlement is materially safer, but externally scored quizzes and unbounded AI/document workloads are not approved.
 
 | Decision dimension | Verdict | Reason |
 |---|---|---|
-| Production readiness | **NOT APPROVED** | unresolved Critical/High defects and incomplete release gates |
+| Production readiness | **NOT APPROVED** | unresolved High defects and incomplete remediations remain |
 | Functional correctness | **NOT APPROVED** | attempt history, scoring, answer secrecy, analytics, and lifecycle invariants are wrong |
 | AI pipeline | **NOT APPROVED** | semantically weak validation, retry amplification, common-pool escape, restart loss |
 | Capacity | **NOT APPROVED / NOT MEASURED** | no controlled load run; no certified concurrency beyond a conservative internal assumption |
-| Financial integrity | **CRITICALLY UNSAFE** | confirmed price/entitlement arbitrage plus webhook/commit/ownership defects |
-| Strongest areas | **Useful foundations** | webhook signature/body cap, versioned ledger/reservations, many ownership checks, strict JSON shape, stable IDs, non-root/SHA deployment, broad tests |
-| Recommended next decision | **Freeze paid/public launch** | remediate BILL-001 first, then all remaining Critical/High findings and rerun from a new SHA |
+| Financial integrity | **MATERIALLY IMPROVED / NOT YET CERTIFIED** | arbitrage and double-credit paths are closed; catalog drift, pre-claim recovery, source identity, legacy settlement, and mutation concurrency remain |
+| Authentication | **NOT APPROVED** | token purpose/logout are fixed, but refresh single-use and replay revocation are not reliable |
+| Release gate | **PARTIAL** | CI verify/DB/coverage pass, but real-Stripe nested tests can run when credentials are present |
+| Strongest remediated areas | **Useful foundations** | session-level checkout settlement, typed deploy preflight, redacted health diagnostics, streaming upload staging, fixed-width CI parallelism |
+| Recommended next decision | **Keep paid/public launch frozen** | close the residuals below and all remaining High findings, then rerun from a new SHA |
 
-### Finding totals
+### Original finding totals
+
+These are the severities confirmed at the original SHA. They remain the historical audit baseline; they are not a claim that the original Critical mechanism is still reachable.
 
 | Severity | Count | Release meaning |
 |---|---:|---|
@@ -37,26 +42,70 @@ The application is suitable only for controlled, non-paying internal development
 | Low | 2 | Limited-impact hardening/observability issue |
 | **Total** | **32** | **Public release rejected** |
 
-### Top ten risks
+### Revalidation status
 
-1. **BILL-001:** client-controlled Stripe price is independent from the credited token pack.
-2. **SEC-001:** refresh JWTs authenticate as access tokens; logout revokes nothing.
-3. **ATTEMPT-001:** correct answers are available during active/public quiz flows.
-4. **ATTEMPT-002:** concurrent duplicate submissions can create duplicate answers and inflate score.
-5. **ATTEMPT-003 / QUIZ-001:** historical attempts depend on mutable questions, and published question edits bypass moderation/hash checks.
-6. **SCORE-001:** analytics and leaderboards compare raw, unversioned totals against mutable denominators.
-7. **AI-001:** chunk fan-out escapes to the CPU-bounded shared common pool, bypassing the configured AI queue, provider budget, and fairness boundary.
-8. **AI-002:** in-process events and in-memory results make active generation non-durable across restart.
-9. **AI-004:** nested retry/fallback behavior can amplify one logical chunk/type into 40 provider calls, plus redistribution.
-10. **BILL-002 / BILL-003 / STRIPE-001:** delayed-payment double-credit, free completed content after commit failure, and cross-customer subscription mutation.
+| Current status at `e7822010` | Count | Meaning |
+|---|---:|---|
+| Resolved | 2 | Full reviewed issue contract is supported by code and available test evidence |
+| Partially remediated | 10 | Original mechanism is wholly or partly closed, but a concrete contract or reliability gap remains |
+| Open / not implemented | 20 | No merged remediation for the original finding was confirmed |
+| **Total original findings** | **32** | The review also found no basis to mark consolidated/closed-but-unimplemented issues as fixed |
+
+### Highest current risks
+
+1. **ATTEMPT-001:** correct answers remain available during active/public quiz flows.
+2. **ATTEMPT-002:** concurrent duplicate submissions can create duplicate answers and inflate score.
+3. **ATTEMPT-003 / QUIZ-001:** historical attempts still depend on mutable questions and published edits bypass the aggregate moderation/version boundary.
+4. **SCORE-001:** analytics and leaderboards still compare raw, unversioned totals against mutable denominators.
+5. **AI-001 / AI-004:** provider fan-out still bypasses the configured AI queue/fairness boundary and one logical unit can amplify to 40 calls before redistribution.
+6. **AI-002:** process-local completion data still makes pre-finalization generation non-recoverable after restart.
+7. **AI-003:** schema-shaped but semantically wrong/type-drifted generated questions can still be persisted.
+8. **SEC-001 residual:** refresh replacement can be identical within one second and replay-triggered revocation is rolled back.
+9. **DOC-001 residual:** PDFBox still loads an adversarial upload in-process before page limits and cannot be forcibly stopped by the cooperative timeout.
+10. **OPS-001:** production Flyway validation/ordering/clean guardrails remain unsafe.
+
+### Revalidation of the #466 remediation set
+
+The table separates closure of the original exploit from completeness of the merged implementation. A GitHub issue being closed, superseded, or checked in the tracker was not treated as evidence by itself.
+
+| Issue / finding | Verdict | What is correctly implemented | Concrete residual |
+|---|---|---|---|
+| [#438](https://github.com/Gegcuk/QuizMaker/issues/438) / BILL-001 | **Partially remediated; original Critical arbitrage closed** | Checkout resolves one active server-owned pack; the Stripe price, amount, currency, metadata, and entitlement are cross-checked; pending `Payment` stores the expected purchase facts (`abe22f1f`). | Webhook validation first resolves the **current active** catalog row. Deactivating or changing a pack while an already-issued session is open makes a later valid paid event fail indefinitely instead of settling from the immutable pending-payment snapshot. This is fail-closed, not a reintroduction of arbitrage. |
+| [#439](https://github.com/Gegcuk/QuizMaker/issues/439) / BILL-002 | **Resolved** | Stripe is re-read for authoritative paid state; a locked payment row, durable session settlement, and session-keyed ledger idempotency converge paired/reordered/concurrent events on one credit (`91950c98`, `V61`). | No correctness residual confirmed. A dedicated metric for a suppressed already-settled event would improve operations but does not reopen the invariant. |
+| [#440](https://github.com/Gegcuk/QuizMaker/issues/440) / BILL-003 | **Partially remediated; visible-free-content path closed after finalization claim** | Assembly, completed status, entitlement, and billing settlement share a durable claimed transaction with retry/rollback recovery (`9ac9b8ab`, `V65`). | Generated questions still exist only in the in-memory completion event until the async listener creates the claim. A crash in that window leaves `PROCESSING + NOT_STARTED`; recovery scans later finalization states only. This overlaps AI-002 and violates restart recovery. |
+| [#441](https://github.com/Gegcuk/QuizMaker/issues/441) / BILL-004 | **Partially remediated; reservation ownership/cross-command release fixed** | Durable `(user, operation type, key)` uniqueness, canonical request hashes, row locking, exact replay/conflict behavior, and one-to-one job/reservation links exist (`a3bbf1f6`, `V62`). | Upload identity uses filename/MIME/size and text identity uses character count, so different same-size/same-length sources can replay the old job. The canonicalizer also hard-codes tariff `v1.0` rather than the configured active tariff. |
+| [#451](https://github.com/Gegcuk/QuizMaker/issues/451) / BILL-005 | **Partially remediated; mixed customer-billing units fixed for new jobs** | A documented deterministic customer tariff is snapshotted separately from provider LLM usage; settlement is capped at the quote and cancellation releases it (`64defba0`, `V63`). | Concurrent provider-usage increments use an unlocked versioned entity and suppress optimistic-write failures, so operational usage can be undercounted. Null/partial legacy snapshots still use the ambiguous heuristic and were not flagged/backfilled. |
+| [#452](https://github.com/Gegcuk/QuizMaker/issues/452) / STRIPE-001 | **Partially remediated; cross-account mutation closed** | Local user/subscription and Stripe customer ownership must agree before an already-retrieved subscription object is mutated; foreign/stale/mismatched identifiers fail generically (`0420e1fe`). | Verification-to-mutation has no local serialization or Stripe idempotency key. Concurrent cancels/updates can both pass the precheck and make duplicate remote calls; only sequential retry is tested. |
+| [#453](https://github.com/Gegcuk/QuizMaker/issues/453) / SEC-001 | **Partially remediated** | Explicit token-purpose claims are enforced, access authentication requires an active server-side session, refresh verifiers are hashed, and logout revokes the session (`a4c920af`, `289752a`, `V66`). | Refresh JWTs have no unique `jti`/nonce and JJWT serializes `iat` to seconds, so replacements can be identical within a second. On detected hash mismatch, `refresh()` saves revocation and then throws a runtime exception inside the same transaction, rolling the revocation back. |
+| [#456](https://github.com/Gegcuk/QuizMaker/issues/456) / DOC-001 | **Partially remediated; residual High** | Uploads stream to staging; signatures and EPUB expansion are bounded; text/page/extraction limits, global/per-user admission, short DB transactions, and parse-before-swap reprocessing exist (`54f83699`). | `PDDocument.load(InputStream)` parses in-process before the page check with no disk-backed memory policy/process isolation. Timeout only calls `Future.cancel(true)`; an interrupt-ignoring parser continues using CPU/heap and retains both permits. |
+| [#456](https://github.com/Gegcuk/QuizMaker/issues/456) / DOC-002 | **Partially remediated** | Content-derived type validation, consistent upload default, staged promotion/cleanup, orphan reconciliation, safe reprocess ordering, RFC 7807 errors, and OpenAPI statuses were added. | A mapper failure after the DB transaction commits causes the catch block to delete the published file, leaving a durable row pointing to a missing file. Generate-from-upload manually constructs the DTO and accepts `maxChunkSize=100` although its schema says `@Min(1000)`. Reconciliation uses unsorted offset paging. |
+| [#458](https://github.com/Gegcuk/QuizMaker/issues/458) / OPS-002 | **Resolved** | Deploy and Compose use canonical integral ratio `1000`; real typed configuration binding/validation is run against the candidate image before MySQL or service replacement; invalid/blank/overflow values fail (`46c0684e`, `434db133`). | No residual in the original type/fallback defect was confirmed. |
+| [#459](https://github.com/Gegcuk/QuizMaker/issues/459) / OPS-003 health slice | **Partially remediated; disclosure fixed** | Public probe bodies are status-only; aggregate/components require `SYSTEM_ADMIN`; legacy health is a typed liveness alias; readiness excludes optional SES; Docker/CD use the canonical readiness route (`e7822010`). Live anonymous probes matched the documented redacted shapes. | The broader OPS-003 Java/image/MySQL drift is still open. The implementation also exposes readiness/startup publicly despite the earlier owner decision to expose only liveness; real authorized-detail and dependency-failure endpoint behavior lacks fault-injection coverage. Issue #459 remained open at revalidation. |
+| [#464](https://github.com/Gegcuk/QuizMaker/issues/464) / TEST-001 | **Partially remediated** | JDK 17 is enforced; parallelism is fixed at four; DB tests are serial; real OpenAI requires an explicit provider profile/tag; concurrency uses real barriers; CI runs `verify`, MySQL/Flyway, and JaCoCo (`086ca5c2`). | Surefire filename excludes do not exclude nested classes in `RealStripeApiIntegrationTest` and `ProductionReadinessValidationTest`. CI ran 32 such tests and skipped them only because no real Stripe key was present; with `STRIPE_SECRET_KEY=sk_test_...`, ordinary `verify` can call Stripe. |
+
+GitHub tracker reconciliation completed on 2026-08-07 after this revalidation: #438, #440, #441, #451, #452, #453, #456, and #464 were reopened with residual evidence and testable acceptance criteria; #459 remains open; and fully resolved #439 and #458 remain closed. Current residual priority is `priority:p1` for #438, #440, #453, #456, and #464, and `priority:p2` for #441, #451, #452, and #459. The Critical label was removed from #438 because the exploitable price/entitlement mismatch is closed; its remaining catalog-drift settlement failure is High severity.
+
+### Revalidation verification
+
+| Check | Result | Interpretation |
+|---|---|---|
+| Tree comparison | PASS | local `651da725` and `origin/master` `e7822010` have identical source tree `f6dcddd2`; review conclusions apply to the deployed master tree |
+| Focused Java 17 unit/contract run | PASS | 219 selected billing, generation, auth, health, document, OpenAPI, and Maven-contract tests passed with zero failures/errors/skips |
+| Independent focused slices | PASS | billing 122/122, auth/config/health 118/118, document 49/49, and provider-contract 3/3 passed; these overlap the 219-test run and are not summed |
+| Selected local DB test | ENVIRONMENT UNAVAILABLE | `TaskProgressIntegrationTest` reached the DB lane but all 9 cases failed during context creation because sandboxed MySQL access was unavailable; no behavioral failure is inferred |
+| Current master CI | PASS with a discovered isolation defect | [run 31174461848](https://github.com/Gegcuk/QuizMaker/actions/runs/31174461848) completed the Java 17 parallel and MySQL serial lanes, Flyway, packaging, and JaCoCo; 4,703 parallel plus 1,157 serial tests ran and coverage checks passed |
+| Current master deployment | PASS | [run 31175390731](https://github.com/Gegcuk/QuizMaker/actions/runs/31175390731) completed successfully; liveness/readiness/startup and legacy health returned `200 {"status":"UP"}`, while anonymous aggregate/component diagnostics returned RFC 7807 `401` |
+| Real providers | NOT CALLED | no real OpenAI or Stripe request was authorized; CI log inspection, not a provider call, exposed the nested real-Stripe test-selection defect |
+
+Sections 2–20 retain the original audit evidence and reasoning so regressions can be compared to the exact baseline. Where a baseline statement conflicts with this revalidation, the status table above and the revalidation column in section 7 are authoritative.
 
 ## 2. Scope and limitations
 
 ### Scope
 
-The review covered the Spring Boot backend, Maven build, persistence and Flyway migrations, REST and OpenAPI boundaries, authentication and authorization, quiz/question/attempt lifecycle, scoring and analytics, AI generation and prompts, document ingestion, token billing, Stripe checkout/subscriptions/webhooks, asynchronous execution, deployment configuration, Docker assets, CI, tests, and operational observability.
+The original review covered the Spring Boot backend, Maven build, persistence and Flyway migrations, REST and OpenAPI boundaries, authentication and authorization, quiz/question/attempt lifecycle, scoring and analytics, AI generation and prompts, document ingestion, token billing, Stripe checkout/subscriptions/webhooks, asynchronous execution, deployment configuration, Docker assets, CI, tests, and operational observability.
 
-No source, configuration, migration, CI, or infrastructure file was changed. This report is the only repository modification.
+The revalidation traced every fix marked implemented in tracker #466 plus the merged #459 health work through its issue contract, implementation commit, current source, focused tests, current-master CI, and available live probe behavior. Closed issues that were merely consolidated into #472/#489 were checked against code and remain classified as open. No source, configuration, migration, CI, or infrastructure file was changed during either review; this report is the only repository modification.
 
 ### Method
 
@@ -349,46 +398,51 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 
 ## 7. Findings summary
 
-| ID | Severity | Area | Title | Status |
-|---|---|---|---|---|
-| BILL-001 | Critical | Stripe/token packs | Client controls Stripe price independently of credited token pack | Confirmed |
-| SEC-001 | High | Authentication | Refresh JWTs authenticate as bearer access tokens; logout is a no-op | Confirmed |
-| ATTEMPT-001 | High | Answer protection | Correct answers are exposed before completion and through public quiz reads | Confirmed |
-| ATTEMPT-002 | High | Attempt concurrency | Concurrent duplicate answers can inflate score | Highly likely |
-| ATTEMPT-003 | High | Historical integrity | Historical results depend on mutable current quiz/question state | Confirmed |
-| QUIZ-001 | High | Quiz lifecycle | Published question/relation edits bypass moderation and content hash | Confirmed |
-| SCORE-001 | High | Scoring/analytics | Raw, unversioned scores make analytics and leaderboards incomparable | Confirmed |
-| AI-001 | High | AI concurrency | AI fan-out escapes the bounded executor into the common pool | Confirmed |
-| AI-002 | High | AI durability | In-process events/results lose active generation on restart | Confirmed |
-| AI-003 | High | AI validation | Schema-valid but semantically invalid questions can be persisted | Confirmed |
-| AI-004 | High | AI retries | Nested retry/fallback behavior creates extreme call amplification and contract drift | Confirmed |
-| BILL-002 | High | Stripe webhooks | Checkout completion and async success can credit one session twice | Highly likely |
-| BILL-003 | High | Generation billing | Completed quizzes survive failed or expired billing commit | Confirmed |
-| STRIPE-001 | High | Subscription security | Subscription update/cancel lacks customer ownership validation | Confirmed |
-| DOC-001 | High | Document safety | Upload pipeline permits memory/decompression exhaustion inside long work | Confirmed |
-| OPS-001 | High | Database operations | Production Flyway guardrails are disabled | Confirmed |
-| OPS-002 | High | Deployment config | Deployment billing-ratio default is incompatible with validated configuration | Confirmed |
-| SEC-002 | Medium | OAuth | OAuth tokens are placed in redirect query parameters | Confirmed |
-| SEC-003 | Medium | Abuse control | Login throttling is instance-local and race-prone | Confirmed |
-| ATTEMPT-004 | Medium | Attempt lifecycle | Timed, paused, and anonymous attempt semantics are inconsistent | Confirmed |
-| QUESTION-001 | Medium | Question model | Question handlers have malformed-response and invariant inconsistencies | Confirmed |
-| ANALYTICS-001 | Medium | Analytics | Completion triggers lossy O(all-history) analytics recomputation | Confirmed |
-| AI-005 | Medium | AI prompt/timeout | Prompt injection, language substitution, and provider-timeout controls are weak | Confirmed |
-| AI-006 | Medium | AI progress/partial | Progress, coverage, and partial-success semantics are incorrect | Confirmed |
-| BILL-004 | Medium | Billing idempotency | Generation reservation idempotency omits material request parameters | Confirmed |
-| BILL-005 | Medium | Usage billing | “Actual” billing ignores actual provider attempts/tokens and cancellation races | Confirmed |
-| DOC-002 | Medium | Document validation | MIME, lifecycle, and upload-default validation are unreliable | Confirmed |
-| OPS-003 | Medium | Runtime portability | Runtime, image, database, and health-detail configuration drift | Confirmed |
-| TEST-001 | Medium | Test quality | Tests overstate concurrency confidence and the release gate aborts | Confirmed |
-| OBS-001 | Medium | Observability | AI, queue, estimation, quality, and recovery observability is incomplete | Confirmed |
-| ATTEMPT-005 | Low | Audit logging | Suspicious attempt activity is written only to stderr | Confirmed |
-| AI-007 | Low | Log privacy | Debug logs can include raw model-response previews | Confirmed |
+The “Original evidence” column records the initial review result. The final revalidation column is the current disposition at `e7822010`.
 
-## 8. Detailed findings
+| ID | Severity | Area | Title | Original evidence | Revalidation at `e7822010` |
+|---|---|---|---|---|---|
+| BILL-001 | Critical | Stripe/token packs | Client controls Stripe price independently of credited token pack | Confirmed | **Partial — Critical exploit closed; catalog-drift settlement gap** |
+| SEC-001 | High | Authentication | Refresh JWTs authenticate as bearer access tokens; logout is a no-op | Confirmed | **Partial — purpose/logout fixed; rotation/replay remains High** |
+| ATTEMPT-001 | High | Answer protection | Correct answers are exposed before completion and through public quiz reads | Confirmed | **Open** |
+| ATTEMPT-002 | High | Attempt concurrency | Concurrent duplicate answers can inflate score | Highly likely | **Open** |
+| ATTEMPT-003 | High | Historical integrity | Historical results depend on mutable current quiz/question state | Confirmed | **Open** |
+| QUIZ-001 | High | Quiz lifecycle | Published question/relation edits bypass moderation and content hash | Confirmed | **Open** |
+| SCORE-001 | High | Scoring/analytics | Raw, unversioned scores make analytics and leaderboards incomparable | Confirmed | **Open** |
+| AI-001 | High | AI concurrency | AI fan-out escapes the bounded executor into the common pool | Confirmed | **Open** |
+| AI-002 | High | AI durability | In-process events/results lose active generation on restart | Confirmed | **Open** |
+| AI-003 | High | AI validation | Schema-valid but semantically invalid questions can be persisted | Confirmed | **Open** |
+| AI-004 | High | AI retries | Nested retry/fallback behavior creates extreme call amplification and contract drift | Confirmed | **Open** |
+| BILL-002 | High | Stripe webhooks | Checkout completion and async success can credit one session twice | Highly likely | **Resolved** |
+| BILL-003 | High | Generation billing | Completed quizzes survive failed or expired billing commit | Confirmed | **Partial — post-claim invariant fixed; pre-claim restart gap** |
+| STRIPE-001 | High | Subscription security | Subscription update/cancel lacks customer ownership validation | Confirmed | **Partial — ownership fixed; remote mutation concurrency gap** |
+| DOC-001 | High | Document safety | Upload pipeline permits memory/decompression exhaustion inside long work | Confirmed | **Partial — streaming/admission fixed; in-process PDF risk remains High** |
+| OPS-001 | High | Database operations | Production Flyway guardrails are disabled | Confirmed | **Open** |
+| OPS-002 | High | Deployment config | Deployment billing-ratio default is incompatible with validated configuration | Confirmed | **Resolved** |
+| SEC-002 | Medium | OAuth | OAuth tokens are placed in redirect query parameters | Confirmed | **Open** |
+| SEC-003 | Medium | Abuse control | Login throttling is instance-local and race-prone | Confirmed | **Open** |
+| ATTEMPT-004 | Medium | Attempt lifecycle | Timed, paused, and anonymous attempt semantics are inconsistent | Confirmed | **Open** |
+| QUESTION-001 | Medium | Question model | Question handlers have malformed-response and invariant inconsistencies | Confirmed | **Open** |
+| ANALYTICS-001 | Medium | Analytics | Completion triggers lossy O(all-history) analytics recomputation | Confirmed | **Open** |
+| AI-005 | Medium | AI prompt/timeout | Prompt injection, language substitution, and provider-timeout controls are weak | Confirmed | **Open** |
+| AI-006 | Medium | AI progress/partial | Progress, coverage, and partial-success semantics are incorrect | Confirmed | **Open** |
+| BILL-004 | Medium | Billing idempotency | Generation reservation idempotency omits material request parameters | Confirmed | **Partial — operation model fixed; source/tariff identity incomplete** |
+| BILL-005 | Medium | Usage billing | “Actual” billing ignores actual provider attempts/tokens and cancellation races | Confirmed | **Partial — new-job tariff fixed; usage/legacy audit gaps** |
+| DOC-002 | Medium | Document validation | MIME, lifecycle, and upload-default validation are unreliable | Confirmed | **Partial — type/default/reprocess fixed; atomic/API gaps** |
+| OPS-003 | Medium | Runtime portability | Runtime, image, database, and health-detail configuration drift | Confirmed | **Partial — health disclosure fixed; platform drift/boundary gap** |
+| TEST-001 | Medium | Test quality | Tests overstate concurrency confidence and the release gate aborts | Confirmed | **Partial — gate stable; real-Stripe nested tests escape isolation** |
+| OBS-001 | Medium | Observability | AI, queue, estimation, quality, and recovery observability is incomplete | Confirmed | **Open** |
+| ATTEMPT-005 | Low | Audit logging | Suspicious attempt activity is written only to stderr | Confirmed | **Open** |
+| AI-007 | Low | Log privacy | Debug logs can include raw model-response previews | Confirmed | **Open** |
+
+## 8. Detailed baseline findings
+
+These narratives record the exact original defect at `3fd3320b`. For addressed findings, the current disposition and residual in sections 1 and 7 supersede the baseline “Severity / status” line; the original evidence remains here to make the audit trail reproducible.
 
 ### BILL-001 — Client controls Stripe price independently of credited token pack
 
 - **Severity / status:** Critical / Confirmed.
+- **Revalidation:** **Partially remediated.** The Critical price/entitlement arbitrage is closed by `abe22f1f`; webhook settlement still depends on the mutable active pack row instead of treating the seeded payment snapshot as the settlement authority.
 - **Affected flow and users:** every token-pack checkout; any authenticated buyer can exercise it.
 - **Business and technical impact:** direct revenue loss and unbounded token-credit arbitrage. An attacker can buy the cheapest valid Stripe price while naming the most valuable internal pack, then receive the expensive pack's credits.
 - **Evidence:** `CreateCheckoutSessionRequest.java:10-16` accepts `priceId` and `packId` independently. `BillingCheckoutController.java:297-324` forwards both. `StripeServiceImpl.java:40-68` builds the Stripe line item from `priceId` and metadata from `packId`. `CheckoutValidationServiceImpl.java:82-88` prioritizes metadata `packId`; its amount and currency validation catches and suppresses its own mismatch exceptions at `:182-200` and `:236-250`. `CheckoutValidationServiceImplTest.java:421-442` explicitly expects the strict mismatch exception to be caught and a result returned. `StripeWebhookServiceImpl.java:1117-1125` credits tokens resolved from the pack.
@@ -404,6 +458,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### SEC-001 — Refresh JWTs authenticate as bearer access tokens; logout revokes nothing
 
 - **Severity / status:** High / Confirmed.
+- **Revalidation:** **Partially remediated.** Purpose enforcement and logout are real, but refresh replacements can be identical within one second and replay-triggered session revocation rolls back with the thrown `UnauthorizedException`.
 - **Affected flow and users:** all authenticated APIs and all users whose refresh token is copied, logged, or stolen.
 - **Business and technical impact:** a seven-day refresh credential can directly call protected endpoints as if it were a 12-hour access token. The documented logout endpoint provides no server-side invalidation.
 - **Evidence:** `JwtAuthenticationFilter.java:37-42` accepts any valid JWT. `JwtTokenService.java:55-82,98-149` issues/validates both token classes without enforcing a token-type claim at the filter. Only refresh exchange checks the refresh form in `AuthServiceImpl.java:150-168`. `AuthServiceImpl.java:171-174` implements logout as an empty method while `AuthController.java:113-135` describes revocation.
@@ -554,6 +609,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### BILL-002 — Checkout completion and async success can credit one session twice
 
 - **Severity / status:** High / Highly likely.
+- **Revalidation:** **Resolved** by `91950c98` with authoritative paid-state retrieval, payment-row locking, a durable session settlement, and session-keyed ledger idempotency; concurrent MySQL event-order tests cover the economic invariant.
 - **Affected flow and users:** Stripe delayed-payment-method sessions that emit both completion and later asynchronous success.
 - **Business and technical impact:** one payment can produce two ledger credits.
 - **Evidence:** `StripeWebhookServiceImpl.java:139-148` routes both event types. The completed handler at `:176-213` does not require paid `payment_status`; the async-success handler at `:216-259` credits again. Ledger idempotency around `:1117-1125` incorporates event ID and session ID, so two different legitimate events have distinct keys. Session/payment uniqueness does not prove the second credit is rejected at the ledger boundary.
@@ -569,6 +625,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### BILL-003 — Completed quizzes survive failed or expired billing commit
 
 - **Severity / status:** High / Confirmed.
+- **Revalidation:** **Partially remediated.** `9ac9b8ab` makes a claimed finalization atomic and recoverable, closing the visible-free-content path. The process-local generated-question event can still be lost before a durable finalization claim, leaving a non-recoverable `PROCESSING + NOT_STARTED` job.
 - **Affected flow and users:** generation whose reservation expires, is swept/released, conflicts, or encounters a commit exception after content persistence.
 - **Business and technical impact:** users can retain generated quizzes without being charged; job, billing, and ledger states disagree.
 - **Evidence:** `QuizGenerationFacadeImpl.java:353-408` creates quizzes and marks the job completed before billing commit. The commit path at `:483-486` can return for an expired reservation, and `:544-550` catches/stores errors without compensating quiz availability or failing the outcome. `ReconciliationServiceImpl.java:31-149` reconciles ledger balance, not content entitlement. Reservation cleanup can release an expired reservation while content remains completed.
@@ -584,6 +641,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### STRIPE-001 — Subscription update/cancel lacks customer ownership validation
 
 - **Severity / status:** High / Confirmed.
+- **Revalidation:** **Partially remediated.** Cross-customer mutation is denied after local and Stripe ownership checks (`0420e1fe`). Concurrent mutations are not serialized and carry no Stripe idempotency key, so the issue's retry/convergence criterion is incomplete.
 - **Affected flow and users:** any authenticated caller who can obtain or guess another Stripe subscription ID.
 - **Business and technical impact:** cross-account cancellation or plan mutation in Stripe.
 - **Evidence:** `BillingCheckoutController.java:468-520` authenticates a user but forwards an arbitrary subscription ID. `StripeServiceImpl.java:185-235` retrieves and updates/cancels it without comparing the subscription customer to the caller's stored Stripe customer. The customer retrieval path at `:382-413` demonstrates that ownership validation is available elsewhere.
@@ -599,6 +657,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### DOC-001 — Upload pipeline permits memory/decompression exhaustion inside long work
 
 - **Severity / status:** High / Confirmed.
+- **Revalidation:** **Partially remediated; residual High.** Streaming staging, admission, EPUB/text/page bounds, narrow transactions, and safe reprocess ordering are present. PDFBox still loads the document in-process before checking page count, and the cooperative timeout cannot stop interrupt-ignoring parser work.
 - **Affected flow and users:** document upload/generation, other JVM requests, database pool, and host stability.
 - **Business and technical impact:** a permitted or adversarial document can trigger several whole-file copies, parser expansion, long CPU work, heap exhaustion, or DB transaction occupancy.
 - **Evidence:** upload maximum is 150 MiB. `DocumentValidationServiceImpl.java:16-45` calls `getBytes()` before/while validating size. The controller/facade and `DocumentProcessingServiceImpl.java:51-86` materialize bytes/local files again. PDFBox/Tika extraction has no clear decompression, output-character, page, recursion, or wall-clock cap. Upload generation in `QuizGenerationFacadeImpl.java:85-98` is transactional across processing; self-invoked helper transactions do not shorten an outer transaction.
@@ -629,6 +688,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### OPS-002 — Deployment billing-ratio default is incompatible with validated configuration
 
 - **Severity / status:** High / Confirmed.
+- **Revalidation:** **Resolved** by `46c0684e`/`434db133`; candidate-image preflight validates the same typed Compose-bound integral value before deployment mutation.
 - **Affected flow and users:** deployments missing the ratio secret/environment variable; all billing/generation users during startup failure.
 - **Business and technical impact:** application may fail to bind/start or use an unintended billing conversion.
 - **Evidence:** `BillingProperties.java:18-23` defines the ratio as a `long` with default `1000`; `server/backend/application-prod.properties:140` and `server/backend/env.production.example:48` also use `1000`. `.github/workflows/deploy-backend.yml:137` writes the fallback string `1.0`, which is incompatible with that type and intended magnitude.
@@ -742,6 +802,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### BILL-004 — Generation reservation idempotency omits material request parameters
 
 - **Severity / status:** Medium / Confirmed.
+- **Revalidation:** **Partially remediated.** The durable operation/hash/ownership model is sound, but same-size uploads and same-length text with different content collide, and canonicalization binds a hard-coded tariff version rather than the configured tariff.
 - **Affected flow and users:** repeated/concurrent generation for the same user/document/scope but different settings.
 - **Business and technical impact:** distinct requests can collapse onto one reservation/idempotency identity, producing incorrect reuse, rejection, or accounting linkage.
 - **Evidence:** `QuizGenerationFacadeImpl.java:191-196` derives the key from user, document, and scope only. Language, difficulty, chunks, type/count matrix, title, and other material inputs are omitted. `BillingServiceImpl.java:118-139` reuses by key/amount rather than validating the full request identity.
@@ -756,6 +817,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### BILL-005 — “Actual” billing ignores actual provider attempts/tokens and cancellation races
 
 - **Severity / status:** Medium / Confirmed.
+- **Revalidation:** **Partially remediated.** New jobs use a clear snapshotted customer tariff, separate provider telemetry, and a free-cancellation policy. Concurrent provider-usage writes can be silently dropped, and legacy jobs retain the ambiguous heuristic path.
 - **Affected flow and users:** retry-heavy, partial, cancelled, or high-token generations; business margin and customer balances.
 - **Business and technical impact:** committed usage is estimated from persisted output, not actual provider consumption. The service can undercharge expensive failures/retries or make “actual” claims it cannot audit.
 - **Evidence:** `QuizGenerationFacadeImpl.java:488-505` calculates from persisted question count plus estimated input and caps at reserved amount. Provider attempt/token telemetry is separate and not the billing source. In-flight futures are not cooperatively cancelled at all boundaries.
@@ -770,6 +832,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### DOC-002 — MIME, lifecycle, and upload-default validation are unreliable
 
 - **Severity / status:** Medium / Confirmed.
+- **Revalidation:** **Partially remediated.** Content-derived type checks, the default, staging, cleanup, and parse-before-swap are improved. Post-commit mapping failure can delete the promoted file, the multipart generation path accepts a value below its documented minimum, and reconciliation pagination is not stable under concurrent changes.
 - **Affected flow and users:** document upload, reprocessing, storage cleanup, and default API callers.
 - **Business and technical impact:** unsupported/malicious content may reach parsers, failed flows can leave orphans, and an omitted request value can fail its own validation.
 - **Evidence:** `DocumentValidationServiceImpl.java:48-58` trusts client content type, while later detection around `:396-404` uses filename/extension; no robust magic/malware gate was found. Reprocessing removes chunks before successful replacement, and cleanup is not uniformly atomic. `GenerateQuizFromUploadRequest.java:21-24,68-72` defaults to 250,000 while annotated maximum is 100,000.
@@ -784,6 +847,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### OPS-003 — Runtime, image, database, and health-detail configuration drift
 
 - **Severity / status:** Medium / Confirmed.
+- **Revalidation:** **Partially remediated.** Unauthenticated detail exposure is closed and probe routing works in production. Java/image/MySQL drift remains; public readiness/startup also conflicts with the earlier owner-only-liveness boundary unless that decision is explicitly superseded.
 - **Affected flow and users:** developers, CI, deployment, incident responders, and unauthenticated health consumers.
 - **Business and technical impact:** local defaults fail compilation, deployment parity is uncertain, image build is architecture-sensitive, and detailed health information is publicly reachable.
 - **Evidence:** Java 25 default compilation failed while Java 17 compiled. CI uses MySQL 8.4 and compose uses 8.0. Local arm64 could not resolve `eclipse-temurin:17-jre-alpine`. Production properties expose detailed health (`server/backend/application-prod.properties:179-188`) while health routes are public.
@@ -798,6 +862,7 @@ Scores use 0 (absent/critically unsafe) through 5 (strong and production-ready).
 ### TEST-001 — Tests overstate concurrency confidence and the release gate aborts
 
 - **Severity / status:** Medium / Confirmed.
+- **Revalidation:** **Partially remediated.** The Java 17 gate, fixed parallelism, serial DB lane, real concurrency harness, CI `verify`, and JaCoCo now pass. Nested real-Stripe suites escape filename exclusions and are skipped only when credentials are absent, so the default gate is not environment-independently offline.
 - **Affected flow and users:** engineering/release confidence across billing, attempts, AI, and persistence.
 - **Business and technical impact:** green unit assertions can mask impossible or sequential concurrency, while the broad gate cannot complete reliably.
 - **Evidence:** Java 17 `clean verify` aborted twice after 1,232/1,233 passing tests. `TaskProgressIntegrationTest.java:376-383` states concurrency is not actually tested. `QuizGenerationJobRepositoryTaskProgressTest.java:177-197` labels a path concurrent while executing sequential operations. Surefire excludes real AI/Stripe/performance/production-readiness classes; the intended DB serial lane could not run locally. Scoped 111-test lane passed.
@@ -1053,6 +1118,8 @@ Acceptance must be numeric, for example: no common-pool provider work; no OOM; b
 
 ## 12. Failure and recovery matrix
 
+> **Revalidation note:** the table below is the original failure-window baseline. Session-level Stripe double credit is resolved, and claimed generation finalization is now atomic. The pre-claim, process-local generation window remains and is the reason BILL-003/AI-002 are not marked fully resolved.
+
 | Failure window | Current likely outcome | Severity | Required invariant |
 |---|---|---:|---|
 | After token reserve, before job commit | transaction rollback generally protects both | Low | neither reserve nor job survives alone |
@@ -1090,6 +1157,8 @@ Acceptance must be numeric, for example: no common-pool provider work; no OOM; b
 | Sweeper releases during provider work, late completion follows | released reservation plus completed quiz/job possible | free completed quiz | no debit | no automatic entitlement reconciliation | BILL-003 |
 
 ## 13. Billing integrity audit
+
+> **Revalidation update:** BILL-002 is resolved. The original BILL-001 arbitrage, BILL-003 post-claim free-content path, STRIPE-001 ownership bypass, and BILL-005 mixed-unit policy are closed in the inspected paths, but their implementations retain the concrete residuals catalogued in section 1. The baseline invariant tables below describe `3fd3320b`, not current settlement behavior.
 
 ### Positive controls
 
@@ -1136,9 +1205,11 @@ Core ledger invariants should be: available balance never negative; one reservat
 
 ### Billing conclusion
 
-Paid token checkout must be disabled until BILL-001 is fixed and all existing Stripe Price↔pack mappings and sessions are audited. Subscription mutation should be disabled or restricted to server-resolved customer-owned identifiers until STRIPE-001 is fixed. Delayed payment methods should not be enabled until BILL-002 is disproved by a session-level invariant test or corrected. AI generation billing must be treated as experimental because content entitlement and committed balance can diverge.
+The original direct over-credit blockers are materially improved: one server-owned pack now defines checkout value, one checkout session credits once, and subscription ownership is checked. Paid launch is still not certified because open-session catalog changes can strand a valid payment, generation can be lost before the durable finalization claim, request identity omits source/tariff facts, legacy settlement remains ambiguous, and concurrent subscription mutations are not serialized. AI generation billing should remain controlled until those residuals and AI-002 are closed and reconciled on production-like data.
 
 ## 14. Security and privacy audit
+
+> **Revalidation update:** refresh JWTs no longer authenticate as access tokens, logout revokes a server-side session, cross-customer subscription mutation is denied, and public health details are redacted/restricted. SEC-001 remains partial because refresh single-use/replay invalidation is defective; OAuth query-token transport, login throttling, answer secrecy, prompt isolation, and sensitive document/AI logging remain open.
 
 | Control | Assessment | Notes |
 |---|---|---|
@@ -1190,6 +1261,8 @@ Transaction annotations exist in application services, but broad transaction sco
 Database execution was unavailable: the selected 23 MySQL integration tests all errored because no local MySQL instance was running and the sandboxed connection could not be established. The only running local container was PostgreSQL 18. No database was started, changed, or deleted for this review. Constraint/query plans, MySQL 8.0 versus 8.4 behavior, isolation-level races, migration execution, and production-scale indexes therefore remain unverified.
 
 ## 16. Test-quality audit
+
+> **Revalidation update:** the original fork-abort/unbounded-parallelism symptoms are fixed on current CI. Run 31174461848 completed both Java 17 lanes, MySQL/Flyway, packaging, and JaCoCo. TEST-001 remains partial because nested real-Stripe classes escape the filename exclusions and become live-provider tests whenever suitable environment credentials are present.
 
 ### What passed
 
@@ -1245,7 +1318,7 @@ The repository has a stronger-than-average volume of tests, useful focused unit 
 
 The OpenAPI boundary should document authentication, permissions plus ownership/visibility, versioned scoring meaning, answer visibility by attempt state, anonymous identity, exact/partial generation outcomes, idempotency keys, billing tariff semantics, and RFC 7807 errors. The current annotations cannot compensate for unsafe DTOs or behavioral mismatches.
 
-## 18. Production scenario results
+## 18. Original production scenario results
 
 Statuses distinguish execution evidence from static readiness. **NOT TESTED** means the scenario was not executed; a static design assessment is included separately so absence of a run is never reported as a pass.
 
@@ -1270,6 +1343,18 @@ Statuses distinguish execution evidence from static readiness. **NOT TESTED** me
 No scenario used a real paid AI or Stripe provider. The honest load verdict is therefore **not tested and not approved**, not “passed by code inspection.”
 
 ## 19. Remediation roadmap
+
+### Current sequence after revalidation
+
+1. Fix SEC-001 refresh uniqueness and commit replay revocation in an independent transaction; add a real service-level two-transaction replay test.
+2. Complete DOC-001 with a genuinely bounded PDF execution boundary and interrupt-ignoring/adversarial fixtures; repair DOC-002 post-commit compensation and multipart validation parity.
+3. Close ATTEMPT-001/002/003, QUIZ-001, and SCORE-001 before any externally scored flow.
+4. Close AI-001/002/003/004, including a durable pre-claim result/work record, before paid or multi-user AI generation.
+5. Complete BILL-001/003/004/005 and STRIPE-001 residuals: settle open sessions from immutable purchase facts, bind source/current tariff, migrate/flag legacy jobs, make usage writes auditable, and serialize/idempotently key remote subscription mutations.
+6. Make the default Maven gate provider-proof by tagging/excluding all real Stripe nested suites and proving it with live-looking environment values plus denied network.
+7. Resolve OPS-001 and the non-health OPS-003 platform matrix, then run the numeric load/restart/reconciliation plan.
+
+The tables below are the original sequencing plan and are retained for traceability. BILL-002 and OPS-002 are complete; every other addressed row must be read with the partial-remediation detail in section 1.
 
 Effort is relative complexity (`XS`, `S`, `M`, `L`, `XL`), not a delivery-time promise. This is sequencing guidance only; no fix was implemented during the review.
 
@@ -1400,25 +1485,27 @@ Approval evidence must include raw test configuration and percentiles, not only 
 
 ## 21. Final verdict
 
-**Final verdict: NOT APPROVED.** Functional correctness is unreliable on core assessment history and aggregates; the AI pipeline is neither durably recoverable nor capacity-bounded; and financial integrity has a confirmed Critical exploit.
+**Current verdict at `e7822010`: NOT APPROVED.** The original Critical price/entitlement arbitrage and the paired-event double-credit defect are closed in the inspected implementation. That is a meaningful reduction in financial risk. Approval still fails because core assessment integrity is unchanged, the AI pipeline remains non-durable and capacity-unbounded at its provider boundary, document parsing retains a High in-process resource risk, production Flyway safety remains open, and most merged fixes retain at least one concrete acceptance gap.
 
-1. **Are individual attempt results trustworthy?** No. A result can be inflated by a duplicate-answer race, informed by prematurely exposed answers, and reinterpreted against mutable question state.
-2. **Are average score and average correctness trustworthy?** No. “Average score” is an average raw point total across mutable denominators; a separate well-defined average correctness metric is not consistently implemented.
-3. **Is pass rate trustworthy?** No. It is recomputed against the current quiz question count and can change after the attempt.
-4. **Is the leaderboard trustworthy?** No. It ranks each user's maximum raw total across potentially different quiz sizes/versions, lacks deterministic tie semantics, and inherits answer/score integrity defects.
-5. **Are generated questions structurally valid?** Partially. JSON schemas are relatively strict, but conversion/domain validation is not uniformly equivalent to manual validation and logically invalid structures remain possible.
-6. **Are generated questions likely to be grounded?** Unproven and not safe to assume. No real-provider quality evaluation was performed, and no deterministic grounding/contradiction/duplicate/language gate was found.
-7. **Can several users generate large quizzes concurrently?** The system will accept/queue some work, but safe successful execution is not established and the design can degrade or collapse through common-pool, heap, provider, HTTP, DB, or reservation limits.
-8. **What is the measured or estimated safe concurrency?** None is measured. For internal testing only, the conservative estimate is one small job per instance (`C≤3`, `T≤2`, `Q≤3`, roughly 2-second provider latency, quota for ≥6 concurrent calls). Five or 25 jobs are not approved.
-9. **Can one large job starve other users?** Yes. It eagerly submits all chunk/type futures to a shared common pool with no per-user fairness.
-10. **Can restart lose a generation job?** Yes. Queued events/results/retry state are process-local, and `PROCESSING` work has no demonstrated lease-based recovery.
-11. **Can users be charged incorrectly?** Yes. The Critical price/pack split can over-credit; webhook lifecycle events can double-credit; generation commitment does not reflect actual provider use; and content can survive a failed charge.
-12. **Can billing reservations become stuck?** Yes. Normal release/expiry paths exist, but processing crashes, event loss, cancellation, and cross-state races can leave inconsistent or temporarily/permanently stuck outcomes without complete entitlement reconciliation.
-13. **Can duplicate requests create duplicate work or charges?** Yes or produce incorrect deduplication. Some DB/idempotency controls help, but material request fields are omitted and Stripe idempotency is event-scoped rather than purchase-terminal.
-14. **Can source documents leak between users?** No direct cross-user document-read path was confirmed; ownership checks are a strength. Leakage remains possible through raw debug model output, OAuth/log/telemetry boundaries, provider data handling, or prompt isolation, so end-to-end isolation is not certified.
-15. **Can correct answers be exposed too early?** Yes, through active-attempt/share-link inclusion flags and authenticated public-quiz question DTO paths.
-16. **Is the system safe for a limited beta?** Not a paying or externally scored beta. Only a controlled internal, non-paying, author-reviewed environment with billing/public answer paths disabled and strict small-job limits is defensible.
-17. **Is it safe for public production use?** No.
-18. **What exact findings block approval?** All unresolved Critical/High findings: **BILL-001, SEC-001, ATTEMPT-001, ATTEMPT-002, ATTEMPT-003, QUIZ-001, SCORE-001, AI-001, AI-002, AI-003, AI-004, BILL-002, BILL-003, STRIPE-001, DOC-001, OPS-001, and OPS-002**.
+1. **Are individual attempt results trustworthy?** No. A result can still be inflated by the duplicate-answer race, informed by prematurely exposed answers, and reinterpreted against mutable question state.
+2. **Are average score and average correctness trustworthy?** No. Raw totals across mutable denominators remain incomparable and unversioned.
+3. **Is pass rate trustworthy?** No. It can still be recomputed against the current quiz question count.
+4. **Is the leaderboard trustworthy?** No. It still ranks maximum raw totals across potentially different quiz sizes/versions without a complete deterministic tie policy.
+5. **Are generated questions structurally valid?** Partially. JSON shape is stronger than semantic/domain equivalence; type, difficulty, language, grounding, duplicate, and correctness drift can still pass.
+6. **Are generated questions likely to be grounded?** Unproven. No deterministic grounding/contradiction/duplicate/language quality gate or independent real-provider evaluation was established.
+7. **Can several users generate large quizzes concurrently?** Not with a certified envelope. Inner work still uses the shared common pool and nested retries/fallbacks lack one global quota/deadline budget.
+8. **What is the measured safe concurrency?** None. The original one-small-job internal assumption remains a temporary operational limit, not production evidence.
+9. **Can one large job starve other users?** Yes. Fair per-user/provider scheduling was not implemented.
+10. **Can restart lose a generation job?** Yes. Finalization is durable only after its claim; generated questions and the completion trigger remain process-local before that point.
+11. **Can users still be over-credited through the original checkout flaws?** The reviewed code closes the cheap-price/expensive-pack and paired-event double-credit paths. However, paid settlement is not fully production-ready: catalog drift can strand a valid paid session, legacy generation settlement is ambiguous, and concurrent subscription mutations are not serialized.
+12. **Can billing reservations/jobs become stuck?** Yes. The pre-claim completion window, process-local AI state, and incomplete processing recovery can leave `PROCESSING` jobs and reservations without an automatic terminal outcome.
+13. **Can duplicate generation requests create wrong work or charges?** Exact operation replay is substantially improved and reservations are owner-bound. Different same-length/same-size sources and tariff changes can still collide under one key, so deduplication remains incomplete.
+14. **Can source documents leak between users?** No direct cross-user document-read path was confirmed. End-to-end privacy is still uncertified because content-derived headings and raw AI previews can enter logs and provider/retention controls were not established.
+15. **Can correct answers be exposed too early?** Yes. ATTEMPT-001 remains unimplemented.
+16. **Is the default release gate deterministic and offline?** It is stable and completes in CI, including DB and coverage, but it is not environment-independently offline: nested real-Stripe tests execute and rely on absent credentials to skip.
+17. **Is the system safe for a limited beta?** Only for controlled, non-paying, non-scored internal evaluation with strict small-job/upload limits and author review. It is not approved for a paying or externally scored beta.
+18. **Is it safe for public production use?** No.
 
-The exact next decision is to **freeze public/paid launch and open a separate remediation program beginning with BILL-001**, then address the remaining financial/authentication/answer-integrity blockers before versioned scoring and durable bounded generation. This report should be rerun from a new pinned SHA after those changes; no remediation was made as part of this review.
+The current High blockers are **SEC-001 (residual), ATTEMPT-001, ATTEMPT-002, ATTEMPT-003, QUIZ-001, SCORE-001, AI-001, AI-002, AI-003, AI-004, BILL-003 (pre-claim recovery residual), DOC-001 (residual), and OPS-001**. BILL-001's Critical abuse mechanism is closed, BILL-002 and OPS-002 are resolved, and the original STRIPE-001 ownership bypass is closed; their remaining non-Critical gaps must still be completed before paid launch certification.
+
+The exact next decision is to **keep public/paid launch frozen**, fix the newly confirmed SEC-001 rotation/replay defect and residual document/test isolation defects, then complete attempt/scoring integrity and durable bounded AI generation. Re-run the full review from a new pinned SHA after those changes; this revalidation changed documentation only.

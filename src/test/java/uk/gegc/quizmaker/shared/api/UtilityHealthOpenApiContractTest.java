@@ -72,5 +72,6 @@ class UtilityHealthOpenApiContractTest {
                 .isEqualTo("#/components/schemas/HealthStatusResponse");
         JsonNode properties = specification.at("/components/schemas/HealthStatusResponse/properties");
         assertThat(properties.fieldNames()).toIterable().containsExactly("status");
+        assertThat(specification.at("/paths/~1actuator~1health~1liveness").isMissingNode()).isTrue();
     }
 }

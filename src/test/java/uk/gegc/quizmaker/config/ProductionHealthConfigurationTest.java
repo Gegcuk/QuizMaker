@@ -54,8 +54,14 @@ class ProductionHealthConfigurationTest {
     }
 
     @Test
-    @DisplayName("Every public probe is bound as a status-only health group")
-    void publicGroups_neverExposeDetailsOrComponents() {
+    @DisplayName("Production diagnostics disable the unused SMTP health contributor")
+    void productionDiagnostics_disableUnusedSmtpContributor() {
+        assertThat(productionProperties.getProperty("management.health.mail.enabled")).isEqualTo("false");
+    }
+
+    @Test
+    @DisplayName("Every private Actuator probe is bound as a status-only health group")
+    void privateGroups_neverExposeDetailsOrComponents() {
         assertThat(healthProperties.getGroup()).containsKeys("liveness", "readiness", "startup");
 
         for (String groupName : Set.of("liveness", "readiness", "startup")) {
@@ -66,9 +72,17 @@ class ProductionHealthConfigurationTest {
     }
 
     @Test
+    @DisplayName("Actuator uses a loopback-only management listener separate from the public application port")
+    void actuator_usesPrivateManagementListener() {
+        assertThat(productionProperties.getProperty("management.server.port")).isEqualTo("8081");
+        assertThat(productionProperties.getProperty("management.server.address")).isEqualTo("127.0.0.1");
+        assertThat(productionProperties.getProperty("management.endpoint.health.probes.enabled")).isEqualTo("true");
+        assertThat(productionProperties).doesNotContainKey("management.health.probes.enabled");
+    }
+
+    @Test
     @DisplayName("Readiness covers serving dependencies while optional SES remains diagnostic-only")
     void readiness_includesDatabaseAndDiskButExcludesSes() {
-        assertThat(productionProperties.getProperty("management.health.probes.enabled")).isEqualTo("true");
         assertThat(healthProperties.getGroup().get("liveness").getInclude())
                 .containsExactlyInAnyOrder("livenessState", "ping");
         assertThat(healthProperties.getGroup().get("readiness").getInclude())
