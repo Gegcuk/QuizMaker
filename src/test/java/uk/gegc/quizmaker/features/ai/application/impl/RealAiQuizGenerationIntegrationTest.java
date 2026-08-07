@@ -85,6 +85,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @Tag("db-serial")
+@Tag("real-provider")
 @SpringBootTest
 @ActiveProfiles("test")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -94,6 +95,9 @@ class RealAiQuizGenerationIntegrationTest {
 
     @Value("${spring.ai.openai.api-key:}")
     private String apiKey;
+
+    @Value("${quizmaker.tests.live-provider:false}")
+    private boolean liveProviderTestsEnabled;
     
     @Value("${spring.ai.openai.chat.options.model:gpt-4o-mini}")
     private String model;
@@ -106,7 +110,10 @@ class RealAiQuizGenerationIntegrationTest {
 
     @BeforeAll
     void setUp() {
-        assumeTrue(apiKey != null && !apiKey.isBlank(), "OpenAI API key not configured");
+        assumeTrue(liveProviderTestsEnabled,
+                "Run with the explicit live-provider-tests Maven profile to permit provider calls");
+        assumeTrue(apiKey != null && apiKey.trim().startsWith("sk-"),
+                "A real OpenAI API key is required for the live-provider-tests profile");
 
         OpenAiApi openAiApi = new OpenAiApi(apiKey);
         OpenAiChatOptions options = OpenAiChatOptions.builder()

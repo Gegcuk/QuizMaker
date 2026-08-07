@@ -30,6 +30,16 @@ The `test` and `test-mysql` profiles share CI MySQL schemas. A Spring Boot or JP
 - `DatabaseTestExecutionTagTest` enforces this policy against compiled test classes, including nested Spring contexts.
 - Preserve the existing `@DirtiesContext`, transaction, and cleanup conventions in the test being changed. The serial lane protects schema lifecycle, not test data that a scenario intentionally commits.
 
+### Canonical Verification Gate
+
+The release-quality command is `./mvnw verify`. It runs the bounded parallel lane, the serial MySQL lane, JaCoCo reporting and threshold checks, then packages the tested application. CI runs this same command; `test` alone is not a release gate.
+
+- Builds require JDK 17. Maven fails during `validate` with a clear message on another JDK. Set `JAVA_HOME` to a JDK 17 installation before running a build.
+- The non-database JUnit lane uses a fixed pool of four workers. Do not change it to unlimited workers or disable parallelism globally. The `db-serial` lane remains one-at-a-time because legacy tests change the shared MySQL schema.
+- Default and CI verification are offline with respect to third-party providers. Tests must use fakes, stubs, WireMock, or local test infrastructure; a nonblank environment variable must never be enough to authorize a paid provider call.
+- `live-provider-tests` is an explicit human-only Maven profile for the tagged OpenAI smoke test. It is never enabled in CI and requires a real key supplied securely in the local environment. It is not required for normal verification and must not use production user content.
+- When CI fails, download the `surefire-reports` artifact. It includes Surefire/Failsafe reports, fork dumps, and JaCoCo output, subject to the workflow retention policy.
+
 ## Unit Tests
 
 Use real input values and narrow collaborator doubles. A unit test should describe a rule in observable terms, for example:
@@ -123,6 +133,12 @@ Run the narrowest relevant checks first:
 ./mvnw test -Dtest=QuestionControllerTest,QuestionSchemaServiceTest
 ./mvnw verify
 git diff --check
+```
+
+Run the Maven command from the repository root. Use the live-provider profile only for a deliberate, owner-run smoke test after securely configuring a non-test provider key:
+
+```bash
+./mvnw -Plive-provider-tests test -Dtest=RealAiQuizGenerationIntegrationTest
 ```
 
 Report what ran, what did not run, and any residual risk. A passing test that asserts the wrong thing is not useful coverage.

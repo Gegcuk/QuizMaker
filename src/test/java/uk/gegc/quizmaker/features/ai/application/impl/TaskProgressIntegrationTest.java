@@ -360,8 +360,8 @@ class TaskProgressIntegrationTest {
     }
 
     @Test
-    @DisplayName("Integration: Multi-chunk concurrent generation increments correctly")
-    void multiChunkConcurrent_noDoubleCount() {
+    @DisplayName("Integration: Multi-chunk multi-type generation has the expected task total")
+    void multiChunkMultiType_hasExpectedTaskTotal() {
         // Given: 3 chunks, 2 types each = 6 tasks total
         Map<QuestionType, Integer> questionsPerType = Map.of(
                 QuestionType.MCQ_SINGLE, 2,
@@ -373,13 +373,8 @@ class TaskProgressIntegrationTest {
         // Then: 3 chunks × 2 types = 6 tasks
         assertEquals(6, totalTasks, "3 chunks × 2 types = 6 tasks");
         
-        // The actual concurrent test would require:
-        // - Creating 3 chunks
-        // - Mocking LLM responses
-        // - Running full generation
-        // - Verifying completedTasks = 6 (no double counting from concurrent futures)
-        //
-        // This is covered by the atomic repository tests proving no race conditions
+        // Atomic concurrent increment behavior is covered by
+        // QuizGenerationJobRepositoryTaskProgressTest using real transactions and a barrier.
     }
 
     private StructuredQuestionResponse createMockResponse(QuestionType type, int count) {
@@ -399,4 +394,3 @@ class TaskProgressIntegrationTest {
         return response;
     }
 }
-
