@@ -3,12 +3,16 @@ package uk.gegc.quizmaker.features.auth.application.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataAccessException;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionRefreshService;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthSessionStoreUnavailableException;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSession;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRejectionReason;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRevocationReason;
@@ -19,8 +23,6 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,6 +41,7 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     private final AuthSessionRepository authSessionRepository;
     private final UserRepository userRepository;
     private final JwtTokenService jwtTokenService;
+    private final AuthSessionRefreshService authSessionRefreshService;
     private final AuthSessionMetricsService authSessionMetricsService;
 
     @Qualifier("utcClock")
@@ -68,40 +71,23 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     }
 
     @Override
-    @Transactional
     public JwtResponse refresh(String refreshToken) {
-        ValidatedJwt refreshClaims = jwtTokenService.validateRefreshToken(refreshToken)
-                .orElseThrow(() -> rejectRefresh(AuthSessionRejectionReason.INVALID_TOKEN));
-        LocalDateTime now = LocalDateTime.now(utcClock);
-        AuthSession session = loadOwnedSessionForUpdate(
-                refreshClaims,
-                () -> rejectRefresh(AuthSessionRejectionReason.INACTIVE_SESSION)
-        );
+        try {
+            AuthSessionRefreshService.RefreshResult result = authSessionRefreshService.rotate(refreshToken);
+            if (result.isRejected()) {
+                if (result.rejectionReason() == AuthSessionRejectionReason.REPLAYED_TOKEN) {
+                    log.warn("Rejected replayed refresh token and revoked its authentication session");
+                }
+                throw rejectRefresh(result.rejectionReason());
+            }
 
-        if (!session.isActiveAt(now)) {
-            throw rejectRefresh(AuthSessionRejectionReason.INACTIVE_SESSION);
+            authSessionMetricsService.recordRefreshSucceeded();
+            return result.response();
+        } catch (DataAccessException | TransactionException exception) {
+            authSessionMetricsService.recordSessionStoreFailure();
+            log.error("Authentication session refresh could not access the session store");
+            throw new AuthSessionStoreUnavailableException(exception);
         }
-
-        String presentedHash = jwtTokenService.fingerprintRefreshToken(refreshToken);
-        if (!constantTimeEquals(session.getRefreshTokenHash(), presentedHash)) {
-            session.revoke(now, AuthSessionRevocationReason.REFRESH_TOKEN_REPLAY);
-            authSessionRepository.save(session);
-            log.warn("Rejected replayed refresh token");
-            throw rejectRefresh(AuthSessionRejectionReason.REPLAYED_TOKEN);
-        }
-
-        Authentication authentication = jwtTokenService.getAuthentication(refreshClaims);
-        String nextAccessToken = jwtTokenService.generateAccessToken(authentication, session.getId());
-        String nextRefreshToken = jwtTokenService.generateRefreshToken(
-                authentication,
-                session.getId(),
-                toDate(session.getExpiresAt())
-        );
-        session.rotateRefreshToken(jwtTokenService.fingerprintRefreshToken(nextRefreshToken), now);
-        authSessionRepository.save(session);
-        authSessionMetricsService.recordRefreshSucceeded();
-
-        return tokenResponse(nextAccessToken, nextRefreshToken, now, session.getExpiresAt());
     }
 
     @Override
@@ -202,10 +188,4 @@ public class AuthSessionServiceImpl implements AuthSessionService {
         return new UnauthorizedException("Invalid access token");
     }
 
-    private boolean constantTimeEquals(String left, String right) {
-        return MessageDigest.isEqual(
-                left.getBytes(StandardCharsets.US_ASCII),
-                right.getBytes(StandardCharsets.US_ASCII)
-        );
-    }
 }

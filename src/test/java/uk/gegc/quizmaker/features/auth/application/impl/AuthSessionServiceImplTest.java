@@ -7,9 +7,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.core.Authentication;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionRefreshService;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthSessionStoreUnavailableException;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSession;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRejectionReason;
 import uk.gegc.quizmaker.features.auth.domain.model.AuthSessionRevocationReason;
@@ -52,6 +55,9 @@ class AuthSessionServiceImplTest {
     private JwtTokenService jwtTokenService;
 
     @Mock
+    private AuthSessionRefreshService authSessionRefreshService;
+
+    @Mock
     private AuthSessionMetricsService authSessionMetricsService;
 
     @Mock
@@ -69,6 +75,7 @@ class AuthSessionServiceImplTest {
                 authSessionRepository,
                 userRepository,
                 jwtTokenService,
+                authSessionRefreshService,
                 authSessionMetricsService,
                 clock
         );
@@ -103,50 +110,46 @@ class AuthSessionServiceImplTest {
     }
 
     @Test
-    @DisplayName("rotates a valid refresh token once and preserves the session expiry")
-    void refresh_rotatesCurrentVerifierAndIssuesReplacementPair() {
-        LocalDateTime expiresAt = now.plusDays(3);
-        AuthSession session = new AuthSession(sessionId, userId, "current-hash", now.minusDays(1), expiresAt);
-        ValidatedJwt claims = new ValidatedJwt("alice", userId, sessionId, expiresAt.toInstant(ZoneOffset.UTC));
-        when(jwtTokenService.validateRefreshToken("current-refresh")).thenReturn(Optional.of(claims));
-        when(authSessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session));
-        when(jwtTokenService.fingerprintRefreshToken("current-refresh")).thenReturn("current-hash");
-        when(jwtTokenService.getAuthentication(claims)).thenReturn(authentication);
-        when(jwtTokenService.generateAccessToken(authentication, sessionId)).thenReturn("next-access");
-        when(jwtTokenService.generateRefreshToken(eq(authentication), eq(sessionId), any(Date.class)))
-                .thenReturn("next-refresh");
-        when(jwtTokenService.fingerprintRefreshToken("next-refresh")).thenReturn("next-hash");
-        when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(43_200_000L);
+    @DisplayName("returns a replacement pair only after refresh rotation commits")
+    void refresh_committedRotationReturnsReplacementPair() {
+        JwtResponse replacement = new JwtResponse("next-access", "next-refresh", 43_200_000L, 259_200_000L);
+        when(authSessionRefreshService.rotate("current-refresh"))
+                .thenReturn(AuthSessionRefreshService.RefreshResult.rotated(replacement));
 
         JwtResponse result = service.refresh("current-refresh");
 
-        assertThat(result.accessToken()).isEqualTo("next-access");
-        assertThat(result.refreshToken()).isEqualTo("next-refresh");
-        assertThat(result.refreshExpiresInMs()).isEqualTo(259_200_000L);
-        assertThat(session.getRefreshTokenHash()).isEqualTo("next-hash");
-        assertThat(session.getRefreshedAt()).isEqualTo(now);
-        verify(authSessionRepository).save(session);
+        assertThat(result).isEqualTo(replacement);
         verify(authSessionMetricsService).recordRefreshSucceeded();
     }
 
     @Test
-    @DisplayName("refresh replay revokes the session and does not issue more tokens")
-    void refresh_replayedTokenRevokesSessionAndFailsClosed() {
-        AuthSession session = new AuthSession(sessionId, userId, "current-hash", now.minusDays(1), now.plusDays(3));
-        ValidatedJwt claims = new ValidatedJwt("alice", userId, sessionId, now.plusDays(3).toInstant(ZoneOffset.UTC));
-        when(jwtTokenService.validateRefreshToken("replayed-refresh")).thenReturn(Optional.of(claims));
-        when(authSessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session));
-        when(jwtTokenService.fingerprintRefreshToken("replayed-refresh")).thenReturn("stale-hash");
+    @DisplayName("maps a committed replay revocation to a generic unauthorized response")
+    void refresh_committedReplayRevocationReturnsUnauthorized() {
+        when(authSessionRefreshService.rotate("replayed-refresh"))
+                .thenReturn(AuthSessionRefreshService.RefreshResult.rejected(
+                        AuthSessionRejectionReason.REPLAYED_TOKEN));
 
         assertThatThrownBy(() -> service.refresh("replayed-refresh"))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessage("Invalid refresh token");
 
-        assertThat(session.getRevocationReason()).isEqualTo(AuthSessionRevocationReason.REFRESH_TOKEN_REPLAY);
-        assertThat(session.getRevokedAt()).isEqualTo(now);
-        verify(authSessionRepository).save(session);
         verify(authSessionMetricsService).recordRefreshRejected(AuthSessionRejectionReason.REPLAYED_TOKEN);
-        verify(jwtTokenService, never()).generateAccessToken(any(Authentication.class), any(UUID.class));
+    }
+
+    @Test
+    @DisplayName("reports a retryable store failure without reporting credential rejection")
+    void refresh_sessionStoreFailureReturnsUnavailable() {
+        DataAccessResourceFailureException storeFailure =
+                new DataAccessResourceFailureException("database unavailable");
+        when(authSessionRefreshService.rotate("current-refresh")).thenThrow(storeFailure);
+
+        assertThatThrownBy(() -> service.refresh("current-refresh"))
+                .isInstanceOf(AuthSessionStoreUnavailableException.class)
+                .hasMessage("Authentication session state is temporarily unavailable. Please retry.")
+                .hasCause(storeFailure);
+
+        verify(authSessionMetricsService).recordSessionStoreFailure();
+        verify(authSessionMetricsService, never()).recordRefreshRejected(any());
     }
 
     @Test
