@@ -124,7 +124,7 @@ public class OpenApiGroupConfig {
         return GroupedOpenApi.builder()
                 .group("admin")
                 .displayName("Administration")
-                .pathsToMatch("/api/v1/admin/**")
+                .pathsToMatch("/api/v1/admin/**", "/api/v1/health")
                 .build();
     }
 }

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.shared.config;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -13,12 +14,14 @@ class PublicApiRoutesTest {
 
     @ParameterizedTest
     @MethodSource("publicRoutes")
+    @DisplayName("Recognizes only routes intentionally available without authentication")
     void isPublic_recognizesRuntimePermitAllRoutes(HttpMethod method, String path) {
         assertThat(PublicApiRoutes.isPublic(method, path)).isTrue();
     }
 
     @ParameterizedTest
     @MethodSource("protectedRoutes")
+    @DisplayName("Does not broaden protected routes")
     void isPublic_doesNotBroadenProtectedRoutes(HttpMethod method, String path) {
         assertThat(PublicApiRoutes.isPublic(method, path)).isFalse();
     }
@@ -54,7 +57,9 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.GET, "/api/v1/api-summary"),
                 Arguments.of(HttpMethod.GET, "/api/v1/diagnostic/springdoc-groups"),
                 Arguments.of(HttpMethod.GET, "/api/v1/health"),
-                Arguments.of(HttpMethod.GET, "/actuator/health/readiness")
+                Arguments.of(HttpMethod.GET, "/actuator/health/liveness"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/readiness"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/startup")
         );
     }
 
@@ -67,6 +72,10 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.DELETE, "/api/v1/quizzes/shared/share-token"),
                 Arguments.of(HttpMethod.POST, "/api/v1/questions/schemas"),
                 Arguments.of(HttpMethod.POST, "/api/v1/tags"),
+                Arguments.of(HttpMethod.GET, "/actuator/health"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/awsSes"),
+                Arguments.of(HttpMethod.GET, "/actuator/health/db"),
+                Arguments.of(HttpMethod.HEAD, "/actuator/health/readiness"),
                 Arguments.of(HttpMethod.GET, "/api/documents")
         );
     }

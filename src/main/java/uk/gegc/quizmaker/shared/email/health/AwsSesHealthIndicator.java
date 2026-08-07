@@ -40,12 +40,28 @@ public class AwsSesHealthIndicator implements HealthIndicator {
 
             return builder.build();
         } catch (SesV2Exception ex) {
-            return Health.down(ex)
+            Health.Builder builder = ex.statusCode() == 403 ? Health.unknown() : Health.down();
+            return builder
                     .withDetail("statusCode", ex.statusCode())
-                    .withDetail("awsError", ex.awsErrorDetails() != null ? ex.awsErrorDetails().errorMessage() : "unknown")
+                    .withDetail("reason", failureReason(ex.statusCode()))
                     .build();
         } catch (Exception ex) {
-            return Health.down(ex).build();
+            return Health.down()
+                    .withDetail("reason", "provider-check-failed")
+                    .build();
         }
+    }
+
+    private String failureReason(int statusCode) {
+        if (statusCode == 401 || statusCode == 403) {
+            return "diagnostic-permission-denied";
+        }
+        if (statusCode == 429) {
+            return "provider-rate-limited";
+        }
+        if (statusCode >= 500) {
+            return "provider-unavailable";
+        }
+        return "provider-request-rejected";
     }
 }

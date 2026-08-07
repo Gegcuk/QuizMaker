@@ -156,11 +156,11 @@ class AwsSesHealthIndicatorTest {
             .containsEntry("max24HourSend", 0.0);
     }
 
-    // ========== DOWN State (SES Exception) Tests ==========
+    // ========== Failure State (SES Exception) Tests ==========
 
     @Test
-    @DisplayName("health: when SES throws 403 exception then status DOWN with error details")
-    void health_whenSesThrows403Exception_thenStatusDownWithErrorDetails() {
+    @DisplayName("health: when SES diagnostic permission is denied then status is UNKNOWN without sensitive details")
+    void health_whenSesThrows403Exception_thenStatusUnknownWithRedactedDetails() {
         // Given
         SesV2Exception sesException = (SesV2Exception) SesV2Exception.builder()
             .statusCode(403)
@@ -178,16 +178,16 @@ class AwsSesHealthIndicatorTest {
         Health health = healthIndicator.health();
 
         // Then
-        assertThat(health.getStatus()).isEqualTo(Status.DOWN);
+        assertThat(health.getStatus()).isEqualTo(Status.UNKNOWN);
         assertThat(health.getDetails())
             .containsEntry("statusCode", 403)
-            .containsEntry("awsError", "User not authorized to perform: ses:GetAccount");
-        assertThat(health.getDetails()).containsKey("error");
+            .containsEntry("reason", "diagnostic-permission-denied")
+            .doesNotContainKeys("error", "awsError");
     }
 
     @Test
-    @DisplayName("health: when SES throws 400 exception then status DOWN with error details")
-    void health_whenSesThrows400Exception_thenStatusDownWithErrorDetails() {
+    @DisplayName("health: when SES rejects the diagnostic request then status is DOWN with a bounded reason")
+    void health_whenSesThrows400Exception_thenStatusDownWithBoundedReason() {
         // Given
         SesV2Exception sesException = (SesV2Exception) SesV2Exception.builder()
             .statusCode(400)
@@ -208,12 +208,13 @@ class AwsSesHealthIndicatorTest {
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
         assertThat(health.getDetails())
             .containsEntry("statusCode", 400)
-            .containsEntry("awsError", "Invalid request parameters");
+            .containsEntry("reason", "provider-request-rejected")
+            .doesNotContainKeys("error", "awsError");
     }
 
     @Test
-    @DisplayName("health: when SES throws 500 exception then status DOWN with error details")
-    void health_whenSesThrows500Exception_thenStatusDownWithErrorDetails() {
+    @DisplayName("health: when SES is unavailable then status is DOWN without provider exception text")
+    void health_whenSesThrows500Exception_thenStatusDownWithoutProviderExceptionText() {
         // Given
         SesV2Exception sesException = (SesV2Exception) SesV2Exception.builder()
             .statusCode(500)
@@ -234,12 +235,13 @@ class AwsSesHealthIndicatorTest {
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
         assertThat(health.getDetails())
             .containsEntry("statusCode", 500)
-            .containsEntry("awsError", "SES internal error");
+            .containsEntry("reason", "provider-unavailable")
+            .doesNotContainKeys("error", "awsError");
     }
 
     @Test
-    @DisplayName("health: when SES exception has no awsErrorDetails then error defaults to unknown")
-    void health_whenSesExceptionHasNoAwsErrorDetails_thenErrorDefaultsToUnknown() {
+    @DisplayName("health: when SES exception has no AWS details then status uses the HTTP failure category")
+    void health_whenSesExceptionHasNoAwsErrorDetails_thenUsesHttpFailureCategory() {
         // Given
         SesV2Exception sesException = (SesV2Exception) SesV2Exception.builder()
             .statusCode(503)
@@ -257,14 +259,15 @@ class AwsSesHealthIndicatorTest {
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
         assertThat(health.getDetails())
             .containsEntry("statusCode", 503)
-            .containsEntry("awsError", "unknown");
+            .containsEntry("reason", "provider-unavailable")
+            .doesNotContainKeys("error", "awsError");
     }
 
     // ========== DOWN State (Generic Exception) Tests ==========
 
     @Test
-    @DisplayName("health: when generic RuntimeException then status DOWN with error")
-    void health_whenGenericRuntimeException_thenStatusDownWithError() {
+    @DisplayName("health: when a generic failure occurs then status is DOWN without exception text")
+    void health_whenGenericRuntimeException_thenStatusDownWithoutExceptionText() {
         // Given
         RuntimeException genericException = new RuntimeException("Network connection failed");
 
@@ -276,14 +279,14 @@ class AwsSesHealthIndicatorTest {
 
         // Then
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
-        assertThat(health.getDetails()).containsKey("error");
-        assertThat(health.getDetails().get("error").toString())
-            .contains("Network connection failed");
+        assertThat(health.getDetails())
+                .containsEntry("reason", "provider-check-failed")
+                .doesNotContainKey("error");
     }
 
     @Test
-    @DisplayName("health: when NullPointerException then status DOWN with error")
-    void health_whenNullPointerException_thenStatusDownWithError() {
+    @DisplayName("health: when a null failure occurs then status is DOWN with a bounded reason")
+    void health_whenNullPointerException_thenStatusDownWithBoundedReason() {
         // Given
         NullPointerException npe = new NullPointerException("Unexpected null value");
 
@@ -295,12 +298,14 @@ class AwsSesHealthIndicatorTest {
 
         // Then
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
-        assertThat(health.getDetails()).containsKey("error");
+        assertThat(health.getDetails())
+                .containsEntry("reason", "provider-check-failed")
+                .doesNotContainKey("error");
     }
 
     @Test
-    @DisplayName("health: when IllegalStateException then status DOWN with error")
-    void health_whenIllegalStateException_thenStatusDownWithError() {
+    @DisplayName("health: when the client is misconfigured then status is DOWN without configuration text")
+    void health_whenIllegalStateException_thenStatusDownWithoutConfigurationText() {
         // Given
         IllegalStateException illegalState = new IllegalStateException("Client not properly configured");
 
@@ -312,9 +317,9 @@ class AwsSesHealthIndicatorTest {
 
         // Then
         assertThat(health.getStatus()).isEqualTo(Status.DOWN);
-        assertThat(health.getDetails()).containsKey("error");
-        assertThat(health.getDetails().get("error").toString())
-            .contains("Client not properly configured");
+        assertThat(health.getDetails())
+                .containsEntry("reason", "provider-check-failed")
+                .doesNotContainKey("error");
     }
 
     // ========== Edge Cases Tests ==========
@@ -375,4 +380,3 @@ class AwsSesHealthIndicatorTest {
             .containsEntry("enforcementStatus", "PENDING_VERIFICATION");
     }
 }
-

@@ -289,7 +289,7 @@ jobs:
               exit 1
             fi
 
-            if ! curl --fail --silent --show-error --max-time 15 https://quizzence.com/actuator/health >/dev/null; then
+            if ! curl --fail --silent --show-error --max-time 15 https://www.quizzence.com/actuator/health/readiness >/dev/null; then
               echo "External backend health check failed; restoring the previous release" >&2
               rollback
               exit 1
