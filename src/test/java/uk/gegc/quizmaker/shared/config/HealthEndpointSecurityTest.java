@@ -3,7 +3,10 @@ package uk.gegc.quizmaker.shared.config;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,6 +80,9 @@ import static org.mockito.Mockito.when;
                 "logging.level.uk.gegc.quizmaker=WARN"
         }
 )
+// Repository policy assigns every Spring Boot context test to the serial context lane.
+@Tag("db-serial")
+@Execution(ExecutionMode.SAME_THREAD)
 @DisplayName("Real Actuator health boundary")
 class HealthEndpointSecurityTest {
 
