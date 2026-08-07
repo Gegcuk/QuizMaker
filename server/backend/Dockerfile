@@ -24,9 +24,9 @@ USER quizmaker
 # Expose port
 EXPOSE 8080
 
-# Health check (use minimal startup group to avoid external dependencies)
+# Ongoing container health follows readiness: application, database, and disk only.
 HEALTHCHECK --interval=15s --timeout=10s --start-period=6m --retries=4 \
-    CMD curl -f http://localhost:8080/actuator/health/startup || exit 1
+    CMD curl -f http://localhost:8080/actuator/health/readiness || exit 1
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "app.jar", "--spring.config.additional-location=file:/app/config/"]

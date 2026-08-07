@@ -55,8 +55,9 @@ public final class PublicApiRoutes {
             route(HttpMethod.GET, "/api/v1/api-summary"),
             route(HttpMethod.GET, "/api/v1/diagnostic/**"),
             route(HttpMethod.GET, "/api/v1/health"),
-            route(HttpMethod.GET, "/actuator/health"),
-            route(HttpMethod.GET, "/actuator/health/**")
+            route(HttpMethod.GET, "/actuator/health/liveness"),
+            route(HttpMethod.GET, "/actuator/health/readiness"),
+            route(HttpMethod.GET, "/actuator/health/startup")
     );
 
     private PublicApiRoutes() {

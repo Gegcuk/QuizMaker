@@ -111,9 +111,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         
-        # Restrict access to actuator endpoints (optional)
-        # allow 127.0.0.1;
-        # deny all;
+        # Spring Security exposes only status-only probes publicly. Aggregate and
+        # component diagnostics require SYSTEM_ADMIN permission.
     }
     
     # File upload size limits

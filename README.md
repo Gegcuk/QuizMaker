@@ -77,7 +77,7 @@ java -jar target/QuizMaker-0.0.1-SNAPSHOT.jar
 
 - API base: `http://localhost:8080`
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
-- Actuator health: `http://localhost:8080/actuator/health`
+- Readiness probe: `http://localhost:8080/actuator/health/readiness` (see the [health-probe runbook](docs/runbooks/health-probes.md))
 
 ## Building and testing
 

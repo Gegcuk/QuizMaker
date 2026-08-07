@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
+import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
@@ -69,6 +70,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PublicApiRoutes.patternsFor(HttpMethod.GET)).permitAll()
                         .requestMatchers(HttpMethod.POST, PublicApiRoutes.patternsFor(HttpMethod.POST)).permitAll()
                         .requestMatchers(HttpMethod.HEAD, PublicApiRoutes.patternsFor(HttpMethod.HEAD)).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
+                        .hasAuthority(PermissionName.SYSTEM_ADMIN.name())
                         // Billing endpoints require authentication and billing permissions (handled by @PreAuthorize)
                         .requestMatchers("/api/v1/billing/balance").authenticated()
                         .requestMatchers("/api/v1/billing/transactions").authenticated()
