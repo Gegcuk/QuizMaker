@@ -100,12 +100,13 @@ if docker ps | grep -q quizmaker-backend; then
     echo "⏳ Waiting for application to fully start..."
     sleep 30
     
-    # Test health endpoint
-    echo "🏥 Testing health endpoint..."
-    if curl -f http://localhost:8080/actuator/health/readiness > /dev/null 2>&1; then
+    # Docker has already verified private readiness. This smoke check exercises
+    # the public application listener without exposing readiness.
+    echo "🏥 Testing public liveness endpoint..."
+    if curl -f http://localhost:8080/actuator/health/liveness > /dev/null 2>&1; then
         echo "✅ Health check passed!"
         echo "🌐 Backend API should be available at: http://localhost:8080"
-        echo "📊 Health endpoint: http://localhost:8080/actuator/health/readiness"
+        echo "📊 Public liveness endpoint: http://localhost:8080/actuator/health/liveness"
         echo "📚 API docs: http://localhost:8080/api/v1/docs/swagger-ui.html"
     else
         echo "⚠️  Health check failed, but container is running. Check logs:"

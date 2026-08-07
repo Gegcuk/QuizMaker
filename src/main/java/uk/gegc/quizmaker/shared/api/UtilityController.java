@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.shared.api;
 
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -12,13 +13,11 @@ import org.springframework.boot.availability.LivenessState;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import uk.gegc.quizmaker.shared.api.dto.HealthStatusResponse;
 
 
 @RestController
-@RequestMapping("/api/v1")
 @Tag(name = "Utility", description = "Utility & administrative endpoints")
 @RequiredArgsConstructor
 public class UtilityController {
@@ -54,8 +53,18 @@ public class UtilityController {
                     )
             )
     })
-    @GetMapping("/health")
+    @GetMapping("/api/v1/health")
     public ResponseEntity<HealthStatusResponse> health() {
+        return livenessResponse();
+    }
+
+    @Hidden
+    @GetMapping("/actuator/health/liveness")
+    public ResponseEntity<HealthStatusResponse> publicLiveness() {
+        return livenessResponse();
+    }
+
+    private ResponseEntity<HealthStatusResponse> livenessResponse() {
         boolean live = applicationAvailability.getLivenessState() == LivenessState.CORRECT;
         HealthStatusResponse response = new HealthStatusResponse(live ? "UP" : "DOWN");
         return ResponseEntity.status(live ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).body(response);

@@ -44,11 +44,37 @@ class UtilityControllerTest {
     }
 
     @Test
+    @DisplayName("GET /actuator/health/liveness preserves the public status-only contract")
+    void publicLiveness_whenApplicationIsLive_returnsMinimalUpResponse() throws Exception {
+        when(applicationAvailability.getLivenessState()).thenReturn(LivenessState.CORRECT);
+
+        mockMvc.perform(get("/actuator/health/liveness"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.components").doesNotExist())
+                .andExpect(jsonPath("$.details").doesNotExist())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
     @DisplayName("GET /api/v1/health returns minimal DOWN with 503 when liveness is broken")
     void health_whenApplicationLivenessIsBroken_returnsMinimalDownResponse() throws Exception {
         when(applicationAvailability.getLivenessState()).thenReturn(LivenessState.BROKEN);
 
         mockMvc.perform(get("/api/v1/health"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value("DOWN"))
+                .andExpect(jsonPath("$.components").doesNotExist())
+                .andExpect(jsonPath("$.details").doesNotExist())
+                .andExpect(jsonPath("$.error").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /actuator/health/liveness returns minimal DOWN with 503 when liveness is broken")
+    void publicLiveness_whenApplicationLivenessIsBroken_returnsMinimalDownResponse() throws Exception {
+        when(applicationAvailability.getLivenessState()).thenReturn(LivenessState.BROKEN);
+
+        mockMvc.perform(get("/actuator/health/liveness"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.status").value("DOWN"))
                 .andExpect(jsonPath("$.components").doesNotExist())

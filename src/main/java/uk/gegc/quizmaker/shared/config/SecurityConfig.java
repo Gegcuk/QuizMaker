@@ -4,9 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
+import org.springframework.boot.actuate.autoconfigure.web.server.ConditionalOnManagementPort;
+import org.springframework.boot.actuate.autoconfigure.web.server.ManagementPortType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -18,7 +22,6 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import java.io.IOException;
 import org.springframework.web.cors.CorsConfigurationSource;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
@@ -30,6 +33,8 @@ import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
+
+import java.io.IOException;
 
 
 @Configuration
@@ -48,6 +53,33 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper;
 
     @Bean
+    @Order(1)
+    @ConditionalOnManagementPort(ManagementPortType.DIFFERENT)
+    public SecurityFilterChain managementFilterChain(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .csrf(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .sessionManagement(sessionManagement -> sessionManagement.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(handler -> handler
+                        .authenticationEntryPoint((request, response, ex) -> writeAuthResponse(request, response, false))
+                        .accessDeniedHandler((request, response, ex) -> writeAuthResponse(request, response, true)))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/actuator/health/liveness",
+                                "/actuator/health/readiness",
+                                "/actuator/health/startup"
+                        ).permitAll()
+                        .anyRequest().hasAuthority(PermissionName.SYSTEM_ADMIN.name()))
+                .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+
+        return httpSecurity.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
         httpSecurity
                 .csrf(AbstractHttpConfigurer::disable)
@@ -84,13 +116,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/questions/**").authenticated()
                         .requestMatchers("/api/documents/**").authenticated()
                         .anyRequest().authenticated())
-                .addFilterBefore(
-                        new JwtAuthenticationFilter(authSessionService, authSessionMetricsService, trustedProxyUtil),
-                        UsernamePasswordAuthenticationFilter.class
-                )
+                .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource));
 
         return httpSecurity.build();
+    }
+
+    private JwtAuthenticationFilter jwtAuthenticationFilter() {
+        return new JwtAuthenticationFilter(authSessionService, authSessionMetricsService, trustedProxyUtil);
     }
 
     @Bean

@@ -26,7 +26,7 @@ EXPOSE 8080
 
 # Ongoing container health follows readiness: application, database, and disk only.
 HEALTHCHECK --interval=15s --timeout=10s --start-period=6m --retries=4 \
-    CMD curl -f http://localhost:8080/actuator/health/readiness || exit 1
+    CMD curl -f http://127.0.0.1:8081/actuator/health/readiness || exit 1
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "app.jar", "--spring.config.additional-location=file:/app/config/"]

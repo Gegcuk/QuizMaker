@@ -102,17 +102,20 @@ server {
         }
     }
     
-    # Backend actuator endpoints (health checks, etc.)
-    location /actuator/ {
-        proxy_pass http://localhost:8080/actuator/;
+    # Only status-only liveness is public. Readiness and diagnostics stay on
+    # the container's loopback-only management listener.
+    location = /actuator/health/liveness {
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         
-        # Spring Security exposes only status-only probes publicly. Aggregate and
-        # component diagnostics require SYSTEM_ADMIN permission.
+    }
+
+    location /actuator/ {
+        return 404;
     }
     
     # File upload size limits

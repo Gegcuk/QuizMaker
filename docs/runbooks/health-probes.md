@@ -2,104 +2,115 @@
 
 ## Contract
 
-Health endpoints have separate routing and disclosure purposes. Product clients,
-including iOS, must not use actuator endpoints as application APIs.
+Product clients, including iOS, must not use Actuator endpoints as application
+APIs. Only liveness is exposed on the public application listener.
 
-| Endpoint | Access | Purpose | Contributors | Response |
+| Endpoint | Listener | Access | Purpose | Response |
 | --- | --- | --- | --- | --- |
-| `GET /actuator/health/liveness` | Public | Restart decision | `livenessState`, `ping` | Status only |
-| `GET /actuator/health/readiness` | Public | Traffic and deployment decision | `readinessState`, `db`, `diskSpace` | Status only |
-| `GET /actuator/health/startup` | Public | Bootstrap diagnosis | `ping`, `db` | Status only |
-| `GET /api/v1/health` | Public | Backward-compatible liveness alias | Application liveness | Status only |
-| `GET /actuator/health` | `SYSTEM_ADMIN` | Aggregate operator diagnosis | All registered contributors | Components and details |
-| `GET /actuator/health/<component>` | `SYSTEM_ADMIN` | One component diagnosis | Selected contributor | Restricted details |
+| `GET /actuator/health/liveness` | Public application port `8080` | Public | Process and routing smoke check | Status only |
+| `GET /api/v1/health` | Public application port `8080` | Public | Backward-compatible liveness alias | Status only |
+| `GET /actuator/health/liveness` | Container loopback `127.0.0.1:8081` | Container/operator | Internal liveness group | Status only |
+| `GET /actuator/health/readiness` | Container loopback `127.0.0.1:8081` | Container/operator | Docker traffic/deployment decision | Status only |
+| `GET /actuator/health/startup` | Container loopback `127.0.0.1:8081` | Container/operator | Bootstrap diagnosis | Status only |
+| `GET /actuator/health` | Container loopback `127.0.0.1:8081` | `SYSTEM_ADMIN` | Aggregate diagnosis | Components and details |
+| `GET /actuator/health/<component>` | Container loopback `127.0.0.1:8081` | `SYSTEM_ADMIN` | Contributor diagnosis | Restricted details |
 
-Public responses contain only `{"status":"UP"}` or
-`{"status":"DOWN"}`. They must not contain component names, exception text,
+The management listener is bound inside the container and is not published by
+Docker Compose or proxied by Nginx. Operators reach it with `docker exec` over
+SSH. Requests for readiness, startup, or diagnostics on the public listener are
+denied or have no route. A regular authenticated user cannot read diagnostics,
+even through the private listener.
+
+Status-only responses contain exactly `{"status":"UP"}` or
+`{"status":"DOWN"}`. They never contain component names, exception text,
 hosts, paths, capacities, account identifiers, request identifiers, or provider
-details. Spring Security adds no-cache headers. `HEAD` is not part of the public
-probe contract; monitoring must use `GET`.
+details. `HEAD` is not part of the probe contract; use `GET`.
 
-Actuator paths are operational endpoints and remain outside public OpenAPI. The
-legacy `/api/v1/health` operation is documented in the `admin` OpenAPI group so
-its existing status field remains discoverable.
+Actuator paths remain outside public OpenAPI. The legacy `/api/v1/health`
+operation remains in the `admin` OpenAPI group for compatibility.
 
 ## Probe semantics
 
-Liveness answers only whether this JVM should continue running. Do not add a
-database, email, AI, Stripe, object storage, or other remote dependency to this
-group. A remote outage must not cause a restart loop.
+Liveness answers whether this JVM should continue running. It does not include
+the database, email, AI, Stripe, object storage, or another remote dependency.
+A dependency outage must not create a restart loop.
 
-Readiness answers whether this instance can serve normal API traffic. The
-database and writable disk are required, so either can make readiness return
-HTTP `503`. Email and other optional external providers are deliberately
-excluded. Docker health and deployment gates use readiness because they are
-ongoing traffic decisions, not one-time process-start checks.
+Readiness answers whether this instance can serve normal API traffic. It
+includes `readinessState`, `db`, and `diskSpace`; a database or writable-disk
+failure returns HTTP `503`. Required Spring health indicators convert checked
+failures to `DOWN`, while the readiness group suppresses their details.
 
-Startup is retained as a small bootstrap diagnostic for the application and
-database. It is not the Docker health check after startup.
+Startup includes `ping` and `db`. It is available for private diagnosis and is
+not the ongoing container health check.
 
-## AWS SES diagnosis
-
-AWS SES account inspection calls `ses:GetAccount`. A least-privilege sender may
-be able to send email without that diagnostic permission. Therefore a `403`
-from this check is reported as `UNKNOWN` with the bounded reason
-`diagnostic-permission-denied`; it does not make readiness fail. Other rejected
-or unavailable provider responses report bounded reason categories. Raw AWS
-messages, ARNs, account identifiers, and request identifiers are never returned
-by the health indicator.
-
-An `UNKNOWN` diagnostic does not prove that email delivery works. Validate email
-through the normal provider-specific operational procedure when delivery is in
-question. Do not add broader IAM permissions merely to make aggregate health
-green without reviewing least privilege.
+AWS SES and other optional internet services are diagnostics only. A rejected
+or unavailable SES diagnostic uses a bounded reason category and does not make
+readiness fail. Do not broaden IAM permissions merely to make aggregate health
+green.
 
 ## Deployment behavior
 
-The image and Compose health checks call
-`http://localhost:8080/actuator/health/readiness`. Candidate and replacement
-containers must become healthy before handoff completes. The external smoke
-check calls the canonical URL directly:
+The image and Compose health checks run inside each container and call:
 
 ```text
-https://www.quizzence.com/actuator/health/readiness
+http://127.0.0.1:8081/actuator/health/readiness
 ```
 
-Do not check `https://quizzence.com` without redirect handling. A `301` is a
-successful HTTP response to plain `curl --fail` and can otherwise be mistaken
-for backend health without reaching the application.
+Candidate and replacement containers must reach Docker `healthy` before the
+handoff succeeds. Each curl attempt has a 10-second timeout; four failed checks
+after the start period make the container unhealthy. The CD smoke check then
+verifies that Nginx can route to the public application listener at:
+
+```text
+https://www.quizzence.com/actuator/health/liveness
+```
+
+The external liveness check is not a substitute for readiness. It runs only
+after the workflow has accepted Docker's private readiness result.
 
 ## Incident triage
 
-1. Run locally or over SSH on the Droplet:
+Run these commands over SSH on the Droplet from
+`/var/www/quizmaker-backend`.
+
+1. Resolve the active backend container:
 
    ```bash
-   curl --request GET --silent --show-error --include http://localhost:8080/actuator/health/liveness
+   BACKEND_CONTAINER=$(docker compose --env-file .env ps -q quizmaker-backend)
+   test -n "$BACKEND_CONTAINER"
    ```
 
-2. Run locally or over SSH on the Droplet:
+2. Check private readiness:
 
    ```bash
-   curl --request GET --silent --show-error --include http://localhost:8080/actuator/health/readiness
+   docker exec "$BACKEND_CONTAINER" curl --request GET --silent --show-error --include http://127.0.0.1:8081/actuator/health/readiness
    ```
 
-3. If liveness is `UP` and readiness is `DOWN`, use a bearer token belonging to
-   a `SYSTEM_ADMIN` account over SSH on the Droplet. Do not paste the token into
-   shell history; provide it through a temporary protected environment variable:
+3. Check public liveness separately:
 
    ```bash
-   curl --request GET --silent --show-error --include --header "Authorization: Bearer <SYSTEM_ADMIN_ACCESS_TOKEN>" http://localhost:8080/actuator/health
+   curl --request GET --silent --show-error --include https://www.quizzence.com/actuator/health/liveness
    ```
 
-4. Investigate only the failing required contributor. Restore database or disk
-   capacity before replacing healthy JVMs. An optional provider failure is an
-   application feature incident, not a readiness failure.
-
-5. Verify the public canonical route from a local machine:
+4. If liveness is `UP` and readiness is `DOWN`, read a `SYSTEM_ADMIN` token
+   without putting it in shell history:
 
    ```bash
-   curl --request GET --silent --show-error --include https://www.quizzence.com/actuator/health/readiness
+   read -r -s -p "SYSTEM_ADMIN access token: " SYSTEM_ADMIN_ACCESS_TOKEN; printf '\n'
    ```
 
-Never publish or attach restricted diagnostic output without removing sensitive
-operational data.
+5. Request restricted aggregate diagnostics through container stdin:
+
+   ```bash
+   printf 'header = "Authorization: Bearer %s"\n' "$SYSTEM_ADMIN_ACCESS_TOKEN" | docker exec -i "$BACKEND_CONTAINER" curl --request GET --silent --show-error --include --config - http://127.0.0.1:8081/actuator/health
+   ```
+
+6. Clear the token:
+
+   ```bash
+   unset SYSTEM_ADMIN_ACCESS_TOKEN
+   ```
+
+Restore the failing required dependency rather than restarting a live JVM. Do
+not publish restricted diagnostic output without removing sensitive operational
+data.
