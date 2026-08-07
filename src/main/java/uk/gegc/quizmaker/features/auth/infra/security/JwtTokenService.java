@@ -8,6 +8,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import javax.crypto.Mac;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
@@ -36,6 +38,9 @@ public class JwtTokenService {
 
     private final UserDetailsService userDetailsService;
     private final UserRepository userRepository;
+
+    @Qualifier("utcClock")
+    private final Clock utcClock;
 
     @Value("${jwt.secret}")
     private String base64secret;
@@ -62,13 +67,13 @@ public class JwtTokenService {
     }
 
     public String generateAccessToken(Authentication authentication, UUID sessionId) {
-        Date now = new Date();
+        Date now = Date.from(utcClock.instant());
         Date expiry = new Date(now.getTime() + accessTokenValidityInMs);
         return generateToken(authentication, sessionId, ACCESS_TOKEN_TYPE, now, expiry);
     }
 
     public String generateRefreshToken(Authentication authentication, UUID sessionId, Date expiry) {
-        Date now = new Date();
+        Date now = Date.from(utcClock.instant());
         return generateToken(authentication, sessionId, REFRESH_TOKEN_TYPE, now, expiry);
     }
 
@@ -84,6 +89,7 @@ public class JwtTokenService {
                         "Cannot generate token for unknown user: " + authentication.getName()));
         long passwordChangedAtEpoch = toEpochMillis(user.getPasswordChangedAt());
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(authentication.getName())
                 .issuedAt(issuedAt)
                 .expiration(expiry)

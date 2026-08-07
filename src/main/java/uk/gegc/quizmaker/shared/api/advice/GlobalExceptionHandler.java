@@ -24,6 +24,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthSessionStoreUnavailableException;
 import uk.gegc.quizmaker.features.billing.domain.exception.*;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
@@ -644,6 +645,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 request
         );
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
+    }
+
+    @ExceptionHandler(AuthSessionStoreUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleAuthSessionStoreUnavailable(
+            AuthSessionStoreUnavailableException ex,
+            HttpServletRequest request
+    ) {
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                ErrorTypes.AUTH_SESSION_UNAVAILABLE,
+                "Authentication Temporarily Unavailable",
+                ex.getMessage(),
+                request
+        );
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "3")
+                .body(problem);
     }
 
     @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class, ForbiddenException.class, UserNotAuthorizedException.class})

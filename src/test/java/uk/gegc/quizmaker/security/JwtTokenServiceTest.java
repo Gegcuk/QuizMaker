@@ -24,6 +24,8 @@ import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import javax.crypto.SecretKey;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
@@ -48,6 +50,7 @@ public class JwtTokenServiceTest {
     private UserRepository userRepository;
     private SecretKey secretKey;
     private String base64Secret;
+    private Clock issuanceClock;
     private ListAppender<ILoggingEvent> logWatcher;
     private Logger jwtProviderLogger;
     private final Map<String, LocalDateTime> passwordVersionStore = new ConcurrentHashMap<>();
@@ -57,6 +60,7 @@ public class JwtTokenServiceTest {
     void setUp() {
         secretKey = Jwts.SIG.HS256.key().build();
         base64Secret = Base64.getEncoder().encodeToString(secretKey.getEncoded());
+        issuanceClock = Clock.fixed(Instant.now(), ZoneOffset.UTC);
 
         passwordVersionStore.clear();
         userIds.clear();
@@ -75,7 +79,7 @@ public class JwtTokenServiceTest {
                     return java.util.Optional.of(user);
                 });
 
-        jwtTokenService = new JwtTokenService(null, userRepository);
+        jwtTokenService = new JwtTokenService(null, userRepository, issuanceClock);
         ReflectionTestUtils.setField(jwtTokenService, "base64secret", base64Secret);
         ReflectionTestUtils.setField(jwtTokenService, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(jwtTokenService, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -121,6 +125,7 @@ public class JwtTokenServiceTest {
         assertThat(claims.get("type", String.class)).isEqualTo("access");
         assertThat(claims.get("sid", String.class)).isEqualTo(sessionId.toString());
         assertThat(claims.get("uid", String.class)).isEqualTo(userIds.get("Alice").toString());
+        assertThat(claims.getId()).isNotBlank();
 
         Date issuedAt = claims.getIssuedAt();
         Date expirationDate = claims.getExpiration();
@@ -130,13 +135,12 @@ public class JwtTokenServiceTest {
     }
 
     @Test
-    @DisplayName("generateAccessToken: two quick calls yield different issuedAt & expiration timestamps")
-    void generateAccessToken_edge_twoCalls_differentIssuedAtAndExpiry() throws InterruptedException {
+    @DisplayName("generateAccessToken: two calls at the same instant use distinct JWT IDs")
+    void generateAccessToken_sameInstant_usesDistinctJwtIds() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Bob", null, List.of());
 
         UUID sessionId = UUID.randomUUID();
         String token1 = jwtTokenService.generateAccessToken(authentication, sessionId);
-        Thread.sleep(1000);
         String token2 = jwtTokenService.generateAccessToken(authentication, sessionId);
 
         assertThat(token1).isNotEqualTo(token2);
@@ -144,8 +148,9 @@ public class JwtTokenServiceTest {
         Claims claims1 = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token1).getPayload();
         Claims claims2 = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token2).getPayload();
 
-        assertThat(claims2.getIssuedAt()).isAfter(claims1.getIssuedAt());
-        assertThat(claims2.getExpiration()).isAfter(claims1.getExpiration());
+        assertThat(claims2.getIssuedAt()).isEqualTo(claims1.getIssuedAt());
+        assertThat(claims2.getExpiration()).isEqualTo(claims1.getExpiration());
+        assertThat(claims2.getId()).isNotEqualTo(claims1.getId());
     }
 
     @Test
@@ -157,7 +162,7 @@ public class JwtTokenServiceTest {
         String token = jwtTokenService.generateRefreshToken(
                 authentication,
                 sessionId,
-                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+                refreshExpiry()
         );
         assertThat(token).isNotBlank();
 
@@ -170,11 +175,30 @@ public class JwtTokenServiceTest {
         assertThat(claims.getSubject()).isEqualTo("Carol");
         assertThat(claims.get("type")).isEqualTo("refresh");
         assertThat(claims.get("sid", String.class)).isEqualTo(sessionId.toString());
+        assertThat(claims.getId()).isNotBlank();
 
         Date issuedAt = claims.getIssuedAt();
         Date expiration = claims.getExpiration();
         assertThat(expiration.getTime() - issuedAt.getTime()).isEqualTo(refreshTokenValidityInMs);
         assertThat(issuedAt).isBeforeOrEqualTo(new Date());
+    }
+
+    @Test
+    @DisplayName("generateRefreshToken: replacements issued in the same JWT second are cryptographically distinct")
+    void generateRefreshToken_sameInstant_usesDistinctJwtIds() {
+        Authentication authentication = new UsernamePasswordAuthenticationToken("RefreshUnique", null, List.of());
+        UUID sessionId = UUID.randomUUID();
+        Date expiry = refreshExpiry();
+
+        String first = jwtTokenService.generateRefreshToken(authentication, sessionId, expiry);
+        String second = jwtTokenService.generateRefreshToken(authentication, sessionId, expiry);
+
+        Claims firstClaims = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(first).getPayload();
+        Claims secondClaims = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(second).getPayload();
+        assertThat(first).isNotEqualTo(second);
+        assertThat(firstClaims.getIssuedAt()).isEqualTo(secondClaims.getIssuedAt());
+        assertThat(firstClaims.getExpiration()).isEqualTo(secondClaims.getExpiration());
+        assertThat(firstClaims.getId()).isNotBlank().isNotEqualTo(secondClaims.getId());
     }
 
     @Test
@@ -196,13 +220,40 @@ public class JwtTokenServiceTest {
         String refreshToken = jwtTokenService.generateRefreshToken(
                 authentication,
                 sessionId,
-                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+                refreshExpiry()
         );
 
         assertThat(jwtTokenService.validateAccessToken(accessToken)).isPresent();
         assertThat(jwtTokenService.validateRefreshToken(accessToken)).isEmpty();
         assertThat(jwtTokenService.validateRefreshToken(refreshToken)).isPresent();
         assertThat(jwtTokenService.validateAccessToken(refreshToken)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("refresh validation remains compatible with current session tokens issued before the JWT ID addition")
+    void validateRefreshToken_currentTokenWithoutJwtId_remainsValid() {
+        String username = "PreJtiSession";
+        LocalDateTime passwordChangedAt = passwordVersionStore.computeIfAbsent(
+                username,
+                ignored -> LocalDateTime.now().minusMinutes(5)
+        );
+        UUID userId = userIds.computeIfAbsent(username, ignored -> UUID.randomUUID());
+        UUID sessionId = UUID.randomUUID();
+        Date issuedAt = Date.from(issuanceClock.instant());
+        String currentRefreshToken = Jwts.builder()
+                .subject(username)
+                .issuedAt(issuedAt)
+                .expiration(refreshExpiry())
+                .claim("type", "refresh")
+                .claim("pwdChangedAt", passwordChangedAt.toInstant(ZoneOffset.UTC).toEpochMilli())
+                .claim("uid", userId.toString())
+                .claim("sid", sessionId.toString())
+                .signWith(secretKey)
+                .compact();
+
+        assertThat(Jwts.parser().verifyWith(secretKey).build()
+                .parseSignedClaims(currentRefreshToken).getPayload().getId()).isNull();
+        assertThat(jwtTokenService.validateRefreshToken(currentRefreshToken)).isPresent();
     }
 
     @Test
@@ -281,7 +332,7 @@ public class JwtTokenServiceTest {
         String token = jwtTokenService.generateRefreshToken(
                 authentication,
                 UUID.randomUUID(),
-                new Date(System.currentTimeMillis() + refreshTokenValidityInMs)
+                refreshExpiry()
         );
         String username = jwtTokenService.getUsername(token);
         assertThat(username).isEqualTo("Lenny");
@@ -299,7 +350,7 @@ public class JwtTokenServiceTest {
     void getAuthentication_happyPath_returnsAuthToken() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
 
-        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository);
+        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository, issuanceClock);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -321,7 +372,7 @@ public class JwtTokenServiceTest {
     @DisplayName("getAuthentication: invalid token throws JwtException")
     void getAuthentication_sad_invalidTokenThrows() {
         UserDetailsService userDetailsService = username -> new User(username, "", List.of());
-        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository);
+        JwtTokenService provider = new JwtTokenService(userDetailsService, userRepository, issuanceClock);
         ReflectionTestUtils.setField(provider, "base64secret", base64Secret);
         ReflectionTestUtils.setField(provider, "accessTokenValidityInMs", accessTokenValidityInMs);
         ReflectionTestUtils.setField(provider, "refreshTokenValidityInMs", refreshTokenValidityInMs);
@@ -393,5 +444,9 @@ public class JwtTokenServiceTest {
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
                 .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT signature detected: {}")));
+    }
+
+    private Date refreshExpiry() {
+        return Date.from(issuanceClock.instant().plusMillis(refreshTokenValidityInMs));
     }
 }

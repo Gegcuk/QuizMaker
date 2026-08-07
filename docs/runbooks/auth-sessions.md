@@ -7,6 +7,8 @@ Every JWT issued after migration `V66__create_auth_sessions.sql` has:
 - `type=access` or `type=refresh`.
 - `uid`, the signed user identifier.
 - `sid`, the opaque server-side session identifier.
+- `jti`, a random token identifier that keeps replacements distinct even when
+  every timestamp and other claim is identical.
 
 Only `type=access` tokens authenticate protected routes. Only
 `type=refresh` tokens can call the refresh operation. A valid signature alone
@@ -16,7 +18,13 @@ unrevoked, and be unexpired.
 The database stores a fixed-length HMAC fingerprint of the current refresh JWT,
 never a raw access or refresh token. The fingerprint changes on every successful
 refresh. Reusing an older refresh token revokes the session so concurrent or
-uncertain retries fail closed.
+uncertain retries fail closed. The refresh transaction returns a replay outcome
+only after the revocation has committed; the HTTP layer then returns the same
+generic `401` used for other invalid refresh material.
+
+Session-bound tokens issued before the `jti` addition remain valid until their
+normal rotation, logout, or expiry. Validation does not require `jti`, so this
+hardening does not force another sign-in or change the token response schema.
 
 ## Client lifecycle
 
@@ -25,6 +33,8 @@ uncertain retries fail closed.
 - Refresh replaces both values atomically in client storage.
 - If a refresh request has an unknown outcome, clear local credentials and
   require login. Retrying an old refresh token can revoke the session.
+- An explicit refresh `503` with `Retry-After` means the session-store
+  transaction did not complete; the client may retry after the indicated delay.
 - Logout clears both local credentials immediately. A single logout retry is
   safe because the server treats an already-revoked session as successful.
 - A protected-route `401` requires reauthentication; clients must not keep
@@ -51,7 +61,9 @@ one approved forced-reauthentication event.
 There is no destructive rollback. If an application rollback is necessary after
 the migration, keep the table in place and deploy a forward fix. If the session
 store cannot be read, bearer authentication fails closed and protected routes
-return `401`; investigate database availability before retrying requests.
+return `401`. Refresh returns a bounded `503` with `Retry-After` so it never
+claims a replay revocation was persisted when the store was unavailable.
+Investigate database availability before retrying requests.
 
 Operational logs must never include a JWT, refresh verifier, or session ID.
 The application emits only bounded events for session revocation, replay

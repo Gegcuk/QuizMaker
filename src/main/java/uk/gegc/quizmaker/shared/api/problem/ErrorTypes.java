@@ -52,6 +52,7 @@ public final class ErrorTypes {
     public static final URI UNAUTHORIZED = URI.create(BASE_URL + "/unauthorized");
     public static final URI ACCESS_DENIED = URI.create(BASE_URL + "/access-denied");
     public static final URI DOCUMENT_ACCESS_DENIED = URI.create(BASE_URL + "/document-access-denied");
+    public static final URI AUTH_SESSION_UNAVAILABLE = URI.create(BASE_URL + "/auth-session-unavailable");
 
     // ==================== State Errors ====================
     public static final URI ATTEMPT_NOT_COMPLETED = URI.create(BASE_URL + "/attempt-not-completed");

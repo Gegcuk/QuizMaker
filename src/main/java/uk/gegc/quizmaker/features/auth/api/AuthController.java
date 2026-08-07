@@ -93,11 +93,14 @@ public class AuthController {
     @Operation(
             summary = "Refresh tokens",
             description = "Exchanges a current `type=refresh` token for a new access and refresh token. "
-                    + "Refresh tokens are single-use: a replay revokes the session and requires login again."
+                    + "Refresh tokens are single-use: concurrent use or a replay revokes the whole session and requires "
+                    + "login again. A temporary session-store failure returns `503` without claiming that revocation succeeded."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tokens refreshed"),
             @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication session state is temporarily unavailable",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/refresh")
