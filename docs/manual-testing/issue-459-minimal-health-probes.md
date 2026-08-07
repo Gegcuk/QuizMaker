@@ -101,8 +101,9 @@ Run these commands locally from the directory containing `.env` and
    unset SYSTEM_ADMIN_ACCESS_TOKEN
    ```
 
-7. Verify HTTP `200` and useful component details. Confirm no JWT, raw AWS
-   message, ARN, account identifier, or request identifier appears.
+7. Verify HTTP `200` and useful component details. Confirm the unused `mail`
+   contributor is absent and no JWT, raw AWS message, ARN, account identifier,
+   or request identifier appears.
 
 ## Database failure drill
 

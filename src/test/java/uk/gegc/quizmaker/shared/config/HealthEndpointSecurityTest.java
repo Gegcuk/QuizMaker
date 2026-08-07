@@ -64,6 +64,7 @@ import static org.mockito.Mockito.when;
                 "management.endpoint.health.show-components=when-authorized",
                 "management.endpoint.health.probes.enabled=true",
                 "management.health.diskspace.enabled=false",
+                "management.health.mail.enabled=false",
                 "management.endpoint.health.group.liveness.include=livenessState,ping",
                 "management.endpoint.health.group.liveness.show-details=never",
                 "management.endpoint.health.group.liveness.show-components=never",
@@ -167,7 +168,8 @@ class HealthEndpointSecurityTest {
         assertThat(aggregate.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(aggregate.getBody()).isNotNull();
         assertThat(aggregate.getBody().path("components").fieldNames()).toIterable()
-                .contains("db", "diskSpace", "awsSes");
+                .contains("db", "diskSpace", "awsSes")
+                .doesNotContain("mail");
 
         ResponseEntity<JsonNode> database = get(managementPort, "/actuator/health/db", ADMIN_TOKEN);
         assertThat(database.getStatusCode()).isEqualTo(HttpStatus.OK);

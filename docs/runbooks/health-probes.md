@@ -46,7 +46,10 @@ not the ongoing container health check.
 AWS SES and other optional internet services are diagnostics only. A rejected
 or unavailable SES diagnostic uses a bounded reason category and does not make
 readiness fail. Do not broaden IAM permissions merely to make aggregate health
-green.
+green. The generic Spring Mail health contributor is disabled because the
+production provider is SES and the inherited SMTP transport is unused; if
+production moves to SMTP, add or enable a provider-specific diagnostic as part
+of that migration.
 
 ## Deployment behavior
 

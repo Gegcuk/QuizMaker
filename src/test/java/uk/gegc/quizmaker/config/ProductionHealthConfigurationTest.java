@@ -54,6 +54,12 @@ class ProductionHealthConfigurationTest {
     }
 
     @Test
+    @DisplayName("Production diagnostics disable the unused SMTP health contributor")
+    void productionDiagnostics_disableUnusedSmtpContributor() {
+        assertThat(productionProperties.getProperty("management.health.mail.enabled")).isEqualTo("false");
+    }
+
+    @Test
     @DisplayName("Every private Actuator probe is bound as a status-only health group")
     void privateGroups_neverExposeDetailsOrComponents() {
         assertThat(healthProperties.getGroup()).containsKeys("liveness", "readiness", "startup");
