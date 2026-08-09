@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DocumentSchemaCompatibilityMigrationTest {
 
     private static final String MIGRATION_HISTORY_TABLE = "flyway_document_schema_history";
+    private static final String DOCUMENT_SCHEMA_MIGRATION_VERSION = "64";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -124,6 +125,7 @@ class DocumentSchemaCompatibilityMigrationTest {
                 .baselineOnMigrate(true)
                 .baselineVersion("63")
                 .baselineDescription("legacy document schema")
+                .target(DOCUMENT_SCHEMA_MIGRATION_VERSION)
                 .load()
                 .migrate();
     }
