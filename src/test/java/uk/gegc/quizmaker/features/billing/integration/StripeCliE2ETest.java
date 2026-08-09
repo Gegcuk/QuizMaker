@@ -1,6 +1,5 @@
 package uk.gegc.quizmaker.features.billing.integration;
 
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,6 +13,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
+import uk.gegc.quizmaker.shared.testing.RealProviderTest;
 
 import java.util.UUID;
 
@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 2. Real Stripe sandbox account with configured Price IDs in .env file
  * 3. Application running with real Stripe configuration
  */
-@Tag("db-serial")
+@RealProviderTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")

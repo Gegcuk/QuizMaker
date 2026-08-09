@@ -11,7 +11,6 @@ import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.PriceCreateParams;
 import com.stripe.param.ProductCreateParams;
 import com.stripe.param.checkout.SessionCreateParams;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,6 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
+import uk.gegc.quizmaker.shared.testing.RealProviderTest;
 
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -46,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * - STRIPE_WEBHOOK_SECRET environment variable set to test webhook secret (whsec_test_...)
  * - Internet connection to reach Stripe API
  */
-@Tag("db-serial")
+@RealProviderTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)

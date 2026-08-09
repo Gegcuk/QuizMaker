@@ -35,6 +35,7 @@ import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository
 import uk.gegc.quizmaker.features.billing.infra.repository.TokenTransactionRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.testing.RealProviderTest;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -54,6 +55,7 @@ import static org.assertj.core.api.Assertions.tuple;
  * These tests intentionally talk to Stripe's test environment. They are excluded from CI by default
  * and should only be executed when valid credentials are present.
  */
+@RealProviderTest
 class StripeIntegrationTest extends BaseIntegrationTest {
 
     @Autowired

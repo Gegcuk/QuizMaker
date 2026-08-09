@@ -11,7 +11,6 @@ import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.PriceCreateParams;
 import com.stripe.param.ProductCreateParams;
 import com.stripe.param.checkout.SessionCreateParams;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +28,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
+import uk.gegc.quizmaker.shared.testing.RealProviderTest;
 
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -58,7 +58,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
  * Security Note: This test uses environment variables to avoid hardcoding sensitive keys.
  * The test validates that only test keys are used for safety.
  */
-@Tag("db-serial")
+@RealProviderTest
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
