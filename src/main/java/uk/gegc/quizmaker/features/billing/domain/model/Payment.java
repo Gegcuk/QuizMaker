@@ -34,6 +34,9 @@ public class Payment {
     @Column(name = "pack_id")
     private UUID packId;
 
+    @Column(name = "stripe_price_id_snapshot", length = 100, updatable = false)
+    private String stripePriceIdSnapshot;
+
     @Column(name = "amount_cents", nullable = false)
     private long amountCents;
 
@@ -58,4 +61,3 @@ public class Payment {
     @Column(name = "updated_at", insertable = false, updatable = false)
     private LocalDateTime updatedAt;
 }
-

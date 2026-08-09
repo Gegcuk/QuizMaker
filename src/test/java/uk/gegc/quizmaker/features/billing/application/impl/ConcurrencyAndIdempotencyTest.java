@@ -31,7 +31,6 @@ import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.application.StripeWebhookService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionService;
-import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
 import uk.gegc.quizmaker.features.billing.domain.model.ProcessedStripeEvent;
@@ -166,31 +165,16 @@ class ConcurrencyAndIdempotencyTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
             when(mockDeserializer.getObject()).thenReturn(Optional.of(mockSession));
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPack = mock(ProductPack.class);
-            
-            when(mockPack.getId()).thenReturn(testPackId);
-            when(mockPack.getName()).thenReturn("Test Pack");
-            when(mockPack.getStripePriceId()).thenReturn("price_test");
-            when(mockPack.getPriceCents()).thenReturn(1000L);
-            when(mockPack.getCurrency()).thenReturn("usd");
-            when(mockPack.getTokens()).thenReturn(500L);
-            
-            when(mockValidationResult.primaryPack()).thenReturn(mockPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(null);
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            testPackId, "price_test", 1000L, "usd", 500L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(sharedEventId))
                 .thenReturn(false)  // First thread sees it doesn't exist
                 .thenReturn(true);  // Second thread sees it exists
             when(stripeService.retrieveSession(testSessionId, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
             when(paymentRepository.findByStripeSessionId(testSessionId)).thenReturn(Optional.empty());
 
             // Mock successful payment save
@@ -294,24 +278,9 @@ class ConcurrencyAndIdempotencyTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
             when(mockDeserializer.getObject()).thenReturn(Optional.of(mockSession));
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPack = mock(ProductPack.class);
-            
-            when(mockPack.getId()).thenReturn(testPackId);
-            when(mockPack.getName()).thenReturn("Test Pack");
-            when(mockPack.getStripePriceId()).thenReturn("price_test");
-            when(mockPack.getPriceCents()).thenReturn(1000L);
-            when(mockPack.getCurrency()).thenReturn("usd");
-            when(mockPack.getTokens()).thenReturn(500L);
-            
-            when(mockValidationResult.primaryPack()).thenReturn(mockPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(null);
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            testPackId, "price_test", 1000L, "usd", 500L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(eventId))
@@ -319,7 +288,7 @@ class ConcurrencyAndIdempotencyTest {
                 .thenReturn(true)   // Second attempt sees it exists
                 .thenReturn(true);  // Third attempt sees it exists
             when(stripeService.retrieveSession(testSessionId, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
             when(paymentRepository.findByStripeSessionId(testSessionId)).thenReturn(Optional.empty());
 
             // Mock successful payment save

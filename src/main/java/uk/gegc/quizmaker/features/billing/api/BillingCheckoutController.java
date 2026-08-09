@@ -286,7 +286,8 @@ public class BillingCheckoutController {
     @Operation(
             summary = "Create checkout session",
             description = "Creates a Stripe checkout session for one active server-owned token pack. Requires BILLING_WRITE permission. "
-                    + "Send packId. The deprecated priceId is accepted only for legacy clients and is cross-checked when both identifiers are supplied."
+                    + "Send packId. The deprecated priceId is accepted only for legacy clients and is cross-checked when both identifiers are supplied. "
+                    + "Price, currency, and token entitlement are snapshotted at creation, so a successfully paid session keeps its original terms if the catalog later changes."
     )
     @ApiResponses({
             @ApiResponse(
@@ -591,6 +592,7 @@ public class BillingCheckoutController {
         payment.setStatus(PaymentStatus.PENDING);
         payment.setStripeSessionId(sessionId);
         payment.setPackId(pack.getId());
+        payment.setStripePriceIdSnapshot(pack.getStripePriceId());
         payment.setAmountCents(pack.getPriceCents());
         payment.setCurrency(pack.getCurrency());
         payment.setCreditedTokens(pack.getTokens());
