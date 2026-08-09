@@ -23,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementCommand;
 import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutValidationFailureReason;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
@@ -228,14 +229,10 @@ class StripeWebhookServiceImplTest {
             when(mockSession.getMetadata()).thenReturn(new HashMap<>());
             when(stripeService.retrieveSession("cs_test_session_123", true)).thenReturn(mockSession);
 
-            // Mock the checkout validation service
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
-            
-            // Mock the primary pack
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(mockValidationResult.primaryPack()).thenReturn(mockPack);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            UUID.randomUUID(), "price_test", 1000L, "usd", 500L);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
                 webhookMock.when(() -> Webhook.constructEvent(payload, signature, "whsec_test_secret"))
@@ -485,6 +482,9 @@ class StripeWebhookServiceImplTest {
             assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
                 .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
                 .hasRootCauseMessage("userId metadata missing");
+            verify(metricsService).recordCheckoutValidationFailure(
+                    CheckoutValidationFailureReason.USER_MISMATCH
+            );
         }
 
         @Test
@@ -501,6 +501,9 @@ class StripeWebhookServiceImplTest {
             assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
                 .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
                 .hasRootCauseMessage("Invalid userId in metadata");
+            verify(metricsService).recordCheckoutValidationFailure(
+                    CheckoutValidationFailureReason.USER_MISMATCH
+            );
         }
 
         @Test
@@ -571,6 +574,9 @@ class StripeWebhookServiceImplTest {
             assertThatThrownBy(() -> method.invoke(webhookService, mockSession))
                     .hasCauseInstanceOf(InvalidCheckoutSessionException.class)
                     .hasRootCauseMessage("Invalid packId in checkout metadata");
+            verify(metricsService).recordCheckoutValidationFailure(
+                    CheckoutValidationFailureReason.PACK_MISMATCH
+            );
         }
     }
 
@@ -702,14 +708,9 @@ class StripeWebhookServiceImplTest {
             when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
             when(mockSession.getPaymentStatus()).thenReturn("paid");
 
-            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(mockPack.getStripePriceId()).thenReturn("price_test");
-            when(validationResult.primaryPack()).thenReturn(mockPack);
-            when(validationResult.totalTokens()).thenReturn(1000L);
-            when(validationResult.totalAmountCents()).thenReturn(1000L);
-            when(validationResult.currency()).thenReturn("usd");
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            UUID.randomUUID(), "price_test", 1000L, "usd", 1000L);
 
             when(processedStripeEventRepository.existsByEventId("evt_async_success")).thenReturn(false);
             when(stripeService.retrieveSession("cs_test_session", true)).thenReturn(mockSession);
@@ -756,14 +757,9 @@ class StripeWebhookServiceImplTest {
             when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
             when(mockSession.getPaymentStatus()).thenReturn("unpaid");
 
-            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(mockPack.getStripePriceId()).thenReturn("price_test");
-            when(validationResult.primaryPack()).thenReturn(mockPack);
-            when(validationResult.totalTokens()).thenReturn(1000L);
-            when(validationResult.totalAmountCents()).thenReturn(1000L);
-            when(validationResult.currency()).thenReturn("usd");
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            UUID.randomUUID(), "price_test", 1000L, "usd", 1000L);
 
             when(processedStripeEventRepository.existsByEventId("evt_async_failed")).thenReturn(false);
             when(stripeService.retrieveSession("cs_test_session", true)).thenReturn(mockSession);
@@ -1025,6 +1021,9 @@ class StripeWebhookServiceImplTest {
                         .hasMessageContaining("Missing session id in checkout event payload");
                 verify(metricsService).incrementWebhookReceived("checkout.session.async_payment_failed");
                 verify(metricsService).incrementWebhookFailed("checkout.session.async_payment_failed");
+                verify(metricsService).recordCheckoutValidationFailure(
+                        CheckoutValidationFailureReason.MISSING_SESSION
+                );
             }
         }
 
@@ -1076,14 +1075,9 @@ class StripeWebhookServiceImplTest {
             when(mockSession.getClientReferenceId()).thenReturn(UUID.randomUUID().toString());
             when(mockSession.getMetadata()).thenReturn(Map.of("packId", UUID.randomUUID().toString()));
 
-            CheckoutValidationService.CheckoutValidationResult validationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            uk.gegc.quizmaker.features.billing.domain.model.ProductPack mockPack = mock(uk.gegc.quizmaker.features.billing.domain.model.ProductPack.class);
-            when(mockPack.getId()).thenReturn(UUID.randomUUID());
-            when(mockPack.getStripePriceId()).thenReturn("price_test");
-            when(validationResult.primaryPack()).thenReturn(mockPack);
-            when(validationResult.totalTokens()).thenReturn(1000L);
-            when(validationResult.totalAmountCents()).thenReturn(1000L);
-            when(validationResult.currency()).thenReturn("usd");
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            UUID.randomUUID(), "price_test", 1000L, "usd", 1000L);
 
             when(processedStripeEventRepository.existsByEventId("evt_no_payment")).thenReturn(false);
             when(stripeService.retrieveSession("cs_test", true)).thenReturn(mockSession);

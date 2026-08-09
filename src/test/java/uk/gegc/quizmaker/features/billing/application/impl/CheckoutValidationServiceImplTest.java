@@ -10,9 +10,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutValidationFailureReason;
 import uk.gegc.quizmaker.features.billing.domain.exception.InvalidCheckoutSessionException;
-import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
-import uk.gegc.quizmaker.features.billing.infra.repository.ProductPackRepository;
+import uk.gegc.quizmaker.features.billing.domain.model.Payment;
+import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
+import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 
 import java.util.Collections;
 import java.util.List;
@@ -22,317 +25,345 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("Checkout validation")
+@DisplayName("Checkout snapshot validation")
 class CheckoutValidationServiceImplTest {
 
+    private static final String SESSION_ID = "cs_snapshot_123";
+    private static final String PRICE_ID = "price_original";
+    private static final long AMOUNT_CENTS = 2_500L;
+    private static final long TOKENS = 5_000L;
+    private static final UUID USER_ID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+    private static final UUID PACK_ID = UUID.fromString("c73bcdcc-2669-4bf6-81d3-e4ae73fb11fd");
+
     @Mock
-    private ProductPackRepository productPackRepository;
+    private PaymentRepository paymentRepository;
+
+    @Mock
+    private BillingMetricsService metricsService;
 
     private CheckoutValidationServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new CheckoutValidationServiceImpl(productPackRepository);
+        service = new CheckoutValidationServiceImpl(paymentRepository, metricsService);
     }
 
     @Test
-    @DisplayName("resolves the pack from the authoritative Stripe line item and cross-checks metadata")
-    void resolvesOnlyThePackMappedFromTheStripeLineItemAndCrossChecksMetadata() {
-        UUID packId = UUID.randomUUID();
-        ProductPack pack = pack(packId, "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of("priceId", "price_standard"));
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("returns the original purchase facts without consulting the mutable product catalog")
+    void returnsOriginalPurchaseFactsFromPaymentSnapshot() {
+        Payment snapshot = paymentSnapshot();
+        Session session = validSession();
+        when(paymentRepository.findByStripeSessionId(SESSION_ID)).thenReturn(Optional.of(snapshot));
 
-        var result = service.validateAndResolvePack(session, packId);
+        var result = service.validateAndResolvePack(session, PACK_ID);
 
-        assertThat(result.primaryPack()).isSameAs(pack);
-        assertThat(result.totalAmountCents()).isEqualTo(2500L);
-        assertThat(result.totalTokens()).isEqualTo(5000L);
-        assertThat(result.additionalPacks()).isNull();
-        assertThat(result.hasMultipleLineItems()).isFalse();
+        assertThat(result.packId()).isEqualTo(PACK_ID);
+        assertThat(result.stripePriceId()).isEqualTo(PRICE_ID);
+        assertThat(result.totalAmountCents()).isEqualTo(AMOUNT_CENTS);
+        assertThat(result.totalTokens()).isEqualTo(TOKENS);
+        verify(metricsService, never()).recordCheckoutValidationFailure(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    @DisplayName("rejects a missing checkout session")
-    void rejectsMissingCheckoutSession() {
+    @DisplayName("rejects a missing Stripe session before reading payment state")
+    void rejectsMissingSession() {
         assertThatThrownBy(() -> service.validateAndResolvePack(null, null))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
                 .hasMessageContaining("session is missing");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.MISSING_SESSION);
+        verify(paymentRepository, never()).findByStripeSessionId(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    @DisplayName("rejects metadata pack that differs from the authoritative Stripe price")
-    void rejectsMetadataPackThatDiffersFromTheAuthoritativeStripePrice() {
-        ProductPack cheapPack = pack(UUID.randomUUID(), "price_cheap", true);
-        Session session = session("price_cheap", 2500L, "eur", "eur", Map.of("priceId", "price_cheap"));
-        when(productPackRepository.findByStripePriceId("price_cheap")).thenReturn(Optional.of(cheapPack));
+    @DisplayName("rejects a Stripe session without a server-created payment snapshot")
+    void rejectsMissingPaymentSnapshot() {
+        Session session = validSession();
+        when(paymentRepository.findByStripeSessionId(SESSION_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, UUID.randomUUID()))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("metadata pack");
+                .hasMessageContaining("No server-created payment");
+
+        verify(metricsService).recordCheckoutValidationFailure(
+                CheckoutValidationFailureReason.MISSING_PAYMENT_SNAPSHOT
+        );
     }
 
     @Test
-    @DisplayName("rejects metadata price that differs from the authoritative Stripe line item")
-    void rejectsMetadataPriceThatDiffersFromTheAuthoritativeStripeLineItem() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of("priceId", "price_expensive"));
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("rejects a legacy payment whose original Stripe price cannot be proven")
+    void rejectsIncompleteLegacySnapshot() {
+        Payment snapshot = paymentSnapshot();
+        snapshot.setStripePriceIdSnapshot(null);
+        when(paymentRepository.findByStripeSessionId(SESSION_ID)).thenReturn(Optional.of(snapshot));
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, pack.getId()))
+        assertThatThrownBy(() -> service.validateAndResolvePack(validSession(), PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("metadata price");
-    }
+                .hasMessageContaining("requires reconciliation");
 
-    @Test
-    @DisplayName("rejects an amount mismatch instead of logging and continuing")
-    void rejectsAmountMismatchInsteadOfLoggingAndContinuing() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 1000L, "eur", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("amount");
-    }
-
-    @Test
-    @DisplayName("rejects a currency mismatch instead of logging and continuing")
-    void rejectsCurrencyMismatchInsteadOfLoggingAndContinuing() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "usd", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("currency");
+        verify(metricsService).recordCheckoutValidationFailure(
+                CheckoutValidationFailureReason.INCOMPLETE_PAYMENT_SNAPSHOT
+        );
     }
 
     @Test
     @DisplayName("rejects multiple Stripe line items")
     void rejectsMultipleLineItems() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of());
-        LineItem secondItem = lineItem("price_extra", "eur");
-        LineItem firstItem = lineItem("price_standard", "eur");
-        LineItemCollection lineItems = new LineItemCollection();
-        lineItems.setData(List.of(firstItem, secondItem));
-        session.setLineItems(lineItems);
+        Session session = validSession();
+        session.getLineItems().setData(List.of(
+                lineItem(PRICE_ID, AMOUNT_CENTS, "eur", 1L),
+                lineItem("price_extra", 100L, "eur", 1L)
+        ));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
                 .hasMessageContaining("exactly one");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.LINE_ITEM_COUNT);
     }
 
     @Test
-    @DisplayName("rejects inactive packs")
-    void rejectsInactivePacks() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", false);
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("rejects an unexpanded Stripe line-item collection")
+    void rejectsUnexpandedLineItems() {
+        Session session = validSession();
+        session.setLineItems(null);
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("active");
-    }
-
-    @Test
-    @DisplayName("rejects a session whose Stripe line items were not expanded")
-    void rejectsSessionWithoutExpandedLineItems() {
-        assertThatThrownBy(() -> service.validateAndResolvePack(new Session(), null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
                 .hasMessageContaining("not expanded");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.LINE_ITEM_COUNT);
     }
 
     @Test
-    @DisplayName("rejects an empty Stripe line-item list")
-    void rejectsEmptyLineItems() {
-        Session session = new Session();
-        LineItemCollection lineItems = new LineItemCollection();
-        lineItems.setData(List.of());
-        session.setLineItems(lineItems);
+    @DisplayName("rejects a line item whose Stripe price differs from the creation snapshot")
+    void rejectsLineItemPriceMismatch() {
+        Session session = validSession();
+        session.getLineItems().setData(List.of(lineItem("price_changed", AMOUNT_CENTS, "eur", 1L)));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("exactly one");
+                .hasMessageContaining("line-item price");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.PRICE_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects line-item data that Stripe did not provide")
-    void rejectsLineItemsWithoutData() {
-        Session session = new Session();
-        LineItemCollection lineItems = new LineItemCollection();
-        lineItems.setData(null);
-        session.setLineItems(lineItems);
+    @DisplayName("rejects Stripe price metadata that differs from the creation snapshot")
+    void rejectsMetadataPriceMismatch() {
+        Session session = validSession();
+        session.setMetadata(Map.of(
+                "userId", USER_ID.toString(),
+                "packId", PACK_ID.toString(),
+                "priceId", "price_changed"
+        ));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("exactly one");
+                .hasMessageContaining("metadata price");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.PRICE_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a null line item")
-    void rejectsNullLineItem() {
-        Session session = new Session();
-        LineItemCollection lineItems = new LineItemCollection();
-        lineItems.setData(Collections.singletonList(null));
-        session.setLineItems(lineItems);
+    @DisplayName("rejects pack metadata that differs from the creation snapshot")
+    void rejectsPackMismatch() {
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(validSession(), UUID.randomUUID()))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("exactly one");
+                .hasMessageContaining("metadata pack");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.PACK_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a line item without a Stripe price")
-    void rejectsLineItemWithoutPrice() {
-        Session session = new Session();
-        LineItemCollection lineItems = new LineItemCollection();
-        lineItems.setData(List.of(new LineItem()));
-        session.setLineItems(lineItems);
+    @DisplayName("rejects a client reference bound to another user")
+    void rejectsUserMismatch() {
+        Session session = validSession();
+        session.setClientReferenceId(UUID.randomUUID().toString());
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("missing its Stripe price");
+                .hasMessageContaining("original purchaser");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.USER_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a blank Stripe price ID")
-    void rejectsBlankStripePriceId() {
-        Session session = session(" ", 2500L, "eur", "eur", Map.of());
+    @DisplayName("rejects conflicting user metadata even when the client reference is correct")
+    void rejectsConflictingUserMetadata() {
+        Session session = validSession();
+        session.setMetadata(Map.of(
+                "userId", UUID.randomUUID().toString(),
+                "packId", PACK_ID.toString(),
+                "priceId", PRICE_ID
+        ));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("missing its Stripe price");
+                .hasMessageContaining("original purchaser");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.USER_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects an unknown Stripe price without falling back to metadata")
-    void rejectsUnknownStripePrice() {
-        Session session = session("price_unknown", 2500L, "eur", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_unknown")).thenReturn(Optional.empty());
+    @DisplayName("accepts legacy identity metadata when the client reference is absent")
+    void acceptsMetadataUserWhenClientReferenceIsAbsent() {
+        Session session = validSession();
+        session.setClientReferenceId(null);
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, UUID.randomUUID()))
+        assertThat(service.validateAndResolvePack(session, PACK_ID).packId()).isEqualTo(PACK_ID);
+    }
+
+    @Test
+    @DisplayName("rejects a missing user binding")
+    void rejectsMissingUserBinding() {
+        Session session = validSession();
+        session.setClientReferenceId(null);
+        session.setMetadata(Map.of("packId", PACK_ID.toString(), "priceId", PRICE_ID));
+        stubSnapshot();
+
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("active token pack");
+                .hasMessageContaining("missing its user binding");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.USER_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a missing Stripe session total")
-    void rejectsMissingSessionAmount() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of());
-        session.setAmountTotal(null);
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("rejects a quantity other than one")
+    void rejectsQuantityMismatch() {
+        Session session = validSession();
+        session.getLineItems().setData(List.of(lineItem(PRICE_ID, AMOUNT_CENTS, "eur", 2L)));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("quantity");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.QUANTITY_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("rejects a session total that differs from the creation snapshot")
+    void rejectsSessionAmountMismatch() {
+        Session session = validSession();
+        session.setAmountTotal(AMOUNT_CENTS - 1);
+        stubSnapshot();
+
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
                 .hasMessageContaining("amount");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.AMOUNT_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a missing session currency")
-    void rejectsMissingSessionCurrency() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, null, "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("rejects a line-item total that differs from the creation snapshot")
+    void rejectsLineItemAmountMismatch() {
+        Session session = validSession();
+        session.getLineItems().setData(List.of(lineItem(PRICE_ID, AMOUNT_CENTS - 1, "eur", 1L)));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
+                .isInstanceOf(InvalidCheckoutSessionException.class)
+                .hasMessageContaining("amount");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.AMOUNT_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("rejects a Stripe currency that differs from the creation snapshot")
+    void rejectsCurrencyMismatch() {
+        Session session = validSession();
+        session.getLineItems().setData(List.of(lineItem(PRICE_ID, AMOUNT_CENTS, "usd", 1L)));
+        stubSnapshot();
+
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
                 .hasMessageContaining("currency");
+
+        verify(metricsService).recordCheckoutValidationFailure(CheckoutValidationFailureReason.CURRENCY_MISMATCH);
     }
 
     @Test
-    @DisplayName("rejects a blank Stripe session currency")
-    void rejectsBlankSessionCurrency() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, " ", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
+    @DisplayName("accepts case-insensitive currency equality")
+    void acceptsCaseInsensitiveCurrency() {
+        Session session = validSession();
+        session.setCurrency("EUR");
+        session.getLineItems().setData(List.of(lineItem(PRICE_ID, AMOUNT_CENTS, "eUr", 1L)));
+        stubSnapshot();
 
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
+        assertThat(service.validateAndResolvePack(session, PACK_ID).currency()).isEqualTo("eur");
+    }
+
+    @Test
+    @DisplayName("rejects a null line item without attempting settlement facts")
+    void rejectsNullLineItem() {
+        Session session = validSession();
+        session.getLineItems().setData(Collections.singletonList(null));
+        stubSnapshot();
+
+        assertThatThrownBy(() -> service.validateAndResolvePack(session, PACK_ID))
                 .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("currency");
+                .hasMessageContaining("exactly one");
     }
 
-    @Test
-    @DisplayName("rejects a missing Stripe line-item currency")
-    void rejectsMissingLineItemCurrency() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", null, Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("currency");
+    private void stubSnapshot() {
+        when(paymentRepository.findByStripeSessionId(SESSION_ID)).thenReturn(Optional.of(paymentSnapshot()));
     }
 
-    @Test
-    @DisplayName("rejects a line-item currency that differs from the configured pack")
-    void rejectsLineItemCurrencyMismatch() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "eur", "usd", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("currency");
+    private static Payment paymentSnapshot() {
+        Payment payment = new Payment();
+        payment.setUserId(USER_ID);
+        payment.setStatus(PaymentStatus.PENDING);
+        payment.setStripeSessionId(SESSION_ID);
+        payment.setPackId(PACK_ID);
+        payment.setStripePriceIdSnapshot(PRICE_ID);
+        payment.setAmountCents(AMOUNT_CENTS);
+        payment.setCurrency("eur");
+        payment.setCreditedTokens(TOKENS);
+        return payment;
     }
 
-    @Test
-    @DisplayName("rejects a pack with no configured currency")
-    void rejectsPackWithoutConfiguredCurrency() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        pack.setCurrency(" ");
-        Session session = session("price_standard", 2500L, "eur", "eur", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThatThrownBy(() -> service.validateAndResolvePack(session, null))
-                .isInstanceOf(InvalidCheckoutSessionException.class)
-                .hasMessageContaining("currency");
-    }
-
-    @Test
-    @DisplayName("accepts case-insensitive matching Stripe currency")
-    void acceptsCaseInsensitiveMatchingCurrency() {
-        ProductPack pack = pack(UUID.randomUUID(), "price_standard", true);
-        Session session = session("price_standard", 2500L, "EUR", "eUr", Map.of());
-        when(productPackRepository.findByStripePriceId("price_standard")).thenReturn(Optional.of(pack));
-
-        assertThat(service.validateAndResolvePack(session, null).primaryPack()).isSameAs(pack);
-    }
-
-    private static ProductPack pack(UUID id, String priceId, boolean active) {
-        ProductPack pack = new ProductPack();
-        pack.setId(id);
-        pack.setStripePriceId(priceId);
-        pack.setPriceCents(2500L);
-        pack.setCurrency("eur");
-        pack.setTokens(5000L);
-        pack.setActive(active);
-        return pack;
-    }
-
-    private static Session session(String priceId, long amount, String sessionCurrency, String lineItemCurrency, Map<String, String> metadata) {
+    private static Session validSession() {
         Session session = new Session();
         LineItemCollection items = new LineItemCollection();
-        LineItem item = lineItem(priceId, lineItemCurrency);
-        items.setData(List.of(item));
+        items.setData(List.of(lineItem(PRICE_ID, AMOUNT_CENTS, "eur", 1L)));
+        session.setId(SESSION_ID);
         session.setLineItems(items);
-        session.setAmountTotal(amount);
-        session.setCurrency(sessionCurrency);
-        session.setMetadata(metadata);
+        session.setAmountTotal(AMOUNT_CENTS);
+        session.setCurrency("eur");
+        session.setClientReferenceId(USER_ID.toString());
+        session.setMetadata(Map.of(
+                "userId", USER_ID.toString(),
+                "packId", PACK_ID.toString(),
+                "priceId", PRICE_ID
+        ));
         return session;
     }
 
-    private static LineItem lineItem(String priceId, String currency) {
-        LineItem item = new LineItem();
+    private static LineItem lineItem(String priceId, long amount, String currency, long quantity) {
         Price price = new Price();
         price.setId(priceId);
+        LineItem item = new LineItem();
         item.setPrice(price);
+        item.setAmountTotal(amount);
         item.setCurrency(currency);
+        item.setQuantity(quantity);
         return item;
     }
 }

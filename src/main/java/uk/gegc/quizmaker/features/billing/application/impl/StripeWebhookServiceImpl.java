@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementCommand;
 import uk.gegc.quizmaker.features.billing.application.CheckoutSessionSettlementService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutValidationFailureReason;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
 import uk.gegc.quizmaker.features.billing.application.RefundPolicyService;
 import uk.gegc.quizmaker.features.billing.application.StripeProperties;
@@ -35,7 +36,6 @@ import uk.gegc.quizmaker.features.billing.domain.exception.StripeWebhookInvalidS
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.PaymentStatus;
 import uk.gegc.quizmaker.features.billing.domain.model.ProcessedStripeEvent;
-import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
 
@@ -214,6 +214,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
 
         String sessionId = extractSessionId(event, event.toJson());
         if (!StringUtils.hasText(sessionId)) {
+            metricsService.recordCheckoutValidationFailure(CheckoutValidationFailureReason.MISSING_SESSION);
             throw new InvalidCheckoutSessionException("Missing session id in checkout event payload");
         }
         loggingContext.setSessionId(sessionId);
@@ -232,7 +233,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                 checkoutValidationService.validateAndResolvePack(session, packId);
 
         loggingContext.setUserId(userId);
-        loggingContext.setPriceId(validationResult.primaryPack().getStripePriceId());
+        loggingContext.setPriceId(validationResult.stripePriceId());
 
         CheckoutSessionSettlementService.SettlementResult settlementResult = checkoutSessionSettlementService.settle(
                 new CheckoutSessionSettlementCommand(
@@ -241,7 +242,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                         extractPaymentIntentId(session),
                         extractCustomerId(session),
                         userId,
-                        validationResult.primaryPack().getId(),
+                        validationResult.packId(),
                         validationResult.totalAmountCents(),
                         validationResult.currency(),
                         validationResult.totalTokens(),
@@ -1039,9 +1040,13 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             userIdStr = md.get("userId");
         }
         if (!StringUtils.hasText(userIdStr)) {
+            metricsService.recordCheckoutValidationFailure(CheckoutValidationFailureReason.USER_MISMATCH);
             throw new InvalidCheckoutSessionException("userId metadata missing");
         }
-        try { return UUID.fromString(userIdStr); } catch (IllegalArgumentException e) {
+        try {
+            return UUID.fromString(userIdStr);
+        } catch (IllegalArgumentException e) {
+            metricsService.recordCheckoutValidationFailure(CheckoutValidationFailureReason.USER_MISMATCH);
             throw new InvalidCheckoutSessionException("Invalid userId in metadata");
         }
     }
@@ -1054,6 +1059,7 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
                 try {
                     return UUID.fromString(packIdStr);
                 } catch (IllegalArgumentException ex) {
+                    metricsService.recordCheckoutValidationFailure(CheckoutValidationFailureReason.PACK_MISMATCH);
                     throw new InvalidCheckoutSessionException("Invalid packId in checkout metadata");
                 }
             }
@@ -1119,40 +1125,21 @@ public class StripeWebhookServiceImpl implements StripeWebhookService {
             meta.put("paymentIntentId", extractPaymentIntentId(session));
             meta.put("sessionMetadata", session.getMetadata());
             
-            // Primary pack details
-            ProductPack primaryPack = validationResult.primaryPack();
             meta.put("primaryPack", java.util.Map.of(
-                    "id", primaryPack.getId().toString(),
-                    "name", primaryPack.getName(),
-                    "stripePriceId", primaryPack.getStripePriceId(),
-                    "amountCents", primaryPack.getPriceCents(),
-                    "currency", primaryPack.getCurrency(),
-                    "tokens", primaryPack.getTokens()
+                    "id", validationResult.packId().toString(),
+                    "stripePriceId", validationResult.stripePriceId(),
+                    "amountCents", validationResult.totalAmountCents(),
+                    "currency", validationResult.currency(),
+                    "tokens", validationResult.totalTokens()
             ));
-            
-            // Additional packs (if any)
-            if (validationResult.additionalPacks() != null && !validationResult.additionalPacks().isEmpty()) {
-                java.util.List<java.util.Map<String, Object>> additionalPacks = new java.util.ArrayList<>();
-                for (ProductPack pack : validationResult.additionalPacks()) {
-                    additionalPacks.add(java.util.Map.of(
-                            "id", pack.getId().toString(),
-                            "name", pack.getName(),
-                            "stripePriceId", pack.getStripePriceId(),
-                            "amountCents", pack.getPriceCents(),
-                            "currency", pack.getCurrency(),
-                            "tokens", pack.getTokens()
-                    ));
-                }
-                meta.put("additionalPacks", additionalPacks);
-            }
             
             // Totals and validation details
             meta.put("totals", java.util.Map.of(
                     "totalAmountCents", validationResult.totalAmountCents(),
                     "totalTokens", validationResult.totalTokens(),
                     "currency", validationResult.currency(),
-                    "packCount", validationResult.getPackCount(),
-                    "hasMultipleLineItems", validationResult.hasMultipleLineItems()
+                    "packCount", 1,
+                    "hasMultipleLineItems", false
             ));
             
             // Session details for auditability

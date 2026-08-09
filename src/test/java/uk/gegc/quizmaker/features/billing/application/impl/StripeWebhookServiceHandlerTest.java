@@ -39,7 +39,6 @@ import uk.gegc.quizmaker.features.billing.domain.exception.PackNotFoundException
 import uk.gegc.quizmaker.features.billing.api.dto.RefundCalculationDto;
 import uk.gegc.quizmaker.features.billing.domain.model.Payment;
 import uk.gegc.quizmaker.features.billing.domain.model.ProcessedStripeEvent;
-import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.billing.infra.repository.ProcessedStripeEventRepository;
 
@@ -159,28 +158,16 @@ class StripeWebhookServiceHandlerTest {
             when(mockSession.getMode()).thenReturn("payment");
             when(mockSession.getPaymentStatus()).thenReturn("paid");
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPrimaryPack = mock(ProductPack.class);
-            when(mockPrimaryPack.getId()).thenReturn(TEST_PACK_ID);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-            
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            TEST_PACK_ID, "price_basic", 1000L, "usd", 500L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(TEST_SESSION_ID, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
             when(paymentRepository.findByStripeSessionId(TEST_SESSION_ID)).thenReturn(Optional.empty());
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
@@ -202,8 +189,8 @@ class StripeWebhookServiceHandlerTest {
         }
 
         @Test
-        @DisplayName("Multiple packs: totalTokens, totalAmountCents, pack count and metadata reflect all items")
-        void shouldHandleMultiplePacksSuccessfully() throws Exception {
+        @DisplayName("Validated snapshot values are passed unchanged to settlement")
+        void shouldPassValidatedSnapshotValuesToSettlement() throws Exception {
             // Given
             when(stripeProperties.getWebhookSecret()).thenReturn("whsec_test_secret");
             String payload = String.format("{\"id\":\"%s\",\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"%s\"}}}", 
@@ -227,42 +214,20 @@ class StripeWebhookServiceHandlerTest {
             when(mockSession.getMetadata()).thenReturn(metadata);
             
             when(mockSession.getCurrency()).thenReturn("usd");
-            when(mockSession.getAmountTotal()).thenReturn(1500L); // Total for both packs
+            when(mockSession.getAmountTotal()).thenReturn(1500L);
             when(mockSession.getMode()).thenReturn("payment");
             when(mockSession.getPaymentStatus()).thenReturn("paid");
 
-            // Mock validation result with multiple packs
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPrimaryPack = mock(ProductPack.class);
-            ProductPack mockAdditionalPack = mock(ProductPack.class);
-            
-            when(mockPrimaryPack.getId()).thenReturn(TEST_PACK_ID);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-            
-            UUID additionalPackId = UUID.randomUUID();
-            when(mockAdditionalPack.getId()).thenReturn(additionalPackId);
-            when(mockAdditionalPack.getName()).thenReturn("Premium Pack");
-            when(mockAdditionalPack.getStripePriceId()).thenReturn("price_premium");
-            when(mockAdditionalPack.getPriceCents()).thenReturn(500L);
-            when(mockAdditionalPack.getCurrency()).thenReturn("usd");
-            when(mockAdditionalPack.getTokens()).thenReturn(250L);
-            
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of(mockAdditionalPack));
-            when(mockValidationResult.totalAmountCents()).thenReturn(1500L);
-            when(mockValidationResult.totalTokens()).thenReturn(750L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(2);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(true);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            TEST_PACK_ID, "price_snapshot", 1500L, "usd", 750L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(TEST_SESSION_ID, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
+            when(checkoutSessionSettlementService.settle(any()))
+                    .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
             when(paymentRepository.findByStripeSessionId(TEST_SESSION_ID)).thenReturn(Optional.empty());
 
             try (MockedStatic<Webhook> webhookMock = mockStatic(Webhook.class)) {
@@ -280,6 +245,14 @@ class StripeWebhookServiceHandlerTest {
                 verify(metricsService).incrementWebhookOk("checkout.session.completed");
                 verify(stripeService).retrieveSession(TEST_SESSION_ID, true);
                 verify(checkoutValidationService).validateAndResolvePack(eq(mockSession), any());
+
+                ArgumentCaptor<CheckoutSessionSettlementCommand> commandCaptor =
+                        ArgumentCaptor.forClass(CheckoutSessionSettlementCommand.class);
+                verify(checkoutSessionSettlementService).settle(commandCaptor.capture());
+                assertThat(commandCaptor.getValue().packId()).isEqualTo(TEST_PACK_ID);
+                assertThat(commandCaptor.getValue().amountCents()).isEqualTo(1500L);
+                assertThat(commandCaptor.getValue().currency()).isEqualTo("usd");
+                assertThat(commandCaptor.getValue().tokens()).isEqualTo(750L);
             }
         }
 
@@ -1750,28 +1723,14 @@ class StripeWebhookServiceHandlerTest {
             when(mockSession.getMode()).thenReturn("payment");
             when(mockSession.getPaymentStatus()).thenReturn("paid");
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPrimaryPack = mock(ProductPack.class);
-            when(mockPrimaryPack.getId()).thenReturn(TEST_PACK_ID);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            TEST_PACK_ID, "price_basic", 1000L, "usd", 500L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(sessionId, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
             when(checkoutSessionSettlementService.settle(any()))
                     .thenThrow(new RuntimeException("Settlement service error"));
 
@@ -1824,28 +1783,14 @@ class StripeWebhookServiceHandlerTest {
             when(mockSession.getMode()).thenReturn("payment");
             when(mockSession.getPaymentStatus()).thenReturn("paid");
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPrimaryPack = mock(ProductPack.class);
-            when(mockPrimaryPack.getId()).thenReturn(TEST_PACK_ID);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            TEST_PACK_ID, "price_basic", 1000L, "usd", 500L);
 
             // Setup mocks
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID)).thenReturn(false);
             when(stripeService.retrieveSession(sessionId, true)).thenReturn(mockSession);
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
             when(checkoutSessionSettlementService.settle(any()))
                     .thenReturn(CheckoutSessionSettlementService.SettlementResult.CREDITED);
 
@@ -1918,23 +1863,11 @@ class StripeWebhookServiceHandlerTest {
             when(mockEvent.getDataObjectDeserializer()).thenReturn(mockDeserializer);
             when(mockDeserializer.getObject()).thenReturn(java.util.Optional.of(mockSession));
 
-            // Mock validation result
-            CheckoutValidationService.CheckoutValidationResult mockValidationResult = mock(CheckoutValidationService.CheckoutValidationResult.class);
-            ProductPack mockPack = mock(ProductPack.class);
+            CheckoutValidationService.CheckoutValidationResult validationResult =
+                    new CheckoutValidationService.CheckoutValidationResult(
+                            TEST_PACK_ID, "price_test_123", 1000L, "usd", 500L);
             
-            when(mockPack.getId()).thenReturn(TEST_PACK_ID);
-            when(mockPack.getTokens()).thenReturn(500L);
-            when(mockPack.getPriceCents()).thenReturn(1000L);
-            
-            when(mockValidationResult.primaryPack()).thenReturn(mockPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
-            
-            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(mockValidationResult);
+            when(checkoutValidationService.validateAndResolvePack(eq(mockSession), any())).thenReturn(validationResult);
 
             // Mock processed event check - both calls return false (not processed yet)
             when(processedStripeEventRepository.existsByEventId(TEST_EVENT_ID))

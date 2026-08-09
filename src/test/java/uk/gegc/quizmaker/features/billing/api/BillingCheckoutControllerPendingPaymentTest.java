@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.api;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("Checkout pending payment snapshot")
 class BillingCheckoutControllerPendingPaymentTest {
 
     @Mock
@@ -71,6 +73,7 @@ class BillingCheckoutControllerPendingPaymentTest {
     }
 
     @Test
+    @DisplayName("captures immutable pack terms when Stripe creates a Checkout Session")
     void createCheckoutSession_seedsPendingPayment_whenPackKnown() {
         UUID packId = UUID.randomUUID();
         String priceId = "price_987";
@@ -103,12 +106,14 @@ class BillingCheckoutControllerPendingPaymentTest {
         assertThat(saved.getUserId()).isEqualTo(USER_ID);
         assertThat(saved.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(saved.getPackId()).isEqualTo(packId);
+        assertThat(saved.getStripePriceIdSnapshot()).isEqualTo(priceId);
         assertThat(saved.getAmountCents()).isEqualTo(2500L);
         assertThat(saved.getCurrency()).isEqualTo("eur");
         assertThat(saved.getCreditedTokens()).isEqualTo(5000L);
     }
 
     @Test
+    @DisplayName("does not replace an existing payment snapshot for the same Stripe session")
     void createCheckoutSession_doesNotDuplicatePendingPayment_whenExists() {
         UUID packId = UUID.randomUUID();
         String priceId = "price_existing";

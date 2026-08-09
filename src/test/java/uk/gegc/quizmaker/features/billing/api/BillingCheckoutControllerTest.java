@@ -183,6 +183,8 @@ class BillingCheckoutControllerTest {
 
         assertThat(specification.at("/paths/~1api~1v1~1billing~1checkout-sessions/post/requestBody/content/application~1json/schema/$ref").asText())
                 .isEqualTo("#/components/schemas/CreateCheckoutSessionRequest");
+        assertThat(specification.at("/paths/~1api~1v1~1billing~1checkout-sessions/post/description").asText())
+                .contains("snapshotted at creation", "original terms", "deprecated priceId");
         assertThat(specification.at("/components/schemas/CreateCheckoutSessionRequest/properties/priceId/deprecated").asBoolean()).isTrue();
         assertThat(specification.at("/components/schemas/CreateCheckoutSessionRequest/properties/packId/description").asText())
                 .contains("server-owned");

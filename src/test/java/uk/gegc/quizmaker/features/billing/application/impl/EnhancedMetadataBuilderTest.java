@@ -10,22 +10,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.CheckoutValidationService;
-import uk.gegc.quizmaker.features.billing.domain.model.ProductPack;
 
 import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,21 +28,10 @@ class EnhancedMetadataBuilderTest {
 
     @Mock
     private Session mockSession;
-    
-    @Mock
-    private CheckoutValidationService.CheckoutValidationResult mockValidationResult;
-    
-    @Mock
-    private ProductPack mockPrimaryPack;
-    
-    @Mock
-    private ProductPack mockAdditionalPack1;
-    
-    @Mock
-    private ProductPack mockAdditionalPack2;
 
     private ObjectMapper objectMapper;
     private StripeWebhookServiceImpl webhookService;
+    private UUID packId;
 
     @BeforeEach
     void setUp() {
@@ -57,6 +39,7 @@ class EnhancedMetadataBuilderTest {
         webhookService = new StripeWebhookServiceImpl(
             null, null, null, null, null, null, null, null, null, null, objectMapper
         );
+        packId = UUID.randomUUID();
     }
 
     @Nested
@@ -68,10 +51,10 @@ class EnhancedMetadataBuilderTest {
         void shouldIncludeAllExpectedKeysWithCompleteData() throws Exception {
             // Given
             setupCompleteSessionData();
-            setupCompleteValidationResult();
+            CheckoutValidationService.CheckoutValidationResult validationResult = checkoutSnapshot();
 
             // When
-            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, mockValidationResult);
+            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, validationResult);
 
             // Then
             assertThat(result).isNotNull();
@@ -86,27 +69,22 @@ class EnhancedMetadataBuilderTest {
             // Primary pack data
             assertThat(json.has("primaryPack")).isTrue();
             JsonNode primaryPack = json.get("primaryPack");
-            assertThat(primaryPack.has("id")).isTrue();
-            assertThat(primaryPack.has("name")).isTrue();
-            assertThat(primaryPack.has("stripePriceId")).isTrue();
-            assertThat(primaryPack.has("amountCents")).isTrue();
-            assertThat(primaryPack.has("currency")).isTrue();
-            assertThat(primaryPack.has("tokens")).isTrue();
-            
-            // Additional packs data
-            assertThat(json.has("additionalPacks")).isTrue();
-            JsonNode additionalPacks = json.get("additionalPacks");
-            assertThat(additionalPacks.isArray()).isTrue();
-            assertThat(additionalPacks.size()).isEqualTo(2);
+            assertThat(primaryPack.get("id").asText()).isEqualTo(packId.toString());
+            assertThat(primaryPack.get("stripePriceId").asText()).isEqualTo("price_basic");
+            assertThat(primaryPack.get("amountCents").asLong()).isEqualTo(2000L);
+            assertThat(primaryPack.get("currency").asText()).isEqualTo("usd");
+            assertThat(primaryPack.get("tokens").asLong()).isEqualTo(1000L);
+            assertThat(primaryPack.has("name")).isFalse();
+            assertThat(json.has("additionalPacks")).isFalse();
             
             // Totals data
             assertThat(json.has("totals")).isTrue();
             JsonNode totals = json.get("totals");
-            assertThat(totals.has("totalAmountCents")).isTrue();
-            assertThat(totals.has("totalTokens")).isTrue();
-            assertThat(totals.has("currency")).isTrue();
-            assertThat(totals.has("packCount")).isTrue();
-            assertThat(totals.has("hasMultipleLineItems")).isTrue();
+            assertThat(totals.get("totalAmountCents").asLong()).isEqualTo(2000L);
+            assertThat(totals.get("totalTokens").asLong()).isEqualTo(1000L);
+            assertThat(totals.get("currency").asText()).isEqualTo("usd");
+            assertThat(totals.get("packCount").asInt()).isEqualTo(1);
+            assertThat(totals.get("hasMultipleLineItems").asBoolean()).isFalse();
             
             // Session details
             assertThat(json.has("sessionDetails")).isTrue();
@@ -120,10 +98,9 @@ class EnhancedMetadataBuilderTest {
         @Test
         @DisplayName("Should tolerate Stripe nulls gracefully")
         void shouldTolerateStripeNullsGracefully() throws Exception {
-            // Given - The implementation tolerates Stripe nulls through extractCustomerId() and extractPaymentIntentId() methods
-            // These methods handle null values from Stripe objects internally and return appropriate defaults
+            // Given
             setupCompleteSessionData();
-            setupCompleteValidationResult();
+            CheckoutValidationService.CheckoutValidationResult validationResult = checkoutSnapshot();
             
             // Override specific session methods to return null to test null tolerance
             when(mockSession.getCustomer()).thenReturn(null); // Stripe null
@@ -131,7 +108,7 @@ class EnhancedMetadataBuilderTest {
             when(mockSession.getMetadata()).thenReturn(null); // Stripe null
 
             // When
-            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, mockValidationResult);
+            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, validationResult);
 
             // Then
             assertThat(result).isNotNull();
@@ -145,53 +122,29 @@ class EnhancedMetadataBuilderTest {
             assertThat(json.has("primaryPack")).isTrue();
             assertThat(json.has("totals")).isTrue();
             assertThat(json.has("sessionDetails")).isTrue();
-            assertThat(json.has("additionalPacks")).isTrue();
-            
-            // Verify that null values from Stripe are handled gracefully
-            // The extractCustomerId() and extractPaymentIntentId() methods handle nulls internally
+            assertThat(json.has("additionalPacks")).isFalse();
+
             assertThat(json.get("customerId").isNull()).isTrue();
             assertThat(json.get("paymentIntentId").isNull()).isTrue();
             assertThat(json.get("sessionMetadata").isNull()).isTrue();
         }
 
         @Test
-        @DisplayName("Should handle empty additional packs list")
-        void shouldHandleEmptyAdditionalPacksList() throws Exception {
+        @DisplayName("Should omit unsupported multi-pack metadata for single-item checkout")
+        void shouldOmitMultiPackMetadata() throws Exception {
             // Given
             setupCompleteSessionData();
-            setupValidationResultWithEmptyAdditionalPacks();
+            CheckoutValidationService.CheckoutValidationResult validationResult = checkoutSnapshot();
 
             // When
-            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, mockValidationResult);
+            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, validationResult);
 
             // Then
             assertThat(result).isNotNull();
             JsonNode json = objectMapper.readTree(result);
-            
-            // Additional packs should not be present when empty
             assertThat(json.has("additionalPacks")).isFalse();
-        }
-
-        @Test
-        @DisplayName("Should return null when primary pack is null")
-        void shouldReturnNullWhenPrimaryPackIsNull() throws Exception {
-            // Given
-            lenient().when(mockSession.getId()).thenReturn("cs_test_session_123");
-            lenient().when(mockSession.getCustomer()).thenReturn("cus_test_customer_456");
-            lenient().when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent_789");
-            lenient().when(mockSession.getMetadata()).thenReturn(null);
-            lenient().when(mockSession.getCurrency()).thenReturn("usd");
-            lenient().when(mockSession.getAmountTotal()).thenReturn(2000L);
-            lenient().when(mockSession.getMode()).thenReturn("payment");
-            lenient().when(mockSession.getPaymentStatus()).thenReturn("paid");
-            
-            when(mockValidationResult.primaryPack()).thenReturn(null);
-
-            // When
-            String result = invokeBuildEnhancedPurchaseMetaJson(mockSession, mockValidationResult);
-
-            // Then
-            assertThat(result).isNull();
+            assertThat(json.path("totals").path("packCount").asInt()).isEqualTo(1);
+            assertThat(json.path("totals").path("hasMultipleLineItems").asBoolean()).isFalse();
         }
 
         private void setupCompleteSessionData() {
@@ -199,10 +152,10 @@ class EnhancedMetadataBuilderTest {
             when(mockSession.getCustomer()).thenReturn("cus_test_customer_456");
             when(mockSession.getPaymentIntent()).thenReturn("pi_test_payment_intent_789");
             
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put("userId", UUID.randomUUID().toString());
-            metadata.put("packId", UUID.randomUUID().toString());
-            when(mockSession.getMetadata()).thenReturn(metadata);
+            when(mockSession.getMetadata()).thenReturn(Map.of(
+                    "userId", UUID.randomUUID().toString(),
+                    "packId", packId.toString()
+            ));
             
             when(mockSession.getCurrency()).thenReturn("usd");
             when(mockSession.getAmountTotal()).thenReturn(2000L);
@@ -210,90 +163,14 @@ class EnhancedMetadataBuilderTest {
             when(mockSession.getPaymentStatus()).thenReturn("paid");
         }
 
-        private void setupSessionWithNulls() {
-            when(mockSession.getId()).thenReturn("cs_test_session_123");
-            when(mockSession.getCustomer()).thenReturn(null);
-            when(mockSession.getPaymentIntent()).thenReturn(null);
-            when(mockSession.getMetadata()).thenReturn(null);
-            when(mockSession.getCurrency()).thenReturn(null);
-            when(mockSession.getAmountTotal()).thenReturn(null);
-            when(mockSession.getMode()).thenReturn(null);
-            when(mockSession.getPaymentStatus()).thenReturn(null);
-        }
-
-        private void setupCompleteValidationResult() {
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of(mockAdditionalPack1, mockAdditionalPack2));
-            when(mockValidationResult.totalAmountCents()).thenReturn(2000L);
-            when(mockValidationResult.totalTokens()).thenReturn(1000L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(3);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(true);
-
-            // Setup primary pack
-            UUID primaryPackId = UUID.randomUUID();
-            when(mockPrimaryPack.getId()).thenReturn(primaryPackId);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-
-            // Setup additional pack 1
-            UUID additionalPack1Id = UUID.randomUUID();
-            when(mockAdditionalPack1.getId()).thenReturn(additionalPack1Id);
-            when(mockAdditionalPack1.getName()).thenReturn("Premium Pack");
-            when(mockAdditionalPack1.getStripePriceId()).thenReturn("price_premium");
-            when(mockAdditionalPack1.getPriceCents()).thenReturn(500L);
-            when(mockAdditionalPack1.getCurrency()).thenReturn("usd");
-            when(mockAdditionalPack1.getTokens()).thenReturn(250L);
-
-            // Setup additional pack 2
-            UUID additionalPack2Id = UUID.randomUUID();
-            when(mockAdditionalPack2.getId()).thenReturn(additionalPack2Id);
-            when(mockAdditionalPack2.getName()).thenReturn("Pro Pack");
-            when(mockAdditionalPack2.getStripePriceId()).thenReturn("price_pro");
-            when(mockAdditionalPack2.getPriceCents()).thenReturn(500L);
-            when(mockAdditionalPack2.getCurrency()).thenReturn("usd");
-            when(mockAdditionalPack2.getTokens()).thenReturn(250L);
-        }
-
-        private void setupValidationResultWithMinimalData() {
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(null);
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
-
-            // Setup primary pack with minimal required values
-            UUID primaryPackId = UUID.randomUUID();
-            when(mockPrimaryPack.getId()).thenReturn(primaryPackId);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
-        }
-
-        private void setupValidationResultWithEmptyAdditionalPacks() {
-            when(mockValidationResult.primaryPack()).thenReturn(mockPrimaryPack);
-            when(mockValidationResult.additionalPacks()).thenReturn(List.of());
-            when(mockValidationResult.totalAmountCents()).thenReturn(1000L);
-            when(mockValidationResult.totalTokens()).thenReturn(500L);
-            when(mockValidationResult.currency()).thenReturn("usd");
-            when(mockValidationResult.getPackCount()).thenReturn(1);
-            when(mockValidationResult.hasMultipleLineItems()).thenReturn(false);
-
-            // Setup primary pack
-            UUID primaryPackId = UUID.randomUUID();
-            when(mockPrimaryPack.getId()).thenReturn(primaryPackId);
-            when(mockPrimaryPack.getName()).thenReturn("Basic Pack");
-            when(mockPrimaryPack.getStripePriceId()).thenReturn("price_basic");
-            when(mockPrimaryPack.getPriceCents()).thenReturn(1000L);
-            when(mockPrimaryPack.getCurrency()).thenReturn("usd");
-            when(mockPrimaryPack.getTokens()).thenReturn(500L);
+        private CheckoutValidationService.CheckoutValidationResult checkoutSnapshot() {
+            return new CheckoutValidationService.CheckoutValidationResult(
+                    packId,
+                    "price_basic",
+                    2000L,
+                    "usd",
+                    1000L
+            );
         }
 
         private String invokeBuildEnhancedPurchaseMetaJson(Session session, CheckoutValidationService.CheckoutValidationResult validationResult) throws Exception {

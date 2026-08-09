@@ -8,7 +8,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
+import uk.gegc.quizmaker.features.billing.application.CheckoutValidationFailureReason;
 
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -176,6 +178,16 @@ public class BillingMetricsServiceImpl implements BillingMetricsService {
     public void incrementWebhookFailed(String eventType) {
         log.info("METRIC: stripe.webhooks.failed eventType={}", eventType);
         webhookFailedCounter.increment();
+    }
+
+    @Override
+    public void recordCheckoutValidationFailure(CheckoutValidationFailureReason reason) {
+        String boundedReason = reason.name().toLowerCase(Locale.ROOT);
+        Counter.builder("billing.checkout.validation.failures")
+                .description("Rejected Stripe checkout sessions by bounded validation reason")
+                .tag("reason", boundedReason)
+                .register(meterRegistry)
+                .increment();
     }
 
     @Override

@@ -31,6 +31,11 @@ public interface BillingMetricsService {
     void incrementWebhookOk(String eventType);
     void incrementWebhookDuplicate(String eventType);
     void incrementWebhookFailed(String eventType);
+
+    /**
+     * Records a bounded reason when Stripe checkout facts do not match the immutable payment snapshot.
+     */
+    void recordCheckoutValidationFailure(CheckoutValidationFailureReason reason);
     
     /**
      * Record webhook latency metrics.
