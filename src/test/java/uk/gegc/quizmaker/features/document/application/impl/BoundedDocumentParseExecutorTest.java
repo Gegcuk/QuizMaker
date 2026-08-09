@@ -97,7 +97,8 @@ class BoundedDocumentParseExecutorTest {
         })).isInstanceOf(DocumentResourceLimitException.class);
 
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
-        assertThat(executor.execute("user-a", () -> "available-again")).isEqualTo("available-again");
+        assertThat(executeAfterCapacityIsReleased("user-a", Duration.ofSeconds(1)))
+                .isEqualTo("available-again");
     }
 
     @Test
@@ -119,5 +120,21 @@ class BoundedDocumentParseExecutorTest {
         BoundedDocumentParseExecutor boundedExecutor = new BoundedDocumentParseExecutor(limits);
         boundedExecutor.initialize();
         return boundedExecutor;
+    }
+
+    private String executeAfterCapacityIsReleased(String ownerKey, Duration waitTimeout) throws InterruptedException {
+        long deadline = System.nanoTime() + waitTimeout.toNanos();
+        DocumentProcessingCapacityExceededException lastFailure = null;
+
+        do {
+            try {
+                return executor.execute(ownerKey, () -> "available-again");
+            } catch (DocumentProcessingCapacityExceededException exception) {
+                lastFailure = exception;
+                TimeUnit.MILLISECONDS.sleep(10);
+            }
+        } while (System.nanoTime() < deadline);
+
+        throw new AssertionError("Parser capacity was not released after the timed-out operation exited", lastFailure);
     }
 }
