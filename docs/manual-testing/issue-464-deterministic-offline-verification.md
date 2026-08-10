@@ -60,7 +60,7 @@ Verify that the backend release gate uses JDK 17, keeps database tests serial, b
 
 3. In GitHub Actions, open the `CI` workflow for the pull request or `master` commit.
 
-   Verification: dependencies are resolved before the gate; `Verify backend offline release gate` creates `quizmaker-offline` without a default route, bridges only MySQL on namespace loopback, runs `./mvnw -o ... verify`, rejects any live-provider Surefire report, restores the namespace, and uploads the tested JAR only after success.
+   Verification: dependencies and compiler annotation processors are resolved before the gate; `Verify backend offline release gate` creates `quizmaker-offline` without a default route, bridges only MySQL on namespace loopback, runs `./mvnw -o ... clean verify`, rejects any live-provider Surefire report, restores the namespace, and uploads the tested JAR only after success. A pre-test Maven failure is shown under `Maven/build failures before Surefire` rather than producing an empty test-error summary.
 
 ## Bounded Parallelism And Serial Database Tests
 

@@ -87,7 +87,10 @@ jobs:
           cache: maven
 
       - name: Resolve Maven dependencies for offline verification
-        run: ./mvnw -B -DskipTests dependency:go-offline
+        run: |
+          ./mvnw -B -DskipTests dependency:go-offline
+          # dependency:go-offline does not resolve compiler annotationProcessorPaths.
+          ./mvnw -B -DskipTests test-compile
 
       - name: Ensure network namespace tools are available
         run: |
@@ -357,6 +360,7 @@ jobs:
           HOST_VETH="qm-offline-h"
           TEST_VETH="qm-offline-n"
           HOST_PROXY_PID=""
+          VERIFICATION_LOG="${RUNNER_TEMP}/quizmaker-verify.log"
 
           cleanup_offline_network() {
             EXIT_CODE=$?
@@ -412,12 +416,13 @@ jobs:
           fi
 
           # This is the canonical release gate: no external route, Maven offline,
-          # both Surefire lanes, JaCoCo check, and package.
+          # clean compilation, both Surefire lanes, JaCoCo check, and package.
           set +e
           sudo -E ip netns exec "$NETNS" \
             runuser --user "$USER" --preserve-environment -- \
-            env HOME="$HOME" ./mvnw -o -B -T 1C -DskipTests=false verify
-          TEST_EXIT_CODE=$?
+            env HOME="$HOME" ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+            2>&1 | tee "$VERIFICATION_LOG"
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
           mapfile -t PROVIDER_SOURCES < <(
@@ -457,7 +462,14 @@ jobs:
               echo ""
               head -160 "$FIRST_FAILURE"
             else
-              echo "⚠️ Could not find a failing Surefire report; inspect the complete job log and artifacts"
+              echo "No failing Surefire report was produced. Showing Maven/build errors:"
+              MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+                "$VERIFICATION_LOG" | tail -120 || true)
+              if [ -n "$MAVEN_ERRORS" ]; then
+                echo "$MAVEN_ERRORS"
+              else
+                tail -120 "$VERIFICATION_LOG"
+              fi
             fi
           fi
 
@@ -476,6 +488,19 @@ jobs:
         if: failure()
         run: |
           echo "🔍 Analyzing test failures to find root causes..."
+          echo ""
+          echo "=== Maven/build failures before Surefire ==="
+          if [ -s "${RUNNER_TEMP}/quizmaker-verify.log" ]; then
+            MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+              "${RUNNER_TEMP}/quizmaker-verify.log" | tail -120 || true)
+            if [ -n "$MAVEN_ERRORS" ]; then
+              echo "$MAVEN_ERRORS"
+            else
+              echo "No Maven-level error lines found."
+            fi
+          else
+            echo "Verification log was not created."
+          fi
           echo ""
           echo "=== First 10 ApplicationContext failures ==="
           find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "ApplicationContext" {} \; | head -10 | while read report; do
@@ -500,3 +525,5 @@ jobs:
             **/target/*.dump
             **/target/*.dumpstream
             **/target/site/jacoco/**
+            ${{ runner.temp }}/quizmaker-verify.log
+          retention-days: 7

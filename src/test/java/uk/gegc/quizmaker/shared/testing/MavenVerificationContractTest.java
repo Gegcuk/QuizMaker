@@ -80,6 +80,8 @@ class MavenVerificationContractTest {
         String mysqlTestProperties = Files.readString(
                 projectDirectory().resolve("src/test/resources/application-test-mysql.properties")
         );
+        String annotationProcessorWarmup = "./mvnw -B -DskipTests test-compile";
+        String isolatedVerification = "./mvnw -o -B -T 1C -DskipTests=false clean verify";
 
         assertThat(workflow)
                 .contains("OPENAI_API_KEY: 'sk-ci-offline-not-real'")
@@ -91,14 +93,18 @@ class MavenVerificationContractTest {
                 .contains("TEST_SES_RECIPIENT_EMAIL: 'ci-offline@example.invalid'")
                 .contains("BILLING_PACK_SYNC_ENABLED: 'false'")
                 .contains("./mvnw -B -DskipTests dependency:go-offline")
+                .contains(annotationProcessorWarmup)
                 .contains("ip netns add \"$NETNS\"")
                 .contains("ip route | grep -q '^default'")
                 .contains("socat TCP4-LISTEN:3306")
-                .contains("./mvnw -o -B -T 1C -DskipTests=false verify")
+                .contains(isolatedVerification)
                 .contains("'^[[:space:]]*@RealProviderTest[[:space:]]*$'")
                 .contains("PROVIDER_CLASS=$(basename \"$PROVIDER_SOURCE\" .java)")
                 .contains("Live-provider suite reports were produced during default verification")
+                .contains("Maven/build failures before Surefire")
                 .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests");
+        assertThat(workflow.indexOf(annotationProcessorWarmup))
+                .isLessThan(workflow.indexOf(isolatedVerification));
         assertThat(testProperties).contains("billing.pack-sync.enabled=false");
         assertThat(mysqlTestProperties).contains("billing.pack-sync.enabled=false");
     }
