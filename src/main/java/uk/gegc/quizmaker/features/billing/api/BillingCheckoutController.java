@@ -464,7 +464,8 @@ public class BillingCheckoutController {
             summary = "Update subscription",
             description = "Updates the authenticated user's recorded Stripe subscription to a server-resolved price. "
                     + "The supplied subscriptionId is an untrusted compatibility field and must match both the local "
-                    + "subscription record and the Stripe customer's userId metadata. Requires BILLING_WRITE permission."
+                    + "subscription record and the Stripe customer's userId metadata. Clients may send Idempotency-Key "
+                    + "for durable exact-retry protection; existing clients without it remain supported. Requires BILLING_WRITE permission."
     )
     @ApiResponses({
             @ApiResponse(
@@ -488,6 +489,9 @@ public class BillingCheckoutController {
                     required = true
             )
             @Valid @RequestBody UpdateSubscriptionRequest request,
+            @Parameter(description = "Optional retry key (maximum 128 characters). Reuse only for the identical mutation.")
+            @jakarta.validation.constraints.Size(max = 128, message = "Idempotency-Key must not exceed 128 characters")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
@@ -496,7 +500,10 @@ public class BillingCheckoutController {
 
         log.info("Updating an authenticated user's recorded subscription");
 
-        var subscription = subscriptionMutationService.updateSubscription(currentUserId, request.subscriptionId(), newPriceId);
+        var subscription = idempotencyKey == null
+                ? subscriptionMutationService.updateSubscription(currentUserId, request.subscriptionId(), newPriceId)
+                : subscriptionMutationService.updateSubscription(
+                        currentUserId, request.subscriptionId(), newPriceId, idempotencyKey);
         // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }
@@ -504,7 +511,8 @@ public class BillingCheckoutController {
             summary = "Cancel subscription",
             description = "Cancels the authenticated user's recorded Stripe subscription. "
                     + "The supplied subscriptionId is an untrusted compatibility field and must match both the local "
-                    + "subscription record and the Stripe customer's userId metadata. Repeating a completed cancellation is idempotent. "
+                    + "subscription record and the Stripe customer's userId metadata. Repeating a completed cancellation is idempotent; "
+                    + "clients may send Idempotency-Key for durable exact-retry protection, while existing clients remain supported. "
                     + "Requires BILLING_WRITE permission."
     )
     @ApiResponses({
@@ -515,6 +523,8 @@ public class BillingCheckoutController {
             @ApiResponse(responseCode = "400", description = "Invalid request",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = "Missing BILLING_WRITE permission or subscription ownership could not be verified",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Idempotency-Key was reused for a different mutation",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "503", description = "Stripe is temporarily unavailable; retry later",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -527,12 +537,17 @@ public class BillingCheckoutController {
                     required = true
             )
             @Valid @RequestBody CancelSubscriptionRequest request,
+            @Parameter(description = "Optional retry key (maximum 128 characters). Reuse only for the identical mutation.")
+            @jakarta.validation.constraints.Size(max = 128, message = "Idempotency-Key must not exceed 128 characters")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) throws StripeException {
         UUID currentUserId = resolveAuthenticatedUserId(authentication);
 
         log.info("Cancelling an authenticated user's recorded subscription");
 
-        var subscription = subscriptionMutationService.cancelSubscription(currentUserId, request.subscriptionId());
+        var subscription = idempotencyKey == null
+                ? subscriptionMutationService.cancelSubscription(currentUserId, request.subscriptionId())
+                : subscriptionMutationService.cancelSubscription(currentUserId, request.subscriptionId(), idempotencyKey);
         // Use Stripe's PRETTY_PRINT_GSON for consistent formatting like in the example
         return ResponseEntity.ok(StripeObject.PRETTY_PRINT_GSON.toJson(subscription));
     }

@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.billing.api;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -349,6 +350,22 @@ public class BillingErrorHandler {
                 request
         );
         problem.setProperty("parseError", detail);
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(
+            ConstraintViolationException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Billing request constraint violation");
+        ProblemDetail problem = ProblemDetailBuilder.create(
+                HttpStatus.BAD_REQUEST,
+                ErrorTypes.CONSTRAINT_VIOLATION,
+                "Constraint Violation",
+                "One or more validation constraints were violated",
+                request
+        );
         return ResponseEntity.badRequest().body(problem);
     }
 

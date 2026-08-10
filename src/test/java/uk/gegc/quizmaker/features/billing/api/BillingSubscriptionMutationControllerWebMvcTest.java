@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeSubscriptionUnavailableException;
+import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.billing.domain.exception.SubscriptionMutationConflictException;
 import uk.gegc.quizmaker.features.billing.infra.repository.PaymentRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -135,6 +136,88 @@ class BillingSubscriptionMutationControllerWebMvcTest {
 
     @Test
     @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_WRITE")
+    @DisplayName("POST update-subscription forwards an optional idempotency key without changing the request body")
+    void updateSubscription_withIdempotencyKey_forwardsDurableRetryKey() throws Exception {
+        Subscription updated = new Subscription();
+        updated.setId(SUBSCRIPTION_ID);
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        when(stripeService.resolvePriceIdByLookupKey("pro_monthly")).thenReturn("price_pro_monthly");
+        when(subscriptionMutationService.updateSubscription(
+                USER_ID, SUBSCRIPTION_ID, "price_pro_monthly", "mobile-update-123"))
+                .thenReturn(updated);
+
+        mockMvc.perform(post("/api/v1/billing/update-subscription")
+                        .with(csrf())
+                        .header("Idempotency-Key", "mobile-update-123")
+                        .contentType("application/json")
+                        .content("{\"subscriptionId\":\"sub_owner\",\"newPriceLookupKey\":\"pro_monthly\"}"))
+                .andExpect(status().isOk());
+
+        verify(subscriptionMutationService).updateSubscription(
+                USER_ID, SUBSCRIPTION_ID, "price_pro_monthly", "mobile-update-123");
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_WRITE")
+    @DisplayName("POST update-subscription returns 409 when a retry key belongs to a different mutation")
+    void updateSubscription_withReusedKeyAndChangedTarget_returnsIdempotencyConflict() throws Exception {
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        when(stripeService.resolvePriceIdByLookupKey("pro_monthly")).thenReturn("price_pro_monthly");
+        doThrow(new IdempotencyConflictException(
+                "This Idempotency-Key was already used for a different subscription mutation."))
+                .when(subscriptionMutationService).updateSubscription(
+                        USER_ID, SUBSCRIPTION_ID, "price_pro_monthly", "reused-key");
+
+        mockMvc.perform(post("/api/v1/billing/update-subscription")
+                        .with(csrf())
+                        .header("Idempotency-Key", "reused-key")
+                        .contentType("application/json")
+                        .content("{\"subscriptionId\":\"sub_owner\",\"newPriceLookupKey\":\"pro_monthly\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/idempotency-conflict"));
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_WRITE")
+    @DisplayName("POST cancel-subscription forwards an optional idempotency key without changing the request body")
+    void cancelSubscription_withIdempotencyKey_forwardsDurableRetryKey() throws Exception {
+        Subscription cancelled = new Subscription();
+        cancelled.setId(SUBSCRIPTION_ID);
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+        when(subscriptionMutationService.cancelSubscription(USER_ID, SUBSCRIPTION_ID, "mobile-cancel-123"))
+                .thenReturn(cancelled);
+
+        mockMvc.perform(post("/api/v1/billing/cancel-subscription")
+                        .with(csrf())
+                        .header("Idempotency-Key", "mobile-cancel-123")
+                        .contentType("application/json")
+                        .content("{\"subscriptionId\":\"sub_owner\"}"))
+                .andExpect(status().isOk());
+
+        verify(subscriptionMutationService)
+                .cancelSubscription(USER_ID, SUBSCRIPTION_ID, "mobile-cancel-123");
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_WRITE")
+    @DisplayName("POST cancel-subscription rejects an oversized idempotency key before mutation")
+    void cancelSubscription_withOversizedIdempotencyKey_returnsBadRequest() throws Exception {
+        when(appPermissionEvaluator.hasAnyPermission(any())).thenReturn(true);
+
+        mockMvc.perform(post("/api/v1/billing/cancel-subscription")
+                        .with(csrf())
+                        .header("Idempotency-Key", "k".repeat(129))
+                        .contentType("application/json")
+                        .content("{\"subscriptionId\":\"sub_owner\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type")
+                        .value("https://quizzence.com/docs/errors/constraint-violation"));
+
+        verifyNoInteractions(subscriptionMutationService);
+    }
+
+    @Test
+    @WithMockUser(username = "550e8400-e29b-41d4-a716-446655440000", authorities = "BILLING_WRITE")
     @DisplayName("POST cancel-subscription returns a generic 403 for a foreign subscription without calling Stripe directly")
     void cancelSubscription_withForeignId_returnsGenericForbidden() throws Exception {
         String foreignSubscriptionId = "sub_other_user";
@@ -207,11 +290,14 @@ class BillingSubscriptionMutationControllerWebMvcTest {
         assertThat(update.path("responses").has("503")).isTrue();
         assertThat(cancel.path("description").asText()).contains("Repeating a completed cancellation is idempotent");
         assertThat(cancel.path("responses").has("403")).isTrue();
+        assertThat(cancel.path("responses").has("409")).isTrue();
         assertThat(cancel.path("responses").has("503")).isTrue();
         assertThat(specification.at("/components/schemas/UpdateSubscriptionRequest/required").toString())
                 .contains("subscriptionId").contains("newPriceLookupKey");
         assertThat(specification.at("/components/schemas/CancelSubscriptionRequest/required").toString())
                 .contains("subscriptionId");
+        assertOptionalIdempotencyHeader(update);
+        assertOptionalIdempotencyHeader(cancel);
     }
 
     @Test
@@ -293,5 +379,21 @@ class BillingSubscriptionMutationControllerWebMvcTest {
 
         verify(rateLimitService).checkRateLimit("quiz-estimation", USER_ID.toString(), 10);
         verify(estimationService).estimateQuizGeneration(eq(documentId), any());
+    }
+
+    private void assertOptionalIdempotencyHeader(JsonNode operation) {
+        JsonNode parameters = operation.path("parameters");
+        JsonNode header = null;
+        for (JsonNode parameter : parameters) {
+            if ("Idempotency-Key".equals(parameter.path("name").asText())) {
+                header = parameter;
+                break;
+            }
+        }
+        assertThat(header).isNotNull();
+        assertThat(header.path("in").asText()).isEqualTo("header");
+        assertThat(header.path("required").asBoolean()).isFalse();
+        assertThat(header.path("description").asText()).contains("Reuse only for the identical mutation");
+        assertThat(header.at("/schema/maxLength").asInt()).isEqualTo(128);
     }
 }

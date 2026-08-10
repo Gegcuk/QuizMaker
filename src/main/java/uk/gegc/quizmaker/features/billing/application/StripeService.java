@@ -64,6 +64,17 @@ public interface StripeService {
     ) throws com.stripe.exception.StripeException;
 
     /**
+     * Updates a verified subscription using a stable provider idempotency key.
+     */
+    default com.stripe.model.Subscription updateSubscription(
+            com.stripe.model.Subscription subscription,
+            String newPriceId,
+            String idempotencyKey
+    ) throws com.stripe.exception.StripeException {
+        return updateSubscription(subscription, newPriceId);
+    }
+
+    /**
      * Cancel a subscription that has already passed ownership validation without retrieving it again.
      *
      * @param subscription verified Stripe subscription
@@ -72,6 +83,16 @@ public interface StripeService {
     com.stripe.model.Subscription cancelSubscription(
             com.stripe.model.Subscription subscription
     ) throws com.stripe.exception.StripeException;
+
+    /**
+     * Cancels a verified subscription using a stable provider idempotency key.
+     */
+    default com.stripe.model.Subscription cancelSubscription(
+            com.stripe.model.Subscription subscription,
+            String idempotencyKey
+    ) throws com.stripe.exception.StripeException {
+        return cancelSubscription(subscription);
+    }
 
     /**
      * Retrieve a Stripe Subscription by ID.

@@ -13,10 +13,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationClaim;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationCoordinator;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeSubscriptionUnavailableException;
 import uk.gegc.quizmaker.features.billing.domain.exception.SubscriptionMutationConflictException;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
+import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionMutationType;
 import uk.gegc.quizmaker.features.billing.infra.repository.SubscriptionStatusRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 
@@ -29,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -52,6 +56,9 @@ class SubscriptionMutationServiceImplTest {
     @Mock
     private BillingMetricsService billingMetricsService;
 
+    @Mock
+    private SubscriptionMutationCoordinator mutationCoordinator;
+
     private SubscriptionMutationService subscriptionMutationService;
 
     @BeforeEach
@@ -59,7 +66,8 @@ class SubscriptionMutationServiceImplTest {
         subscriptionMutationService = new SubscriptionMutationServiceImpl(
                 subscriptionStatusRepository,
                 stripeService,
-                billingMetricsService
+                billingMetricsService,
+                mutationCoordinator
         );
     }
 
@@ -74,12 +82,15 @@ class SubscriptionMutationServiceImplTest {
             Subscription verifiedSubscription = stripeSubscription(subscriptionId, customerId, "active");
             Subscription updatedSubscription = stripeSubscription(subscriptionId, customerId, "active");
             stubOwnedSubscription(localStatus, verifiedSubscription, customer(userId, customerId));
-            when(stripeService.updateSubscription(verifiedSubscription, "price_pro")).thenReturn(updatedSubscription);
+            stubExecuteClaim(SubscriptionMutationType.UPDATE, "price_pro");
+            when(stripeService.updateSubscription(verifiedSubscription, "price_pro", "stripe-operation-key"))
+                    .thenReturn(updatedSubscription);
 
             Subscription result = subscriptionMutationService.updateSubscription(userId, subscriptionId, "price_pro");
 
             assertThat(result).isSameAs(updatedSubscription);
-            verify(stripeService).updateSubscription(verifiedSubscription, "price_pro");
+            verify(stripeService).updateSubscription(verifiedSubscription, "price_pro", "stripe-operation-key");
+            verify(mutationCoordinator).complete(operationId(), userId);
             verify(billingMetricsService).recordSubscriptionMutation("update", "allowed", "updated");
         }
 
@@ -107,7 +118,7 @@ class SubscriptionMutationServiceImplTest {
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessage("Subscription mutation is not permitted");
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "denied", "stripe_customer_mismatch");
         }
 
@@ -125,7 +136,7 @@ class SubscriptionMutationServiceImplTest {
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessage("Subscription mutation is not permitted");
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "denied", "stripe_customer_mismatch");
         }
 
@@ -140,7 +151,7 @@ class SubscriptionMutationServiceImplTest {
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessage("Subscription mutation is not permitted");
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "denied", "stripe_customer_mismatch");
         }
 
@@ -173,7 +184,7 @@ class SubscriptionMutationServiceImplTest {
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessage("Subscription mutation is not permitted");
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "denied", "stale_subscription");
         }
 
@@ -190,7 +201,7 @@ class SubscriptionMutationServiceImplTest {
                     .isInstanceOf(StripeSubscriptionUnavailableException.class)
                     .hasCause(unavailable);
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "failed", "stripe_unavailable");
         }
 
@@ -204,8 +215,40 @@ class SubscriptionMutationServiceImplTest {
             assertThatThrownBy(() -> subscriptionMutationService.updateSubscription(userId, subscriptionId, "price_pro"))
                     .isInstanceOf(SubscriptionMutationConflictException.class);
 
-            verify(stripeService, never()).updateSubscription(any(Subscription.class), any());
+            verify(stripeService, never()).updateSubscription(any(Subscription.class), any(), any());
             verify(billingMetricsService).recordSubscriptionMutation("update", "failed", "cancelled_subscription");
+        }
+
+        @Test
+        @DisplayName("rejects a blank client idempotency key before ownership or Stripe work")
+        void updateSubscription_withBlankIdempotencyKey_rejectsBeforeCollaborators() {
+            assertThatThrownBy(() -> subscriptionMutationService.updateSubscription(
+                    userId, subscriptionId, "price_pro", "   "))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Idempotency-Key must contain");
+
+            verifyNoInteractions(subscriptionStatusRepository, stripeService, mutationCoordinator);
+        }
+
+        @Test
+        @DisplayName("releases a claimed update for retry when Stripe returns an error")
+        void updateSubscription_whenClaimedStripeMutationFails_marksOperationRetryable() throws StripeException {
+            SubscriptionStatus localStatus = localStatus(subscriptionId);
+            Subscription verifiedSubscription = stripeSubscription(subscriptionId, customerId, "active");
+            StripeException unavailable = org.mockito.Mockito.mock(StripeException.class);
+            stubOwnedSubscription(localStatus, verifiedSubscription, customer(userId, customerId));
+            stubExecuteClaim(SubscriptionMutationType.UPDATE, "price_pro");
+            when(stripeService.updateSubscription(
+                    verifiedSubscription, "price_pro", "stripe-operation-key"))
+                    .thenThrow(unavailable);
+
+            assertThatThrownBy(() -> subscriptionMutationService.updateSubscription(
+                    userId, subscriptionId, "price_pro", null))
+                    .isInstanceOf(StripeSubscriptionUnavailableException.class)
+                    .hasCause(unavailable);
+
+            verify(mutationCoordinator).makeRetryable(operationId(), userId);
+            verify(mutationCoordinator, never()).complete(any(), any());
         }
     }
 
@@ -220,15 +263,15 @@ class SubscriptionMutationServiceImplTest {
             Subscription verifiedSubscription = stripeSubscription(subscriptionId, customerId, "active");
             Subscription cancelledSubscription = stripeSubscription(subscriptionId, customerId, "canceled");
             stubOwnedSubscription(localStatus, verifiedSubscription, customer(userId, customerId));
-            when(stripeService.cancelSubscription(verifiedSubscription)).thenReturn(cancelledSubscription);
+            stubExecuteClaim(SubscriptionMutationType.CANCEL, null);
+            when(stripeService.cancelSubscription(verifiedSubscription, "stripe-operation-key"))
+                    .thenReturn(cancelledSubscription);
 
             Subscription result = subscriptionMutationService.cancelSubscription(userId, subscriptionId);
 
             assertThat(result).isSameAs(cancelledSubscription);
-            assertThat(localStatus.isBlocked()).isTrue();
-            assertThat(localStatus.getBlockReason()).isEqualTo("subscription_cancelled_by_user");
-            verify(stripeService).cancelSubscription(verifiedSubscription);
-            verify(subscriptionStatusRepository).save(localStatus);
+            verify(stripeService).cancelSubscription(verifiedSubscription, "stripe-operation-key");
+            verify(mutationCoordinator).complete(operationId(), userId);
             verify(billingMetricsService).recordSubscriptionMutation("cancel", "allowed", "cancelled");
         }
 
@@ -240,12 +283,12 @@ class SubscriptionMutationServiceImplTest {
             localStatus.setBlockReason("subscription_cancelled_by_user");
             Subscription cancelledSubscription = stripeSubscription(subscriptionId, customerId, "canceled");
             stubOwnedSubscription(localStatus, cancelledSubscription, customer(userId, customerId));
+            stubReplayClaim(SubscriptionMutationType.CANCEL, null, true);
 
             Subscription result = subscriptionMutationService.cancelSubscription(userId, subscriptionId);
 
             assertThat(result).isSameAs(cancelledSubscription);
-            verify(stripeService, never()).cancelSubscription(any(Subscription.class));
-            verify(subscriptionStatusRepository, never()).save(any(SubscriptionStatus.class));
+            verify(stripeService, never()).cancelSubscription(any(Subscription.class), any());
             verify(billingMetricsService).recordSubscriptionMutation("cancel", "allowed", "already_cancelled");
         }
 
@@ -257,13 +300,16 @@ class SubscriptionMutationServiceImplTest {
             Subscription verifiedSubscription = stripeSubscription(subscriptionId, customerId, "active");
             Subscription cancelledSubscription = stripeSubscription(subscriptionId, customerId, "canceled");
             stubOwnedSubscription(localStatus, verifiedSubscription, customer(userId, customerId));
-            when(stripeService.cancelSubscription(verifiedSubscription)).thenReturn(cancelledSubscription);
-            doThrow(new IllegalStateException("database unavailable")).when(subscriptionStatusRepository).save(localStatus);
+            stubExecuteClaim(SubscriptionMutationType.CANCEL, null);
+            when(stripeService.cancelSubscription(verifiedSubscription, "stripe-operation-key"))
+                    .thenReturn(cancelledSubscription);
+            doThrow(new IllegalStateException("database unavailable"))
+                    .when(mutationCoordinator).complete(operationId(), userId);
 
             assertThatThrownBy(() -> subscriptionMutationService.cancelSubscription(userId, subscriptionId))
                     .isInstanceOf(StripeSubscriptionUnavailableException.class);
 
-            verify(stripeService).cancelSubscription(verifiedSubscription);
+            verify(stripeService).cancelSubscription(verifiedSubscription, "stripe-operation-key");
             verify(billingMetricsService).recordSubscriptionMutation("cancel", "failed", "local_reconciliation_required");
         }
 
@@ -274,18 +320,21 @@ class SubscriptionMutationServiceImplTest {
             SubscriptionStatus localStatus = localStatus(subscriptionId);
             Subscription verifiedSubscription = stripeSubscription(subscriptionId, customerId, "active");
             Subscription cancelledSubscription = stripeSubscription(subscriptionId, customerId, "canceled");
-            when(subscriptionStatusRepository.findByUserId(userId))
-                    .thenReturn(Optional.of(localStatus), Optional.empty());
+            when(subscriptionStatusRepository.findByUserId(userId)).thenReturn(Optional.of(localStatus));
             when(subscriptionStatusRepository.findAllBySubscriptionId(subscriptionId)).thenReturn(List.of(localStatus));
             when(stripeService.retrieveSubscription(subscriptionId)).thenReturn(verifiedSubscription);
             when(stripeService.retrieveCustomerRaw(customerId)).thenReturn(customer(userId, customerId));
-            when(stripeService.cancelSubscription(verifiedSubscription)).thenReturn(cancelledSubscription);
+            stubExecuteClaim(SubscriptionMutationType.CANCEL, null);
+            when(stripeService.cancelSubscription(verifiedSubscription, "stripe-operation-key"))
+                    .thenReturn(cancelledSubscription);
+            doThrow(new ForbiddenException("Subscription mutation is not permitted"))
+                    .when(mutationCoordinator).complete(operationId(), userId);
 
             assertThatThrownBy(() -> subscriptionMutationService.cancelSubscription(userId, subscriptionId))
                     .isInstanceOf(ForbiddenException.class)
                     .hasMessage("Subscription mutation is not permitted");
 
-            verify(stripeService).cancelSubscription(verifiedSubscription);
+            verify(stripeService).cancelSubscription(verifiedSubscription, "stripe-operation-key");
             verify(billingMetricsService).recordSubscriptionMutation("cancel", "denied", "local_mapping_changed");
             verify(billingMetricsService, never()).recordSubscriptionMutation(
                     "cancel", "failed", "local_reconciliation_required");
@@ -296,20 +345,23 @@ class SubscriptionMutationServiceImplTest {
         void cancelSubscription_afterLocalPersistenceFailure_retriesReconciliationWithoutSecondStripeCancellation()
                 throws StripeException {
             SubscriptionStatus firstStatus = localStatus(subscriptionId);
-            SubscriptionStatus retryStatus = localStatus(subscriptionId);
             Subscription activeSubscription = stripeSubscription(subscriptionId, customerId, "active");
             Subscription cancelledSubscription = stripeSubscription(subscriptionId, customerId, "canceled");
             Customer owner = customer(userId, customerId);
-            when(subscriptionStatusRepository.findByUserId(userId))
-                    .thenReturn(Optional.of(firstStatus), Optional.of(firstStatus), Optional.of(retryStatus), Optional.of(retryStatus));
-            when(subscriptionStatusRepository.findAllBySubscriptionId(subscriptionId))
-                    .thenReturn(List.of(firstStatus), List.of(retryStatus));
+            when(subscriptionStatusRepository.findByUserId(userId)).thenReturn(Optional.of(firstStatus));
+            when(subscriptionStatusRepository.findAllBySubscriptionId(subscriptionId)).thenReturn(List.of(firstStatus));
             when(stripeService.retrieveSubscription(subscriptionId)).thenReturn(activeSubscription, cancelledSubscription);
             when(stripeService.retrieveCustomerRaw(customerId)).thenReturn(owner);
-            when(stripeService.cancelSubscription(activeSubscription)).thenReturn(cancelledSubscription);
-            when(subscriptionStatusRepository.save(any(SubscriptionStatus.class)))
-                    .thenThrow(new IllegalStateException("database unavailable"))
-                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(mutationCoordinator.claim(
+                    userId, subscriptionId, SubscriptionMutationType.CANCEL, null, null, false))
+                    .thenReturn(executeClaim());
+            when(mutationCoordinator.claim(
+                    userId, subscriptionId, SubscriptionMutationType.CANCEL, null, null, true))
+                    .thenReturn(replayClaim());
+            when(stripeService.cancelSubscription(activeSubscription, "stripe-operation-key"))
+                    .thenReturn(cancelledSubscription);
+            doThrow(new IllegalStateException("database unavailable"))
+                    .when(mutationCoordinator).complete(operationId(), userId);
 
             assertThatThrownBy(() -> subscriptionMutationService.cancelSubscription(userId, subscriptionId))
                     .isInstanceOf(StripeSubscriptionUnavailableException.class);
@@ -317,10 +369,7 @@ class SubscriptionMutationServiceImplTest {
             Subscription retryResult = subscriptionMutationService.cancelSubscription(userId, subscriptionId);
 
             assertThat(retryResult).isSameAs(cancelledSubscription);
-            assertThat(retryStatus.isBlocked()).isTrue();
-            assertThat(retryStatus.getBlockReason()).isEqualTo("subscription_cancelled_by_user");
-            verify(stripeService).cancelSubscription(activeSubscription);
-            verify(subscriptionStatusRepository).save(retryStatus);
+            verify(stripeService).cancelSubscription(activeSubscription, "stripe-operation-key");
             verify(billingMetricsService).recordSubscriptionMutation("cancel", "allowed", "already_cancelled");
         }
     }
@@ -331,6 +380,46 @@ class SubscriptionMutationServiceImplTest {
         when(subscriptionStatusRepository.findAllBySubscriptionId(subscriptionId)).thenReturn(List.of(status));
         when(stripeService.retrieveSubscription(subscriptionId)).thenReturn(subscription);
         when(stripeService.retrieveCustomerRaw(customerId)).thenReturn(customer);
+    }
+
+    private void stubExecuteClaim(SubscriptionMutationType type, String targetPriceId) {
+        when(mutationCoordinator.claim(
+                eq(userId),
+                eq(subscriptionId),
+                eq(type),
+                targetPriceId == null ? isNull() : eq(targetPriceId),
+                isNull(),
+                eq(false)
+        )).thenReturn(executeClaim());
+    }
+
+    private void stubReplayClaim(
+            SubscriptionMutationType type,
+            String targetPriceId,
+            boolean remoteAlreadyApplied
+    ) {
+        when(mutationCoordinator.claim(
+                eq(userId),
+                eq(subscriptionId),
+                eq(type),
+                targetPriceId == null ? isNull() : eq(targetPriceId),
+                isNull(),
+                eq(remoteAlreadyApplied)
+        )).thenReturn(replayClaim());
+    }
+
+    private SubscriptionMutationClaim executeClaim() {
+        return new SubscriptionMutationClaim(
+                operationId(), SubscriptionMutationClaim.Action.EXECUTE, "stripe-operation-key");
+    }
+
+    private SubscriptionMutationClaim replayClaim() {
+        return new SubscriptionMutationClaim(
+                operationId(), SubscriptionMutationClaim.Action.REPLAY, "stripe-operation-key");
+    }
+
+    private UUID operationId() {
+        return UUID.fromString("f4cb7d32-1a62-45f5-bd9d-058199971b8f");
     }
 
     private SubscriptionStatus localStatus(String id) {

@@ -7,6 +7,7 @@ import com.stripe.model.Subscription;
 import com.stripe.model.Charge;
 import com.stripe.model.checkout.Session;
 import com.stripe.model.Price;
+import com.stripe.net.RequestOptions;
 import com.stripe.param.CustomerCreateParams;
 import com.stripe.param.SubscriptionCreateParams;
 import com.stripe.param.SubscriptionUpdateParams;
@@ -185,6 +186,26 @@ public class StripeServiceImpl implements StripeService {
 
     @Override
     public Subscription updateSubscription(Subscription subscription, String newPriceId) throws StripeException {
+        return updateSubscriptionInternal(subscription, newPriceId, null);
+    }
+
+    @Override
+    public Subscription updateSubscription(
+            Subscription subscription,
+            String newPriceId,
+            String idempotencyKey
+    ) throws StripeException {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            throw new IllegalArgumentException("Stripe idempotency key must be provided");
+        }
+        return updateSubscriptionInternal(subscription, newPriceId, idempotencyKey);
+    }
+
+    private Subscription updateSubscriptionInternal(
+            Subscription subscription,
+            String newPriceId,
+            String idempotencyKey
+    ) throws StripeException {
         if (subscription == null || !StringUtils.hasText(subscription.getId()) || !StringUtils.hasText(newPriceId)) {
             throw new IllegalArgumentException("Verified subscription and new Price ID must be provided");
         }
@@ -205,9 +226,17 @@ public class StripeServiceImpl implements StripeService {
                 .setCancelAtPeriodEnd(false)
                 .build();
 
-        Subscription updated = stripeClient != null
-                ? stripeClient.subscriptions().update(subscriptionId, params)
-                : subscription.update(params);
+        RequestOptions requestOptions = requestOptions(idempotencyKey);
+        Subscription updated;
+        if (stripeClient != null) {
+            updated = requestOptions == null
+                    ? stripeClient.subscriptions().update(subscriptionId, params)
+                    : stripeClient.subscriptions().update(subscriptionId, params, requestOptions);
+        } else {
+            updated = requestOptions == null
+                    ? subscription.update(params)
+                    : subscription.update(params, requestOptions);
+        }
 
         log.info("Updated a verified Stripe subscription");
         return updated;
@@ -215,17 +244,46 @@ public class StripeServiceImpl implements StripeService {
 
     @Override
     public Subscription cancelSubscription(Subscription subscription) throws StripeException {
+        return cancelSubscriptionInternal(subscription, null);
+    }
+
+    @Override
+    public Subscription cancelSubscription(Subscription subscription, String idempotencyKey) throws StripeException {
+        if (!StringUtils.hasText(idempotencyKey)) {
+            throw new IllegalArgumentException("Stripe idempotency key must be provided");
+        }
+        return cancelSubscriptionInternal(subscription, idempotencyKey);
+    }
+
+    private Subscription cancelSubscriptionInternal(
+            Subscription subscription,
+            String idempotencyKey
+    ) throws StripeException {
         if (subscription == null || !StringUtils.hasText(subscription.getId())) {
             throw new IllegalArgumentException("Verified subscription must be provided");
         }
 
         String subscriptionId = subscription.getId();
-        Subscription deletedSubscription = stripeClient != null
-                ? stripeClient.subscriptions().cancel(subscriptionId)
-                : subscription.cancel();
+        RequestOptions requestOptions = requestOptions(idempotencyKey);
+        Subscription deletedSubscription;
+        if (stripeClient != null) {
+            deletedSubscription = requestOptions == null
+                    ? stripeClient.subscriptions().cancel(subscriptionId)
+                    : stripeClient.subscriptions().cancel(subscriptionId, requestOptions);
+        } else {
+            deletedSubscription = requestOptions == null
+                    ? subscription.cancel()
+                    : subscription.cancel(java.util.Map.of(), requestOptions);
+        }
 
         log.info("Cancelled a verified Stripe subscription");
         return deletedSubscription;
+    }
+
+    private RequestOptions requestOptions(String idempotencyKey) {
+        return StringUtils.hasText(idempotencyKey)
+                ? RequestOptions.builder().setIdempotencyKey(idempotencyKey).build()
+                : null;
     }
 
     @Override
