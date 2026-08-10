@@ -58,7 +58,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("public scope: anonymous access returns 200 with only PUBLIC+PUBLISHED quizzes")
     void exportPublicScope_anonymous_returns200WithPublicPublishedOnly() throws Exception {
         // Given
-        User author = createTestUser("pub_author_" + UUID.randomUUID(), "pub@test.com", PermissionName.QUIZ_READ);
+        User author = createTestUser(uniqueUsername("pub_author_"), "pub@test.com", PermissionName.QUIZ_READ);
         Quiz publicPublished = createQuiz("Public Published", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         Quiz publicDraft = createQuiz("Public Draft", Visibility.PUBLIC, QuizStatus.DRAFT, author);
         Quiz privateListed = createQuiz("Private Listed", Visibility.PRIVATE, QuizStatus.PUBLISHED, author);
@@ -85,7 +85,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("public scope: default scope when not specified")
     void exportNoScope_defaultsToPublic() throws Exception {
         // Given
-        User author = createTestUser("default_author_" + UUID.randomUUID(), "default@test.com", PermissionName.QUIZ_READ);
+        User author = createTestUser(uniqueUsername("default_author_"), "default@test.com", PermissionName.QUIZ_READ);
         createQuiz("Public Published", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
 
@@ -111,7 +111,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: authenticated without QUIZ_READ returns 403")
     void exportMeScope_withoutPermission_returns403() throws Exception {
         // Given
-        String username = "noperm_" + UUID.randomUUID();
+        String username = uniqueUsername("noperm_");
         User userWithoutPermission = createUserWithoutPermissions(username, username + "@test.com");
         em.flush();
 
@@ -127,8 +127,8 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: authenticated with QUIZ_READ returns 200 with only author's quizzes")
     void exportMeScope_withPermission_returns200WithAuthorQuizzesOnly() throws Exception {
         // Given
-        String username1 = "author1_" + UUID.randomUUID();
-        String username2 = "author2_" + UUID.randomUUID();
+        String username1 = uniqueUsername("author1_");
+        String username2 = uniqueUsername("author2_");
         User testAuthor = createTestUser(username1, username1 + "@test.com", PermissionName.QUIZ_READ);
         User otherAuthor = createTestUser(username2, username2 + "@test.com", PermissionName.QUIZ_READ);
         
@@ -157,7 +157,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: includes author's PRIVATE and DRAFT quizzes")
     void exportMeScope_includesPrivateAndDraftQuizzes() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         createQuiz("Private Draft", Visibility.PRIVATE, QuizStatus.DRAFT, author);
@@ -184,8 +184,8 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: excludes other authors' PUBLIC+PUBLISHED quizzes")
     void exportMeScope_excludesOtherAuthorsPublicQuizzes() throws Exception {
         // Given
-        String username1 = "author1_" + UUID.randomUUID();
-        String username2 = "author2_" + UUID.randomUUID();
+        String username1 = uniqueUsername("author1_");
+        String username2 = uniqueUsername("author2_");
         User author1 = createTestUser(username1, username1 + "@test.com", PermissionName.QUIZ_READ);
         User author2 = createTestUser(username2, username2 + "@test.com", PermissionName.QUIZ_READ);
         
@@ -212,7 +212,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: works with JSON_EDITABLE format")
     void exportMeScope_jsonFormat_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
         em.flush();
@@ -231,7 +231,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: works with XLSX_EDITABLE format")
     void exportMeScope_xlsxFormat_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
         em.flush();
@@ -250,7 +250,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: works with HTML_PRINT format")
     void exportMeScope_htmlFormat_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
         em.flush();
@@ -269,7 +269,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: works with PDF_PRINT format")
     void exportMeScope_pdfFormat_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
         em.flush();
@@ -288,7 +288,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: combined with categoryIds filter")
     void exportMeScope_withCategoryFilter_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Category cat1 = new Category();
@@ -323,7 +323,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: combined with tags filter")
     void exportMeScope_withTagsFilter_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         int random = (int)(Math.random() * 1000000);
@@ -359,7 +359,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: combined with difficulty filter")
     void exportMeScope_withDifficultyFilter_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         createQuizWithDifficulty("Easy Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author, Difficulty.EASY);
@@ -386,7 +386,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: combined with search filter")
     void exportMeScope_withSearchFilter_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         createQuiz("Advanced Java Concepts", Visibility.PRIVATE, QuizStatus.DRAFT, author);
@@ -413,7 +413,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: combined with quizIds filter")
     void exportMeScope_withQuizIdsFilter_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Quiz quiz1 = createQuiz("Quiz 1", Visibility.PRIVATE, QuizStatus.DRAFT, author);
@@ -440,7 +440,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: returns empty array when author has no quizzes")
     void exportMeScope_noQuizzes_returnsEmptyArray() throws Exception {
         // Given
-        String username = "lonely_author_" + UUID.randomUUID();
+        String username = uniqueUsername("lonely_author_");
         createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         em.flush();
 
@@ -463,7 +463,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: handles many quizzes from author")
     void exportMeScope_manyQuizzes_works() throws Exception {
         // Given
-        String username = "prolific_author_" + UUID.randomUUID();
+        String username = uniqueUsername("prolific_author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         // Create 10 quizzes
@@ -490,7 +490,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=me: with print options accepted")
     void exportMeScope_withPrintOptions_works() throws Exception {
         // Given
-        String username = "author_" + UUID.randomUUID();
+        String username = uniqueUsername("author_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("My Quiz", Visibility.PRIVATE, QuizStatus.DRAFT, author);
         em.flush();
@@ -512,7 +512,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=all: without QUIZ_MODERATE or QUIZ_ADMIN returns 403")
     void exportAllScope_withoutModeratePermission_returns403() throws Exception {
         // Given
-        String username = "reader_" + UUID.randomUUID();
+        String username = uniqueUsername("reader_");
         createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         em.flush();
         
@@ -528,9 +528,9 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("scope=all: with QUIZ_MODERATE returns 200 with all quizzes")
     void exportAllScope_withModeratePermission_returns200WithAllQuizzes() throws Exception {
         // Given
-        String modUsername = "mod_" + UUID.randomUUID();
-        String author1Username = "a1_" + UUID.randomUUID();
-        String author2Username = "a2_" + UUID.randomUUID();
+        String modUsername = uniqueUsername("mod_");
+        String author1Username = uniqueUsername("a1_");
+        String author2Username = uniqueUsername("a2_");
         
         User moderator = createTestUser(modUsername, modUsername + "@test.com", PermissionName.QUIZ_MODERATE);
         User author1 = createTestUser(author1Username, author1Username + "@test.com", PermissionName.QUIZ_READ);
@@ -562,7 +562,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: categoryIds returns only quizzes in specified categories")
     void exportWithCategoryFilter_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "catfilter_" + UUID.randomUUID();
+        String username = uniqueUsername("catfilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Category programmingCategory = new Category();
@@ -598,7 +598,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: tag returns quizzes with matching tag")
     void exportWithTagFilter_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "tagfilter_" + UUID.randomUUID();
+        String username = uniqueUsername("tagfilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         // Use distinct random suffixes
@@ -637,7 +637,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: difficulty returns only quizzes with matching difficulty")
     void exportWithDifficultyFilter_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "diffilter_" + UUID.randomUUID();
+        String username = uniqueUsername("diffilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Quiz easyQuiz = createQuizWithDifficulty("Easy Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author, Difficulty.EASY);
@@ -665,7 +665,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: search matches title or description (case-insensitive)")
     void exportWithSearchFilter_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "searchfilter_" + UUID.randomUUID();
+        String username = uniqueUsername("searchfilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         createQuiz("Java Advanced Topics", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
@@ -693,7 +693,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: quizIds returns only quizzes with specified IDs")
     void exportWithQuizIdsFilter_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "idsfilter_" + UUID.randomUUID();
+        String username = uniqueUsername("idsfilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Quiz quiz1 = createQuiz("Quiz 1", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
@@ -721,7 +721,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("filter: multiple filters combined work correctly")
     void exportWithMultipleFilters_returnsMatchingQuizzes() throws Exception {
         // Given
-        String username = "multifilter_" + UUID.randomUUID();
+        String username = uniqueUsername("multifilter_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         
         Category programmingCategory = new Category();
@@ -764,7 +764,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("format: JSON_EDITABLE returns application/json with .json extension")
     void exportJsonFormat_correctContentTypeAndExtension() throws Exception {
         // Given
-        String username = "json_" + UUID.randomUUID();
+        String username = uniqueUsername("json_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -782,7 +782,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("format: XLSX_EDITABLE returns correct content type with .xlsx extension")
     void exportXlsxFormat_correctContentTypeAndExtension() throws Exception {
         // Given
-        String username = "xlsx_" + UUID.randomUUID();
+        String username = uniqueUsername("xlsx_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -800,7 +800,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("format: HTML_PRINT returns text/html with .html extension")
     void exportHtmlFormat_correctContentTypeAndExtension() throws Exception {
         // Given
-        String username = "html_" + UUID.randomUUID();
+        String username = uniqueUsername("html_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -818,7 +818,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("format: PDF_PRINT returns application/pdf with .pdf extension")
     void exportPdfFormat_correctContentTypeAndExtension() throws Exception {
         // Given
-        String username = "pdf_" + UUID.randomUUID();
+        String username = uniqueUsername("pdf_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -838,7 +838,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("printOptions: includeCover parameter is accepted")
     void exportWithIncludeCover_accepted() throws Exception {
         // Given
-        String username = "cover_" + UUID.randomUUID();
+        String username = uniqueUsername("cover_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -855,7 +855,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("printOptions: all print parameters are accepted for print formats")
     void exportWithAllPrintOptions_accepted() throws Exception {
         // Given
-        String username = "printopts_" + UUID.randomUUID();
+        String username = uniqueUsername("printopts_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -910,7 +910,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("streaming: response contains content")
     void export_streamsContent() throws Exception {
         // Given
-        String username = "stream_" + UUID.randomUUID();
+        String username = uniqueUsername("stream_");
         User author = createTestUser(username, username + "@test.com", PermissionName.QUIZ_READ);
         createQuiz("Test Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, author);
         em.flush();
@@ -946,6 +946,10 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     // Helper Methods
+
+    private static String uniqueUsername(String prefix) {
+        return prefix + UUID.randomUUID().toString().substring(0, 8);
+    }
 
     private User createTestUser(String username, String email, PermissionName... permissionNames) {
         // Fetch existing permissions
@@ -1136,7 +1140,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P0: Anonymous user cannot export private quiz by ID")
     void security_anonymousCannotExportPrivateQuizById() throws Exception {
         // Create a private quiz
-        User testUser = createTestUser("security_user1_" + UUID.randomUUID(), "sec1@test.com", PermissionName.QUIZ_READ);
+        User testUser = createTestUser(uniqueUsername("security_user1_"), "sec1@test.com", PermissionName.QUIZ_READ);
         Quiz privateQuiz = createQuiz("Private Quiz", Visibility.PRIVATE, QuizStatus.PUBLISHED, testUser);
         em.flush();
         
@@ -1159,7 +1163,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P0: Anonymous user cannot export unpublished quiz by ID")
     void security_anonymousCannotExportUnpublishedQuizById() throws Exception {
         // Create an unpublished but public quiz
-        User testUser = createTestUser("security_user2_" + UUID.randomUUID(), "sec2@test.com", PermissionName.QUIZ_READ);
+        User testUser = createTestUser(uniqueUsername("security_user2_"), "sec2@test.com", PermissionName.QUIZ_READ);
         Quiz unpublishedQuiz = createQuiz("Draft Quiz", Visibility.PUBLIC, QuizStatus.DRAFT, testUser);
         em.flush();
         
@@ -1182,7 +1186,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P0: Anonymous user can export public published quiz by ID")
     void security_anonymousCanExportPublicPublishedQuizById() throws Exception {
         // Create a public published quiz
-        User testUser = createTestUser("security_user3_" + UUID.randomUUID(), "sec3@test.com", PermissionName.QUIZ_READ);
+        User testUser = createTestUser(uniqueUsername("security_user3_"), "sec3@test.com", PermissionName.QUIZ_READ);
         Quiz publicQuiz = createQuiz("Public Quiz", Visibility.PUBLIC, QuizStatus.PUBLISHED, testUser);
         em.flush();
         
@@ -1206,8 +1210,8 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P0: User with QUIZ_READ cannot export other user's private quiz by ID using scope=me")
     void security_userCannotExportOtherUsersPrivateQuizByIdWithScopeMe() throws Exception {
         // Create users
-        String user1Name = "security_user4_" + UUID.randomUUID();
-        String user2Name = "security_user5_" + UUID.randomUUID();
+        String user1Name = uniqueUsername("security_user4_");
+        String user2Name = uniqueUsername("security_user5_");
         User user1 = createTestUser(user1Name, "sec4@test.com", PermissionName.QUIZ_READ);
         User user2 = createTestUser(user2Name, "sec5@test.com", PermissionName.QUIZ_READ);
         
@@ -1235,8 +1239,8 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P1: User cannot use scope=me with another user's authorId")
     void security_userCannotUseScopeMeWithOtherAuthorId() throws Exception {
         // Create users
-        String user1Name = "security_user6_" + UUID.randomUUID();
-        String user2Name = "security_user7_" + UUID.randomUUID();
+        String user1Name = uniqueUsername("security_user6_");
+        String user2Name = uniqueUsername("security_user7_");
         User user1 = createTestUser(user1Name, "sec6@test.com", PermissionName.QUIZ_READ);
         User user2 = createTestUser(user2Name, "sec7@test.com", PermissionName.QUIZ_READ);
         
@@ -1257,8 +1261,8 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security P1: scope=me always uses authenticated user's ID regardless of authorId param")
     void security_scopeMeUsesAuthenticatedUserId() throws Exception {
         // Create users
-        String user1Name = "security_user8_" + UUID.randomUUID();
-        String user2Name = "security_user9_" + UUID.randomUUID();
+        String user1Name = uniqueUsername("security_user8_");
+        String user2Name = uniqueUsername("security_user9_");
         User user1 = createTestUser(user1Name, "sec8@test.com", PermissionName.QUIZ_READ);
         User user2 = createTestUser(user2Name, "sec9@test.com", PermissionName.QUIZ_READ);
         
@@ -1287,7 +1291,7 @@ class QuizExportControllerIntegrationTest extends BaseIntegrationTest {
     @DisplayName("Security: User can export their own quiz by ID with scope=me")
     void security_userCanExportOwnQuizByIdWithScopeMe() throws Exception {
         // Create user
-        String user1Name = "security_user10_" + UUID.randomUUID();
+        String user1Name = uniqueUsername("security_user10_");
         User user1 = createTestUser(user1Name, "sec10@test.com", PermissionName.QUIZ_READ);
         
         // Create a private quiz for user1

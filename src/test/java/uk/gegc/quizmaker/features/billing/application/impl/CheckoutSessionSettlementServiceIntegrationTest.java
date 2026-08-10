@@ -103,7 +103,7 @@ class CheckoutSessionSettlementServiceIntegrationTest {
     void setUp() {
         String suffix = UUID.randomUUID().toString();
         User user = new User();
-        user.setUsername("checkout-settlement-" + suffix);
+        user.setUsername("checkout-" + suffix.substring(0, 8));
         user.setEmail("checkout-settlement-" + suffix + "@example.test");
         user.setHashedPassword("not-used-by-this-test");
         user.setActive(true);
