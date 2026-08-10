@@ -89,9 +89,9 @@ jobs:
       - name: Resolve Maven dependencies for offline verification
         run: |
           ./mvnw -B -DskipTests dependency:go-offline
-          # go-offline misses annotationProcessorPaths and Surefire's runtime-selected provider.
-          # Enter the test lifecycle to resolve both, but execute no test code while online.
-          ./mvnw -B -DskipTests=true test
+          # go-offline misses annotationProcessorPaths and the configured provider's runtime closure.
+          # This pure contract test uses no Spring context, database, or external provider client.
+          ./mvnw -B -DskipTests=false -Dtest=MavenVerificationContractTest test
 
       - name: Ensure network namespace tools are available
         run: |

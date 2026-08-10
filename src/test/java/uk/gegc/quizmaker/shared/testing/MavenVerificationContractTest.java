@@ -90,7 +90,8 @@ class MavenVerificationContractTest {
         String mysqlTestProperties = Files.readString(
                 projectDirectory().resolve("src/test/resources/application-test-mysql.properties")
         );
-        String mavenRuntimeWarmup = "./mvnw -B -DskipTests=true test";
+        String mavenRuntimeWarmup =
+                "./mvnw -B -DskipTests=false -Dtest=MavenVerificationContractTest test";
         String isolatedVerification = "./mvnw -o -B -T 1C -DskipTests=false clean verify";
 
         assertThat(workflow)
@@ -112,7 +113,7 @@ class MavenVerificationContractTest {
                 .contains("PROVIDER_CLASS=$(basename \"$PROVIDER_SOURCE\" .java)")
                 .contains("Live-provider suite reports were produced during default verification")
                 .contains("Maven/build failures before Surefire")
-                .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests");
+                .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests", "-DskipTests=true test");
         assertThat(workflow.indexOf(mavenRuntimeWarmup))
                 .isLessThan(workflow.indexOf(isolatedVerification));
         assertThat(testProperties).contains("billing.pack-sync.enabled=false");
