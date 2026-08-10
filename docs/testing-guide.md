@@ -78,8 +78,10 @@ Use a real test database for custom queries and persistence invariants.
 
 - Assert owner/tenant scoping, pagination ordering, soft-delete filtering, and null behavior.
 - Test unique constraints, optimistic locking, and migration-backed invariants when they protect data integrity.
-- Test fetch plans where an endpoint needs relationships. Avoid claiming that N+1 is fixed without observing the relevant query behavior.
+- Test fetch plans where an endpoint needs relationships. Use multiple parent rows and observe generated SQL or assert a bounded query count; the count must not increase linearly with parent count. Avoid claiming that N+1 is fixed from a functional assertion or annotation alone.
 - Prefer deterministic fixtures and explicit ordering. Tests must not depend on execution order or left-over data.
+
+Before task handoff, repeat this N+1 check for every touched JPA-backed list, aggregate, mapper, and serialization path. Record the command/test and result, or state that N+1 is not applicable because no relationship-loading read path changed.
 
 ## Integration Tests
 

@@ -27,6 +27,8 @@ shared/
 
 - **JPA discipline:** default LAZY; avoid N+1 with JOIN FETCH or `@EntityGraph`; page large reads; prefer projections for list views.
 
+- **Large-document versioning:** never read and hash complete document bytes or extracted text for version control or routine version comparison. Use a persisted version, immutable revision ID, storage generation/ETag, or a checksum computed once during ingestion and then reused.
+
 - **Concurrency:** add `@Version` for optimistic locking where concurrent writes happen.
 
 - **Method security:** guard sensitive use-cases with `@PreAuthorize` on service methods. Keep expressions readable.
@@ -345,7 +347,9 @@ Choose Slice when counts are unnecessary (cheaper than Page).
 
 Stream long responses via ResponseBodyEmitter/SseEmitter.
 
-Before merging a new list or aggregate query, inspect SQL or write a repository test for N+1 behaviour, correct indexes, bounded result size, stable ordering, and the query plan where the data volume warrants it. Cache only read-mostly values with a clear invalidation rule.
+Before declaring a task complete, inspect every touched list, aggregate, mapper, and serialization path for N+1 behaviour. Use a realistic multi-row fixture and observe generated SQL or assert a bounded query count; query count must not grow with the number of parent rows. The presence of JOIN FETCH, `@EntityGraph`, or batch configuration is not sufficient evidence by itself. Also check correct indexes, bounded result size, stable ordering, and the query plan where the data volume warrants it. Record the verification evidence in the handoff, or state why N+1 is not applicable. Cache only read-mostly values with a clear invalidation rule.
+
+For document version control, optimistic concurrency, and routine version comparisons, never calculate a digest by rereading the full stored document or all extracted text. Documents can be very large, so repeated full-content hashing can block a request for minutes or hours. Prefer a persisted version counter, immutable revision ID, storage generation/ETag, or trusted checksum already produced once while the upload was streaming. A feature that genuinely needs content integrity or idempotency may reuse such a persisted digest, but must not synchronously rehash the document on read, save, publish, or completion paths.
 
 ## 11) Logging (code snippets)
 
@@ -432,7 +436,7 @@ class QuizAuditService {
 ### Repository
 
 - [ ] No business logic; queries clear and covered by tests.
-- [ ] N+1 removed (JOIN FETCH/`@EntityGraph`).
+- [ ] Every touched relationship-loading path was checked with multiple parent rows; observed or asserted query count stays bounded and does not grow linearly.
 - [ ] Projections for list endpoints.
 
 ### Entities
@@ -446,6 +450,7 @@ class QuizAuditService {
 - [ ] No PII in logs; parameterized logging.
 - [ ] No Optional in fields/params (return types only).
 - [ ] Code does not rely on OSIV behavior.
+- [ ] Document version checks use bounded persisted metadata and never synchronously hash complete document content.
 - [ ] OpenAPI group, typed schemas, valid examples, and ProblemDetail responses are accurate.
 - [ ] Authorization includes applicable permission, ownership, visibility, and organization checks.
 
