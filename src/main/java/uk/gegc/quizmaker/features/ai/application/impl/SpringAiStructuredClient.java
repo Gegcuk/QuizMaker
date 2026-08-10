@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,8 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
+import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
@@ -27,6 +30,7 @@ import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.ResponseFormat;
@@ -91,6 +95,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             
             try {
                 return attemptGeneration(request);
+            } catch (ProviderUsagePersistenceException exception) {
+                throw exception;
             } catch (Exception e) {
                 if (isRateLimitError(e) && retryCount < maxRetries - 1) {
                     long delayMs = calculateBackoffDelay(retryCount);
@@ -136,6 +142,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     .difficulty(request.getDifficulty())
                     .language(request.getLanguage())
                     .metadata(request.getMetadata())
+                    .cancellationChecker(request.getCancellationChecker())
+                    .providerUsageObserver(request.getProviderUsageObserver())
                     .build();
             
             try {
@@ -143,6 +151,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 allQuestions.addAll(response.getQuestions());
                 allWarnings.addAll(response.getWarnings());
                 totalTokens += response.getTokensUsed();
+            } catch (ProviderUsagePersistenceException exception) {
+                throw exception;
             } catch (Exception e) {
                 log.warn("Failed to regenerate type {}: {}", missingType, e.getMessage());
                 allWarnings.add("Failed to regenerate " + missingType + ": " + e.getMessage());
@@ -181,6 +191,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
      * Attempt to generate questions with structured output
      */
     private StructuredQuestionResponse attemptGeneration(StructuredQuestionRequest request) {
+        UUID providerAttemptId = UUID.randomUUID();
+
         // Build prompt using existing template service
         String userPrompt = promptTemplateService.buildPromptForChunk(
                 request.getChunkContent(),
@@ -228,6 +240,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         ChatResponse response = chatClient.prompt(prompt)
                 .call()
                 .chatResponse();
+
+        observeProviderUsage(request, providerAttemptId, response);
         
         if (response == null || response.getResult() == null) {
             throw new AiServiceException("No response received from AI service");
@@ -267,6 +281,24 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 structuredResponse.getQuestions().size(), request.getQuestionType());
         
         return structuredResponse;
+    }
+
+    private void observeProviderUsage(
+            StructuredQuestionRequest request,
+            UUID providerAttemptId,
+            ChatResponse response
+    ) {
+        if (request.getProviderUsageObserver() == null) {
+            return;
+        }
+        var usage = response != null && response.getMetadata() != null
+                ? response.getMetadata().getUsage()
+                : null;
+        Long providerLlmTokens = usage != null && !(usage instanceof EmptyUsage)
+                ? Long.valueOf(usage.getTotalTokens())
+                : null;
+        request.getProviderUsageObserver().accept(
+                new ProviderUsageObservation(providerAttemptId, providerLlmTokens));
     }
 
     private OpenAiChatOptions buildChatOptions(QuestionType questionType, JsonNode schema) {

@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
 import java.time.LocalDateTime;
@@ -79,7 +80,10 @@ public record QuizGenerationStatus(
         Long inputPromptTokens,
 
         @Schema(description = "Estimation version", example = "v1.0", accessMode = Schema.AccessMode.READ_ONLY)
-        String estimationVersion
+        String estimationVersion,
+
+        @Schema(description = "Completeness of provider usage telemetry. This does not determine the customer charge.", example = "COMPLETE", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
+        ProviderUsageState providerUsageState
 ) {
 
     /**
@@ -118,7 +122,8 @@ public record QuizGenerationStatus(
                 includeBillingFields ? job.getBillingCommittedTokens() : null,
                 includeBillingFields && job.getBillingState() != null ? job.getBillingState().name() : null,
                 includeBillingFields ? job.getInputPromptTokens() : null,
-                includeBillingFields ? job.getEstimationVersion() : null
+                includeBillingFields ? job.getEstimationVersion() : null,
+                includeBillingFields ? job.getProviderUsageState() : null
         );
     }
 

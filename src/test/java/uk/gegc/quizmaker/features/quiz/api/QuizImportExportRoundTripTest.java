@@ -77,7 +77,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves quiz metadata")
     void roundTrip_json_preservesQuizMetadata() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithMetadata(user, "Round Trip Test Quiz");
         // Reload original with eager loading to avoid LazyInitializationException
         Quiz originalLoaded = quizRepository.findByIdIn(List.of(original.getId())).stream()
@@ -107,7 +107,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves questions")
     void roundTrip_json_preservesQuestions() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Questions Test Quiz", 3);
 
         // Export
@@ -124,7 +124,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves question order")
     void roundTrip_json_preservesQuestionOrder() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithOrderedQuestions(user, "Order Test Quiz", 
                 List.of("Question 1", "Question 2", "Question 3"));
 
@@ -160,7 +160,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves question content")
     void roundTrip_json_preservesContent() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         
         // Create MCQ question with specific content
         ObjectNode mcqContent = objectMapper.createObjectNode();
@@ -203,7 +203,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves attachments")
     void roundTrip_json_preservesAttachments() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         String attachmentUrl = "https://cdn.quizzence.com/test-image.png";
         
         Quiz original = createQuizWithAttachment(user, "Attachment Test Quiz", attachmentUrl);
@@ -230,7 +230,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: strips enriched media fields")
     void roundTrip_json_stripsEnrichedMediaFields() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         
         // Create content with enriched media fields (cdnUrl, width, height, mimeType)
         ObjectNode mcqContent = objectMapper.createObjectNode();
@@ -312,7 +312,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON: preserves assetIds")
     void roundTrip_json_preservesAssetIds() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         UUID assetId = UUID.randomUUID();
         
         // Create content with media assetId
@@ -380,7 +380,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip XLSX: preserves quiz metadata")
     void roundTrip_xlsx_preservesQuizMetadata() throws Exception {
-        User user = createUserWithPermissions("roundtrip_xlsx_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_xlsx_user_"));
         Quiz original = createQuizWithMetadata(user, "XLSX Test Quiz");
 
         // Export to XLSX
@@ -412,7 +412,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip XLSX: preserves supported question types")
     void roundTrip_xlsx_preservesSupportedQuestionTypes() throws Exception {
-        User user = createUserWithPermissions("roundtrip_xlsx_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_xlsx_user_"));
         
         // Create quiz with different supported question types
         Quiz quiz = createQuizWithMetadata(user, "XLSX Question Types Quiz");
@@ -481,7 +481,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip XLSX: documents MATCHING/HOTSPOT limitations")
     void roundTrip_xlsx_documentedLimitations() throws Exception {
-        User user = createUserWithPermissions("roundtrip_xlsx_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_xlsx_user_"));
         Quiz quiz = createQuizWithMetadata(user, "XLSX Limitations Test Quiz");
         
         // Create a quiz with MATCHING question (not supported in XLSX)
@@ -550,7 +550,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip multiple quizzes: preserves all")
     void roundTrip_multipleQuizzes_preservesAll() throws Exception {
-        User user = createUserWithPermissions("roundtrip_multi_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_multi_user_"));
         
         Quiz quiz1 = createQuizWithMetadata(user, "Multi Quiz 1");
         Quiz quiz2 = createQuizWithMetadata(user, "Multi Quiz 2");
@@ -577,7 +577,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip multiple quizzes: preserves order")
     void roundTrip_multipleQuizzes_preservesOrder() throws Exception {
-        User user = createUserWithPermissions("roundtrip_multi_order_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_multi_order_user_"));
         
         Quiz quiz1 = createQuizWithMetadata(user, "Order Quiz 1");
         Quiz quiz2 = createQuizWithMetadata(user, "Order Quiz 2");
@@ -616,7 +616,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip MCQ: preserves options")
     void roundTrip_mcq_preservesOptions() throws Exception {
-        User user = createUserWithPermissions("roundtrip_mcq_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_mcq_user_"));
         
         // Create MCQ with specific options
         ObjectNode mcqContent = objectMapper.createObjectNode();
@@ -660,7 +660,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip TRUE_FALSE: preserves content")
     void roundTrip_trueFalse_preservesContent() throws Exception {
-        User user = createUserWithPermissions("roundtrip_tf_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_tf_user_"));
         
         // Create TRUE_FALSE with answer
         ObjectNode trueFalseContent = objectMapper.createObjectNode();
@@ -685,7 +685,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip OPEN: preserves content")
     void roundTrip_open_preservesContent() throws Exception {
-        User user = createUserWithPermissions("roundtrip_open_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_open_user_"));
         
         // Create OPEN with answer
         ObjectNode openContent = objectMapper.createObjectNode();
@@ -710,7 +710,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip FILL_GAP: preserves gaps")
     void roundTrip_fillGap_preservesGaps() throws Exception {
-        User user = createUserWithPermissions("roundtrip_fillgap_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_fillgap_user_"));
         
         // Create FILL_GAP with text and gaps
         ObjectNode fillGapContent = objectMapper.createObjectNode();
@@ -758,7 +758,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip ORDERING: preserves correctOrder")
     void roundTrip_ordering_preservesCorrectOrder() throws Exception {
-        User user = createUserWithPermissions("roundtrip_ordering_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_ordering_user_"));
         
         // Create ORDERING with items (items will be shuffled during export)
         ObjectNode orderingContent = objectMapper.createObjectNode();
@@ -828,7 +828,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip COMPLIANCE: preserves statements")
     void roundTrip_compliance_preservesStatements() throws Exception {
-        User user = createUserWithPermissions("roundtrip_compliance_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_compliance_user_"));
         
         // Create COMPLIANCE with statements
         ObjectNode complianceContent = objectMapper.createObjectNode();
@@ -1045,6 +1045,10 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         return userRepository.save(user);
     }
 
+    private static String uniqueUsername(String prefix) {
+        return prefix + UUID.randomUUID().toString().substring(0, 8);
+    }
+
     private Quiz createQuizWithMetadata(User user, String title) {
         Category category = categoryRepository.findById(quizDefaultsProperties.getDefaultCategoryId())
                 .orElseThrow(() -> new IllegalStateException("Default category not found"));
@@ -1192,7 +1196,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip JSON to XLSX: preserves quiz data")
     void roundTrip_jsonToXlsx_preservesQuizData() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "JSON to XLSX Quiz", 2);
 
         byte[] exportedJson = exportQuiz(user, original.getId());
@@ -1209,7 +1213,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip XLSX to JSON: preserves quiz data")
     void roundTrip_xlsxToJson_preservesQuizData() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "XLSX to JSON Quiz", 2);
 
         byte[] exportedXlsx = exportQuizXlsx(user, original.getId());
@@ -1226,7 +1230,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip multiple cycles: preserves data integrity")
     void roundTrip_multipleCycles_preservesDataIntegrity() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Multiple Cycles Quiz", 3);
 
         UUID currentId = original.getId();
@@ -1243,7 +1247,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with UPSERT_BY_ID: updates existing quiz")
     void roundTrip_upsertById_updatesExistingQuiz() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Original Quiz", 2);
         UUID originalId = original.getId();
 
@@ -1274,7 +1278,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with UPSERT_BY_CONTENT_HASH: updates existing quiz")
     void roundTrip_upsertByContentHash_updatesExistingQuiz() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Content Hash Quiz", 2);
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1315,7 +1319,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with SKIP_ON_DUPLICATE: skips existing quiz")
     void roundTrip_skipOnDuplicate_skipsExistingQuiz() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Skip Duplicate Quiz", 2);
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1346,7 +1350,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with schema version 1: preserves data")
     void roundTrip_schemaVersion1_preservesData() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Schema V1 Quiz", 2);
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1365,7 +1369,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with explicit schema version: handles correctly")
     void roundTrip_explicitSchemaVersion_handlesCorrectly() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithQuestions(user, "Explicit Schema Quiz", 2);
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1381,7 +1385,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with null questions: handles gracefully")
     void roundTrip_nullQuestions_handlesGracefully() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithMetadata(user, "Null Questions Quiz");
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1398,7 +1402,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with empty questions array: handles gracefully")
     void roundTrip_emptyQuestionsArray_handlesGracefully() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithMetadata(user, "Empty Questions Quiz");
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1415,7 +1419,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip with null tags: handles gracefully")
     void roundTrip_nullTags_handlesGracefully() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithMetadata(user, "Null Tags Quiz");
 
         byte[] exported = exportQuiz(user, original.getId());
@@ -1435,7 +1439,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip preserves question hint and explanation")
     void roundTrip_preservesQuestionHintAndExplanation() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz quiz = createQuizWithMetadata(user, "Hint Explanation Quiz");
         Question question = createMcqQuestion("Question with hint");
         question.setHint("Test hint");
@@ -1457,7 +1461,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip preserves question difficulty")
     void roundTrip_preservesQuestionDifficulty() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz quiz = createQuizWithMetadata(user, "Difficulty Quiz");
         Question question = createMcqQuestion("Hard question");
         question.setDifficulty(Difficulty.HARD);
@@ -1477,7 +1481,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip preserves quiz visibility")
     void roundTrip_preservesQuizVisibility() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz originalQuiz = createQuizWithMetadata(user, "Visibility Quiz");
         originalQuiz.setVisibility(Visibility.PUBLIC);
         Quiz savedOriginal = quizRepository.save(originalQuiz);
@@ -1524,7 +1528,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @Test
     @DisplayName("roundTrip preserves quiz difficulty")
     void roundTrip_preservesQuizDifficulty() throws Exception {
-        User user = createUserWithPermissions("roundtrip_user_" + UUID.randomUUID());
+        User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
         Quiz original = createQuizWithMetadata(user, "Difficulty Quiz");
         original.setDifficulty(Difficulty.HARD);
         original = quizRepository.save(original);

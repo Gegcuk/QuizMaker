@@ -722,6 +722,13 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                             .distinct()
                             .count();
         boolean usesTariffSnapshot = lockedJob.hasGenerationTariffSnapshot();
+        if (!usesTariffSnapshot && lockedJob.requiresLegacyMeteringReview()) {
+            throw new InvalidJobStateForCommitException(
+                    jobId,
+                    lockedJob.getBillingState(),
+                    "Legacy active job has no complete tariff snapshot and requires reconciliation review"
+            );
+        }
         long actualBillingTokens;
         long tokensToCommit;
         boolean wasCapped;

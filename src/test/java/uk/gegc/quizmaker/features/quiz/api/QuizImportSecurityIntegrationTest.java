@@ -91,7 +91,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: authenticated succeeds")
     void importQuizzes_authenticated_succeeds() throws Exception {
-        User user = createUserWithPermission("auth_user_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("auth_user_"));
         QuizImportDto quiz = buildQuiz(null, "Test Quiz", List.of());
         String payload = objectMapper.writeValueAsString(List.of(quiz));
         MockMultipartFile file = new MockMultipartFile(
@@ -116,7 +116,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @DisplayName("importQuizzes: without QUIZ_CREATE returns 403")
     void importQuizzes_withoutQuizCreate_returns403() throws Exception {
         // Create user without QUIZ_CREATE permission
-        User user = createUserWithoutQuizCreatePermission("no_permission_user_" + UUID.randomUUID());
+        User user = createUserWithoutQuizCreatePermission(uniqueUsername("no_permission_user_"));
         QuizImportDto quiz = buildQuiz(null, "Test Quiz", List.of());
         String payload = objectMapper.writeValueAsString(List.of(quiz));
         MockMultipartFile file = new MockMultipartFile(
@@ -139,7 +139,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: with QUIZ_CREATE succeeds")
     void importQuizzes_withQuizCreate_succeeds() throws Exception {
-        User user = createUserWithPermission("with_permission_user_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("with_permission_user_"));
         QuizImportDto quiz = buildQuiz(null, "Test Quiz", List.of());
         String payload = objectMapper.writeValueAsString(List.of(quiz));
         MockMultipartFile file = new MockMultipartFile(
@@ -164,7 +164,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @DisplayName("importQuizzes: PUBLIC visibility requires QUIZ_MODERATE")
     void importQuizzes_publicVisibility_requiresModerate() throws Exception {
         // Create user with QUIZ_CREATE and QUIZ_MODERATE permissions
-        User user = createUserWithModeratePermission("moderate_user_" + UUID.randomUUID());
+        User user = createUserWithModeratePermission(uniqueUsername("moderate_user_"));
         QuizImportDto quiz = new QuizImportDto(
                 null,
                 null,
@@ -204,7 +204,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @DisplayName("importQuizzes: PUBLIC visibility without QUIZ_MODERATE returns 403")
     void importQuizzes_publicVisibility_withoutModerate_returns403() throws Exception {
         // Create user with QUIZ_CREATE but not QUIZ_MODERATE
-        User user = createUserWithPermission("create_only_user_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("create_only_user_"));
         QuizImportDto quiz = new QuizImportDto(
                 null,
                 null,
@@ -328,10 +328,14 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
         return userRepository.save(user);
     }
 
+    private static String uniqueUsername(String prefix) {
+        return prefix + UUID.randomUUID().toString().substring(0, 8);
+    }
+
     @Test
     @DisplayName("importQuizzes: UPSERT_BY_ID with owned quiz updates")
     void importQuizzes_upsertById_ownedQuiz_updates() throws Exception {
-        User owner = createUserWithPermission("owner_user_" + UUID.randomUUID());
+        User owner = createUserWithPermission(uniqueUsername("owner_user_"));
         // Create an existing quiz owned by the user
         Quiz existingQuiz = createQuiz(owner, "Original Title");
 
@@ -362,8 +366,8 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: UPSERT_BY_ID with unowned quiz returns error")
     void importQuizzes_upsertById_unownedQuiz_returns403() throws Exception {
-        User owner = createUserWithPermission("owner_user_" + UUID.randomUUID());
-        User otherUser = createUserWithPermission("other_user_" + UUID.randomUUID());
+        User owner = createUserWithPermission(uniqueUsername("owner_user_"));
+        User otherUser = createUserWithPermission(uniqueUsername("other_user_"));
         // Create quiz owned by another user
         Quiz existingQuiz = createQuiz(owner, "Owned Quiz");
 
@@ -392,8 +396,8 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: UPSERT_BY_ID with QUIZ_MODERATE updates any quiz")
     void importQuizzes_upsertById_withModerate_updatesAny() throws Exception {
-        User owner = createUserWithPermission("owner_user_" + UUID.randomUUID());
-        User moderator = createUserWithModeratePermission("moderator_user_" + UUID.randomUUID());
+        User owner = createUserWithPermission(uniqueUsername("owner_user_"));
+        User moderator = createUserWithModeratePermission(uniqueUsername("moderator_user_"));
         // Create quiz owned by another user
         Quiz existingQuiz = createQuiz(owner, "Owned Quiz");
 
@@ -426,7 +430,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: creator always set to authenticated user")
     void importQuizzes_creatorSetToAuthenticatedUser() throws Exception {
-        User user = createUserWithPermission("creator_user_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("creator_user_"));
         QuizImportDto quiz = buildQuiz(null, "New Quiz", List.of());
         // Set creatorId in DTO to something else - should be ignored
         quiz = new QuizImportDto(
@@ -470,7 +474,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: non-moderator with PRIVATE visibility sets DRAFT")
     void importQuizzes_nonModerator_privateVisibility_setsDraft() throws Exception {
-        User user = createUserWithPermission("non_moderator_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("non_moderator_"));
         QuizImportDto quiz = new QuizImportDto(
                 null, null, "Private Quiz", "Description", Visibility.PRIVATE, Difficulty.EASY, 10,
                 null, null, null, List.of(), null, null
@@ -502,7 +506,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: moderator can set PUBLIC")
     void importQuizzes_moderator_canSetPublic() throws Exception {
-        User moderator = createUserWithModeratePermission("moderator_" + UUID.randomUUID());
+        User moderator = createUserWithModeratePermission(uniqueUsername("moderator_"));
         QuizImportDto quiz = new QuizImportDto(
                 null, null, "Public Quiz", "Description", Visibility.PUBLIC, Difficulty.EASY, 10,
                 null, null, null, List.of(), null, null
@@ -533,7 +537,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: moderator PUBLIC sets status to PUBLISHED")
     void importQuizzes_moderator_publicSetsPublished() throws Exception {
-        User moderator = createUserWithModeratePermission("moderator_" + UUID.randomUUID());
+        User moderator = createUserWithModeratePermission(uniqueUsername("moderator_"));
         QuizImportDto quiz = new QuizImportDto(
                 null, null, "Public Quiz", "Description", Visibility.PUBLIC, Difficulty.EASY, 10,
                 null, null, null, List.of(), null, null
@@ -585,7 +589,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: QUIZ_ADMIN can import quizzes")
     void importQuizzes_quizAdmin_canImport() throws Exception {
-        User admin = createUserWithAdminPermission("admin_user_" + UUID.randomUUID());
+        User admin = createUserWithAdminPermission(uniqueUsername("admin_user_"));
         QuizImportDto quiz = buildQuiz(null, "Admin Quiz", List.of());
 
         String payload = objectMapper.writeValueAsString(List.of(quiz));
@@ -608,7 +612,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: QUIZ_ADMIN can set PUBLIC visibility")
     void importQuizzes_quizAdmin_canSetPublic() throws Exception {
-        User admin = createUserWithAdminPermission("admin_user_" + UUID.randomUUID());
+        User admin = createUserWithAdminPermission(uniqueUsername("admin_user_"));
         QuizImportDto quiz = new QuizImportDto(
                 null, null, "Admin Public Quiz", "Description", Visibility.PUBLIC, Difficulty.EASY, 10,
                 null, null, null, List.of(), null, null
@@ -639,7 +643,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: non-moderator PUBLIC visibility reset to PRIVATE")
     void importQuizzes_nonModerator_publicVisibility_resetToPrivate() throws Exception {
-        User user = createUserWithPermission("non_moderator_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("non_moderator_"));
         QuizImportDto quiz = new QuizImportDto(
                 null, null, "Public Quiz", "Description", Visibility.PUBLIC, Difficulty.EASY, 10,
                 null, null, null, List.of(), null, null
@@ -683,7 +687,7 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: non-moderator PENDING_REVIEW status reset to DRAFT on update")
     void importQuizzes_nonModerator_pendingReview_resetToDraft() throws Exception {
-        User user = createUserWithPermission("non_moderator_" + UUID.randomUUID());
+        User user = createUserWithPermission(uniqueUsername("non_moderator_"));
         Quiz existing = createQuiz(user, "Existing Quiz");
         existing.setStatus(QuizStatus.PENDING_REVIEW);
         existing = quizRepository.save(existing);
@@ -713,8 +717,8 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: UPSERT_BY_CONTENT_HASH scoped to creator")
     void importQuizzes_upsertByContentHash_requiresOwnershipOrModeration() throws Exception {
-        User owner = createUserWithPermission("owner_user_" + UUID.randomUUID());
-        User otherUser = createUserWithPermission("other_user_" + UUID.randomUUID());
+        User owner = createUserWithPermission(uniqueUsername("owner_user_"));
+        User otherUser = createUserWithPermission(uniqueUsername("other_user_"));
         
         // Create quiz with same content for both users
         QuizImportDto quiz = buildQuiz(null, "Same Content Quiz", List.of());
@@ -755,8 +759,8 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: SKIP_ON_DUPLICATE scoped to creator")
     void importQuizzes_skipOnDuplicate_scopedToCreator() throws Exception {
-        User user1 = createUserWithPermission("user1_" + UUID.randomUUID());
-        User user2 = createUserWithPermission("user2_" + UUID.randomUUID());
+        User user1 = createUserWithPermission(uniqueUsername("user1_"));
+        User user2 = createUserWithPermission(uniqueUsername("user2_"));
         Quiz existing = createQuiz(user1, "User1 Quiz");
 
         // Create same quiz content for user2
@@ -790,8 +794,8 @@ class QuizImportSecurityIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("importQuizzes: UPSERT_BY_ID with QUIZ_ADMIN updates any quiz")
     void importQuizzes_upsertById_withAdmin_updatesAny() throws Exception {
-        User owner = createUserWithPermission("owner_user_" + UUID.randomUUID());
-        User admin = createUserWithAdminPermission("admin_user_" + UUID.randomUUID());
+        User owner = createUserWithPermission(uniqueUsername("owner_user_"));
+        User admin = createUserWithAdminPermission(uniqueUsername("admin_user_"));
         Quiz existing = createQuiz(owner, "Owned Quiz");
 
         QuizImportDto updateDto = buildQuiz(existing.getId(), "Updated by Admin", List.of());

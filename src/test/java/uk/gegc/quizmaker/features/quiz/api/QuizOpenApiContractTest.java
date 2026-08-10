@@ -40,6 +40,7 @@ import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -150,6 +151,13 @@ class QuizOpenApiContractTest {
                 .contains("PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/description").asText())
                 .contains("durably finalized");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/providerUsageState/description").asText())
+                .contains("does not determine the customer charge");
+        List<String> providerUsageStates = new ArrayList<>();
+        specification.at("/components/schemas/QuizGenerationStatus/properties/providerUsageState/enum")
+                .forEach(value -> providerUsageStates.add(value.asText()));
+        assertThat(providerUsageStates)
+                .containsExactly("NOT_RECORDED", "COMPLETE", "INCOMPLETE", "LEGACY_REVIEW");
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generated-quiz~1{jobId}/get/description").asText())
                 .contains("billing settlement");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/terminal/description").asText())
