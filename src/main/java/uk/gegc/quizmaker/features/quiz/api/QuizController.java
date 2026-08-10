@@ -705,8 +705,8 @@ public class QuizController {
             description = "Upload a PDF, EPUB, or UTF-8 text document, process it, and start quiz generation in one operation. "
                     + "The server streams the upload into bounded staging and verifies the staged content bytes; a filename and multipart content type alone never determine the accepted type. "
                     + "Client-extracted selected text is supported when sent as UTF-8 text with a .txt or .text filename. "
-                    + "Reuse the same Idempotency-Key only for a retry of the same upload command; changing material settings with the same key returns 409. "
-                    + "The raw upload is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
+                    + "Reuse the same Idempotency-Key only for a retry of the same upload command; the actual file bytes and material settings are bound to the key, so a different same-size file returns 409. "
+                    + "The raw upload is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -790,7 +790,7 @@ public class QuizController {
             @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
             @RequestParam(value = "language", required = false) String language,
             @Parameter(
-                    description = "Optional opaque retry key, 1-128 characters. Reuse only for the same upload command.",
+                    description = "Optional opaque retry key, 1-128 characters. Reuse only for byte-identical upload content and the same generation settings.",
                     schema = @Schema(minLength = 1, maxLength = 128),
                     example = "ios-quiz-upload-7d9bf2f0-4e62-4d90-b3e2-2b33a4d3cd21"
             )
@@ -831,7 +831,7 @@ public class QuizController {
 
     @Operation(
             summary = "Generate quiz from plain text (Async)",
-            description = "Generate a quiz from plain text in one operation. Reuse the same Idempotency-Key only for a retry of the same command; material setting changes with the same key return 409. Text content is never stored in idempotency metadata. Requires QUIZ_CREATE permission.",
+            description = "Generate a quiz from plain text in one operation. Reuse the same Idempotency-Key only for a retry with identical text and generation settings; different same-length text returns 409. Raw text is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -888,7 +888,7 @@ public class QuizController {
     public ResponseEntity<QuizGenerationResponse> generateQuizFromText(
             @RequestBody @Valid GenerateQuizFromTextRequest request,
             @Parameter(
-                    description = "Optional opaque retry key, 1-128 characters. Reuse only for the same text-generation command.",
+                    description = "Optional opaque retry key, 1-128 characters. Reuse only for identical text and the same generation settings.",
                     schema = @Schema(minLength = 1, maxLength = 128),
                     example = "ios-quiz-text-7d9bf2f0-4e62-4d90-b3e2-2b33a4d3cd21"
             )

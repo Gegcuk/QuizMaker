@@ -293,7 +293,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
             try {
                 // The operation is owned by this user; the source document must be as well.
                 documentProcessingService.getDocumentById(request.documentId(), ownerUsername);
-                EstimationDto estimation = estimationService.estimateQuizGeneration(request.documentId(), request);
+                EstimationDto estimation = estimateQuizGeneration(operation, request);
                 long estimatedTokens = estimation.estimatedBillingTokens();
 
                 log.info("Estimated {} billing tokens for quiz generation for user {}", estimatedTokens, ownerUsername);
@@ -396,6 +396,49 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 estimation.billingTokensPerThousandCharacters(),
                 estimation.quotedContentCharacters(),
                 estimation.quotedQuestionTypeCount()
+        );
+    }
+
+    private EstimationDto estimateQuizGeneration(
+            QuizGenerationOperation operation,
+            GenerateQuizFromDocumentRequest request
+    ) {
+        EstimationDto currentEstimate = estimationService.estimateQuizGeneration(request.documentId(), request);
+        if (!operation.hasGenerationTariffSnapshot()) {
+            return currentEstimate;
+        }
+        if (currentEstimate.quotedContentCharacters() == null
+                || currentEstimate.quotedQuestionTypeCount() == null) {
+            throw new GenerationOperationInconsistentException(
+                    "The generation tariff snapshot cannot be applied. Retry with a new Idempotency-Key.");
+        }
+
+        GenerationTariff tariff = generationTariffService.fromSnapshot(
+                operation.getBillingTariffVersion(),
+                operation.getBillingBaseTokens(),
+                operation.getBillingTokensPerThousandCharacters()
+        );
+        long maximumBillingTokens = tariff.quoteForContent(
+                currentEstimate.quotedContentCharacters(),
+                currentEstimate.quotedQuestionTypeCount()
+        );
+        return new EstimationDto(
+                currentEstimate.estimatedLlmTokens(),
+                maximumBillingTokens,
+                currentEstimate.approxCostCents(),
+                currentEstimate.currency(),
+                currentEstimate.estimate(),
+                EstimationDto.createHumanizedEstimate(
+                        maximumBillingTokens,
+                        currentEstimate.quotedContentCharacters(),
+                        currentEstimate.quotedQuestionTypeCount()
+                ),
+                currentEstimate.estimationId(),
+                tariff.version(),
+                tariff.baseTokens(),
+                tariff.tokensPerThousandCharacters(),
+                currentEstimate.quotedContentCharacters(),
+                currentEstimate.quotedQuestionTypeCount()
         );
     }
 

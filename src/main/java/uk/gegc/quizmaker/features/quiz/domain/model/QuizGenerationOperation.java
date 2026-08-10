@@ -14,6 +14,7 @@ import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -56,6 +57,15 @@ public class QuizGenerationOperation {
 
     @Column(name = "canonicalization_version", nullable = false, updatable = false, length = 16)
     private String canonicalizationVersion;
+
+    @Column(name = "billing_tariff_version", updatable = false, length = 128)
+    private String billingTariffVersion;
+
+    @Column(name = "billing_base_tokens", updatable = false)
+    private Long billingBaseTokens;
+
+    @Column(name = "billing_tokens_per_thousand_characters", updatable = false, precision = 19, scale = 6)
+    private BigDecimal billingTokensPerThousandCharacters;
 
     @Column(name = "legacy_key", nullable = false)
     private boolean legacyKey;
@@ -121,6 +131,37 @@ public class QuizGenerationOperation {
 
     public boolean hasSourceDocument() {
         return sourceDocumentId != null;
+    }
+
+    public boolean hasGenerationTariffSnapshot() {
+        return billingTariffVersion != null
+                && !billingTariffVersion.isBlank()
+                && billingBaseTokens != null
+                && billingTokensPerThousandCharacters != null;
+    }
+
+    public void captureGenerationTariffSnapshot(
+            String tariffVersion,
+            long baseTokens,
+            BigDecimal tokensPerThousandCharacters
+    ) {
+        if (billingTariffVersion != null
+                || billingBaseTokens != null
+                || billingTokensPerThousandCharacters != null) {
+            throw new IllegalStateException("Generation tariff snapshot is immutable once captured");
+        }
+        if (tariffVersion == null || tariffVersion.isBlank()) {
+            throw new IllegalArgumentException("tariffVersion must not be blank");
+        }
+        if (baseTokens < 0L) {
+            throw new IllegalArgumentException("baseTokens must not be negative");
+        }
+        if (tokensPerThousandCharacters == null || tokensPerThousandCharacters.signum() <= 0) {
+            throw new IllegalArgumentException("tokensPerThousandCharacters must be greater than zero");
+        }
+        this.billingTariffVersion = tariffVersion;
+        this.billingBaseTokens = baseTokens;
+        this.billingTokensPerThousandCharacters = tokensPerThousandCharacters;
     }
 
     public void beginSourceProcessing(LocalDateTime now) {

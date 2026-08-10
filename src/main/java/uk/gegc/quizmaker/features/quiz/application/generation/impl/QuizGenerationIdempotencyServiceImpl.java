@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariff;
+import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.domain.exception.IdempotencyConflictException;
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestFingerprint;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
@@ -27,10 +29,13 @@ public class QuizGenerationIdempotencyServiceImpl implements QuizGenerationIdemp
 
     private static final int RETENTION_DAYS = 30;
     private static final int SOURCE_PROCESSING_LEASE_MINUTES = 10;
+    private static final String LEGACY_METADATA_CANONICALIZATION_VERSION = "v1";
+    private static final String SOURCE_DIGEST_CANONICALIZATION_VERSION = "v2-source-digest";
 
     private final QuizGenerationOperationRepository operationRepository;
     private final PlatformTransactionManager transactionManager;
     private final Clock clock;
+    private final GenerationTariffService generationTariffService;
 
     @Override
     public QuizGenerationOperation claim(
@@ -152,6 +157,12 @@ public class QuizGenerationIdempotencyServiceImpl implements QuizGenerationIdemp
                             now,
                             now.plusDays(RETENTION_DAYS)
                     );
+                    GenerationTariff tariff = generationTariffService.currentTariff();
+                    operation.captureGenerationTariffSnapshot(
+                            tariff.version(),
+                            tariff.baseTokens(),
+                            tariff.tokensPerThousandCharacters()
+                    );
                     return operationRepository.saveAndFlush(operation);
                 });
     }
@@ -162,10 +173,22 @@ public class QuizGenerationIdempotencyServiceImpl implements QuizGenerationIdemp
     ) {
         if (!Objects.equals(existing.getCanonicalizationVersion(), fingerprint.canonicalizationVersion())
                 || !Objects.equals(existing.getRequestHash(), fingerprint.hash())) {
+            if (isSafeLegacyReplay(existing, fingerprint)) {
+                return existing;
+            }
             throw new IdempotencyConflictException(
                     "This Idempotency-Key was already used for a different quiz-generation request.");
         }
         return existing;
+    }
+
+    private boolean isSafeLegacyReplay(
+            QuizGenerationOperation existing,
+            GenerationRequestFingerprint fingerprint
+    ) {
+        return existing.hasStartedJob()
+                && LEGACY_METADATA_CANONICALIZATION_VERSION.equals(existing.getCanonicalizationVersion())
+                && SOURCE_DIGEST_CANONICALIZATION_VERSION.equals(fingerprint.canonicalizationVersion());
     }
 
     private TransactionTemplate requiresNew() {

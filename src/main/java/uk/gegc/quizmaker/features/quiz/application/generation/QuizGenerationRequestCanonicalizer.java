@@ -10,6 +10,9 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -20,8 +23,7 @@ import java.util.UUID;
 @Component
 public class QuizGenerationRequestCanonicalizer {
 
-    static final String CANONICALIZATION_VERSION = "v1";
-    static final String TARIFF_VERSION = "v1.0";
+    static final String CANONICALIZATION_VERSION = "v2-source-digest";
 
     private final ObjectMapper objectMapper;
 
@@ -38,15 +40,24 @@ public class QuizGenerationRequestCanonicalizer {
     public GenerationRequestFingerprint forUpload(GenerateQuizFromUploadRequest request, MultipartFile file) {
         Map<String, Object> command = baseCommand(request.toGenerateQuizFromDocumentRequest(UUID_PLACEHOLDER));
         command.put("documentProcessing", processingSettings(request.chunkingStrategy().name(), request.maxChunkSize()));
-        command.put("source", sourceMetadata("upload", file.getOriginalFilename(), file.getContentType(), file.getSize()));
+        command.put("source", sourceMetadata(
+                "upload",
+                file.getOriginalFilename(),
+                file.getContentType(),
+                file.getSize(),
+                uploadDigest(file)
+        ));
         return fingerprint(command);
     }
 
     public GenerationRequestFingerprint forText(GenerateQuizFromTextRequest request) {
         Map<String, Object> command = baseCommand(request.toGenerateQuizFromDocumentRequest(UUID_PLACEHOLDER));
         command.put("documentProcessing", processingSettings(request.chunkingStrategy().name(), request.maxChunkSize()));
-        // Text is intentionally not read, persisted, or hashed here. The client key identifies the source command.
-        command.put("source", Map.of("type", "text", "characterCount", request.text().length()));
+        command.put("source", Map.of(
+                "type", "text",
+                "characterCount", request.text().length(),
+                "contentSha256", sha256(request.text().getBytes(StandardCharsets.UTF_8))
+        ));
         return fingerprint(command);
     }
 
@@ -55,7 +66,6 @@ public class QuizGenerationRequestCanonicalizer {
     private Map<String, Object> baseCommand(GenerateQuizFromDocumentRequest request) {
         Map<String, Object> command = new TreeMap<>();
         command.put("canonicalizationVersion", CANONICALIZATION_VERSION);
-        command.put("tariffVersion", TARIFF_VERSION);
         command.put("scope", request.quizScope().name());
         command.put("chunkIndices", sortedIntegers(request.chunkIndices()));
         command.put("chapterTitle", normalizedText(request.chapterTitle()));
@@ -71,12 +81,19 @@ public class QuizGenerationRequestCanonicalizer {
         return command;
     }
 
-    private Map<String, Object> sourceMetadata(String sourceType, String filename, String contentType, long size) {
+    private Map<String, Object> sourceMetadata(
+            String sourceType,
+            String filename,
+            String contentType,
+            long size,
+            String contentSha256
+    ) {
         Map<String, Object> source = new TreeMap<>();
         source.put("type", sourceType);
         source.put("filename", normalizedText(filename));
         source.put("contentType", normalizedText(contentType));
         source.put("size", size);
+        source.put("contentSha256", contentSha256);
         return source;
     }
 
@@ -99,14 +116,34 @@ public class QuizGenerationRequestCanonicalizer {
     private String sha256(byte[] content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);
-            StringBuilder result = new StringBuilder(digest.length * 2);
-            for (byte value : digest) {
-                result.append(String.format("%02x", value));
-            }
-            return result.toString();
+            return toHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 must be available", exception);
         }
+    }
+
+    private String uploadDigest(MultipartFile file) {
+        try (InputStream inputStream = file.getInputStream()) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8_192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                digest.update(buffer, 0, bytesRead);
+            }
+            return toHex(digest.digest());
+        } catch (IOException exception) {
+            throw new ValidationException("Unable to read upload content for idempotency validation");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 must be available", exception);
+        }
+    }
+
+    private String toHex(byte[] digest) {
+        StringBuilder result = new StringBuilder(digest.length * 2);
+        for (byte value : digest) {
+            result.append(String.format("%02x", value));
+        }
+        return result.toString();
     }
 
     private List<Integer> sortedIntegers(List<Integer> values) {
