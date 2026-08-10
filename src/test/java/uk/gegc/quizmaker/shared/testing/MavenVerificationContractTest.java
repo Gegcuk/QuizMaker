@@ -57,6 +57,16 @@ class MavenVerificationContractTest {
         assertThat(projectProperty(pom, "live-provider-tests.enabled")).isEqualTo("false");
 
         Element surefire = findPlugin(pom, "maven-surefire-plugin").orElseThrow();
+        Element junitPlatformProvider = findElementWithDirectChildText(
+                surefire,
+                "dependency",
+                "artifactId",
+                "surefire-junit-platform"
+        ).orElseThrow();
+        assertThat(directChildText(junitPlatformProvider, "groupId"))
+                .contains("org.apache.maven.surefire");
+        assertThat(directChildText(junitPlatformProvider, "version"))
+                .contains("${maven-surefire-plugin.version}");
         assertThat(surefire.getTextContent()).doesNotContain(LIVE_PROVIDER_TEST_FILES.toArray(String[]::new));
     }
 
@@ -80,7 +90,7 @@ class MavenVerificationContractTest {
         String mysqlTestProperties = Files.readString(
                 projectDirectory().resolve("src/test/resources/application-test-mysql.properties")
         );
-        String annotationProcessorWarmup = "./mvnw -B -DskipTests test-compile";
+        String mavenRuntimeWarmup = "./mvnw -B -DskipTests=true test";
         String isolatedVerification = "./mvnw -o -B -T 1C -DskipTests=false clean verify";
 
         assertThat(workflow)
@@ -93,7 +103,7 @@ class MavenVerificationContractTest {
                 .contains("TEST_SES_RECIPIENT_EMAIL: 'ci-offline@example.invalid'")
                 .contains("BILLING_PACK_SYNC_ENABLED: 'false'")
                 .contains("./mvnw -B -DskipTests dependency:go-offline")
-                .contains(annotationProcessorWarmup)
+                .contains(mavenRuntimeWarmup)
                 .contains("ip netns add \"$NETNS\"")
                 .contains("ip route | grep -q '^default'")
                 .contains("socat TCP4-LISTEN:3306")
@@ -103,7 +113,7 @@ class MavenVerificationContractTest {
                 .contains("Live-provider suite reports were produced during default verification")
                 .contains("Maven/build failures before Surefire")
                 .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests");
-        assertThat(workflow.indexOf(annotationProcessorWarmup))
+        assertThat(workflow.indexOf(mavenRuntimeWarmup))
                 .isLessThan(workflow.indexOf(isolatedVerification));
         assertThat(testProperties).contains("billing.pack-sync.enabled=false");
         assertThat(mysqlTestProperties).contains("billing.pack-sync.enabled=false");
