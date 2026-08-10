@@ -9,10 +9,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
 import uk.gegc.quizmaker.features.billing.application.StripeService;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationClaim;
+import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationCoordinator;
 import uk.gegc.quizmaker.features.billing.application.SubscriptionMutationService;
 import uk.gegc.quizmaker.features.billing.domain.exception.StripeSubscriptionUnavailableException;
 import uk.gegc.quizmaker.features.billing.domain.exception.SubscriptionMutationConflictException;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
+import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionMutationState;
+import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionMutationType;
 import uk.gegc.quizmaker.features.billing.infra.repository.SubscriptionStatusRepository;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 
@@ -21,14 +25,16 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Owns the authorization boundary for subscription mutations.
  *
- * <p>Remote Stripe calls intentionally run outside a database transaction. Holding a database transaction
- * while waiting on Stripe would retain database resources and still could not atomically commit the remote
- * mutation. The local subscription state is reconciled by the existing webhook flow.</p>
+ * <p>Remote Stripe calls intentionally run outside a database transaction. A durable operation is claimed in
+ * a short transaction first, and its stable provider key makes crash and timeout retries safe. Provider state,
+ * the durable operation, and the existing webhook flow reconcile local state after partial failures.</p>
  */
 @Slf4j
 @Service
@@ -41,48 +47,196 @@ public class SubscriptionMutationServiceImpl implements SubscriptionMutationServ
     private static final String DENIED = "denied";
     private static final String FAILED = "failed";
     private static final String ALREADY_CANCELLED = "already_cancelled";
+    private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+    private static final long WAIT_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10);
+    private static final long WAIT_POLL_MILLIS = 25L;
 
     private final SubscriptionStatusRepository subscriptionStatusRepository;
     private final StripeService stripeService;
     private final BillingMetricsService billingMetricsService;
+    private final SubscriptionMutationCoordinator mutationCoordinator;
 
     @Override
     public Subscription updateSubscription(UUID userId, String subscriptionId, String newPriceId) throws StripeException {
-        Subscription subscription = loadOwnedSubscription(userId, subscriptionId, UPDATE);
-        if (isCancelled(subscription)) {
-            conflict(userId, subscriptionId, "cancelled_subscription");
-        }
+        return updateSubscription(userId, subscriptionId, newPriceId, null);
+    }
 
-        try {
-            Subscription updated = stripeService.updateSubscription(subscription, newPriceId);
+    @Override
+    public Subscription updateSubscription(
+            UUID userId,
+            String subscriptionId,
+            String newPriceId,
+            String idempotencyKey
+    ) throws StripeException {
+        validateIdempotencyKey(idempotencyKey);
+
+        while (true) {
+            Subscription subscription = loadOwnedSubscription(userId, subscriptionId, UPDATE);
+            if (isCancelled(subscription)) {
+                conflict(userId, subscriptionId, "cancelled_subscription");
+            }
+
+            SubscriptionMutationClaim claim = claim(
+                    userId,
+                    subscriptionId,
+                    SubscriptionMutationType.UPDATE,
+                    newPriceId,
+                    idempotencyKey,
+                    hasPrice(subscription, newPriceId),
+                    UPDATE
+            );
+            if (claim.action() == SubscriptionMutationClaim.Action.REPLAY) {
+                audit(userId, subscriptionId, UPDATE, ALLOWED, "already_updated");
+                return subscription;
+            }
+            if (claim.action() == SubscriptionMutationClaim.Action.WAIT) {
+                awaitOperation(userId, subscriptionId, claim, UPDATE);
+                continue;
+            }
+
+            Subscription updated;
+            try {
+                updated = stripeService.updateSubscription(
+                        subscription, newPriceId, claim.stripeIdempotencyKey());
+            } catch (StripeException exception) {
+                makeRetryableSafely(claim, userId);
+                throw stripeFailure(userId, subscriptionId, UPDATE, exception);
+            } catch (RuntimeException exception) {
+                makeRetryableSafely(claim, userId);
+                audit(userId, subscriptionId, UPDATE, FAILED, "stripe_unavailable");
+                throw new StripeSubscriptionUnavailableException(exception);
+            }
+
+            completeAfterRemoteMutation(claim, userId, subscriptionId, UPDATE);
             audit(userId, subscriptionId, UPDATE, ALLOWED, "updated");
             return updated;
-        } catch (StripeException exception) {
-            throw stripeFailure(userId, subscriptionId, UPDATE, exception);
         }
     }
 
     @Override
     public Subscription cancelSubscription(UUID userId, String subscriptionId) throws StripeException {
-        Subscription subscription = loadOwnedSubscription(userId, subscriptionId, CANCEL);
-        try {
-            if (isCancelled(subscription)) {
-                markLocallyCancelled(userId, subscriptionId);
+        return cancelSubscription(userId, subscriptionId, null);
+    }
+
+    @Override
+    public Subscription cancelSubscription(
+            UUID userId,
+            String subscriptionId,
+            String idempotencyKey
+    ) throws StripeException {
+        validateIdempotencyKey(idempotencyKey);
+
+        while (true) {
+            Subscription subscription = loadOwnedSubscription(userId, subscriptionId, CANCEL);
+            SubscriptionMutationClaim claim = claim(
+                    userId,
+                    subscriptionId,
+                    SubscriptionMutationType.CANCEL,
+                    null,
+                    idempotencyKey,
+                    isCancelled(subscription),
+                    CANCEL
+            );
+            if (claim.action() == SubscriptionMutationClaim.Action.REPLAY) {
                 audit(userId, subscriptionId, CANCEL, ALLOWED, ALREADY_CANCELLED);
                 return subscription;
             }
+            if (claim.action() == SubscriptionMutationClaim.Action.WAIT) {
+                awaitOperation(userId, subscriptionId, claim, CANCEL);
+                continue;
+            }
 
-            Subscription cancelled = stripeService.cancelSubscription(subscription);
-            markLocallyCancelled(userId, subscriptionId);
+            Subscription cancelled;
+            try {
+                cancelled = stripeService.cancelSubscription(subscription, claim.stripeIdempotencyKey());
+            } catch (StripeException exception) {
+                makeRetryableSafely(claim, userId);
+                throw stripeFailure(userId, subscriptionId, CANCEL, exception);
+            } catch (RuntimeException exception) {
+                makeRetryableSafely(claim, userId);
+                audit(userId, subscriptionId, CANCEL, FAILED, "stripe_unavailable");
+                throw new StripeSubscriptionUnavailableException(exception);
+            }
+
+            completeAfterRemoteMutation(claim, userId, subscriptionId, CANCEL);
             audit(userId, subscriptionId, CANCEL, ALLOWED, "cancelled");
             return cancelled;
-        } catch (StripeException exception) {
-            throw stripeFailure(userId, subscriptionId, CANCEL, exception);
+        }
+    }
+
+    private SubscriptionMutationClaim claim(
+            UUID userId,
+            String subscriptionId,
+            SubscriptionMutationType operationType,
+            String targetPriceId,
+            String idempotencyKey,
+            boolean remoteAlreadyApplied,
+            String auditOperation
+    ) {
+        try {
+            return mutationCoordinator.claim(
+                    userId,
+                    subscriptionId,
+                    operationType,
+                    targetPriceId,
+                    idempotencyKey,
+                    remoteAlreadyApplied
+            );
         } catch (ForbiddenException exception) {
+            audit(userId, subscriptionId, auditOperation, DENIED, "local_mapping_changed");
+            throw exception;
+        }
+    }
+
+    private void completeAfterRemoteMutation(
+            SubscriptionMutationClaim claim,
+            UUID userId,
+            String subscriptionId,
+            String operation
+    ) {
+        try {
+            mutationCoordinator.complete(claim.operationId(), userId);
+        } catch (ForbiddenException exception) {
+            audit(userId, subscriptionId, operation, DENIED, "local_mapping_changed");
             throw exception;
         } catch (RuntimeException exception) {
-            audit(userId, subscriptionId, CANCEL, FAILED, "local_reconciliation_required");
+            audit(userId, subscriptionId, operation, FAILED, "local_reconciliation_required");
             throw new StripeSubscriptionUnavailableException(exception);
+        }
+    }
+
+    private void awaitOperation(
+            UUID userId,
+            String subscriptionId,
+            SubscriptionMutationClaim claim,
+            String operation
+    ) {
+        long deadline = System.nanoTime() + WAIT_TIMEOUT_NANOS;
+        while (System.nanoTime() < deadline) {
+            SubscriptionMutationState state = mutationCoordinator
+                    .getState(claim.operationId(), userId)
+                    .orElse(SubscriptionMutationState.RETRYABLE);
+            if (state != SubscriptionMutationState.IN_PROGRESS) {
+                return;
+            }
+            try {
+                Thread.sleep(WAIT_POLL_MILLIS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                audit(userId, subscriptionId, operation, FAILED, "concurrent_wait_interrupted");
+                throw new StripeSubscriptionUnavailableException(exception);
+            }
+        }
+        audit(userId, subscriptionId, operation, FAILED, "concurrent_wait_timeout");
+        throw new StripeSubscriptionUnavailableException(
+                new IllegalStateException("A subscription mutation is still in progress"));
+    }
+
+    private void makeRetryableSafely(SubscriptionMutationClaim claim, UUID userId) {
+        try {
+            mutationCoordinator.makeRetryable(claim.operationId(), userId);
+        } catch (RuntimeException exception) {
+            log.warn("Could not release a failed subscription mutation claim for retry", exception);
         }
     }
 
@@ -138,18 +292,6 @@ public class SubscriptionMutationServiceImpl implements SubscriptionMutationServ
         return subscription;
     }
 
-    private void markLocallyCancelled(UUID userId, String subscriptionId) {
-        SubscriptionStatus status = subscriptionStatusRepository.findByUserId(userId)
-                .filter(existing -> subscriptionId.equals(existing.getSubscriptionId()))
-                .orElseGet(() -> deny(userId, subscriptionId, CANCEL, "local_mapping_changed"));
-        if (status.isBlocked() && "subscription_cancelled_by_user".equals(status.getBlockReason())) {
-            return;
-        }
-        status.setBlocked(true);
-        status.setBlockReason("subscription_cancelled_by_user");
-        subscriptionStatusRepository.save(status);
-    }
-
     private StripeSubscriptionUnavailableException stripeFailure(
             UUID userId, String subscriptionId, String operation, StripeException exception) {
         audit(userId, subscriptionId, operation, FAILED, "stripe_unavailable");
@@ -162,6 +304,26 @@ public class SubscriptionMutationServiceImpl implements SubscriptionMutationServ
 
     private boolean isCancelled(Subscription subscription) {
         return "canceled".equalsIgnoreCase(subscription.getStatus());
+    }
+
+    private boolean hasPrice(Subscription subscription, String priceId) {
+        return subscription.getItems() != null
+                && subscription.getItems().getData() != null
+                && !subscription.getItems().getData().isEmpty()
+                && subscription.getItems().getData().get(0).getPrice() != null
+                && Objects.equals(priceId, subscription.getItems().getData().get(0).getPrice().getId());
+    }
+
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return;
+        }
+        if (!StringUtils.hasText(idempotencyKey)) {
+            throw new IllegalArgumentException("Idempotency-Key must contain at least one non-whitespace character");
+        }
+        if (idempotencyKey.length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
+            throw new IllegalArgumentException("Idempotency-Key must not exceed 128 characters");
+        }
     }
 
     private SubscriptionStatus deny(UUID userId, String subscriptionId, String operation, String reason) {

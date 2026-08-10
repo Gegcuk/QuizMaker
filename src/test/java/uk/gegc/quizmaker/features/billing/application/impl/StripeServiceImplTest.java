@@ -4,6 +4,7 @@ import com.stripe.StripeClient;
 import com.stripe.exception.StripeException;
 import com.stripe.model.*;
 import com.stripe.model.checkout.Session;
+import com.stripe.net.RequestOptions;
 import com.stripe.param.*;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.stripe.param.checkout.SessionRetrieveParams;
@@ -540,6 +541,32 @@ class StripeServiceImplTest {
         }
 
         @Test
+        @DisplayName("forwards the durable mutation key to Stripe for an update")
+        void updateSubscription_withIdempotencyKey_forwardsRequestOptions() throws StripeException {
+            String subscriptionId = "sub_123";
+            Subscription mockSubscription = mock(Subscription.class);
+            SubscriptionItemCollection mockItems = mock(SubscriptionItemCollection.class);
+            SubscriptionItem mockItem = mock(SubscriptionItem.class);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
+            when(mockItem.getId()).thenReturn("si_123");
+            when(mockItems.getData()).thenReturn(List.of(mockItem));
+            when(mockSubscription.getItems()).thenReturn(mockItems);
+            when(subscriptionService.update(
+                    eq(subscriptionId), any(SubscriptionUpdateParams.class), any(RequestOptions.class)))
+                    .thenReturn(mockSubscription);
+
+            Subscription result = stripeService.updateSubscription(
+                    mockSubscription, "price_new", "qm-sub-mut-operation");
+
+            assertThat(result).isSameAs(mockSubscription);
+            ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+            verify(subscriptionService).update(
+                    eq(subscriptionId), any(SubscriptionUpdateParams.class), options.capture());
+            assertThat(options.getValue().getIdempotencyKey()).isEqualTo("qm-sub-mut-operation");
+            verify(subscriptionService, never()).retrieve(any());
+        }
+
+        @Test
         @DisplayName("rejects a missing verified subscription")
         void updateSubscription_nullSubscription_throwsException() {
             assertThatThrownBy(() -> stripeService.updateSubscription((Subscription) null, "price_new"))
@@ -584,6 +611,26 @@ class StripeServiceImplTest {
 
             assertThat(result).isEqualTo(canceledSubscription);
             verify(subscriptionService).cancel(subscriptionId);
+            verify(subscriptionService, never()).retrieve(any());
+        }
+
+        @Test
+        @DisplayName("forwards the durable mutation key to Stripe for cancellation")
+        void cancelSubscription_withIdempotencyKey_forwardsRequestOptions() throws StripeException {
+            String subscriptionId = "sub_123";
+            Subscription mockSubscription = mock(Subscription.class);
+            Subscription canceledSubscription = mock(Subscription.class);
+            when(mockSubscription.getId()).thenReturn(subscriptionId);
+            when(subscriptionService.cancel(eq(subscriptionId), any(RequestOptions.class)))
+                    .thenReturn(canceledSubscription);
+
+            Subscription result = stripeService.cancelSubscription(
+                    mockSubscription, "qm-sub-mut-operation");
+
+            assertThat(result).isSameAs(canceledSubscription);
+            ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
+            verify(subscriptionService).cancel(eq(subscriptionId), options.capture());
+            assertThat(options.getValue().getIdempotencyKey()).isEqualTo("qm-sub-mut-operation");
             verify(subscriptionService, never()).retrieve(any());
         }
 

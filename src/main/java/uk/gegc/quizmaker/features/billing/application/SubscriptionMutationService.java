@@ -21,6 +21,20 @@ public interface SubscriptionMutationService {
     Subscription updateSubscription(UUID userId, String subscriptionId, String newPriceId) throws StripeException;
 
     /**
+     * Changes the subscription price with an optional client retry key.
+     *
+     * @param idempotencyKey optional client key; exact retries replay and changed payloads conflict
+     */
+    default Subscription updateSubscription(
+            UUID userId,
+            String subscriptionId,
+            String newPriceId,
+            String idempotencyKey
+    ) throws StripeException {
+        return updateSubscription(userId, subscriptionId, newPriceId);
+    }
+
+    /**
      * Cancels the user's recorded Stripe subscription. Repeating a completed cancellation is idempotent.
      *
      * @param userId authenticated local user
@@ -28,4 +42,17 @@ public interface SubscriptionMutationService {
      * @return the cancelled Stripe subscription
      */
     Subscription cancelSubscription(UUID userId, String subscriptionId) throws StripeException;
+
+    /**
+     * Cancels the subscription with an optional client retry key.
+     *
+     * @param idempotencyKey optional client key; exact retries replay and changed payloads conflict
+     */
+    default Subscription cancelSubscription(
+            UUID userId,
+            String subscriptionId,
+            String idempotencyKey
+    ) throws StripeException {
+        return cancelSubscription(userId, subscriptionId);
+    }
 }

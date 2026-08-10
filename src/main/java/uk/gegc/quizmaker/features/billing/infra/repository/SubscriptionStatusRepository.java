@@ -1,6 +1,10 @@
 package uk.gegc.quizmaker.features.billing.infra.repository;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import uk.gegc.quizmaker.features.billing.domain.model.SubscriptionStatus;
 
 import java.util.Optional;
@@ -32,4 +36,8 @@ public interface SubscriptionStatusRepository extends JpaRepository<Subscription
      * Returns every local association for a Stripe subscription so authorization can reject ambiguous data.
      */
     List<SubscriptionStatus> findAllBySubscriptionId(String subscriptionId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select status from SubscriptionStatus status where status.userId = :userId")
+    Optional<SubscriptionStatus> findByUserIdForUpdate(@Param("userId") UUID userId);
 }
