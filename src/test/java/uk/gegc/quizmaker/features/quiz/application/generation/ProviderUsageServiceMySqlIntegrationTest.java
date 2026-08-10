@@ -206,7 +206,7 @@ class ProviderUsageServiceMySqlIntegrationTest {
 
     private QuizGenerationJob persistJob() {
         User user = new User();
-        user.setUsername("provider-usage-" + UUID.randomUUID());
+        user.setUsername("usage-" + UUID.randomUUID().toString().substring(0, 12));
         user.setEmail(user.getUsername() + "@example.com");
         user.setHashedPassword("not-used-by-this-test");
         user.setActive(true);
