@@ -1,16 +1,17 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
-import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
@@ -20,11 +21,14 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -65,7 +69,7 @@ class TaskProgressIntegrationTest {
     private StructuredAiClient structuredAiClient;
 
     @MockitoBean
-    private ApplicationEventPublisher eventPublisher;
+    private QuizGenerationFacade quizGenerationFacade;
 
     private User testUser;
     private Document testDocument;
@@ -73,10 +77,14 @@ class TaskProgressIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        String userSuffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        when(quizGenerationFacade.claimQuizGenerationFinalization(any()))
+                .thenReturn(QuizGenerationFinalizationClaim.TERMINAL);
+
         // Create test user
         testUser = new User();
-        testUser.setUsername("testuser_" + System.currentTimeMillis());
-        testUser.setEmail("test@example.com");
+        testUser.setUsername("task_progress_" + userSuffix);
+        testUser.setEmail("task-progress-" + userSuffix + "@example.test");
         testUser.setHashedPassword("hash");
         testUser = userRepository.save(testUser);
 
@@ -120,6 +128,23 @@ class TaskProgressIntegrationTest {
         testJob = jobRepository.save(testJob);
     }
 
+    @AfterEach
+    void tearDown() {
+        if (testUser == null || testUser.getId() == null) {
+            return;
+        }
+
+        transactionTemplate.executeWithoutResult(status -> {
+            jobRepository.deleteAll(
+                    jobRepository.findByUser_UsernameOrderByStartedAtDesc(testUser.getUsername())
+            );
+            if (testDocument != null && testDocument.getId() != null) {
+                documentRepository.deleteById(testDocument.getId());
+            }
+            userRepository.deleteById(testUser.getId());
+        });
+    }
+
     @Test
     @DisplayName("Integration: Single-chunk multi-type job shows incremental progress")
     void singleChunkMultiType_showsIncrementalProgress() {
@@ -131,8 +156,8 @@ class TaskProgressIntegrationTest {
         );
 
         // Mock LLM to return questions
-        when(structuredAiClient.generateQuestions(any())).thenReturn(
-                createMockResponse(QuestionType.MCQ_SINGLE, 2)
+        when(structuredAiClient.generateQuestions(any())).thenAnswer(invocation ->
+                createMockResponse(invocation.getArgument(0))
         );
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
@@ -218,10 +243,13 @@ class TaskProgressIntegrationTest {
         Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.HOTSPOT, 2);
 
         // Mock LLM to fail first attempts, succeed on fallback
-        when(structuredAiClient.generateQuestions(any()))
-                .thenThrow(new RuntimeException("First fail"))
-                .thenThrow(new RuntimeException("Second fail"))
-                .thenReturn(createMockResponse(QuestionType.MCQ_SINGLE, 2)); // Alternative type
+        when(structuredAiClient.generateQuestions(any())).thenAnswer(invocation -> {
+            StructuredQuestionRequest aiRequest = invocation.getArgument(0);
+            if (aiRequest.getQuestionType() != QuestionType.MCQ_SINGLE) {
+                throw new AiServiceException("HOTSPOT generation unavailable in this provider fixture");
+            }
+            return createMockResponse(aiRequest);
+        });
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 testDocument.getId(),
@@ -377,14 +405,14 @@ class TaskProgressIntegrationTest {
         // QuizGenerationJobRepositoryTaskProgressTest using real transactions and a barrier.
     }
 
-    private StructuredQuestionResponse createMockResponse(QuestionType type, int count) {
+    private StructuredQuestionResponse createMockResponse(StructuredQuestionRequest request) {
         List<StructuredQuestion> questions = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < request.getQuestionCount(); i++) {
             StructuredQuestion q = new StructuredQuestion();
             q.setQuestionText("Test question " + i);
-            q.setType(type);
-            q.setDifficulty(Difficulty.MEDIUM);
-            q.setContent("{}");
+            q.setType(request.getQuestionType());
+            q.setDifficulty(request.getDifficulty());
+            q.setContent(validContent(request.getQuestionType()));
             questions.add(q);
         }
         
@@ -392,5 +420,21 @@ class TaskProgressIntegrationTest {
         response.setQuestions(questions);
         response.setTokensUsed(100L);
         return response;
+    }
+
+    private String validContent(QuestionType type) {
+        return switch (type) {
+            case MCQ_SINGLE -> """
+                    {"options":[
+                      {"id":"a","text":"Correct answer","correct":true},
+                      {"id":"b","text":"Distractor one","correct":false},
+                      {"id":"c","text":"Distractor two","correct":false},
+                      {"id":"d","text":"Distractor three","correct":false}
+                    ]}
+                    """;
+            case TRUE_FALSE -> "{\"answer\":true}";
+            case OPEN -> "{\"answer\":\"Model answer\"}";
+            default -> throw new AssertionError("No provider fixture for question type " + type);
+        };
     }
 }

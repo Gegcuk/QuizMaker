@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.quiz.repository;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -66,10 +67,12 @@ class QuizGenerationJobRepositoryTaskProgressTest {
 
     @BeforeEach
     void setUp() {
+        String userSuffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+
         // Create test user
         testUser = new User();
-        testUser.setUsername("testuser_" + UUID.randomUUID());
-        testUser.setEmail("test@example.com");
+        testUser.setUsername("task_repo_" + userSuffix);
+        testUser.setEmail("task-repo-" + userSuffix + "@example.test");
         testUser.setHashedPassword("hashedPassword");
         testUser = userRepository.save(testUser);
 
@@ -84,6 +87,18 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         testJob.setCompletedTasks(0);
         testJob.setRequestData("{}");
         testJob = jobRepository.save(testJob);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (testJob == null || testJob.getId() == null || testUser == null || testUser.getId() == null) {
+            return;
+        }
+
+        transactionTemplate.executeWithoutResult(status -> {
+            jobRepository.deleteById(testJob.getId());
+            userRepository.deleteById(testUser.getId());
+        });
     }
 
     @Test
