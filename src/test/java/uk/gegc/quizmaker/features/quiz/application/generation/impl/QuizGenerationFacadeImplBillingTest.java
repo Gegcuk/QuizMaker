@@ -39,6 +39,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationFinalizationState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
+import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageState;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.user.domain.model.User;
@@ -551,6 +552,24 @@ class QuizGenerationFacadeImplBillingTest {
             assertThat(job.getBillingAcceptedQuestionTypeCount()).isEqualTo(1);
             assertThat(job.getBillingCommittedTokens()).isEqualTo(5L);
             assertThat(job.getProviderLlmTokens()).isEqualTo(4_321L);
+            assertThat(job.getActualTokens()).isNull();
+        }
+
+        @Test
+        @DisplayName("Active legacy job without a complete tariff snapshot requires review instead of guessed settlement")
+        void activeLegacyJobWithoutTariffRequiresReview() {
+            job.setProviderUsageState(ProviderUsageState.LEGACY_REVIEW);
+            job.setProviderLlmTokens(4_321L);
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            assertThatThrownBy(() -> facade.commitTokensForSuccessfulGeneration(
+                    job, allQuestions, originalRequest))
+                    .isInstanceOf(InvalidJobStateForCommitException.class)
+                    .hasMessageContaining("requires reconciliation review");
+
+            verify(estimationService, never()).computeActualBillingTokens(any(), any(), anyLong());
+            verify(internalBillingService, never()).commit(any(), anyLong(), anyString(), anyString());
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RESERVED);
             assertThat(job.getActualTokens()).isNull();
         }
 

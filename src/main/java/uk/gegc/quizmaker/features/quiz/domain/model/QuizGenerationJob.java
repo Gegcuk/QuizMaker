@@ -114,6 +114,10 @@ public class QuizGenerationJob {
     @Column(name = "provider_llm_tokens")
     private Long providerLlmTokens;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "provider_usage_state", nullable = false, length = 24)
+    private ProviderUsageState providerUsageState = ProviderUsageState.NOT_RECORDED;
+
     /**
      * Immutable customer-pricing snapshot for new jobs. Null fields identify a
      * job created before tariff snapshots existed and preserve its legacy path.
@@ -199,6 +203,9 @@ public class QuizGenerationJob {
         }
         if (finalizationState == null) {
             finalizationState = QuizGenerationFinalizationState.NOT_STARTED;
+        }
+        if (providerUsageState == null) {
+            providerUsageState = ProviderUsageState.NOT_RECORDED;
         }
         progressPercentage = normalizeProgressPercentage(progressPercentage);
     }
@@ -441,11 +448,32 @@ public class QuizGenerationJob {
                 && billingQuotedQuestionTypeCount >= 0;
     }
 
-    public void addProviderLlmTokens(long tokens) {
-        if (tokens < 0) {
+    public void recordProviderUsage(Long tokens) {
+        if (tokens == null) {
+            if (providerUsageState != ProviderUsageState.LEGACY_REVIEW) {
+                providerUsageState = ProviderUsageState.INCOMPLETE;
+            }
+            return;
+        }
+        if (tokens < 0L) {
             throw new IllegalArgumentException("provider LLM tokens must not be negative");
         }
         providerLlmTokens = Math.addExact(providerLlmTokens == null ? 0L : providerLlmTokens, tokens);
+        if (providerUsageState == ProviderUsageState.NOT_RECORDED) {
+            providerUsageState = ProviderUsageState.COMPLETE;
+        }
+    }
+
+    /**
+     * Compatibility helper for legacy in-memory callers. Production provider
+     * accounting uses {@code ProviderUsageService} with a durable attempt ID.
+     */
+    public void addProviderLlmTokens(long tokens) {
+        recordProviderUsage(tokens);
+    }
+
+    public boolean requiresLegacyMeteringReview() {
+        return providerUsageState == ProviderUsageState.LEGACY_REVIEW;
     }
 
     /**

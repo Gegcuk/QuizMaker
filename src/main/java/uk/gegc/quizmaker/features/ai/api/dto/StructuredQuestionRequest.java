@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.Positive;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
 
 /**
  * Request DTO for structured question generation.
@@ -84,5 +86,10 @@ public class StructuredQuestionRequest {
      * on already-cancelled jobs.
      */
     private Supplier<Boolean> cancellationChecker;
-}
 
+    /**
+     * Optional observer invoked once for each provider response, before parsing.
+     * It receives no prompt or response content.
+     */
+    private Consumer<ProviderUsageObservation> providerUsageObserver;
+}

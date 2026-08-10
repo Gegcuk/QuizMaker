@@ -4,8 +4,9 @@
 
 Verify that a quiz-generation job shows a maximum customer charge before work
 starts, records the tariff that was quoted, and settles only for accepted
-question types. Provider LLM token usage remains operational telemetry and does
-not change the customer charge.
+question types. Also verify that each returned provider attempt has durable,
+deduplicated usage evidence. Provider LLM token usage remains operational
+telemetry and does not change the customer charge.
 
 ## Preconditions
 
@@ -91,7 +92,46 @@ not change the customer charge.
 5. If `provider_llm_tokens` is populated, confirm that changing or observing
    that value does not change the committed customer amount.
 
-## 3. Verify cancellation after provider work begins
+## 3. Verify durable provider usage
+
+1. Get the completed job ID from
+   `GET /api/v1/quizzes/generation-status/{jobId}`.
+2. In the non-production MySQL database, run these read-only queries with that
+   ID substituted for `<JOB_ID>`:
+
+   ```sql
+   SELECT provider_llm_tokens, provider_usage_state,
+          billing_estimated_tokens, billing_committed_tokens
+   FROM quiz_generation_jobs
+   WHERE id = UUID_TO_BIN('<JOB_ID>');
+
+   SELECT BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
+          record_state, provider_llm_tokens, recorded_at
+   FROM quiz_generation_provider_usage
+   WHERE job_id = UUID_TO_BIN('<JOB_ID>')
+   ORDER BY recorded_at;
+   ```
+
+3. Confirm every `provider_attempt_id` occurs once. `REPORTED` rows have a
+   non-negative token value; `MISSING` rows have a null value.
+4. Confirm `quiz_generation_jobs.provider_llm_tokens` equals the sum of the
+   `REPORTED` rows. `provider_usage_state` is `COMPLETE` when every observed
+   response reported metadata and `INCOMPLETE` if any response did not.
+5. Confirm the authenticated status response may include the additive nullable
+   `providerUsageState` field when backend billing is enabled. An older client
+   can ignore it and continue polling the same endpoint.
+6. Run the deterministic concurrency and failure checks locally. They use fake
+   AI responses and local MySQL; they never call OpenAI:
+
+   ```bash
+   ./mvnw test -Dtest=ProviderUsageServiceRetryTest,SpringAiStructuredClientProviderUsageTest
+   ./mvnw test -Dtest=ProviderUsageServiceMySqlIntegrationTest,ProviderUsageSchemaMigrationTest
+   ```
+
+   The commands must finish with zero failures. The second command requires the
+   repository's `test-mysql` database configuration.
+
+## 4. Verify cancellation after provider work begins
 
 1. Start another generation job and wait until it begins provider work.
 2. Cancel the job before it completes.
@@ -99,7 +139,7 @@ not change the customer charge.
 4. Confirm the account balance has no generation charge for the cancelled job,
    including when provider token usage was recorded.
 
-## 4. Verify compatibility and API documentation
+## 5. Verify compatibility, rollout, and API documentation
 
 1. Open the Billing OpenAPI group in Swagger:
 
@@ -110,15 +150,24 @@ not change the customer charge.
 2. Locate `POST /api/v1/billing/estimate/quiz-generation`.
 3. Confirm the existing estimate fields remain available and the five tariff
    fields are documented as optional additive response fields.
-4. Confirm that historical jobs with null tariff-snapshot columns remain
-   readable. Their settlement continues to use the existing legacy path; this
-   migration does not rewrite prior job data.
+4. In the Quizzes OpenAPI group, confirm `QuizGenerationStatus` documents
+   nullable `providerUsageState` and states that it does not determine customer
+   charges.
+5. Confirm historical terminal jobs with null tariff-snapshot columns remain
+   readable. Migration V69 does not reinterpret or charge those jobs.
+6. Confirm jobs that were `PENDING` or `PROCESSING` during migration are marked
+   `INCOMPLETE` when they have a complete tariff snapshot. Active jobs with a
+   null or partial snapshot are marked `LEGACY_REVIEW`; settlement must fail
+   into the existing recoverable finalization path instead of guessing a
+   charge.
 
 ## Expected Result
 
 New jobs use the tariff that was quoted at job creation, are never charged more
-than that quote, and settle by accepted question-type count. Existing clients,
-historical jobs, and the previous estimate response fields remain supported.
+than that quote, and settle by accepted question-type count. Provider attempts
+are durable and idempotent, missing telemetry is explicit, and provider usage
+never changes customer billing. Existing clients, historical terminal jobs,
+and the previous estimate response fields remain supported.
 
 ## Related Frontend Work
 

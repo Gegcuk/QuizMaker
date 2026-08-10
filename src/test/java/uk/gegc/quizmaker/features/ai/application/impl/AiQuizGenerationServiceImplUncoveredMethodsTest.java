@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
@@ -86,6 +87,9 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
     @Mock
     private StructuredAiClient structuredAiClient;
 
+    @Mock
+    private ProviderUsageService providerUsageService;
+
     private TestableAiQuizGenerationServiceImpl service;
 
     // Testable subclass to expose private methods and avoid actual Thread.sleep
@@ -101,10 +105,13 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
                                                    AiRateLimitConfig rateLimitConfig,
                                                    InternalBillingService billingService,
                                                    TransactionTemplate transactionTemplate,
-                                                   StructuredAiClient structuredAiClient) {
+                                                   StructuredAiClient structuredAiClient,
+                                                   ProviderUsageService providerUsageService) {
             super(chatClient, documentRepository, promptTemplateService, questionResponseParser,
                     jobRepository, userRepository, objectMapper, eventPublisher, rateLimitConfig,
-                    billingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper));
+                    billingService, transactionTemplate, structuredAiClient,
+                    new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
+                    providerUsageService);
         }
 
         @Override
@@ -129,7 +136,7 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
         service = new TestableAiQuizGenerationServiceImpl(chatClient, documentRepository,
                 promptTemplateService, questionResponseParser, jobRepository, userRepository,
                 objectMapper, eventPublisher, rateLimitConfig, billingService,
-                transactionTemplate, structuredAiClient);
+                transactionTemplate, structuredAiClient, providerUsageService);
 
         // Default mocks - use lenient for optional mocks
         lenient().when(transactionTemplate.execute(any())).thenAnswer(inv -> {
@@ -301,7 +308,9 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
             AiQuizGenerationServiceImpl actualService = new AiQuizGenerationServiceImpl(
                     chatClient, documentRepository, promptTemplateService, questionResponseParser,
                     jobRepository, userRepository, objectMapper, eventPublisher, rateLimitConfig,
-                    billingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper));
+                    billingService, transactionTemplate, structuredAiClient,
+                    new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
+                    providerUsageService);
             
             Thread.currentThread().interrupt(); // Interrupt current thread
 

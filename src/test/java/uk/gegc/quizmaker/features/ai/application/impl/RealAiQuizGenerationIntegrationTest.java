@@ -56,6 +56,7 @@ import uk.gegc.quizmaker.features.question.infra.handler.TrueFalseHandler;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
@@ -196,7 +197,8 @@ class RealAiQuizGenerationIntegrationTest {
                 internalBillingService,
                 transactionTemplate,
                 structuredAiClient,
-                new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper)
+                new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
+                mock(ProviderUsageService.class)
         );
 
         BillingProperties billingProperties = new BillingProperties();

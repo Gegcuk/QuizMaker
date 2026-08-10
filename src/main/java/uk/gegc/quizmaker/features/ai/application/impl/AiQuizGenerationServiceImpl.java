@@ -15,6 +15,8 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
+import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
@@ -30,6 +32,7 @@ import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEven
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
@@ -67,6 +70,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final TransactionTemplate transactionTemplate;
     private final StructuredAiClient structuredAiClient;
     private final QuestionContentShuffler questionContentShuffler;
+    private final ProviderUsageService providerUsageService;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -188,6 +192,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
 
                 } catch (Exception e) {
+                    propagateProviderUsagePersistenceFailure(e);
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
 
@@ -386,6 +391,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 return allQuestions;
 
             } catch (Exception e) {
+                propagateProviderUsagePersistenceFailure(e);
                 log.error("Error generating questions for chunk {}", chunk.getChunkIndex(), e);
                 throw new AiServiceException("Failed to generate questions for chunk " +
                         chunk.getChunkIndex() + ": " + e.getMessage(), e);
@@ -413,7 +419,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     /**
-     * Internal version that accepts jobId for cancellation checks and token tracking.
+     * Internal version that accepts jobId for cancellation checks and provider-usage tracking.
      * Uses structured AI client for schema-validated responses.
      */
     private List<Question> generateQuestionsByTypeWithJobId(
@@ -468,6 +474,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     .language(language)
                     .metadata(jobId != null ? Map.of("jobId", jobId.toString()) : Map.of())
                     .cancellationChecker(jobId != null ? () -> isJobCancelled(jobId) : null)
+                    .providerUsageObserver(jobId != null ? usage -> recordProviderUsage(jobId, usage) : null)
                     .build();
 
             // Use structured AI client (handles retries internally)
@@ -476,11 +483,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Validate response
             if (structuredResponse == null) {
                 throw new AiServiceException("Structured AI client returned null response");
-            }
-
-            // Track token usage if available
-            if (jobId != null && structuredResponse.getTokensUsed() != null && structuredResponse.getTokensUsed() > 0) {
-                trackTokenUsage(jobId, structuredResponse.getTokensUsed());
             }
 
             // Log warnings if any
@@ -503,6 +505,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             return questions;
 
         } catch (Exception e) {
+            propagateProviderUsagePersistenceFailure(e);
             log.error("Error generating {} questions of type {} using structured client",
                     questionCount, questionType, e);
             throw new AiServiceException("Failed to generate questions: " + e.getMessage(), e);
@@ -586,6 +589,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     }
                 }
             } catch (Exception e) {
+                propagateProviderUsagePersistenceFailure(e);
                 log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
                         attempt, questionType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + " failed, retrying...");
@@ -621,6 +625,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         return questions;
                     }
                 } catch (Exception e) {
+                    propagateProviderUsagePersistenceFailure(e);
                     log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
                             attempt, questionType, chunkIndex, e.getMessage());
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + " failed");
@@ -653,6 +658,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     return questions;
                 }
             } catch (Exception e) {
+                propagateProviderUsagePersistenceFailure(e);
                 log.warn("Strategy 3 (easier difficulty) failed for {} chunk {}: {}", questionType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty failed");
             }
@@ -682,6 +688,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     return questions;
                 }
             } catch (Exception e) {
+                propagateProviderUsagePersistenceFailure(e);
                 log.warn("Strategy 4 (alternative type) failed for {} chunk {}: {}", alternativeType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative failed");
             }
@@ -709,6 +716,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     return questions;
                 }
             } catch (Exception e) {
+                propagateProviderUsagePersistenceFailure(e);
                 log.error("Strategy 5 (last resort MCQ) failed for chunk {}: {}", chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": all fallback strategies failed");
             }
@@ -834,6 +842,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                 redistributedQuestions.size(), missingType, chunk.getChunkIndex());
                     }
                 } catch (Exception e) {
+                    propagateProviderUsagePersistenceFailure(e);
                     log.warn("Failed to redistribute {} questions to chunk {}: {}", 
                             missingType, chunk.getChunkIndex(), e.getMessage());
                 }
@@ -1408,29 +1417,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
     }
 
-    /**
-     * Tracks provider-reported LLM usage separately from the customer-facing
-     * generation tariff. Missing provider usage is not estimated or settled.
-     * Uses TransactionTemplate to avoid self-invocation issues.
-     */
-    public void trackTokenUsage(UUID jobId, long tokensUsed) {
-        if (jobId == null || tokensUsed <= 0) {
-            return;
-        }
-        
+    void recordProviderUsage(UUID jobId, ProviderUsageObservation usage) {
         try {
-            transactionTemplate.executeWithoutResult(status -> {
-                QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-                if (job != null) {
-                    job.addProviderLlmTokens(tokensUsed);
-                    jobRepository.save(job);
-                    log.debug("Tracked {} provider LLM tokens for job {} (total: {})",
-                            tokensUsed, jobId, job.getProviderLlmTokens());
-                }
-            });
-        } catch (Exception e) {
-            log.error("Error tracking token usage for job {}", jobId, e);
-            // Don't fail the generation if tracking fails
+            if (usage.isReported()) {
+                providerUsageService.recordReported(
+                        jobId,
+                        usage.providerAttemptId(),
+                        usage.providerLlmTokens()
+                );
+            } else {
+                providerUsageService.recordMissing(jobId, usage.providerAttemptId());
+            }
+        } catch (RuntimeException exception) {
+            throw new ProviderUsagePersistenceException(
+                    "Provider usage could not be persisted for generation job " + jobId,
+                    exception
+            );
+        }
+    }
+
+    private void propagateProviderUsagePersistenceFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof ProviderUsagePersistenceException persistenceFailure) {
+                throw persistenceFailure;
+            }
+            current = current.getCause();
         }
     }
 }
