@@ -241,10 +241,17 @@ Ask before:
 - No direct repository injection in new controllers.
 - No entity returns from new public API endpoints.
 - Use `Clock` injection for time-based logic in new code.
+- Before declaring work complete, audit every touched JPA-backed list, aggregate, mapper, and serialization path for N+1 queries. Inspect generated SQL with a multi-row fixture or add a bounded query-count/fetch-plan test when the path loads relationships; record the evidence or explain why N+1 is not applicable.
 - Add focused tests for:
   - happy path,
   - at least one important edge/error path.
 - Keep changes small and reviewable.
+
+## Document versioning and large-content safety
+
+- Never hash the full bytes or extracted text of a document to implement version control, optimistic concurrency, or routine version comparisons. Documents can be very large, and repeatedly reading and hashing their complete content can turn a version check into an unbounded operation that takes minutes or hours.
+- Use a persisted version counter, immutable revision ID, storage generation/ETag, or trusted checksum already computed once by the upload/storage pipeline. Compare this bounded metadata without rereading the document.
+- If content integrity or idempotency genuinely requires a digest, keep it separate from version control, calculate it once while the content is already streaming through an ingestion boundary, persist it, and reuse it. Do not synchronously rehash stored document content on request, save, publish, or completion paths.
 
 ## Service contracts and loose coupling
 
@@ -285,6 +292,7 @@ Ask before:
 - Use plain unit tests for pure business logic, `@WebMvcTest`/standalone MockMvc for HTTP boundaries, `@DataJpaTest` for custom persistence behavior, and integration tests only for real cross-layer concerns.
 - External systems must use fakes/stubs or provider test doubles. Automated tests must never call real OpenAI, Stripe, email, storage, transcription, or other paid/remote services.
 - Cover happy paths, validation boundaries, failure semantics, authorization/ownership negatives, compatibility, and transaction/idempotency behavior in proportion to risk.
+- For touched JPA read paths, prove that relationship loading has bounded query behavior with realistic multiple-parent fixtures. A passing functional assertion or the presence of `JOIN FETCH`, `@EntityGraph`, or batch configuration alone is not evidence that N+1 is absent.
 - Run scoped tests first, then `./mvnw verify` before handoff when practical.
 
 ## Git and delivery safety
