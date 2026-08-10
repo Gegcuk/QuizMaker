@@ -11,11 +11,24 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@DisplayName("Maven verification contract")
 class MavenVerificationContractTest {
+
+    private static final List<String> LIVE_PROVIDER_TEST_FILES = List.of(
+            "RealAiQuizGenerationIntegrationTest.java",
+            "ProductionReadinessValidationTest.java",
+            "RealStripeApiIntegrationTest.java",
+            "RealStripeCliE2ETest.java",
+            "StripeCliE2ETest.java",
+            "RealAiStripeEndToEndIntegrationTest.java",
+            "StripeIntegrationTest.java",
+            "RealAwsSesE2ETest.java"
+    );
 
     @Test
     @DisplayName("default verification excludes live providers and bounds parallel workers")
@@ -42,6 +55,19 @@ class MavenVerificationContractTest {
                 .isEqualTo("${live-provider-tests.enabled}");
         assertThat(projectProperty(pom, "real-provider-excluded-groups")).isEqualTo("real-provider");
         assertThat(projectProperty(pom, "live-provider-tests.enabled")).isEqualTo("false");
+
+        Element surefire = findPlugin(pom, "maven-surefire-plugin").orElseThrow();
+        Element junitPlatformProvider = findElementWithDirectChildText(
+                surefire,
+                "dependency",
+                "artifactId",
+                "surefire-junit-platform"
+        ).orElseThrow();
+        assertThat(directChildText(junitPlatformProvider, "groupId"))
+                .contains("org.apache.maven.surefire");
+        assertThat(directChildText(junitPlatformProvider, "version"))
+                .contains("${maven-surefire-plugin.version}");
+        assertThat(surefire.getTextContent()).doesNotContain(LIVE_PROVIDER_TEST_FILES.toArray(String[]::new));
     }
 
     @Test
@@ -51,20 +77,60 @@ class MavenVerificationContractTest {
         Element profile = findElementWithDirectChildText(pom.getDocumentElement(), "profile", "id", "live-provider-tests")
                 .orElseThrow();
 
-        assertThat(directChildText((Element) profile.getElementsByTagName("properties").item(0),
-                "real-provider-excluded-groups")).contains("");
-        assertThat(directChildText((Element) profile.getElementsByTagName("properties").item(0),
-                "live-provider-tests.enabled")).contains("true");
+        Element properties = (Element) profile.getElementsByTagName("properties").item(0);
+        assertThat(directChildText(properties, "real-provider-excluded-groups").orElseThrow()).isEmpty();
+        assertThat(directChildText(properties, "live-provider-tests.enabled")).contains("true");
+    }
+
+    @Test
+    @DisplayName("CI runs Maven offline inside a network namespace with only MySQL reachable")
+    void ciVerification_deniesExternalNetworkAndUsesFakeProviderCredentials() throws Exception {
+        String workflow = Files.readString(projectDirectory().resolve(".github/workflows/ci.yml"));
+        String testProperties = Files.readString(projectDirectory().resolve("src/test/resources/application-test.properties"));
+        String mysqlTestProperties = Files.readString(
+                projectDirectory().resolve("src/test/resources/application-test-mysql.properties")
+        );
+        String mavenRuntimeWarmup =
+                "./mvnw -B -DskipTests=false -Dtest=MavenVerificationContractTest test";
+        String isolatedVerification = "./mvnw -o -B -T 1C -DskipTests=false clean verify";
+
+        assertThat(workflow)
+                .contains("OPENAI_API_KEY: 'sk-ci-offline-not-real'")
+                .contains("STRIPE_SECRET_KEY: 'sk_test_ci_offline_not_real'")
+                .contains("STRIPE_WEBHOOK_SECRET: 'whsec_ci_offline_not_real'")
+                .contains("AWS_ACCESS_KEY_ID: 'ci-offline-not-real'")
+                .contains("AWS_SECRET_ACCESS_KEY: 'ci-offline-not-real'")
+                .contains("RUN_REAL_SES_TESTS: 'true'")
+                .contains("TEST_SES_RECIPIENT_EMAIL: 'ci-offline@example.invalid'")
+                .contains("BILLING_PACK_SYNC_ENABLED: 'false'")
+                .contains("./mvnw -B -DskipTests dependency:go-offline")
+                .contains(mavenRuntimeWarmup)
+                .contains("ip netns add \"$NETNS\"")
+                .contains("ip route | grep -q '^default'")
+                .contains("socat TCP4-LISTEN:3306")
+                .contains(isolatedVerification)
+                .contains("'^[[:space:]]*@RealProviderTest[[:space:]]*$'")
+                .contains("PROVIDER_CLASS=$(basename \"$PROVIDER_SOURCE\" .java)")
+                .contains("Live-provider suite reports were produced during default verification")
+                .contains("Maven/build failures before Surefire")
+                .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests", "-DskipTests=true test");
+        assertThat(workflow.indexOf(mavenRuntimeWarmup))
+                .isLessThan(workflow.indexOf(isolatedVerification));
+        assertThat(testProperties).contains("billing.pack-sync.enabled=false");
+        assertThat(mysqlTestProperties).contains("billing.pack-sync.enabled=false");
     }
 
     private Document readPom() throws Exception {
-        Path projectDirectory = Path.of(System.getProperty("maven.multiModuleProjectDirectory", System.getProperty("user.dir")));
-        Path pomPath = projectDirectory.resolve("pom.xml");
+        Path pomPath = projectDirectory().resolve("pom.xml");
         assertThat(Files.isRegularFile(pomPath)).as("Maven project descriptor").isTrue();
 
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
         return factory.newDocumentBuilder().parse(pomPath.toFile());
+    }
+
+    private Path projectDirectory() {
+        return Path.of(System.getProperty("maven.multiModuleProjectDirectory", System.getProperty("user.dir")));
     }
 
     private Optional<Element> findPlugin(Document document, String artifactId) {

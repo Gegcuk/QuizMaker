@@ -15,9 +15,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
@@ -43,11 +48,14 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 /**
  * End-to-end tests for single-chunk quiz generation feature.
  * Tests the complete flow from document setup through async generation to quiz creation,
- * verifying that single-chunk documents generate only one consolidated quiz.
+ * verifying that single-chunk documents generate only one consolidated quiz. The external
+ * AI provider is replaced with a schema-valid test double; no remote provider is called.
  */
 @ExtendWith(SpringExtension.class)
 @Tag("db-serial")
@@ -70,6 +78,9 @@ class QuizSingleChunkEndToEndTest {
 
     @Autowired
     private AiQuizGenerationService aiQuizGenerationService;
+
+    @MockitoBean
+    private StructuredAiClient structuredAiClient;
 
     @Autowired
     private QuizGenerationJobRepository jobRepository;
@@ -103,6 +114,10 @@ class QuizSingleChunkEndToEndTest {
     void setUp() {
         uniqueId = UUID.randomUUID().toString().substring(0, 8);
         cleanupDatabase();
+
+        when(structuredAiClient.generateQuestions(any())).thenAnswer(invocation ->
+                createProviderResponse(invocation.getArgument(0))
+        );
         
         // Create test user
         testUser = new User();
@@ -499,6 +514,40 @@ class QuizSingleChunkEndToEndTest {
         return question;
     }
 
+    private StructuredQuestionResponse createProviderResponse(StructuredQuestionRequest request) {
+        List<StructuredQuestion> questions = new ArrayList<>();
+        for (int index = 0; index < request.getQuestionCount(); index++) {
+            questions.add(StructuredQuestion.builder()
+                    .questionText("Generated " + request.getQuestionType() + " question " + (index + 1))
+                    .type(request.getQuestionType())
+                    .difficulty(request.getDifficulty())
+                    .content(validProviderContent(request.getQuestionType()))
+                    .explanation("Provider fixture explanation " + (index + 1))
+                    .build());
+        }
+
+        return StructuredQuestionResponse.builder()
+                .questions(questions)
+                .tokensUsed(0L)
+                .schemaValid(true)
+                .build();
+    }
+
+    private String validProviderContent(QuestionType type) {
+        return switch (type) {
+            case MCQ_SINGLE -> """
+                    {"options":[
+                      {"id":"a","text":"Correct answer","correct":true},
+                      {"id":"b","text":"Distractor one","correct":false},
+                      {"id":"c","text":"Distractor two","correct":false},
+                      {"id":"d","text":"Distractor three","correct":false}
+                    ]}
+                    """;
+            case TRUE_FALSE -> "{\"answer\":true}";
+            default -> throw new AssertionError("Unexpected AI request type in this test: " + type);
+        };
+    }
+
     private UUID createJobOnly(String username, GenerateQuizFromDocumentRequest request) throws JsonProcessingException {
         return transactionTemplate.execute(status -> {
             try {
@@ -579,4 +628,3 @@ class QuizSingleChunkEndToEndTest {
         }
     }
 }
-

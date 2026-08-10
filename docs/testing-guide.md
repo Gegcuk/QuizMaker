@@ -37,7 +37,10 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 - Builds require JDK 17. Maven fails during `validate` with a clear message on another JDK. Set `JAVA_HOME` to a JDK 17 installation before running a build.
 - The non-database JUnit lane uses a fixed pool of four workers. Do not change it to unlimited workers or disable parallelism globally. The `db-serial` lane remains one-at-a-time because legacy tests change the shared MySQL schema.
 - Default and CI verification are offline with respect to third-party providers. Tests must use fakes, stubs, WireMock, or local test infrastructure; a nonblank environment variable must never be enough to authorize a paid provider call.
-- `live-provider-tests` is an explicit human-only Maven profile for the tagged OpenAI smoke test. It is never enabled in CI and requires a real key supplied securely in the local environment. It is not required for normal verification and must not use production user content.
+- CI preloads Maven dependencies before removing network access. The JUnit Platform provider is declared as a Surefire plugin dependency using Surefire's managed version. Because `dependency:go-offline` does not discover compiler `annotationProcessorPaths` or fully initialize the provider's runtime closure, CI then runs only `MavenVerificationContractTest`. This plain JUnit file/POM/workflow contract uses no Spring context, database, or external provider client; executing it resolves the exact provider engine, launcher, and commons artifacts selected by Maven. CI then runs `clean verify` in Maven offline mode inside a Linux network namespace with no default route, rebuilding and executing the complete suite without provider access. Only namespace loopback port `3306` is bridged to the CI MySQL service. The Actions runner remains online so logs and artifacts can still be uploaded.
+- Every test capable of contacting OpenAI, Stripe, Stripe CLI, or another live provider must use the test-only `@RealProviderTest` annotation. It assigns the `db-serial` and `real-provider` tags and disables direct IDE/class execution unless the manual Maven profile sets the explicit opt-in property.
+- `live-provider-tests` is an explicit human-only Maven profile for tagged provider smoke tests. It is never enabled in CI and requires non-production credentials supplied securely in the local environment. It is not required for normal verification and must not use production user content.
+- Test profiles disable automatic Stripe pack synchronization. A test that needs pack synchronization must provide a fake `StripePackSyncService` or explicitly opt into the live-provider lane; a real-looking key must never activate background network access.
 - When CI fails, download the `surefire-reports` artifact. It includes Surefire/Failsafe reports, fork dumps, and JaCoCo output, subject to the workflow retention policy.
 
 ## Unit Tests
@@ -92,6 +95,7 @@ Automated tests must never call real OpenAI, Stripe, email, storage, transcripti
 
 - Define project-owned ports/interfaces around providers.
 - Use fakes or stubs that model valid provider responses and meaningful failures.
+- Mark deliberate human-run provider smoke tests with `@RealProviderTest`; do not rely on filenames, environment-variable assumptions, or conditional skips to keep them out of default verification.
 - Validate AI payloads at the structured-client or parser boundary.
 - Test the application service only with collaborator output that the real collaborator can validly produce.
 - Treat prompts, schemas, examples, and backward-compatible payload variants as contract assets; test them directly when they matter to generation.
@@ -135,10 +139,14 @@ Run the narrowest relevant checks first:
 git diff --check
 ```
 
-Run the Maven command from the repository root. Use the live-provider profile only for a deliberate, owner-run smoke test after securely configuring a non-test provider key:
+Run the Maven command from the repository root. Use the live-provider profile only for a deliberate, owner-run smoke test after securely configuring test-mode provider credentials:
 
 ```bash
 ./mvnw -Plive-provider-tests test -Dtest=RealAiQuizGenerationIntegrationTest
+./mvnw -Plive-provider-tests test -Dtest=RealStripeApiIntegrationTest
+./mvnw -Plive-provider-tests test -Dtest=RealAwsSesE2ETest
 ```
+
+Never use production Stripe credentials, production OpenAI data, or a production database for these smoke tests. Without `-Plive-provider-tests`, provider suites must be excluded rather than reported as skipped.
 
 Report what ran, what did not run, and any residual risk. A passing test that asserts the wrong thing is not useful coverage.

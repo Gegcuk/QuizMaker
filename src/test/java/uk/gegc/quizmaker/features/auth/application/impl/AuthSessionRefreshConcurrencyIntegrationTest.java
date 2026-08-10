@@ -85,7 +85,7 @@ class AuthSessionRefreshConcurrencyIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        String suffix = UUID.randomUUID().toString();
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         User user = new User();
         user.setUsername("refresh-concurrency-" + suffix);
         user.setEmail("refresh-concurrency-" + suffix + "@example.test");

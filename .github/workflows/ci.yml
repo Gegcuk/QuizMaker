@@ -11,9 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # App secrets (masked). Provide test-safe defaults if not set.
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'test-noop' }}
-      OPENAI_MODEL:   ${{ secrets.OPENAI_MODEL   || 'disabled' }}
+      # Fixed fake provider credentials prove that nonblank values cannot opt CI into live calls.
+      OPENAI_API_KEY: 'sk-ci-offline-not-real'
+      OPENAI_MODEL: 'disabled'
+      STRIPE_SECRET_KEY: 'sk_test_ci_offline_not_real'
+      STRIPE_WEBHOOK_SECRET: 'whsec_ci_offline_not_real'
+      AWS_ACCESS_KEY_ID: 'ci-offline-not-real'
+      AWS_SECRET_ACCESS_KEY: 'ci-offline-not-real'
+      RUN_REAL_SES_TESTS: 'true'
+      TEST_SES_RECIPIENT_EMAIL: 'ci-offline@example.invalid'
+      BILLING_PACK_SYNC_ENABLED: 'false'
       JWT_SECRET:     ${{ secrets.JWT_SECRET     || 'ci-test-secret' }}
       TOKEN_PEPPER_SECRET: ${{ secrets.TOKEN_PEPPER_SECRET || 'ci-test-pepper' }}
       SPRING_PROFILES_ACTIVE: test
@@ -78,6 +85,23 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Resolve Maven dependencies for offline verification
+        run: |
+          ./mvnw -B -DskipTests dependency:go-offline
+          # go-offline misses annotationProcessorPaths and the configured provider's runtime closure.
+          # This pure contract test uses no Spring context, database, or external provider client.
+          ./mvnw -B -DskipTests=false -Dtest=MavenVerificationContractTest test
+
+      - name: Ensure network namespace tools are available
+        run: |
+          if ! command -v ip >/dev/null 2>&1 || ! command -v socat >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes iproute2 socat
+          fi
+          command -v ip
+          command -v runuser
+          command -v socat
 
       - name: Check MySQL container status
         run: |
@@ -329,30 +353,127 @@ jobs:
 
       - name: Verify backend offline release gate
         run: |
+          set -Eeuo pipefail
           echo "⏳ Waiting 2 seconds before starting tests to ensure database is fully ready..."
           sleep 2
-          # This is the canonical offline release gate: both Surefire lanes, JaCoCo check, and package.
-          ./mvnw -B -T 1C -DskipTests=false verify
-          TEST_EXIT_CODE=$?
-          
+
+          NETNS="quizmaker-offline"
+          HOST_VETH="qm-offline-h"
+          TEST_VETH="qm-offline-n"
+          HOST_PROXY_PID=""
+          VERIFICATION_LOG="${RUNNER_TEMP}/quizmaker-verify.log"
+
+          cleanup_offline_network() {
+            EXIT_CODE=$?
+            trap - EXIT INT TERM
+            set +e
+            if sudo ip netns list | grep -q "^${NETNS}"; then
+              for PID in $(sudo ip netns pids "$NETNS"); do
+                sudo kill "$PID" 2>/dev/null || true
+              done
+              sudo ip netns delete "$NETNS" 2>/dev/null || true
+            fi
+            if [ -n "$HOST_PROXY_PID" ]; then
+              kill "$HOST_PROXY_PID" 2>/dev/null || true
+            fi
+            sudo ip link delete "$HOST_VETH" 2>/dev/null || true
+            exit "$EXIT_CODE"
+          }
+          trap cleanup_offline_network EXIT INT TERM
+
+          sudo ip netns delete "$NETNS" 2>/dev/null || true
+          sudo ip link delete "$HOST_VETH" 2>/dev/null || true
+          sudo ip netns add "$NETNS"
+          sudo ip link add "$HOST_VETH" type veth peer name "$TEST_VETH"
+          sudo ip link set "$TEST_VETH" netns "$NETNS"
+          sudo ip address add 10.203.0.1/30 dev "$HOST_VETH"
+          sudo ip link set "$HOST_VETH" up
+          sudo ip netns exec "$NETNS" ip address add 10.203.0.2/30 dev "$TEST_VETH"
+          sudo ip netns exec "$NETNS" ip link set lo up
+          sudo ip netns exec "$NETNS" ip link set "$TEST_VETH" up
+
+          if sudo ip netns exec "$NETNS" ip route | grep -q '^default'; then
+            echo "Offline test namespace unexpectedly has a default route" >&2
+            exit 1
+          fi
+
+          # Bridge only the namespace's loopback MySQL port to the runner's MySQL service.
+          socat TCP4-LISTEN:13306,bind=10.203.0.1,reuseaddr,fork TCP4:127.0.0.1:3306 &
+          HOST_PROXY_PID=$!
+          sudo ip netns exec "$NETNS" \
+            socat TCP4-LISTEN:3306,bind=127.0.0.1,reuseaddr,fork TCP4:10.203.0.1:13306 &
+
+          MYSQL_PROXY_READY=false
+          for ATTEMPT in {1..20}; do
+            if sudo ip netns exec "$NETNS" timeout 2 bash -c '</dev/tcp/127.0.0.1/3306' 2>/dev/null; then
+              MYSQL_PROXY_READY=true
+              break
+            fi
+            sleep 0.25
+          done
+          if [ "$MYSQL_PROXY_READY" != true ]; then
+            echo "MySQL was not reachable inside the offline test namespace" >&2
+            exit 1
+          fi
+
+          # This is the canonical release gate: no external route, Maven offline,
+          # clean compilation, both Surefire lanes, JaCoCo check, and package.
+          set +e
+          sudo -E ip netns exec "$NETNS" \
+            runuser --user "$USER" --preserve-environment -- \
+            env HOME="$HOME" ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+            2>&1 | tee "$VERIFICATION_LOG"
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          mapfile -t PROVIDER_SOURCES < <(
+            grep -RIl --include='*Test.java' \
+              '^[[:space:]]*@RealProviderTest[[:space:]]*$' src/test/java || true
+          )
+          if [ ${#PROVIDER_SOURCES[@]} -eq 0 ]; then
+            echo "No @RealProviderTest suites were found; provider inventory contract is broken" >&2
+            TEST_EXIT_CODE=1
+          fi
+
+          PROVIDER_REPORTS=""
+          for PROVIDER_SOURCE in "${PROVIDER_SOURCES[@]}"; do
+            PROVIDER_CLASS=$(basename "$PROVIDER_SOURCE" .java)
+            MATCHING_REPORTS=$(find target/surefire-reports -type f \
+              -name "*${PROVIDER_CLASS}*.xml" -print 2>/dev/null || true)
+            if [ -n "$MATCHING_REPORTS" ]; then
+              PROVIDER_REPORTS+="${MATCHING_REPORTS}"$'\n'
+            fi
+          done
+          if [ -n "$PROVIDER_REPORTS" ]; then
+            echo "Live-provider suite reports were produced during default verification:" >&2
+            echo "$PROVIDER_REPORTS" >&2
+            TEST_EXIT_CODE=1
+          fi
+
           # Always show root cause errors if any tests failed
           if [ $TEST_EXIT_CODE -ne 0 ]; then
             echo ""
             echo "🔍 Analyzing test failures..."
             echo ""
-            echo "=== First ApplicationContext failure (root cause) ==="
-            # Find the first test that actually failed (not threshold exceeded)
-            FIRST_FAILURE=$(find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "Failed to load ApplicationContext" {} \; | head -1)
+            echo "=== First failing Surefire report ==="
+            FIRST_FAILURE=$(find . -name "*.txt" -path "*/surefire-reports/*" -type f \
+              -exec grep -lE "<<< FAILURE|Failures: [1-9]|Errors: [1-9]" {} \; | head -1 || true)
             if [ -n "$FIRST_FAILURE" ]; then
               echo "File: $FIRST_FAILURE"
               echo ""
-              # Show the actual exception stack trace
-              grep -A 50 "Caused by:" "$FIRST_FAILURE" | head -60 || cat "$FIRST_FAILURE" | head -100
+              head -160 "$FIRST_FAILURE"
             else
-              echo "⚠️ Could not find root cause in surefire reports"
+              echo "No failing Surefire report was produced. Showing Maven/build errors:"
+              MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+                "$VERIFICATION_LOG" | tail -120 || true)
+              if [ -n "$MAVEN_ERRORS" ]; then
+                echo "$MAVEN_ERRORS"
+              else
+                tail -120 "$VERIFICATION_LOG"
+              fi
             fi
           fi
-          
+
           exit $TEST_EXIT_CODE
         continue-on-error: false
 
@@ -368,6 +489,19 @@ jobs:
         if: failure()
         run: |
           echo "🔍 Analyzing test failures to find root causes..."
+          echo ""
+          echo "=== Maven/build failures before Surefire ==="
+          if [ -s "${RUNNER_TEMP}/quizmaker-verify.log" ]; then
+            MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+              "${RUNNER_TEMP}/quizmaker-verify.log" | tail -120 || true)
+            if [ -n "$MAVEN_ERRORS" ]; then
+              echo "$MAVEN_ERRORS"
+            else
+              echo "No Maven-level error lines found."
+            fi
+          else
+            echo "Verification log was not created."
+          fi
           echo ""
           echo "=== First 10 ApplicationContext failures ==="
           find . -name "*.txt" -path "*/surefire-reports/*" -type f -exec grep -l "ApplicationContext" {} \; | head -10 | while read report; do
@@ -392,3 +526,5 @@ jobs:
             **/target/*.dump
             **/target/*.dumpstream
             **/target/site/jacoco/**
+            ${{ runner.temp }}/quizmaker-verify.log
+          retention-days: 7
