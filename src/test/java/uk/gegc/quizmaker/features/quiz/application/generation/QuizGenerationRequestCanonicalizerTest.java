@@ -8,14 +8,20 @@ import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.shared.exception.ValidationException;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("Quiz generation request canonicalizer")
 class QuizGenerationRequestCanonicalizerTest {
@@ -98,6 +104,69 @@ class QuizGenerationRequestCanonicalizerTest {
                 .isNotEqualTo(canonicalizer.forUpload(changed, file).hash());
     }
 
+    @Test
+    @DisplayName("Treats byte-identical uploads with equal metadata as the same source command")
+    void producesSameFingerprintForByteIdenticalUploads() {
+        GenerateQuizFromUploadRequest request = uploadRequest(
+                ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, 5_000);
+        MockMultipartFile first = new MockMultipartFile(
+                "file", "biology.txt", "text/plain", "same source".getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile retry = new MockMultipartFile(
+                "file", "biology.txt", "text/plain", "same source".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(canonicalizer.forUpload(request, first))
+                .isEqualTo(canonicalizer.forUpload(request, retry));
+    }
+
+    @Test
+    @DisplayName("Changes the fingerprint for different upload bytes with identical metadata and size")
+    void changesFingerprintForDifferentSameSizeUploadContent() {
+        GenerateQuizFromUploadRequest request = uploadRequest(
+                ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, 5_000);
+        MockMultipartFile first = new MockMultipartFile(
+                "file", "biology.txt", "text/plain", "alpha source".getBytes(StandardCharsets.UTF_8));
+        MockMultipartFile changed = new MockMultipartFile(
+                "file", "biology.txt", "text/plain", "bravo source".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(first.getSize()).isEqualTo(changed.getSize());
+        assertThat(canonicalizer.forUpload(request, first).hash())
+                .isNotEqualTo(canonicalizer.forUpload(request, changed).hash());
+    }
+
+    @Test
+    @DisplayName("Changes the fingerprint for different same-length text without retaining raw text")
+    void changesFingerprintForDifferentSameLengthText() {
+        GenerateQuizFromTextRequest first = textRequest("alpha source");
+        GenerateQuizFromTextRequest changed = textRequest("bravo source");
+
+        GenerationRequestFingerprint firstFingerprint = canonicalizer.forText(first);
+        GenerationRequestFingerprint changedFingerprint = canonicalizer.forText(changed);
+
+        assertThat(first.text()).hasSameSizeAs(changed.text());
+        assertThat(firstFingerprint.hash())
+                .hasSize(64)
+                .doesNotContain(first.text())
+                .isNotEqualTo(changedFingerprint.hash());
+        assertThat(firstFingerprint.canonicalizationVersion()).isEqualTo("v2-source-digest");
+    }
+
+    @Test
+    @DisplayName("Rejects an unreadable upload before an idempotency operation can be claimed")
+    void rejectsUnreadableUpload() {
+        MockMultipartFile unreadable = new MockMultipartFile(
+                "file", "biology.txt", "text/plain", "content".getBytes(StandardCharsets.UTF_8)) {
+            @Override
+            public InputStream getInputStream() throws IOException {
+                throw new IOException("fixture read failure");
+            }
+        };
+
+        assertThatThrownBy(() -> canonicalizer.forUpload(
+                uploadRequest(ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED, 5_000), unreadable))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("Unable to read upload content for idempotency validation");
+    }
+
     private GenerateQuizFromDocumentRequest request(
             UUID documentId,
             List<Integer> chunkIndices,
@@ -141,6 +210,26 @@ class QuizGenerationRequestCanonicalizerTest {
                 null,
                 List.of(),
                 "en"
+        );
+    }
+
+    private GenerateQuizFromTextRequest textRequest(String text) {
+        return new GenerateQuizFromTextRequest(
+                text,
+                "en",
+                ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED,
+                5_000,
+                QuizScope.ENTIRE_DOCUMENT,
+                null,
+                null,
+                null,
+                "Biology",
+                "A quiz",
+                Map.of(QuestionType.MCQ_SINGLE, 2),
+                Difficulty.MEDIUM,
+                2,
+                null,
+                List.of()
         );
     }
 }

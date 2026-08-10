@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.billing.api.dto.CommitResultDto;
 import uk.gegc.quizmaker.features.billing.api.dto.EstimationDto;
 import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.BillingService;
+import uk.gegc.quizmaker.features.billing.application.ContentLengthPerQuestionTypeTariff;
 import uk.gegc.quizmaker.features.billing.application.EstimationService;
 import uk.gegc.quizmaker.features.billing.application.GenerationTariffService;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
@@ -340,6 +341,66 @@ class QuizGenerationFacadeImplTest {
                     .isInstanceOf(IdempotencyConflictException.class);
 
             verifyNoInteractions(estimationService, internalBillingService, jobService, applicationEventPublisher);
+        }
+
+        @Test
+        @DisplayName("Uses the claimed tariff snapshot when pricing changes before generation starts")
+        void claimedTariffSnapshotWinsOverCurrentEstimateTariff() {
+            EstimationDto estimateUnderNewTariff = new EstimationDto(
+                    1000L,
+                    99L,
+                    null,
+                    "usd",
+                    true,
+                    "Up to 99 billing tokens",
+                    UUID.randomUUID(),
+                    "v2-content-length",
+                    9L,
+                    new java.math.BigDecimal("0.45"),
+                    100_000L,
+                    2
+            );
+            ReservationDto originalTariffReservation = new ReservationDto(
+                    UUID.randomUUID(),
+                    testUser.getId(),
+                    uk.gegc.quizmaker.features.billing.domain.model.ReservationState.ACTIVE,
+                    25L,
+                    0L,
+                    java.time.LocalDateTime.now().plusHours(1),
+                    null,
+                    java.time.LocalDateTime.now(),
+                    java.time.LocalDateTime.now()
+            );
+            when(generationOperation.hasGenerationTariffSnapshot()).thenReturn(true);
+            when(generationOperation.getBillingTariffVersion()).thenReturn("v1-content-length");
+            when(generationOperation.getBillingBaseTokens()).thenReturn(5L);
+            when(generationOperation.getBillingTokensPerThousandCharacters())
+                    .thenReturn(new java.math.BigDecimal("0.10"));
+            when(generationTariffService.fromSnapshot(
+                    "v1-content-length", 5L, new java.math.BigDecimal("0.10")))
+                    .thenReturn(new ContentLengthPerQuestionTypeTariff(
+                            "v1-content-length", 5L, new java.math.BigDecimal("0.10")));
+            when(estimationService.estimateQuizGeneration(documentId, documentRequest))
+                    .thenReturn(estimateUnderNewTariff);
+            when(internalBillingService.reserve(eq(testUser.getId()), eq(25L), eq("quiz-generation"), any()))
+                    .thenReturn(originalTariffReservation);
+            when(aiQuizGenerationService.calculateTotalChunks(documentId, documentRequest)).thenReturn(3);
+            when(aiQuizGenerationService.calculateEstimatedGenerationTime(3, documentRequest.questionsPerType()))
+                    .thenReturn(120);
+            when(jobService.createJob(eq(testUser), eq(documentId), any(), eq(3), eq(120))).thenReturn(job);
+            when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+                var callback = invocation.getArgument(0, org.springframework.transaction.support.TransactionCallback.class);
+                return callback.doInTransaction(null);
+            });
+
+            facade.startQuizGeneration("testuser", documentRequest, "retry-key");
+
+            verify(internalBillingService).reserve(
+                    eq(testUser.getId()), eq(25L), eq("quiz-generation"), any());
+            assertThat(job.getBillingEstimatedTokens()).isEqualTo(25L);
+            assertThat(job.getBillingTariffVersion()).isEqualTo("v1-content-length");
+            assertThat(job.getBillingBaseTokens()).isEqualTo(5L);
+            assertThat(job.getBillingTokensPerThousandCharacters()).isEqualByComparingTo("0.10");
         }
 
         @Test

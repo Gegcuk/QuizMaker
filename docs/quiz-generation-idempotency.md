@@ -48,13 +48,22 @@ The server binds a key to a versioned canonical command. It normalizes unordered
 - source operation type and document ID for document generation;
 - quiz scope, selected chunks, chapter/section inputs, title, and description;
 - question-type/count matrix, difficulty, estimated time, category, tags, and language;
-- upload/text document-processing strategy and maximum chunk size; and
-- the current tariff and canonicalization versions.
+- upload/text document-processing strategy and maximum chunk size;
+- actual upload bytes or exact UTF-8 text through a one-way SHA-256 source digest; and
+- the canonicalization version.
 
-For privacy, the server never hashes, stores, or logs raw upload/text source content. Upload fingerprinting uses only file metadata (name, media type, and size); text uses its character count. The client key therefore defines the upload/text source command. Never reuse a key for a newly selected file or newly entered text, even when its metadata or length is unchanged.
+For privacy, raw upload/text source content is never persisted in idempotency metadata or written to logs. The source digest contributes to the outer canonical command hash, so the operation row contains only a 64-character command hash rather than the raw source or its standalone digest. Different same-size upload bytes and different same-length text therefore return `409` before document processing, reservation, or job creation. Never reuse a key for newly selected content.
+
+## Tariff Snapshot
+
+Every new operation captures the complete current customer tariff version, base tokens, and per-thousand-character rate when the key is first claimed. The snapshot is stored separately from the client-command hash because pricing is server-owned operation context, not client input.
+
+An exact retry continues with the stored tariff even if deployment configuration changes before document processing or estimation finishes. A new key captures the newly configured tariff. The generated job receives the same immutable snapshot, and the reservation is calculated from it; the server does not silently reprice an existing command.
+
+Operations created before source-digest canonicalization remain compatible. A legacy operation that already has a job can still return that job after deployment. An ambiguous legacy operation that has not started cannot begin under changed, unprovable source content and must use a new key.
 
 ## Server Guarantees
 
-An operation record links the authenticated user, canonical request fingerprint, reservation, and generation job. Concurrent exact retries share one operation. A different key creates an independent operation even when the estimate is the same. A failed job start rolls back its reservation/job linkage, and cleanup never releases a reservation belonging to another operation.
+An operation record links the authenticated user, canonical request fingerprint, immutable tariff snapshot, reservation, and generation job. Concurrent exact retries share one operation. Concurrent different commands using one key produce one operation and one `409`, without a reservation for the rejected command. A different key creates an independent operation even when the estimate is the same. A failed job start rolls back its reservation/job linkage, and cleanup never releases a reservation belonging to another operation.
 
 Operation metadata expires after 30 days and is purged by a scheduled cleanup. It contains no source content and no full key is written to logs.
