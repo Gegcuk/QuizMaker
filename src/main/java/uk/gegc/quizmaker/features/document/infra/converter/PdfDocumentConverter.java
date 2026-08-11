@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.document.infra.converter;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.io.MemoryUsageSetting;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,7 @@ import uk.gegc.quizmaker.features.document.application.DocumentConverter;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.Writer;
 import java.util.Arrays;
@@ -28,16 +30,33 @@ public class PdfDocumentConverter implements DocumentConverter {
     private static final List<String> SUPPORTED_EXTENSIONS = Arrays.asList(
             ".pdf"
     );
+    private static final String PDFBOX_STORAGE_LIMIT_MESSAGE = "Maximum allowed scratch file memory exceeded";
 
     private final DocumentProcessingLimits limits;
+    private final PdfScratchSpace scratchSpace;
+    private final PdfDocumentLoader documentLoader;
 
     public PdfDocumentConverter() {
         this(DocumentProcessingLimits.defaults());
     }
 
-    @Autowired
     public PdfDocumentConverter(DocumentProcessingLimits limits) {
+        this(limits, new PdfScratchSpace(limits), PDDocument::load);
+    }
+
+    @Autowired
+    public PdfDocumentConverter(DocumentProcessingLimits limits, PdfScratchSpace scratchSpace) {
+        this(limits, scratchSpace, PDDocument::load);
+    }
+
+    PdfDocumentConverter(
+            DocumentProcessingLimits limits,
+            PdfScratchSpace scratchSpace,
+            PdfDocumentLoader documentLoader
+    ) {
         this.limits = limits;
+        this.scratchSpace = scratchSpace;
+        this.documentLoader = documentLoader;
     }
 
     @Override
@@ -48,7 +67,8 @@ public class PdfDocumentConverter implements DocumentConverter {
 
     @Override
     public ConvertedDocument convert(InputStream inputStream, String filename, Long fileSize) throws Exception {
-        try (PDDocument document = PDDocument.load(inputStream)) {
+        try (PdfScratchSpace.Session scratchSession = scratchSpace.open();
+             PDDocument document = documentLoader.load(inputStream, scratchSession.memoryUsage())) {
             if (document.getNumberOfPages() > limits.getMaxPdfPages()) {
                 throw new DocumentResourceLimitException("PDF exceeds the configured page limit");
             }
@@ -69,7 +89,26 @@ public class PdfDocumentConverter implements DocumentConverter {
             extractChaptersAndSections(convertedDocument, text);
 
             return convertedDocument;
+        } catch (IOException exception) {
+            if (isPdfBoxStorageLimit(exception)) {
+                log.warn("PDF conversion reached the configured memory and scratch storage limit");
+                throw new DocumentResourceLimitException(
+                        "PDF exceeds the configured memory and scratch storage limit", exception);
+            }
+            throw exception;
         }
+    }
+
+    private boolean isPdfBoxStorageLimit(IOException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current.getMessage() != null
+                    && current.getMessage().contains(PDFBOX_STORAGE_LIMIT_MESSAGE)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private void extractChaptersAndSections(ConvertedDocument document, String text) {
@@ -276,4 +315,9 @@ public class PdfDocumentConverter implements DocumentConverter {
             return content.toString();
         }
     }
+}
+
+@FunctionalInterface
+interface PdfDocumentLoader {
+    PDDocument load(InputStream inputStream, MemoryUsageSetting memoryUsage) throws IOException;
 }

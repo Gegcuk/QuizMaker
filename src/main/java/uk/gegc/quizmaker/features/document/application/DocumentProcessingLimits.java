@@ -1,8 +1,10 @@
 package uk.gegc.quizmaker.features.document.application;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,9 @@ public class DocumentProcessingLimits {
     private static final long DEFAULT_MAX_UPLOAD_BYTES = 150L * 1024 * 1024;
     private static final int DEFAULT_MAX_EXTRACTED_CHARACTERS = 1_000_000;
     private static final int DEFAULT_MAX_PDF_PAGES = 1_500;
+    private static final long DEFAULT_MAX_PDF_MAIN_MEMORY_BYTES = 16L * 1024 * 1024;
+    private static final long DEFAULT_MAX_PDF_STORAGE_BYTES = 512L * 1024 * 1024;
+    private static final Duration DEFAULT_PDF_SCRATCH_RETENTION = Duration.ofHours(24);
     private static final int DEFAULT_MAX_EPUB_ENTRIES = 10_000;
     private static final long DEFAULT_MAX_EPUB_UNCOMPRESSED_BYTES = 300L * 1024 * 1024;
     private static final int DEFAULT_MAX_EPUB_COMPRESSION_RATIO = 100;
@@ -40,6 +45,15 @@ public class DocumentProcessingLimits {
 
     @Min(1)
     private int maxPdfPages = DEFAULT_MAX_PDF_PAGES;
+
+    @Min(4_096)
+    private long maxPdfMainMemoryBytes = DEFAULT_MAX_PDF_MAIN_MEMORY_BYTES;
+
+    @Min(4_096)
+    private long maxPdfStorageBytes = DEFAULT_MAX_PDF_STORAGE_BYTES;
+
+    @NotNull
+    private Duration pdfScratchRetention = DEFAULT_PDF_SCRATCH_RETENTION;
 
     @Min(1)
     private int maxEpubEntries = DEFAULT_MAX_EPUB_ENTRIES;
@@ -65,6 +79,14 @@ public class DocumentProcessingLimits {
 
     @NotBlank
     private String storageRoot = "uploads/documents";
+
+    @AssertTrue(message = "quizmaker.document.processing.max-pdf-storage-bytes must be greater than or equal to max-pdf-main-memory-bytes and pdf-scratch-retention must be positive")
+    public boolean isPdfScratchConfigurationValid() {
+        return maxPdfStorageBytes >= maxPdfMainMemoryBytes
+                && pdfScratchRetention != null
+                && !pdfScratchRetention.isZero()
+                && !pdfScratchRetention.isNegative();
+    }
 
     public static DocumentProcessingLimits defaults() {
         return new DocumentProcessingLimits();
