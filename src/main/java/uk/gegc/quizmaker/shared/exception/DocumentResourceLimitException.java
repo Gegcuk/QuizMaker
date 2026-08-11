@@ -6,4 +6,8 @@ public class DocumentResourceLimitException extends RuntimeException {
     public DocumentResourceLimitException(String message) {
         super(message);
     }
+
+    public DocumentResourceLimitException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

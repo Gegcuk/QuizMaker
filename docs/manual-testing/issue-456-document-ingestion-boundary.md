@@ -6,7 +6,7 @@ This change keeps the existing document upload APIs and success responses intact
 
 - uploads are staged by streaming instead of loading the whole multipart file into a byte array;
 - the server detects PDF, EPUB, and UTF-8 text content from the staged file and rejects mismatches;
-- document parsing has server-owned size, extraction, archive, page, timeout, global-capacity, and per-user-capacity limits;
+- document parsing has server-owned size, extraction, archive, page, PDF memory/storage, timeout, global-capacity, and per-user-capacity limits;
 - a document record and its chunks are committed only after parsing and chunking have succeeded;
 - a failed reprocess retains the previously stored chunks.
 
@@ -98,6 +98,20 @@ Expected result:
 - Oversized upload: HTTP `413`, problem type ending in `document-size-limit-exceeded`.
 - Extraction, PDF-page, EPUB-entry/compression, or parse-time limit: HTTP `422`, problem type ending in `document-resource-limit-exceeded`.
 - No partially processed document is visible through `GET /api/documents`.
+
+### PDF memory and scratch configuration
+
+PDFBox uses a private per-conversion directory under `<DOCUMENT_STORAGE_ROOT>/.pdf-scratch`. The service removes that directory after successful conversion and every parser failure, and removes expired owned operation directories at startup and before another PDF parse. It never uses uploaded filenames in scratch paths.
+
+The production properties are server-owned and do not change either upload API:
+
+| Environment variable | Default | Unit and meaning |
+| --- | ---: | --- |
+| `DOCUMENT_MAX_PDF_MAIN_MEMORY_BYTES` | `16777216` | Bytes retained in PDFBox main-memory buffering (16 MiB). |
+| `DOCUMENT_MAX_PDF_STORAGE_BYTES` | `536870912` | Bytes allowed across PDFBox main-memory and temporary-file buffering (512 MiB total). Must be at least the main-memory value. |
+| `DOCUMENT_PDF_SCRATCH_RETENTION` | `PT24H` | Positive ISO-8601 duration after which crash-leftover `pdf-parse-*` directories are eligible for cleanup. |
+
+Invalid combinations fail application startup. Resource exhaustion keeps the existing HTTP `422` `document-resource-limit-exceeded` contract, so existing web and iOS clients require no change. Use the focused [#720 PDF memory policy guide](issue-720-pdf-memory-policy.md) for manual verification.
 
 ## Temporary capacity rejection
 

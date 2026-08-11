@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.service.document.converter.impl;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -82,6 +83,7 @@ class PdfDocumentConverterTest {
     }
 
     @Test
+    @DisplayName("Preserves extracted text, pages, and fallback chapter for an existing valid PDF")
     void convert_ValidPdfContent_ReturnsConvertedDocument() throws Exception {
         // Arrange
         // Create a simple PDF content (this is a minimal PDF structure)
@@ -98,8 +100,11 @@ class PdfDocumentConverterTest {
         assertEquals("application/pdf", result.getContentType());
         assertEquals(fileSize, result.getFileSize());
         assertEquals("PDF_DOCUMENT_CONVERTER", result.getConverterType());
-        assertNotNull(result.getFullContent());
-        assertNotNull(result.getChapters());
+        assertEquals(1, result.getTotalPages());
+        assertTrue(result.getFullContent().contains("Hello World"));
+        assertEquals(1, result.getChapters().size());
+        assertEquals("Document", result.getChapters().get(0).getTitle());
+        assertEquals(result.getFullContent(), result.getChapters().get(0).getContent());
     }
 
     @Test
@@ -185,4 +190,4 @@ class PdfDocumentConverterTest {
 
         return pdfContent.getBytes();
     }
-} 
+}
