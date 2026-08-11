@@ -76,21 +76,22 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private DocumentDto processStagedUpload(String username, StagedDocumentUpload upload,
                                             ProcessDocumentRequest request) {
         Path publishedPath = null;
+        Document document;
         try {
             ConvertedDocument convertedDocument = convertWithinLimits(username, upload);
             List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
             boolean storeChunks = shouldStoreChunks(request);
             publishedPath = uploadStagingService.promote(upload);
             Path finalPublishedPath = publishedPath;
-            Document document = transactionTemplate.execute(status -> publishNewDocument(
+            document = transactionTemplate.execute(status -> publishNewDocument(
                     username, upload, finalPublishedPath, convertedDocument, chunks, storeChunks));
-            return documentMapper.toDto(document);
         } catch (RuntimeException e) {
             uploadStagingService.discard(publishedPath);
             throw e;
         } finally {
             uploadStagingService.discard(upload.stagingPath());
         }
+        return documentMapper.toDto(document);
     }
 
     private ConvertedDocument convertWithinLimits(String username, StagedDocumentUpload upload) {

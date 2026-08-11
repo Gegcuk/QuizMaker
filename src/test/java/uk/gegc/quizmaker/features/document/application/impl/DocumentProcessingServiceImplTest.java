@@ -27,11 +27,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -160,5 +162,111 @@ class DocumentProcessingServiceImplTest {
 
         verify(documentRepository).save(any(Document.class));
         verify(chunkRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("Deletes the promoted file when document publication rolls back")
+    void uploadDiscardsPromotedFileWhenPublicationFails() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        RuntimeException persistenceFailure = new RuntimeException("Database publication failed");
+        when(scenario.documentRepository.save(any(Document.class))).thenThrow(persistenceFailure);
+
+        assertThatThrownBy(scenario::upload)
+                .isSameAs(persistenceFailure);
+
+        verify(scenario.stagingService).discard(scenario.publishedPath);
+        verify(scenario.stagingService).discard(scenario.upload.stagingPath());
+        verify(scenario.documentMapper, never()).toDto(any(Document.class));
+    }
+
+    @Test
+    @DisplayName("Keeps the promoted file when response mapping fails after publication commits")
+    void uploadKeepsPromotedFileWhenPostCommitMappingFails() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        RuntimeException mappingFailure = new RuntimeException("Response mapping failed");
+        AtomicBoolean publicationCompleted = new AtomicBoolean();
+        doAnswer(invocation -> {
+            TransactionCallback<?> callback = invocation.getArgument(0);
+            Object result = callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+            publicationCompleted.set(true);
+            return result;
+        }).when(scenario.transactionTemplate).execute(any());
+        when(scenario.documentMapper.toDto(scenario.persistedDocument)).thenAnswer(invocation -> {
+            assertThat(publicationCompleted).isTrue();
+            throw mappingFailure;
+        });
+
+        assertThatThrownBy(scenario::upload)
+                .isSameAs(mappingFailure);
+
+        verify(scenario.documentRepository).save(any(Document.class));
+        verify(scenario.stagingService, never()).discard(scenario.publishedPath);
+        verify(scenario.stagingService).discard(scenario.upload.stagingPath());
+    }
+
+    private static final class UploadScenario {
+
+        private final byte[] content = "Study notes".getBytes(StandardCharsets.UTF_8);
+        private final StagedDocumentUpload upload = new StagedDocumentUpload(
+                Path.of("/staging/notes.upload"), "notes.txt", "text/plain", content.length);
+        private final Path publishedPath = Path.of("/published/document.txt");
+        private final DocumentRepository documentRepository = mock(DocumentRepository.class);
+        private final DocumentChunkRepository chunkRepository = mock(DocumentChunkRepository.class);
+        private final UserRepository userRepository = mock(UserRepository.class);
+        private final DocumentMapper documentMapper = mock(DocumentMapper.class);
+        private final DocumentConversionService conversionService = mock(DocumentConversionService.class);
+        private final DocumentChunkingService chunkingService = mock(DocumentChunkingService.class);
+        private final DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
+        private final DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
+        private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        private final Document persistedDocument = new Document();
+        private final ProcessDocumentRequest request = new ProcessDocumentRequest();
+        private final DocumentProcessingServiceImpl service;
+
+        private UploadScenario() throws Exception {
+            User owner = new User();
+            owner.setId(UUID.randomUUID());
+            owner.setUsername("owner");
+            persistedDocument.setId(UUID.randomUUID());
+
+            var convertedDocument = new uk.gegc.quizmaker.features.document.application.ConvertedDocument();
+            convertedDocument.setFullContent("Study notes");
+
+            when(stagingService.stage(any(InputStream.class), eq("notes.txt"), eq(null), eq((long) content.length)))
+                    .thenReturn(upload);
+            when(stagingService.promote(upload)).thenReturn(publishedPath);
+            when(parseExecutor.execute(eq("owner"), any())).thenAnswer(invocation ->
+                    ((Callable<?>) invocation.getArgument(1)).call());
+            when(conversionService.convertDocument(upload.stagingPath(), upload.originalFilename(),
+                    upload.detectedContentType(), upload.sizeBytes())).thenReturn(convertedDocument);
+            when(chunkingService.chunkDocument(eq(convertedDocument), any(ProcessDocumentRequest.class)))
+                    .thenReturn(List.of());
+            when(userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
+            when(documentRepository.save(any(Document.class))).thenReturn(persistedDocument);
+            when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+                TransactionCallback<?> callback = invocation.getArgument(0);
+                return callback.doInTransaction(mock(org.springframework.transaction.TransactionStatus.class));
+            });
+
+            request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED);
+            request.setMaxChunkSize(1_000);
+            request.setStoreChunks(false);
+            service = new DocumentProcessingServiceImpl(
+                    documentRepository,
+                    chunkRepository,
+                    userRepository,
+                    documentMapper,
+                    conversionService,
+                    chunkingService,
+                    stagingService,
+                    parseExecutor,
+                    DocumentProcessingLimits.defaults(),
+                    transactionTemplate
+            );
+        }
+
+        private void upload() {
+            service.uploadAndProcessDocument("owner", content, "notes.txt", request);
+        }
     }
 }
