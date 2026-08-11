@@ -134,13 +134,14 @@ public class SubscriptionMutationCoordinatorImpl implements SubscriptionMutation
             }
         }
 
-        if (remoteAlreadyApplied && keyHash == null) {
+        if (keyHash == null && (remoteAlreadyApplied || operationType == SubscriptionMutationType.CANCEL)) {
             Optional<SubscriptionMutationOperation> completed = operationRepository
                     .findFirstByUserIdAndSubscriptionIdAndRequestHashAndStateOrderByCreatedAtDesc(
                             userId, subscriptionId, requestHash, SubscriptionMutationState.SUCCEEDED);
             if (completed.isPresent()) {
                 ensureLocallyCancelled(completed.get(), localStatus);
-                return replay(completed.get());
+                // A concurrent caller may still hold the pre-cancellation provider snapshot.
+                return remoteAlreadyApplied ? replay(completed.get()) : waitFor(completed.get());
             }
         }
 
