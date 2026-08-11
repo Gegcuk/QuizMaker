@@ -45,6 +45,14 @@ Verify that subscription update and cancellation remain compatible for the subsc
 5. On a fresh active subscription, pause or delay an update in a controlled Stripe test double and submit cancellation concurrently. Release the update and confirm the final provider and local state is cancelled.
 6. Reverse the order. Confirm cancellation succeeds and the waiting update returns `409`; cancellation is the terminal state.
 
+The narrow stale-snapshot race is verified deterministically without a real Stripe call. From the repository root on the local machine, run:
+
+```bash
+./mvnw -Dtest=SubscriptionMutationConcurrencyMySqlIntegrationTest#concurrentLegacyCancelsProduceOneEconomicMutation test
+```
+
+The test pauses the second request after it has read the active provider state, lets the first request finish cancellation and durable completion, and then resumes the second claim. It must report two cancelled responses, one durable operation, and exactly one Stripe cancellation call.
+
 ## Cross-Account Denial
 
 1. Authenticate as user A with `BILLING_WRITE`.

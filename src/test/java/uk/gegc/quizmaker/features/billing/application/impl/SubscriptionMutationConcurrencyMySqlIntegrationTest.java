@@ -109,9 +109,13 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
     private AtomicReference<RemoteState> remoteState;
     private AtomicInteger updateCalls;
     private AtomicInteger cancelCalls;
+    private AtomicInteger ownershipLookups;
     private AtomicBoolean pauseNextMutation;
+    private AtomicBoolean pauseSecondOwnershipLookup;
     private AtomicReference<CountDownLatch> mutationEntered;
     private AtomicReference<CountDownLatch> releaseMutation;
+    private AtomicReference<CountDownLatch> secondOwnershipLookupEntered;
+    private AtomicReference<CountDownLatch> releaseSecondOwnershipLookup;
 
     @BeforeEach
     void setUp() throws StripeException {
@@ -120,9 +124,13 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
         remoteState = new AtomicReference<>(new RemoteState("active", ORIGINAL_PRICE));
         updateCalls = new AtomicInteger();
         cancelCalls = new AtomicInteger();
+        ownershipLookups = new AtomicInteger();
         pauseNextMutation = new AtomicBoolean();
+        pauseSecondOwnershipLookup = new AtomicBoolean();
         mutationEntered = new AtomicReference<>(new CountDownLatch(0));
         releaseMutation = new AtomicReference<>(new CountDownLatch(0));
+        secondOwnershipLookupEntered = new AtomicReference<>(new CountDownLatch(0));
+        releaseSecondOwnershipLookup = new AtomicReference<>(new CountDownLatch(0));
 
         SubscriptionStatus status = new SubscriptionStatus();
         status.setUserId(userId);
@@ -131,7 +139,10 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
 
         when(stripeService.retrieveSubscription(SUBSCRIPTION_ID))
                 .thenAnswer(invocation -> subscription(remoteState.get()));
-        when(stripeService.retrieveCustomerRaw(CUSTOMER_ID)).thenAnswer(invocation -> ownerCustomer());
+        when(stripeService.retrieveCustomerRaw(CUSTOMER_ID)).thenAnswer(invocation -> {
+            awaitReleaseIfSecondOwnershipLookupPaused(ownershipLookups.incrementAndGet());
+            return ownerCustomer();
+        });
         when(stripeService.updateSubscription(any(Subscription.class), anyString(), anyString()))
                 .thenAnswer(invocation -> {
                     updateCalls.incrementAndGet();
@@ -152,6 +163,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
     @AfterEach
     void tearDown() {
         releaseMutation.get().countDown();
+        releaseSecondOwnershipLookup.get().countDown();
         clearDatabase();
     }
 
@@ -159,6 +171,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
     @DisplayName("Concurrent legacy cancellations produce one Stripe cancellation and two successful responses")
     void concurrentLegacyCancelsProduceOneEconomicMutation() throws Exception {
         pauseNextMutation();
+        pauseSecondOwnershipLookup();
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Subscription> first = executor.submit(
@@ -167,16 +180,20 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
 
             Future<Subscription> second = executor.submit(
                     () -> mutationService.cancelSubscription(userId, SUBSCRIPTION_ID));
-            verify(stripeService, timeout(2_000).atLeast(2)).retrieveSubscription(SUBSCRIPTION_ID);
+            assertThat(secondOwnershipLookupEntered.get().await(2, TimeUnit.SECONDS)).isTrue();
             releaseMutation.get().countDown();
 
             assertThat(first.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
+            releaseSecondOwnershipLookup.get().countDown();
             assertThat(second.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
         } finally {
+            releaseMutation.get().countDown();
+            releaseSecondOwnershipLookup.get().countDown();
             executor.shutdownNow();
         }
 
         assertThat(cancelCalls).hasValue(1);
+        assertThat(operationRepository.count()).isEqualTo(1);
         assertThat(statusRepository.findByUserId(userId)).get().satisfies(status -> {
             assertThat(status.isBlocked()).isTrue();
             assertThat(status.getBlockReason()).isEqualTo("subscription_cancelled_by_user");
@@ -308,11 +325,26 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
         pauseNextMutation.set(true);
     }
 
+    private void pauseSecondOwnershipLookup() {
+        secondOwnershipLookupEntered.set(new CountDownLatch(1));
+        releaseSecondOwnershipLookup.set(new CountDownLatch(1));
+        pauseSecondOwnershipLookup.set(true);
+    }
+
     private void awaitReleaseIfPaused() throws InterruptedException {
         if (pauseNextMutation.compareAndSet(true, false)) {
             mutationEntered.get().countDown();
             if (!releaseMutation.get().await(5, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Test mutation barrier timed out");
+            }
+        }
+    }
+
+    private void awaitReleaseIfSecondOwnershipLookupPaused(int lookupNumber) throws InterruptedException {
+        if (lookupNumber == 2 && pauseSecondOwnershipLookup.compareAndSet(true, false)) {
+            secondOwnershipLookupEntered.get().countDown();
+            if (!releaseSecondOwnershipLookup.get().await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Test ownership barrier timed out");
             }
         }
     }
