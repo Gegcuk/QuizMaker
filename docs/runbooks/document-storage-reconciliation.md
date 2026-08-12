@@ -39,7 +39,17 @@ Database and storage uncertainty always preserves files:
 
 Repeated incomplete runs or deletion failures require operator investigation. Bounded metrics and alert thresholds are owned by issue #722.
 
-User-requested document deletion must not remove a source file before its database transaction commits. That separate transaction-boundary correction is tracked by issue #730; reconciliation provides only the post-commit orphan recovery path.
+## User-Requested Deletion
+
+`DocumentDeletionService` owns the database transaction for the existing delete operation:
+
+1. It locks the selected document row so concurrent duplicate deletes cannot both mutate the same committed owner.
+2. It resolves the authenticated user and checks document ownership before any database or storage mutation.
+3. It bulk-deletes chunks and deletes the document row inside the transaction without loading each chunk.
+4. It registers source cleanup with `DocumentSourceFileCleanup`; the storage adapter is not called before commit.
+5. After a successful commit, source removal uses the existing idempotent `discard` operation.
+
+Rollback never runs the cleanup callback, so a committed document cannot be left pointing at a source removed by a failed delete. After commit, the row no longer owns the source. If the process stops or immediate cleanup fails, the unreferenced file remains recoverable and reconciliation removes it after retention. The row lock covers only database work; file removal does not prolong the database transaction.
 
 ## Schema
 
@@ -47,4 +57,4 @@ Flyway migration `V71__index_document_file_path.sql` adds `idx_documents_file_pa
 
 ## Privacy
 
-Reconciliation decisions must not log paths, filenames, owners, or content and must not use them as metric tags. Existing safe scheduler outcome logging remains operational; broader document-log redaction is tracked by issue #722.
+Reconciliation and deletion-cleanup decisions must not log paths, filenames, owners, or content and must not use them as metric tags. Existing safe scheduler outcome logging remains operational; broader document-log redaction is tracked by issue #722.

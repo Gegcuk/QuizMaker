@@ -341,7 +341,7 @@ public class DocumentController {
             documentProcessingService.deleteDocument(username, documentId);
             return ResponseEntity.noContent().build();
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to delete document: {} by user: {}", documentId, authentication.getName());
+            log.error("Unauthorized document deletion attempt for document {}", documentId);
             throw e;
         } catch (DocumentNotFoundException e) {
             log.error("Document not found for deletion: {}", documentId, e);

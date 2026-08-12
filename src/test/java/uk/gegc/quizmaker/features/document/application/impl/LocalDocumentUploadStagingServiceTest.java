@@ -26,6 +26,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -196,6 +197,22 @@ class LocalDocumentUploadStagingServiceTest {
         assertThat(expiredPublished).exists();
         assertThat(freshPublished).exists();
         assertThat(expiredStaging).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("Removes an existing published file idempotently across duplicate cleanup attempts")
+    void discardsPublishedFileIdempotently() throws IOException {
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        Path publishedFile = Files.createDirectories(storageRoot.resolve("published"))
+                .resolve("document.pdf");
+        Files.writeString(publishedFile, "fixture");
+
+        assertThatCode(() -> {
+            service.discard(publishedFile);
+            service.discard(publishedFile);
+        }).doesNotThrowAnyException();
+
+        assertThat(publishedFile).doesNotExist();
     }
 
     private DocumentProcessingLimits limits(long maxUploadBytes) {

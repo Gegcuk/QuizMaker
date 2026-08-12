@@ -128,7 +128,7 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
         try {
             Files.deleteIfExists(path);
         } catch (IOException e) {
-            log.warn("Could not remove document staging file {}", path.getFileName());
+            log.warn("Could not remove document storage file; cleanup will be retried where applicable");
         }
     }
 

@@ -1,7 +1,6 @@
 package uk.gegc.quizmaker.features.document.application.impl;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -14,6 +13,7 @@ import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
 import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
+import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
@@ -32,8 +32,6 @@ import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
@@ -42,7 +40,6 @@ import java.util.UUID;
 
 @Service("documentProcessingService")
 @RequiredArgsConstructor
-@Slf4j
 public class DocumentProcessingServiceImpl implements DocumentProcessingService {
 
     private final DocumentRepository documentRepository;
@@ -55,6 +52,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private final DocumentParseExecutor documentParseExecutor;
     private final DocumentProcessingLimits limits;
     private final TransactionTemplate transactionTemplate;
+    private final DocumentDeletionService documentDeletionService;
 
     @Override
     public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
@@ -236,54 +234,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     @Override
-    @Transactional
     public void deleteDocument(String username, UUID documentId) {
-        Document document = getDocumentForDeletion(username, documentId);
-
-        // Delete file from disk (non-transactional, but safe within transaction)
-        deleteFileFromDisk(document.getFilePath());
-
-        // Delete from database (requires active transaction)
-        deleteDocumentFromDatabase(document);
-    }
-
-    /**
-     * Transactional database operation for getting document for deletion
-     */
-    @Transactional
-    public Document getDocumentForDeletion(String username, UUID documentId) {
-        Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
-
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found: " + username));
-
-        if (!document.getUploadedBy().equals(user)) {
-            throw new UserNotAuthorizedException(username, documentId.toString(), "delete");
-        }
-
-        return document;
-    }
-
-    /**
-     * Non-transactional file deletion operation
-     */
-    private void deleteFileFromDisk(String filePath) {
-        try {
-            Files.deleteIfExists(Paths.get(filePath));
-        } catch (IOException e) {
-            log.warn("Failed to delete file from disk: {}", filePath, e);
-            // Don't throw exception for file deletion failures
-        }
-    }
-
-    /**
-     * Transactional database operation for deleting document
-     */
-    @Transactional
-    public void deleteDocumentFromDatabase(Document document) {
-        chunkRepository.deleteByDocument(document);
-        documentRepository.delete(document);
+        documentDeletionService.deleteDocument(username, documentId);
     }
 
     @Override
