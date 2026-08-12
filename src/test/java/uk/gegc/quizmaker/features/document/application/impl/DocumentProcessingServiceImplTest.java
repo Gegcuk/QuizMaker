@@ -7,6 +7,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
 import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
+import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.features.document.application.DocumentUploadStagingService;
@@ -78,7 +79,8 @@ class DocumentProcessingServiceImplTest {
                 mock(DocumentUploadStagingService.class),
                 parseExecutor,
                 DocumentProcessingLimits.defaults(),
-                transactionTemplate
+                transactionTemplate,
+                mock(DocumentDeletionService.class)
         );
 
         ProcessDocumentRequest request = new ProcessDocumentRequest();
@@ -150,7 +152,8 @@ class DocumentProcessingServiceImplTest {
                 stagingService,
                 parseExecutor,
                 DocumentProcessingLimits.defaults(),
-                transactionTemplate
+                transactionTemplate,
+                mock(DocumentDeletionService.class)
         );
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED);
@@ -204,6 +207,17 @@ class DocumentProcessingServiceImplTest {
         verify(scenario.stagingService).discard(scenario.upload.stagingPath());
     }
 
+    @Test
+    @DisplayName("Keeps the legacy processing-service delete contract while delegating the transaction boundary")
+    void delegatesDocumentDeletionWithoutChangingThePublicServiceContract() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        UUID documentId = UUID.randomUUID();
+
+        scenario.service.deleteDocument("owner", documentId);
+
+        verify(scenario.deletionService).deleteDocument("owner", documentId);
+    }
+
     private static final class UploadScenario {
 
         private final byte[] content = "Study notes".getBytes(StandardCharsets.UTF_8);
@@ -219,6 +233,7 @@ class DocumentProcessingServiceImplTest {
         private final DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
         private final DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
         private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        private final DocumentDeletionService deletionService = mock(DocumentDeletionService.class);
         private final Document persistedDocument = new Document();
         private final ProcessDocumentRequest request = new ProcessDocumentRequest();
         private final DocumentProcessingServiceImpl service;
@@ -261,7 +276,8 @@ class DocumentProcessingServiceImplTest {
                     stagingService,
                     parseExecutor,
                     DocumentProcessingLimits.defaults(),
-                    transactionTemplate
+                    transactionTemplate,
+                    deletionService
             );
         }
 
