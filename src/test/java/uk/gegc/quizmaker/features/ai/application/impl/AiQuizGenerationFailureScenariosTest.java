@@ -18,7 +18,9 @@ import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.billing.api.dto.ReleaseResultDto;
+import uk.gegc.quizmaker.features.billing.api.dto.ReservationDto;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
+import uk.gegc.quizmaker.features.billing.domain.model.ReservationState;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
@@ -154,6 +156,34 @@ class AiQuizGenerationFailureScenariosTest {
     }
 
     @Test
+    @DisplayName("Terminal cancellation wins when a late generation worker fails")
+    void terminalCancellationWinsWhenLateWorkerFails() {
+        Fixture fixture = prepareFixture();
+        QuizGenerationJob job = fixture.job();
+        List<GenerationStatus> persistedStatuses = new ArrayList<>();
+        when(jobRepository.save(any())).thenAnswer(invocation -> {
+            QuizGenerationJob savedJob = invocation.getArgument(0);
+            persistedStatuses.add(savedJob.getStatus());
+            return savedJob;
+        });
+        doAnswer(invocation -> {
+            job.setStatus(GenerationStatus.CANCELLED);
+            throw new AiServiceException("late worker failure after cancellation");
+        }).when(service).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()), anyString());
+
+        assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, fixture.request()))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("Failed to generate quiz");
+
+        assertThat(job.getStatus()).isEqualTo(GenerationStatus.CANCELLED);
+        assertThat(job.getBillingState()).isEqualTo(BillingState.RESERVED);
+        assertThat(persistedStatuses).doesNotContain(GenerationStatus.FAILED);
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
     @DisplayName("Scenario 3.2: rate limiting retries and fails cleanly when exhausted")
     void rateLimitingRetriesThenFails() {
         when(rateLimitConfig.getMaxRetries()).thenReturn(3);
@@ -203,12 +233,11 @@ class AiQuizGenerationFailureScenariosTest {
         GenerateQuizFromDocumentRequest request = fixture.request();
         UUID reservationId = fixture.reservationId();
 
-        doAnswer(invocation -> {
-            throw new AiServiceException(
-                    "Failed to parse AI response after retries",
-                    new AIResponseParseException("invalid json")
-            );
-        }).when(service).generateQuestionsByType(anyString(), any(QuestionType.class), anyInt(), any(Difficulty.class));
+        when(structuredAiClient.generateQuestions(any()))
+                .thenThrow(new AiServiceException(
+                        "Failed to parse AI response after retries",
+                        new AIResponseParseException("invalid json")
+                ));
 
         assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, request))
                 .isInstanceOf(AiServiceException.class)
@@ -231,9 +260,7 @@ class AiQuizGenerationFailureScenariosTest {
         GenerateQuizFromDocumentRequest request = fixture.request();
         UUID reservationId = fixture.reservationId();
 
-        doAnswer(invocation -> {
-            throw new AiServiceException("Empty response received from AI service");
-        }).when(service).generateQuestionsByType(anyString(), any(QuestionType.class), anyInt(), any(Difficulty.class));
+        when(structuredAiClient.generateQuestions(any())).thenReturn(null);
 
         assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, request))
                 .isInstanceOf(AiServiceException.class)
@@ -314,7 +341,19 @@ class AiQuizGenerationFailureScenariosTest {
         when(jobRepository.findAll()).thenReturn(List.of(job));
         when(jobRepository.findById(eq(jobId))).thenAnswer(invocation -> Optional.of(job));
         when(jobRepository.save(any())).thenAnswer(invocation -> (QuizGenerationJob) invocation.getArgument(0));
-        when(documentRepository.findByIdWithChunks(eq(documentId))).thenReturn(Optional.of(document));
+        when(documentRepository.findByIdWithChunksAndUser(eq(documentId))).thenReturn(Optional.of(document));
+        when(internalBillingService.renewReservationLease(user.getId(), reservationId, jobId))
+                .thenReturn(new ReservationDto(
+                        reservationId,
+                        user.getId(),
+                        ReservationState.ACTIVE,
+                        200L,
+                        0L,
+                        job.getReservationExpiresAt(),
+                        jobId,
+                        LocalDateTime.now(),
+                        LocalDateTime.now()
+                ));
         when(internalBillingService.release(eq(reservationId), anyString(), eq(jobId.toString()), anyString()))
                 .thenReturn(new ReleaseResultDto(reservationId, 200L));
 
@@ -324,9 +363,6 @@ class AiQuizGenerationFailureScenariosTest {
     private record Fixture(QuizGenerationJob job, GenerateQuizFromDocumentRequest request, UUID reservationId) {
     }
 }
-
-
-
 
 
 

@@ -1,5 +1,11 @@
 package uk.gegc.quizmaker.features.quiz.application.generation.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -32,6 +38,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
@@ -44,12 +51,15 @@ import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationOutputCheckpointRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.FeatureFlags;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,8 +74,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -79,9 +93,17 @@ import static org.mockito.Mockito.when;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=update"
+        "spring.jpa.hibernate.ddl-auto=update",
+        "spring.jpa.properties.hibernate.generate_statistics=true",
+        "quiz.jobs.finalization.recovery-grace-seconds=0",
+        "quiz.jobs.finalization.recovery-batch-size=50"
 })
-@Import({QuizGenerationFacadeImpl.class, QuizGenerationEntitlementMySqlIntegrationTest.TestConfiguration.class})
+@Import({
+        QuizGenerationFacadeImpl.class,
+        QuizGenerationCheckpointCodec.class,
+        QuizGenerationCheckpointServiceImpl.class,
+        QuizGenerationEntitlementMySqlIntegrationTest.TestConfiguration.class
+})
 @DisplayName("Quiz generation entitlement MySQL integration")
 class QuizGenerationEntitlementMySqlIntegrationTest {
 
@@ -95,11 +117,32 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
 
         @Bean
         QuizJobProperties quizJobProperties() {
-            return new QuizJobProperties();
+            QuizJobProperties properties = new QuizJobProperties();
+            properties.getFinalization().setRecoveryGraceSeconds(0);
+            properties.getFinalization().setRecoveryBatchSize(50);
+            return properties;
         }
 
         @Bean
-        QuizAssemblyService quizAssemblyService(QuizRepository quizRepository, CategoryRepository categoryRepository) {
+        ObjectMapper objectMapper() {
+            return new ObjectMapper().findAndRegisterModules();
+        }
+
+        @Bean
+        Clock systemClock() {
+            return Clock.systemDefaultZone();
+        }
+
+        @Bean
+        MeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
+        }
+
+        @Bean
+        PersistingQuizAssemblyService quizAssemblyService(
+                QuizRepository quizRepository,
+                CategoryRepository categoryRepository
+        ) {
             return new PersistingQuizAssemblyService(quizRepository, categoryRepository);
         }
     }
@@ -107,6 +150,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
     private static final class PersistingQuizAssemblyService implements QuizAssemblyService {
         private final QuizRepository quizRepository;
         private final CategoryRepository categoryRepository;
+        private final List<String> assembledQuestionTexts = new ArrayList<>();
 
         private PersistingQuizAssemblyService(QuizRepository quizRepository, CategoryRepository categoryRepository) {
             this.quizRepository = quizRepository;
@@ -134,6 +178,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
                                     GenerateQuizFromDocumentRequest request, Category category,
                                     Set<uk.gegc.quizmaker.features.tag.domain.model.Tag> tags,
                                     UUID documentId) {
+            recordQuestions(questions);
             return saveQuiz(user, category, "Chunk " + chunkIndex, request);
         }
 
@@ -142,6 +187,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
                                            GenerateQuizFromDocumentRequest request, Category category,
                                            Set<uk.gegc.quizmaker.features.tag.domain.model.Tag> tags,
                                            UUID documentId, int chunkCount) {
+            recordQuestions(questions);
             return saveQuiz(user, category, "Entitlement integration quiz", request);
         }
 
@@ -153,6 +199,20 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         @Override
         public String ensureUniqueTitle(User user, String requestedTitle) {
             return requestedTitle;
+        }
+
+        private synchronized void recordQuestions(List<Question> questions) {
+            assembledQuestionTexts.addAll(
+                    questions.stream().map(Question::getQuestionText).toList()
+            );
+        }
+
+        private synchronized List<String> assembledQuestionTexts() {
+            return List.copyOf(assembledQuestionTexts);
+        }
+
+        private synchronized void clearRecordedQuestions() {
+            assembledQuestionTexts.clear();
         }
 
         private Quiz saveQuiz(User user, Category category, String title, GenerateQuizFromDocumentRequest request) {
@@ -193,7 +253,22 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
     private QuizGenerationJobRepository jobRepository;
 
     @org.springframework.beans.factory.annotation.Autowired
+    private QuizGenerationOutputCheckpointRepository checkpointRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private QuizGenerationCheckpointService checkpointService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private ObjectMapper objectMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private QuizRepository quizRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private PersistingQuizAssemblyService quizAssemblyService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private CategoryRepository categoryRepository;
@@ -203,6 +278,10 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
 
     @AfterEach
     void cleanUp() {
+        quizAssemblyService.clearRecordedQuestions();
+        if (jobId != null) {
+            checkpointService.delete(jobId);
+        }
         if (userId != null) {
             quizRepository.deleteAllInBatch(quizRepository.findByCreatorId(userId));
         }
@@ -292,6 +371,241 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         }
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Restart recovery publishes a durable checkpoint without another provider call")
+    void restartRecoveryFinalizesDurableCheckpoint() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+
+        int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+        assertThat(recovered).isEqualTo(1);
+        assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
+        QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.COMPLETED);
+        assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.SUCCEEDED);
+        assertThat(reloaded.getBillingState()).isEqualTo(BillingState.COMMITTED);
+        assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+        assertThat(quizAssemblyService.assembledQuestionTexts()).containsExactly("A generated question");
+        verify(internalBillingService, times(1)).commit(any(), anyLong(), any(), any());
+        verifyNoInteractions(aiQuizGenerationService);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Concurrent restart scans consume one checkpoint and settle once")
+    void concurrentRestartScansFinalizeCheckpointOnce() throws Exception {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> first = executor.submit(() -> recoverWhenReleased(ready, start));
+            Future<Integer> second = executor.submit(() -> recoverWhenReleased(ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(first.get(10, TimeUnit.SECONDS) + second.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
+            verify(internalBillingService, times(1)).commit(any(), anyLong(), any(), any());
+            assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Concurrent restart scans reclaim one stale checkpointed finalization")
+    void concurrentRestartScansReclaimStaleCheckpointOnce() throws Exception {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        job.beginFinalization(LocalDateTime.now().minusMinutes(10));
+        jobRepository.saveAndFlush(job);
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> first = executor.submit(() -> recoverWhenReleased(ready, start));
+            Future<Integer> second = executor.submit(() -> recoverWhenReleased(ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(first.get(10, TimeUnit.SECONDS) + second.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
+            verify(internalBillingService, times(1)).commit(any(), anyLong(), any(), any());
+            assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Failed checkpoint finalization rolls back content and retains output for compensation")
+    void failedCheckpointFinalizationRetainsOutputAfterRollback() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        assertThat(facade.claimQuizGenerationFinalization(job.getId()))
+                .isEqualTo(QuizGenerationFinalizationClaim.CLAIMED);
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenThrow(new IllegalStateException("deterministic settlement failure"));
+
+        assertThatThrownBy(() -> facade.createQuizCollectionFromCheckpoint(job.getId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("deterministic settlement failure");
+
+        assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
+        QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
+        assertThat(checkpointRepository.existsById(job.getId())).isTrue();
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Malformed durable output fails visibly, releases billing, and creates no quiz")
+    void malformedCheckpointFailsAndReleasesWithoutContent() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointRepository.saveAndFlush(new uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationOutputCheckpoint(
+                job.getId(), 1, "not-json", 1, LocalDateTime.now().minusMinutes(1)));
+
+        int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+        assertThat(recovered).isEqualTo(1);
+        assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
+        QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FAILED);
+        assertThat(reloaded.getBillingState()).isEqualTo(BillingState.RELEASED);
+        assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+        verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
+        verify(internalBillingService).release(
+                eq(job.getBillingReservationId()),
+                eq("generation-finalization-failed"),
+                eq("quiz-generation"),
+                eq("quiz:" + job.getId() + ":finalization-release")
+        );
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Expired paid processing job without output fails and releases without provider retry")
+    void expiredUncheckpointedJobFailsAndReleases() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        job.setReservationExpiresAt(LocalDateTime.now().minusMinutes(1));
+        jobRepository.saveAndFlush(job);
+
+        int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+        assertThat(recovered).isEqualTo(1);
+        QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(reloaded.getBillingState()).isEqualTo(BillingState.RELEASED);
+        assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
+        verifyNoInteractions(aiQuizGenerationService);
+        verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Cancellation deletes durable output and prevents later recovery publication")
+    void cancellationWinsBeforeCheckpointRecovery() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+
+        facade.cancelGenerationJob(job.getId(), job.getUser().getUsername());
+        int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+        assertThat(recovered).isZero();
+        QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.CANCELLED);
+        assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.CANCELLED);
+        assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+        assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Concurrent cancellation and checkpoint recovery produce one terminal outcome")
+    void concurrentCancellationAndRecoveryProduceOneTerminalOutcome() throws Exception {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancellation = executor.submit(() -> {
+                ready.countDown();
+                if (!start.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Concurrent cancellation did not start in time");
+                }
+                try {
+                    facade.cancelGenerationJob(job.getId(), job.getUser().getUsername());
+                } catch (uk.gegc.quizmaker.shared.exception.ValidationException alreadyTerminal) {
+                    // Completion acquired the same job lock first; that is the other valid outcome.
+                }
+                return null;
+            });
+            Future<Integer> recovery = executor.submit(() -> recoverWhenReleased(ready, start));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            cancellation.get(10, TimeUnit.SECONDS);
+            recovery.get(10, TimeUnit.SECONDS);
+
+            QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
+            assertThat(reloaded.getStatus()).isIn(GenerationStatus.CANCELLED, GenerationStatus.COMPLETED);
+            assertThat(checkpointRepository.existsById(job.getId())).isFalse();
+            if (reloaded.getStatus() == GenerationStatus.CANCELLED) {
+                assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
+                verify(internalBillingService, never()).commit(any(), anyLong(), any(), any());
+                verify(billingService, times(1)).release(any(), anyString(), anyString(), anyString());
+            } else {
+                assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
+                verify(internalBillingService, times(1)).commit(any(), anyLong(), any(), any());
+                verify(billingService, never()).release(any(), anyString(), anyString(), anyString());
+            }
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Recovery candidate scan uses four fixed queries without loading one relation per job")
+    void recoveryCandidateScanHasNoNPlusOneQueries() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        QuizGenerationCheckpointService.RecoveryBatch batch = checkpointService.findRecoveryBatch(0, 50);
+
+        assertThat(batch.checkpointedNotStarted()).contains(job.getId());
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(4L);
+    }
+
     private QuizGenerationJob persistFinalizingJob() {
         QuizGenerationJob job = persistFinalizingCandidate();
         job.beginFinalization(LocalDateTime.now());
@@ -311,7 +625,11 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         job.setUser(user);
         job.setDocumentId(UUID.randomUUID());
         job.setStatus(GenerationStatus.PROCESSING);
-        job.setRequestData("{}");
+        try {
+            job.setRequestData(objectMapper.writeValueAsString(request(job.getDocumentId())));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to create test generation request", exception);
+        }
         job.setBillingReservationId(UUID.randomUUID());
         job.setBillingState(BillingState.RESERVED);
         job.setBillingEstimatedTokens(10L);
@@ -340,6 +658,14 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         return claim;
     }
 
+    private int recoverWhenReleased(CountDownLatch ready, CountDownLatch start) throws InterruptedException {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent recovery test did not start in time");
+        }
+        return facade.recoverStalledQuizGenerationFinalizations();
+    }
+
     private GenerateQuizFromDocumentRequest request(UUID documentId) {
         return new GenerateQuizFromDocumentRequest(
                 documentId, QuizScope.ENTIRE_DOCUMENT, null, null, null,
@@ -350,7 +676,9 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
     private Question question() {
         Question question = new Question();
         question.setType(QuestionType.MCQ_SINGLE);
+        question.setDifficulty(Difficulty.MEDIUM);
         question.setQuestionText("A generated question");
+        question.setContent("{\"correctOptionId\":\"answer-1\"}");
         return question;
     }
 }

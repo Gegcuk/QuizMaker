@@ -220,6 +220,15 @@ public class QuizGenerationJob {
         finalizationError = null;
     }
 
+    public void restartInterruptedFinalization(LocalDateTime now) {
+        if (finalizationState != QuizGenerationFinalizationState.FINALIZING) {
+            throw new IllegalStateException("Quiz generation finalization is not in progress: " + finalizationState);
+        }
+        finalizationStartedAt = now;
+        finalizationCompletedAt = null;
+        finalizationError = null;
+    }
+
     public void markFinalizationSucceeded(LocalDateTime now) {
         finalizationState = QuizGenerationFinalizationState.SUCCEEDED;
         finalizationCompletedAt = now;

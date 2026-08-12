@@ -33,7 +33,7 @@ import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
-import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCheckpointedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -119,6 +119,7 @@ class QuizServiceImplBillingDelegationTest {
         // Configure facade delegation - tests will override these as needed
         lenient().doNothing().when(quizGenerationFacade).commitTokensForSuccessfulGeneration(any(), anyList(), any());
         lenient().doNothing().when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(any(), any(), any());
+        lenient().doNothing().when(quizGenerationFacade).createQuizCollectionFromCheckpoint(any());
     }
 
     @Test
@@ -262,44 +263,23 @@ class QuizServiceImplBillingDelegationTest {
     }
 
     @Test
-    @DisplayName("Completed event claims finalization and records compensation when assembly fails")
-    void handleQuizGenerationCompletedFailureRecordsCompensation() {
+    @DisplayName("Checkpointed event claims finalization and records compensation when assembly fails")
+    void handleQuizGenerationCheckpointedFailureRecordsCompensation() {
         UUID jobId = UUID.randomUUID();
 
         // Configure facade to throw exception (delegation test)
         doThrow(new RuntimeException("boom"))
-                .when(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), any());
+                .when(quizGenerationFacade).createQuizCollectionFromCheckpoint(jobId);
         when(quizGenerationFacade.claimQuizGenerationFinalization(jobId))
                 .thenReturn(QuizGenerationFinalizationClaim.CLAIMED);
 
-        GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
-                UUID.randomUUID(),
-                QuizScope.ENTIRE_DOCUMENT,
-                null,
-                null,
-                null,
-                null,
-                null,
-                Map.of(QuestionType.MCQ_SINGLE, 1),
-                Difficulty.MEDIUM,
-                2,
-                null,
-                List.of()
-        );
+        QuizGenerationCheckpointedEvent event = new QuizGenerationCheckpointedEvent(this, jobId);
 
-        QuizGenerationCompletedEvent event = new QuizGenerationCompletedEvent(
-                this,
-                jobId,
-                Map.of(),
-                request,
-                List.of()
-        );
-
-        quizService.handleQuizGenerationCompleted(event);
+        quizService.handleQuizGenerationCheckpointed(event);
 
         // Verify delegation to facade
         verify(quizGenerationFacade).claimQuizGenerationFinalization(jobId);
-        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), any(), eq(request));
+        verify(quizGenerationFacade).createQuizCollectionFromCheckpoint(jobId);
         verify(quizGenerationFacade).handleQuizGenerationFinalizationFailure(jobId);
     }
 }

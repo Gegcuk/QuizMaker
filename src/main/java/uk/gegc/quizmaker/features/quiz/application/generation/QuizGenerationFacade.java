@@ -57,6 +57,8 @@ public interface QuizGenerationFacade {
             GenerateQuizFromDocumentRequest originalRequest
     );
 
+    void createQuizCollectionFromCheckpoint(UUID jobId);
+
     DocumentDto processDocumentCompletely(String username, MultipartFile file, GenerateQuizFromUploadRequest request);
 
     void verifyDocumentChunks(UUID documentId, GenerateQuizFromUploadRequest request);

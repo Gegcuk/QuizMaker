@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,6 +34,9 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GeneratedQuizCheckpoint;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointException;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
@@ -63,6 +67,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -94,6 +99,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final QuizGenerationIdempotencyService idempotencyService;
     private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
     private final QuizJobProperties quizJobProperties;
+    private final QuizGenerationCheckpointService checkpointService;
 
     @Override
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
@@ -570,6 +576,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         job.markFinalizationCancelled(LocalDateTime.now());
         job.setErrorMessage("Cancelled by user");
         jobRepository.save(job);
+        checkpointService.delete(jobId);
 
         if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
             // A cancelled job does not deliver a successful quiz. V1 charges
@@ -611,6 +618,33 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
+        finalizeQuizCollection(job, chunkQuestions, originalRequest);
+        checkpointService.delete(jobId);
+    }
+
+    @Override
+    @Transactional
+    public void createQuizCollectionFromCheckpoint(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+        if (job.isTerminal()) {
+            checkpointService.delete(jobId);
+            return;
+        }
+
+        GeneratedQuizCheckpoint checkpoint = checkpointService.getRequired(jobId);
+        GenerateQuizFromDocumentRequest originalRequest = deserializeGenerationRequest(job);
+        finalizeQuizCollection(job, checkpoint.chunkQuestions(), originalRequest);
+        checkpointService.delete(jobId);
+    }
+
+    private void finalizeQuizCollection(
+            QuizGenerationJob job,
+            Map<Integer, List<Question>> chunkQuestions,
+            GenerateQuizFromDocumentRequest originalRequest
+    ) {
+        UUID jobId = job.getId();
         if (job.isTerminal()) {
             log.info("Job {} already in terminal state {}, skipping quiz creation", jobId, job.getStatus());
             return;
@@ -666,6 +700,17 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
         commitTokensForSuccessfulGeneration(job, allQuestions, originalRequest);
         job.markFinalizationSucceeded(LocalDateTime.now());
         jobRepository.save(job);
+    }
+
+    private GenerateQuizFromDocumentRequest deserializeGenerationRequest(QuizGenerationJob job) {
+        try {
+            return objectMapper.readValue(job.getRequestData(), GenerateQuizFromDocumentRequest.class);
+        } catch (Exception exception) {
+            throw new QuizGenerationCheckpointException(
+                    "The generation request checkpoint is missing or malformed for job " + job.getId(),
+                    exception
+            );
+        }
     }
 
     @Override
@@ -870,6 +915,10 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     @Override
     public void handleQuizGenerationFinalizationFailure(UUID jobId) {
         FailureReleaseCandidate candidate = transactionTemplate.execute(status -> markFinalizationFailed(jobId));
+        releaseFinalizationReservation(jobId, candidate);
+    }
+
+    private void releaseFinalizationReservation(UUID jobId, FailureReleaseCandidate candidate) {
         if (candidate == null || candidate.reservationId() == null) {
             return;
         }
@@ -892,44 +941,186 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
     @Override
     public int recoverStalledQuizGenerationFinalizations() {
-        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(
-                quizJobProperties.getFinalization().getRecoveryGraceSeconds());
-        List<UUID> stalledJobIds = jobRepository
-                .findByFinalizationStateAndFinalizationStartedAtBefore(QuizGenerationFinalizationState.FINALIZING, cutoff)
-                .stream()
-                .map(QuizGenerationJob::getId)
-                .toList();
-        List<UUID> releasePendingJobIds = jobRepository
-                .findByFinalizationStateAndBillingState(QuizGenerationFinalizationState.FAILED, BillingState.RESERVED)
-                .stream()
-                .map(QuizGenerationJob::getId)
-                .toList();
+        QuizJobProperties.Finalization properties = quizJobProperties.getFinalization();
+        QuizGenerationCheckpointService.RecoveryBatch batch = checkpointService.findRecoveryBatch(
+                properties.getRecoveryGraceSeconds(),
+                properties.getRecoveryBatchSize()
+        );
+        int candidateCount = batch.checkpointedNotStarted().size()
+                + batch.checkpointedFinalizing().size()
+                + batch.uncheckpointedFinalizing().size()
+                + batch.expiredUncheckpointed().size();
+        if (candidateCount > 0) {
+            log.info("Scanning bounded quiz-generation recovery batch: checkpointedNotStarted={}, "
+                            + "checkpointedFinalizing={}, uncheckpointedFinalizing={}, expiredUncheckpointed={}",
+                    batch.checkpointedNotStarted().size(),
+                    batch.checkpointedFinalizing().size(),
+                    batch.uncheckpointedFinalizing().size(),
+                    batch.expiredUncheckpointed().size());
+        }
+        LinkedHashSet<UUID> recoveredJobIds = new LinkedHashSet<>();
 
-        stalledJobIds.forEach(this::handleQuizGenerationFinalizationFailure);
-        releasePendingJobIds.stream()
-                .filter(jobId -> !stalledJobIds.contains(jobId))
-                .forEach(this::handleQuizGenerationFinalizationFailure);
-        return stalledJobIds.size() + (int) releasePendingJobIds.stream()
-                .filter(jobId -> !stalledJobIds.contains(jobId))
-                .count();
+        for (UUID jobId : batch.checkpointedNotStarted()) {
+            if (recoverCheckpointedFinalization(jobId, false)) {
+                recoveredJobIds.add(jobId);
+            }
+        }
+        for (UUID jobId : batch.checkpointedFinalizing()) {
+            if (recoverCheckpointedFinalization(jobId, true)) {
+                recoveredJobIds.add(jobId);
+            }
+        }
+        for (UUID jobId : batch.uncheckpointedFinalizing()) {
+            recoverApparentlyUncheckpointedFinalization(jobId, true, recoveredJobIds);
+        }
+        for (UUID jobId : batch.expiredUncheckpointed()) {
+            recoverApparentlyUncheckpointedFinalization(jobId, false, recoveredJobIds);
+        }
+
+        List<UUID> releasePendingJobIds = jobRepository.findIdsByFinalizationStateAndBillingState(
+                QuizGenerationFinalizationState.FAILED,
+                BillingState.RESERVED,
+                PageRequest.of(0, properties.getRecoveryBatchSize())
+        );
+        for (UUID jobId : releasePendingJobIds) {
+            recoverFailedFinalization(jobId, recoveredJobIds);
+        }
+        return recoveredJobIds.size();
+    }
+
+    private void recoverApparentlyUncheckpointedFinalization(
+            UUID jobId,
+            boolean reclaimInterruptedClaim,
+            Set<UUID> recoveredJobIds
+    ) {
+        if (!recoveredJobIds.add(jobId)) {
+            return;
+        }
+
+        try {
+            UncheckpointedRecoveryDecision decision = Objects.requireNonNull(
+                    transactionTemplate.execute(status -> markFailedIfStillUncheckpointed(jobId)),
+                    "Uncheckpointed recovery transaction returned no result"
+            );
+            if (decision.checkpointAvailable()) {
+                if (!recoverCheckpointedFinalization(jobId, reclaimInterruptedClaim)) {
+                    recoveredJobIds.remove(jobId);
+                }
+                return;
+            }
+            releaseFinalizationReservation(jobId, decision.failureReleaseCandidate());
+        } catch (Exception exception) {
+            log.error("Unable to reconcile apparently uncheckpointed quiz-generation job {}", jobId, exception);
+        }
+    }
+
+    private UncheckpointedRecoveryDecision markFailedIfStillUncheckpointed(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        if (checkpointService.exists(jobId)) {
+            return UncheckpointedRecoveryDecision.checkpointFound();
+        }
+        return UncheckpointedRecoveryDecision.failed(markFinalizationFailed(job));
+    }
+
+    private boolean recoverCheckpointedFinalization(UUID jobId, boolean reclaimInterruptedClaim) {
+        QuizGenerationFinalizationClaim claim = reclaimInterruptedClaim
+                ? reclaimInterruptedQuizGenerationFinalization(jobId)
+                : claimQuizGenerationFinalization(jobId);
+        if (!claim.shouldFinalize()) {
+            if (claim == QuizGenerationFinalizationClaim.ALREADY_FINALIZED
+                    || claim == QuizGenerationFinalizationClaim.TERMINAL) {
+                checkpointService.delete(jobId);
+            }
+            return false;
+        }
+
+        try {
+            transactionTemplate.executeWithoutResult(status -> createQuizCollectionFromCheckpointInTransaction(jobId));
+            log.info("Recovered checkpointed quiz-generation finalization for job {}", jobId);
+        } catch (Exception exception) {
+            log.error("Checkpointed quiz-generation recovery failed for job {}", jobId, exception);
+            try {
+                handleQuizGenerationFinalizationFailure(jobId);
+            } catch (Exception compensationFailure) {
+                log.error("Unable to compensate checkpointed quiz-generation finalization for job {}",
+                        jobId, compensationFailure);
+            }
+        }
+        return true;
+    }
+
+    private QuizGenerationFinalizationClaim reclaimInterruptedQuizGenerationFinalization(UUID jobId) {
+        LocalDateTime staleBefore = LocalDateTime.now().minusSeconds(
+                quizJobProperties.getFinalization().getRecoveryGraceSeconds());
+        QuizGenerationFinalizationClaim claim = transactionTemplate.execute(status -> {
+            QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            if (job.isTerminal()) {
+                return job.getFinalizationState() == QuizGenerationFinalizationState.SUCCEEDED
+                        ? QuizGenerationFinalizationClaim.ALREADY_FINALIZED
+                        : QuizGenerationFinalizationClaim.TERMINAL;
+            }
+            if (job.getFinalizationState() != QuizGenerationFinalizationState.FINALIZING) {
+                return QuizGenerationFinalizationClaim.IN_PROGRESS;
+            }
+            if (job.getFinalizationStartedAt() != null
+                    && job.getFinalizationStartedAt().isAfter(staleBefore)) {
+                return QuizGenerationFinalizationClaim.IN_PROGRESS;
+            }
+            job.restartInterruptedFinalization(LocalDateTime.now());
+            jobRepository.save(job);
+            return QuizGenerationFinalizationClaim.CLAIMED;
+        });
+        return Objects.requireNonNull(claim, "Interrupted finalization claim transaction returned no result");
+    }
+
+    private void createQuizCollectionFromCheckpointInTransaction(UUID jobId) {
+        QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        if (job.isTerminal()) {
+            checkpointService.delete(jobId);
+            return;
+        }
+        GeneratedQuizCheckpoint checkpoint = checkpointService.getRequired(jobId);
+        finalizeQuizCollection(job, checkpoint.chunkQuestions(), deserializeGenerationRequest(job));
+        checkpointService.delete(jobId);
+    }
+
+    private void recoverFailedFinalization(UUID jobId, Set<UUID> recoveredJobIds) {
+        if (recoveredJobIds.add(jobId)) {
+            try {
+                handleQuizGenerationFinalizationFailure(jobId);
+            } catch (Exception exception) {
+                log.error("Unable to reconcile failed quiz-generation finalization for job {}", jobId, exception);
+            }
+        }
     }
 
     private FailureReleaseCandidate markFinalizationFailed(UUID jobId) {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        return markFinalizationFailed(job);
+    }
+
+    private FailureReleaseCandidate markFinalizationFailed(QuizGenerationJob job) {
+        UUID jobId = job.getId();
         if (job.getFinalizationState() == QuizGenerationFinalizationState.SUCCEEDED
                 || job.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.COMPLETED) {
+            checkpointService.delete(jobId);
             return FailureReleaseCandidate.none();
         }
         if (job.getStatus() == uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.CANCELLED) {
             job.markFinalizationCancelled(LocalDateTime.now());
             jobRepository.save(job);
+            checkpointService.delete(jobId);
             return FailureReleaseCandidate.none();
         }
 
         job.markFailed("Generation could not be finalized. No quiz was created; any reserved balance will be released automatically.");
         job.markFinalizationFailed("Finalization failed; reservation release is pending or complete.", LocalDateTime.now());
         jobRepository.save(job);
+        checkpointService.delete(jobId);
 
         return job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED
                 ? new FailureReleaseCandidate(job.getBillingReservationId())
@@ -959,6 +1150,19 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private record FailureReleaseCandidate(UUID reservationId) {
         static FailureReleaseCandidate none() {
             return new FailureReleaseCandidate(null);
+        }
+    }
+
+    private record UncheckpointedRecoveryDecision(
+            boolean checkpointAvailable,
+            FailureReleaseCandidate failureReleaseCandidate
+    ) {
+        static UncheckpointedRecoveryDecision checkpointFound() {
+            return new UncheckpointedRecoveryDecision(true, FailureReleaseCandidate.none());
+        }
+
+        static UncheckpointedRecoveryDecision failed(FailureReleaseCandidate candidate) {
+            return new UncheckpointedRecoveryDecision(false, candidate);
         }
     }
 

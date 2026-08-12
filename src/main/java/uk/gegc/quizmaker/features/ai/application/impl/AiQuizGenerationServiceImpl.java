@@ -261,6 +261,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
                 if (failedJob != null) {
+                    if (failedJob.isTerminal()) {
+                        log.info("Generation worker for job {} stopped after terminal state {} won",
+                                jobId, failedJob.getStatus());
+                        return;
+                    }
                     failedJob.markFailed("Generation failed: " + e.getMessage());
 
                     if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {

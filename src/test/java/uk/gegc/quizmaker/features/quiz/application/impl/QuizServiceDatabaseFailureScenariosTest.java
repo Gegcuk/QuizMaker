@@ -39,7 +39,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
-import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCheckpointedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -215,7 +215,7 @@ class QuizServiceDatabaseFailureScenariosTest {
 
     @Test
     @DisplayName("Scenario 4.2: quiz creation failure delegates durable compensation")
-    void handleQuizGenerationCompleted_delegatesCompensationWhenQuizCreationFails() {
+    void handleQuizGenerationCheckpointed_delegatesCompensationWhenQuizCreationFails() {
         QuizGenerationJob job = new QuizGenerationJob();
         UUID jobId = UUID.fromString("660e8400-e29b-41d4-a716-446655440010");
         job.setId(jobId);
@@ -229,29 +229,17 @@ class QuizServiceDatabaseFailureScenariosTest {
         // Configure facade to throw exception (delegation test)
         doThrow(new RuntimeException("quiz persistence failed"))
                 .when(quizGenerationFacade)
-                .createQuizCollectionFromGeneratedQuestions(eq(jobId), anyMap(), any());
+                .createQuizCollectionFromCheckpoint(jobId);
         when(quizGenerationFacade.claimQuizGenerationFinalization(jobId))
                 .thenReturn(QuizGenerationFinalizationClaim.CLAIMED);
 
-        Question question = new Question();
-        question.setQuestionText("Sample question");
-        question.setType(QuestionType.MCQ_SINGLE);
-        question.setDifficulty(Difficulty.MEDIUM);
-        question.setContent("{}\n");
+        QuizGenerationCheckpointedEvent event = new QuizGenerationCheckpointedEvent(this, job.getId());
 
-        QuizGenerationCompletedEvent event = new QuizGenerationCompletedEvent(
-                this,
-                job.getId(),
-                Map.of(1, List.of(question)),
-                request,
-                List.of(question)
-        );
-
-        quizService.handleQuizGenerationCompleted(event);
+        quizService.handleQuizGenerationCheckpointed(event);
 
         // Verify delegation occurred
         verify(quizGenerationFacade).claimQuizGenerationFinalization(jobId);
-        verify(quizGenerationFacade).createQuizCollectionFromGeneratedQuestions(eq(jobId), anyMap(), any());
+        verify(quizGenerationFacade).createQuizCollectionFromCheckpoint(jobId);
         verify(quizGenerationFacade).handleQuizGenerationFinalizationFailure(jobId);
     }
 

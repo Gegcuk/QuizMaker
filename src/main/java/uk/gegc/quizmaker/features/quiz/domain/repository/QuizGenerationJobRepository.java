@@ -134,6 +134,19 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
             BillingState billingState
     );
 
+    @Query("""
+            SELECT j.id
+            FROM QuizGenerationJob j
+            WHERE j.finalizationState = :finalizationState
+              AND j.billingState = :billingState
+            ORDER BY j.finalizationCompletedAt, j.id
+            """)
+    List<UUID> findIdsByFinalizationStateAndBillingState(
+            @Param("finalizationState") QuizGenerationFinalizationState finalizationState,
+            @Param("billingState") BillingState billingState,
+            Pageable pageable
+    );
+
     /**
      * Atomically increment completed tasks counter for a job
      * This method performs a single atomic UPDATE query without loading the entity,

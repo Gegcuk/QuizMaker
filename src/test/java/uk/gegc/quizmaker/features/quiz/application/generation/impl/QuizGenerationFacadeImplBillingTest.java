@@ -30,6 +30,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
@@ -117,6 +118,9 @@ class QuizGenerationFacadeImplBillingTest {
 
     @Mock
     private QuizJobProperties quizJobProperties;
+
+    @Mock
+    private QuizGenerationCheckpointService checkpointService;
     
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -222,12 +226,15 @@ class QuizGenerationFacadeImplBillingTest {
             job.beginFinalization(LocalDateTime.now().minusMinutes(10));
             QuizJobProperties.Finalization finalization = new QuizJobProperties.Finalization();
             finalization.setRecoveryGraceSeconds(60);
+            finalization.setRecoveryBatchSize(50);
             when(quizJobProperties.getFinalization()).thenReturn(finalization);
-            when(jobRepository.findByFinalizationStateAndFinalizationStartedAtBefore(
-                    eq(QuizGenerationFinalizationState.FINALIZING), any(LocalDateTime.class)))
-                    .thenReturn(List.of(job));
-            when(jobRepository.findByFinalizationStateAndBillingState(
-                    QuizGenerationFinalizationState.FAILED, BillingState.RESERVED))
+            when(checkpointService.findRecoveryBatch(60, 50))
+                    .thenReturn(new QuizGenerationCheckpointService.RecoveryBatch(
+                            List.of(), List.of(), List.of(jobId), List.of()));
+            when(jobRepository.findIdsByFinalizationStateAndBillingState(
+                    eq(QuizGenerationFinalizationState.FAILED),
+                    eq(BillingState.RESERVED),
+                    any()))
                     .thenReturn(List.of());
             when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
 
@@ -238,6 +245,36 @@ class QuizGenerationFacadeImplBillingTest {
             assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FAILED);
             assertThat(job.getBillingState()).isEqualTo(BillingState.RELEASED);
             verify(internalBillingService).release(any(), anyString(), anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("Recovery rechecks under the job lock before failing an apparently uncheckpointed job")
+        void recoveryDoesNotFailJobWhenCheckpointAppearsAfterCandidateScan() {
+            job.setBillingReservationId(UUID.randomUUID());
+            job.setBillingState(BillingState.RESERVED);
+            job.beginFinalization(LocalDateTime.now());
+            QuizJobProperties.Finalization finalization = new QuizJobProperties.Finalization();
+            finalization.setRecoveryGraceSeconds(60);
+            finalization.setRecoveryBatchSize(50);
+            when(quizJobProperties.getFinalization()).thenReturn(finalization);
+            when(checkpointService.findRecoveryBatch(60, 50))
+                    .thenReturn(new QuizGenerationCheckpointService.RecoveryBatch(
+                            List.of(), List.of(), List.of(jobId), List.of()));
+            when(checkpointService.exists(jobId)).thenReturn(true);
+            when(jobRepository.findIdsByFinalizationStateAndBillingState(
+                    eq(QuizGenerationFinalizationState.FAILED),
+                    eq(BillingState.RESERVED),
+                    any()))
+                    .thenReturn(List.of());
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            int recovered = facade.recoverStalledQuizGenerationFinalizations();
+
+            assertThat(recovered).isZero();
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
+            verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+            verify(checkpointService, never()).delete(jobId);
         }
     }
     
@@ -960,7 +997,7 @@ class QuizGenerationFacadeImplBillingTest {
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, generationTariffService, featureFlags, applicationEventPublisher,
                     transactionTemplate, quizAssemblyService,
-                    idempotencyService, requestCanonicalizer, quizJobProperties
+                    idempotencyService, requestCanonicalizer, quizJobProperties, checkpointService
             );
             
             job.setBillingIdempotencyKeys(null); // Start with null to test creation path
