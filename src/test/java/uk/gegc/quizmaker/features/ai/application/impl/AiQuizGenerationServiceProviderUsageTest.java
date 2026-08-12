@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionContentShuffler;
+import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
@@ -53,6 +54,7 @@ class AiQuizGenerationServiceProviderUsageTest {
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private StructuredAiClient structuredAiClient;
     @Mock private QuestionContentShuffler questionContentShuffler;
+    @Mock private QuestionContentValidationService questionContentValidationService;
     @Mock private ProviderUsageService providerUsageService;
 
     @InjectMocks

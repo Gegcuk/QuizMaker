@@ -40,6 +40,7 @@ import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentChunkRepository;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.application.impl.QuestionContentValidationServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -198,6 +199,7 @@ class RealAiQuizGenerationIntegrationTest {
                 transactionTemplate,
                 structuredAiClient,
                 new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
+                new QuestionContentValidationServiceImpl(handlerFactory),
                 mock(ProviderUsageService.class)
         );
 

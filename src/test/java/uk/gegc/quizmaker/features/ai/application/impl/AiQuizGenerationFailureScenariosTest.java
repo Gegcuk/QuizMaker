@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
@@ -80,6 +81,8 @@ class AiQuizGenerationFailureScenariosTest {
     @Mock
     private StructuredAiClient structuredAiClient;
     @Mock
+    private QuestionContentValidationService questionContentValidationService;
+    @Mock
     private ProviderUsageService providerUsageService;
 
     private AiQuizGenerationServiceImpl service;
@@ -102,6 +105,7 @@ class AiQuizGenerationFailureScenariosTest {
                 transactionTemplate,
                 structuredAiClient,
                 new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
+                questionContentValidationService,
                 providerUsageService
         ));
         lenient().when(transactionTemplate.execute(any()))
@@ -363,7 +367,6 @@ class AiQuizGenerationFailureScenariosTest {
     private record Fixture(QuizGenerationJob job, GenerateQuizFromDocumentRequest request, UUID reservationId) {
     }
 }
-
 
 
 

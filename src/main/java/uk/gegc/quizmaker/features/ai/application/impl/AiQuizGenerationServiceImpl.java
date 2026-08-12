@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionContentShuffler;
+import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -70,6 +72,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final TransactionTemplate transactionTemplate;
     private final StructuredAiClient structuredAiClient;
     private final QuestionContentShuffler questionContentShuffler;
+    private final QuestionContentValidationService questionContentValidationService;
     private final ProviderUsageService providerUsageService;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
@@ -524,8 +527,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      */
     public List<Question> convertStructuredQuestions(List<StructuredQuestion> structuredQuestions) {
         List<Question> questions = new ArrayList<>();
-        
-        for (StructuredQuestion sq : structuredQuestions) {
+
+        for (int index = 0; index < structuredQuestions.size(); index++) {
+            StructuredQuestion sq = structuredQuestions.get(index);
+            if (!hasRuntimeValidContent(sq, index)) {
+                continue;
+            }
+
             Question question = new Question();
             question.setQuestionText(sq.getQuestionText());
             question.setType(sq.getType());
@@ -546,6 +554,37 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
         
         return questions;
+    }
+
+    private boolean hasRuntimeValidContent(StructuredQuestion question, int index) {
+        if (question == null || question.getContent() == null || question.getContent().isBlank()) {
+            logGeneratedContentRejection(index, question != null ? question.getType() : null, "malformed_content");
+            return false;
+        }
+
+        JsonNode content;
+        try {
+            content = objectMapper.readTree(question.getContent());
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            logGeneratedContentRejection(index, question.getType(), "malformed_content");
+            return false;
+        }
+        if (content == null) {
+            logGeneratedContentRejection(index, question.getType(), "malformed_content");
+            return false;
+        }
+
+        try {
+            questionContentValidationService.validateContent(question.getType(), content);
+            return true;
+        } catch (RuntimeException exception) {
+            logGeneratedContentRejection(index, question.getType(), "runtime_validation_failed");
+            return false;
+        }
+    }
+
+    private void logGeneratedContentRejection(int index, QuestionType type, String reason) {
+        log.warn("Rejected generated question content at position {} for type {}: {}", index, type, reason);
     }
 
     /**
