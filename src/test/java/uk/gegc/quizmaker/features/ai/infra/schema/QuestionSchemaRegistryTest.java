@@ -3,10 +3,17 @@ package uk.gegc.quizmaker.features.ai.infra.schema;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+
+import java.util.Arrays;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -126,6 +133,53 @@ class QuestionSchemaRegistryTest {
 
         assertThat(contentSchema.get("required").toString()).contains("text", "gaps", "options");
         assertThat(contentSchema.get("properties").has("options")).isTrue();
+    }
+
+    @ParameterizedTest(name = "{0} at {1}")
+    @MethodSource("aiRequestContracts")
+    @DisplayName("AI schema constrains type and difficulty to the concrete request")
+    void shouldConstrainAiSchemaToConcreteRequest(QuestionType questionType, Difficulty difficulty) {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(questionType, difficulty);
+        JsonNode questionProperties = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties");
+
+        assertThat(questionProperties.path("type").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactly(questionType.name());
+        assertThat(questionProperties.path("difficulty").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactly(difficulty.name());
+    }
+
+    @Test
+    @DisplayName("Public question schema remains compatible with every type and difficulty")
+    void shouldKeepPublicQuestionSchemaUnconstrained() {
+        JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.TRUE_FALSE);
+        JsonNode questionProperties = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties");
+
+        assertThat(questionProperties.path("type").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder(Arrays.stream(QuestionType.values())
+                        .map(Enum::name)
+                        .toArray(String[]::new));
+        assertThat(questionProperties.path("difficulty").path("enum"))
+                .extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder(Arrays.stream(Difficulty.values())
+                        .map(Enum::name)
+                        .toArray(String[]::new));
+    }
+
+    private static Stream<Arguments> aiRequestContracts() {
+        return Arrays.stream(QuestionType.values())
+                .flatMap(questionType -> Arrays.stream(Difficulty.values())
+                        .map(difficulty -> Arguments.of(questionType, difficulty)));
     }
     
     @Test

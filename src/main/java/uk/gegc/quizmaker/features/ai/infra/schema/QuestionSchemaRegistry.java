@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 /**
@@ -58,13 +59,45 @@ public class QuestionSchemaRegistry {
      * @return AI-safe JSON schema as JsonNode
      */
     public JsonNode getSchemaForQuestionTypeAi(QuestionType questionType) {
+        return getSchemaForQuestionTypeAi(questionType, null);
+    }
+
+    /**
+     * Get the AI generation schema constrained to the concrete request contract.
+     *
+     * @param questionType requested question type
+     * @param difficulty requested difficulty, or {@code null} when only the type is known
+     * @return AI-safe JSON schema as JsonNode
+     */
+    public JsonNode getSchemaForQuestionTypeAi(QuestionType questionType, Difficulty difficulty) {
         JsonNode requestSchema = getSchemaForQuestionType(questionType);
         ObjectNode aiSchema = toAiSchema(requestSchema);
+        constrainQuestionEnum(aiSchema, "type", questionType.name());
+        if (difficulty != null) {
+            constrainQuestionEnum(aiSchema, "difficulty", difficulty.name());
+        }
         if (questionType == QuestionType.FILL_GAP) {
             requireFillGapOptions(aiSchema);
         }
         log.debug("Generated AI schema for question type: {}", questionType);
         return aiSchema;
+    }
+
+    private void constrainQuestionEnum(ObjectNode schema, String propertyName, String expectedValue) {
+        JsonNode propertyNode = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties")
+                .path(propertyName);
+
+        if (!(propertyNode instanceof ObjectNode property)) {
+            throw new IllegalStateException("AI question schema is missing property: " + propertyName);
+        }
+
+        ArrayNode allowedValues = objectMapper.createArrayNode();
+        allowedValues.add(expectedValue);
+        property.set("enum", allowedValues);
     }
     
     /**

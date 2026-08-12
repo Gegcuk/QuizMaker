@@ -259,6 +259,9 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
     private QuizGenerationCheckpointService checkpointService;
 
     @org.springframework.beans.factory.annotation.Autowired
+    private QuizJobProperties quizJobProperties;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private ObjectMapper objectMapper;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -436,10 +439,13 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         when(internalBillingService.commit(any(), anyLong(), any(), any()))
                 .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
 
+        int originalRecoveryGraceSeconds = quizJobProperties.getFinalization().getRecoveryGraceSeconds();
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
+            // Keep the first scanner's renewed claim leased while the second scanner waits on the row lock.
+            quizJobProperties.getFinalization().setRecoveryGraceSeconds(60);
             Future<Integer> first = executor.submit(() -> recoverWhenReleased(ready, start));
             Future<Integer> second = executor.submit(() -> recoverWhenReleased(ready, start));
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
@@ -451,7 +457,11 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
             assertThat(checkpointRepository.existsById(job.getId())).isFalse();
         } finally {
             executor.shutdownNow();
-            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            try {
+                assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            } finally {
+                quizJobProperties.getFinalization().setRecoveryGraceSeconds(originalRecoveryGraceSeconds);
+            }
         }
     }
 
