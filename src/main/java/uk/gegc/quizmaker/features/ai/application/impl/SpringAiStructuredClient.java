@@ -203,7 +203,9 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         );
         
         // Get AI-safe JSON schema for this question type (media stripped)
-        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(request.getQuestionType());
+        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(
+                request.getQuestionType(),
+                request.getDifficulty());
         
         // Build system message with structured output instructions (schema enforced server-side)
         String systemPrompt = promptTemplateService.buildSystemPrompt();
@@ -270,6 +272,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 request.getQuestionType(),
                 schema
         );
+        retainRequestedDifficulty(structuredResponse, request.getDifficulty());
         
         // Add token usage metadata if available
         if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
@@ -370,6 +373,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     if (question.getType() != expectedType) {
                         warnings.add("Question type mismatch: expected " + expectedType 
                                 + " but got " + question.getType());
+                        continue;
                     }
                     
                     questions.add(question);
@@ -409,6 +413,28 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             
             throw new AIResponseParseException("Invalid JSON in structured response: " + e.getMessage(), e);
         }
+    }
+
+    private void retainRequestedDifficulty(
+            StructuredQuestionResponse response,
+            Difficulty expectedDifficulty) {
+        List<StructuredQuestion> matchingQuestions = new ArrayList<>();
+
+        for (StructuredQuestion question : response.getQuestions()) {
+            if (question.getDifficulty() != expectedDifficulty) {
+                response.getWarnings().add("Question difficulty mismatch: expected "
+                        + expectedDifficulty + " but got " + question.getDifficulty());
+                continue;
+            }
+            matchingQuestions.add(question);
+        }
+
+        if (matchingQuestions.isEmpty()) {
+            throw new AIResponseParseException(
+                    "No questions matched requested difficulty " + expectedDifficulty);
+        }
+
+        response.setQuestions(matchingQuestions);
     }
     
     /**

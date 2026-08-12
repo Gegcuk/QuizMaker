@@ -117,11 +117,11 @@ class SpringAiStructuredClientResponseParsingTest {
         assertThat(response.isSchemaValid()).isTrue();
     }
     
-    // ====== Type Mismatch Warnings Tests ======
+    // ====== Type Contract Tests ======
     
     @Test
-    @DisplayName("Should collect warning for question type mismatch")
-    void shouldCollectWarningForTypeMismatch() throws Exception {
+    @DisplayName("Should reject a response when every question has the wrong type")
+    void shouldRejectResponseWhenEveryQuestionHasWrongType() {
         // Given - expecting TRUE_FALSE but got OPEN
         String responseWithMismatch = """
             {
@@ -140,17 +140,11 @@ class SpringAiStructuredClientResponseParsingTest {
             """;
         JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.TRUE_FALSE);
         
-        // When
-        StructuredQuestionResponse response = invokeParseStructuredResponse(
-                responseWithMismatch, QuestionType.TRUE_FALSE, schema);
-        
-        // Then
-        assertThat(response.getQuestions()).hasSize(1);
-        assertThat(response.getWarnings()).isNotEmpty();
-        assertThat(response.getWarnings().get(0))
-                .contains("type mismatch")
-                .contains("TRUE_FALSE")
-                .contains("OPEN");
+        // When/Then
+        assertThatThrownBy(() -> invokeParseStructuredResponse(
+                responseWithMismatch, QuestionType.TRUE_FALSE, schema))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("No valid questions parsed");
     }
     
     // ====== Mixed Valid/Invalid Questions Tests ======
@@ -410,4 +404,3 @@ class SpringAiStructuredClientResponseParsingTest {
         }
     }
 }
-
