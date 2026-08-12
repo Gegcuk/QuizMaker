@@ -1,83 +1,140 @@
 package uk.gegc.quizmaker.service.document.converter;
 
+import jakarta.persistence.EntityManagerFactory;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ActiveProfiles;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import uk.gegc.quizmaker.features.document.application.DocumentConverter;
 import uk.gegc.quizmaker.features.document.application.DocumentConverterFactory;
+import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
+import uk.gegc.quizmaker.features.document.infra.converter.EpubDocumentConverter;
+import uk.gegc.quizmaker.features.document.infra.converter.PdfDocumentConverter;
+import uk.gegc.quizmaker.features.document.infra.converter.TextDocumentConverter;
 
+import javax.sql.DataSource;
+import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
-@Tag("db-serial")
-@SpringBootTest
-@ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@DisplayName("Document converter minimal Spring wiring")
+@Execution(ExecutionMode.CONCURRENT)
 class DocumentConverterStartupTest {
 
-    @Autowired
-    private DocumentConverterFactory converterFactory;
+    private static final List<String> ISOLATED_TEST_CLASSES = List.of(
+            "uk.gegc.quizmaker.service.document.converter.DocumentConverterFactoryTest",
+            "uk.gegc.quizmaker.service.document.converter.DocumentConverterStartupTest",
+            "uk.gegc.quizmaker.service.document.converter.impl.EpubDocumentConverterTest"
+    );
+
+    private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(ConverterConfiguration.class);
 
     @Test
-    void contextLoads_AllConvertersRegistered() {
-        // Act
-        List<DocumentConverter> converters = converterFactory.getAllConverters();
+    @DisplayName("Registers exactly the PDF, text, and EPUB converter strategies")
+    void contextRegistersAllConverters() {
+        contextRunner.run(context -> {
+            assertThat(context.getStartupFailure()).isNull();
+            assertThat(context.getBeansOfType(DocumentConverter.class).values())
+                    .extracting(DocumentConverter::getConverterType)
+                    .containsExactlyInAnyOrder(
+                            "PDF_DOCUMENT_CONVERTER",
+                            "TEXT_DOCUMENT_CONVERTER",
+                            "EPUB_DOCUMENT_CONVERTER"
+                    );
 
-        // Assert
-        assertNotNull(converters);
-        assertFalse(converters.isEmpty());
+            DocumentConverterFactory converterFactory = context.getBean(DocumentConverterFactory.class);
+            assertThat(converterFactory.getAllConverters()).hasSize(3);
+        });
+    }
 
-        // Log all converters for debugging
-        System.out.println("Registered converters:");
-        for (DocumentConverter converter : converters) {
-            System.out.println("  - " + converter.getConverterType());
-            System.out.println("    Content types: " + converter.getSupportedContentTypes());
-            System.out.println("    Extensions: " + converter.getSupportedExtensions());
+    @Test
+    @DisplayName("Starts converter wiring without datasource, JPA, or Flyway infrastructure")
+    void contextDoesNotCreateDatabaseInfrastructure() {
+        contextRunner.run(context -> {
+            assertThat(context.getStartupFailure()).isNull();
+            assertThat(context.getBeansOfType(DataSource.class)).isEmpty();
+            assertThat(context.getBeansOfType(EntityManagerFactory.class)).isEmpty();
+            assertThat(context.getBeansOfType(Flyway.class)).isEmpty();
+        });
+    }
+
+    @Test
+    @DisplayName("Aggregates every expected type and extension through minimal Spring wiring")
+    void converterFactorySupportsAllExpectedFormats() {
+        contextRunner.run(context -> {
+            DocumentConverterFactory converterFactory = context.getBean(DocumentConverterFactory.class);
+
+            assertThat(converterFactory.getSupportedContentTypes()).containsExactlyInAnyOrder(
+                    "application/pdf",
+                    "text/plain",
+                    "text/txt",
+                    "application/epub+zip",
+                    "application/epub",
+                    "application/x-epub"
+            );
+            assertThat(converterFactory.getSupportedExtensions()).containsExactlyInAnyOrder(
+                    ".pdf",
+                    ".txt",
+                    ".text",
+                    ".epub"
+            );
+        });
+    }
+
+    @Test
+    @DisplayName("Keeps pure converter tests out of Spring Boot and the database-serial lane")
+    void converterTestsRemainIsolatedFromFullApplicationContextAndDatabaseLane() throws Exception {
+        for (String className : ISOLATED_TEST_CLASSES) {
+            Class<?> testClass = Class.forName(className);
+            List<String> annotations = Arrays.stream(testClass.getAnnotations())
+                    .map(annotation -> annotation.annotationType().getName())
+                    .toList();
+            List<String> tags = Arrays.stream(testClass.getAnnotationsByType(Tag.class))
+                    .map(Tag::value)
+                    .toList();
+
+            assertThat(annotations)
+                    .as("annotations on %s", className)
+                    .doesNotContain("org.springframework.boot.test.context.SpringBootTest");
+            assertThat(tags)
+                    .as("JUnit tags on %s", className)
+                    .doesNotContain("db-serial");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ConverterConfiguration {
+
+        @Bean
+        DocumentProcessingLimits documentProcessingLimits() {
+            return DocumentProcessingLimits.defaults();
         }
 
-        // Verify we have at least 3 converters (PDF, Text, EPUB)
-        assertTrue(converters.size() >= 3, "Should have at least 3 converters");
+        @Bean
+        DocumentConverter pdfDocumentConverter(DocumentProcessingLimits limits) {
+            return new PdfDocumentConverter(limits);
+        }
 
-        // Check for specific converters
-        boolean hasPdfConverter = converters.stream()
-                .anyMatch(c -> "PDF_DOCUMENT_CONVERTER".equals(c.getConverterType()));
-        boolean hasTextConverter = converters.stream()
-                .anyMatch(c -> "TEXT_DOCUMENT_CONVERTER".equals(c.getConverterType()));
-        boolean hasEpubConverter = converters.stream()
-                .anyMatch(c -> "EPUB_DOCUMENT_CONVERTER".equals(c.getConverterType()));
+        @Bean
+        DocumentConverter textDocumentConverter(DocumentProcessingLimits limits) {
+            return new TextDocumentConverter(limits);
+        }
 
-        assertTrue(hasPdfConverter, "PDF converter should be registered");
-        assertTrue(hasTextConverter, "Text converter should be registered");
-        assertTrue(hasEpubConverter, "EPUB converter should be registered");
+        @Bean
+        DocumentConverter epubDocumentConverter(DocumentProcessingLimits limits) {
+            return new EpubDocumentConverter(limits);
+        }
+
+        @Bean
+        DocumentConverterFactory documentConverterFactory(List<DocumentConverter> converters) {
+            return new DocumentConverterFactory(converters);
+        }
     }
-
-    @Test
-    void converterFactory_SupportsAllExpectedContentTypes() {
-        // Act
-        List<String> supportedContentTypes = converterFactory.getSupportedContentTypes();
-
-        // Assert
-        assertNotNull(supportedContentTypes);
-        assertTrue(supportedContentTypes.contains("application/pdf"));
-        assertTrue(supportedContentTypes.contains("text/plain"));
-        assertTrue(supportedContentTypes.contains("application/epub+zip"));
-        assertTrue(supportedContentTypes.contains("application/epub"));
-        assertTrue(supportedContentTypes.contains("application/x-epub"));
-    }
-
-    @Test
-    void converterFactory_SupportsAllExpectedExtensions() {
-        // Act
-        List<String> supportedExtensions = converterFactory.getSupportedExtensions();
-
-        // Assert
-        assertNotNull(supportedExtensions);
-        assertTrue(supportedExtensions.contains(".pdf"));
-        assertTrue(supportedExtensions.contains(".txt"));
-        assertTrue(supportedExtensions.contains(".epub"));
-    }
-} 
+}
