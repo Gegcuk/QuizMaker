@@ -70,6 +70,12 @@ public class QuizJobProperties {
 
         /** Fixed delay between recovery scans. */
         private int recoveryFixedDelaySeconds = 60;
+
+        /** Maximum UTF-8 size of one generated-output checkpoint. */
+        private int checkpointMaxBytes = 8 * 1024 * 1024;
+
+        /** Maximum candidates read from each recovery class per scan. */
+        private int recoveryBatchSize = 50;
     }
 
     @Data

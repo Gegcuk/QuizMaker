@@ -22,7 +22,7 @@ import uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFacade;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationFinalizationClaim;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
-import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCheckpointedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
@@ -195,18 +195,14 @@ public class QuizServiceImpl implements QuizService {
 
     @EventListener
     @Async("generalTaskExecutor")
-    public void handleQuizGenerationCompleted(QuizGenerationCompletedEvent event) {
+    public void handleQuizGenerationCheckpointed(QuizGenerationCheckpointedEvent event) {
         QuizGenerationFinalizationClaim claim = quizGenerationFacade.claimQuizGenerationFinalization(event.getJobId());
         if (!claim.shouldFinalize()) {
             log.info("Skipping quiz-generation finalization for job {} because claim is {}", event.getJobId(), claim);
             return;
         }
         try {
-            quizGenerationFacade.createQuizCollectionFromGeneratedQuestions(
-                    event.getJobId(),
-                    event.getChunkQuestions(),
-                    event.getOriginalRequest()
-            );
+            quizGenerationFacade.createQuizCollectionFromCheckpoint(event.getJobId());
         } catch (Exception e) {
             log.error("Failed to create quiz collection for job {}", event.getJobId(), e);
             quizGenerationFacade.handleQuizGenerationFinalizationFailure(event.getJobId());

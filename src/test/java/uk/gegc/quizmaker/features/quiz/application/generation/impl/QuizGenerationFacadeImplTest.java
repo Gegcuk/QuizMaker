@@ -37,6 +37,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationRequestFingerprint;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdempotencyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
@@ -125,6 +126,9 @@ class QuizGenerationFacadeImplTest {
 
     @Mock
     private QuizGenerationRequestCanonicalizer requestCanonicalizer;
+
+    @Mock
+    private QuizGenerationCheckpointService checkpointService;
 
     @Mock
     private QuizGenerationOperation generationOperation;
