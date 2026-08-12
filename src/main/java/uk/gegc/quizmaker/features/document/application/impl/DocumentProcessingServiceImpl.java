@@ -12,8 +12,8 @@ import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
-import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
 import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
+import uk.gegc.quizmaker.features.document.application.DocumentParseRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
@@ -46,7 +46,6 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private final DocumentChunkRepository chunkRepository;
     private final UserRepository userRepository;
     private final DocumentMapper documentMapper;
-    private final DocumentConversionService documentConversionService;
     private final DocumentChunkingService documentChunkingService;
     private final DocumentUploadStagingService uploadStagingService;
     private final DocumentParseExecutor documentParseExecutor;
@@ -93,14 +92,8 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     }
 
     private ConvertedDocument convertWithinLimits(String username, StagedDocumentUpload upload) {
-        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, () ->
-                documentConversionService.convertDocument(
-                        upload.stagingPath(),
-                        upload.originalFilename(),
-                        upload.detectedContentType(),
-                        upload.sizeBytes()
-                )
-        );
+        ConvertedDocument convertedDocument = documentParseExecutor.execute(
+                username, DocumentParseRequest.from(upload));
         if (convertedDocument.getFullContent() == null || convertedDocument.getFullContent().isBlank()) {
             throw new DocumentProcessingException("Document contains no extractable text");
         }
@@ -243,14 +236,12 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
         // Parse first. Existing chunks remain available until the replacement is ready.
         Document document = getDocumentForReprocessing(username, documentId);
         Path source = Paths.get(document.getFilePath());
-        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, () ->
-                documentConversionService.convertDocument(
-                        source,
-                        document.getOriginalFilename(),
-                        document.getContentType(),
-                        document.getFileSize()
-                )
-        );
+        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, new DocumentParseRequest(
+                source,
+                document.getOriginalFilename(),
+                document.getContentType(),
+                document.getFileSize()
+        ));
         if (convertedDocument.getFullContent() == null
                 || convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
             throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(

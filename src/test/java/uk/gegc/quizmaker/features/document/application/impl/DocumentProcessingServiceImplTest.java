@@ -2,12 +2,13 @@ package uk.gegc.quizmaker.features.document.application.impl;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
-import uk.gegc.quizmaker.features.document.application.DocumentConversionService;
 import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
+import uk.gegc.quizmaker.features.document.application.DocumentParseRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.features.document.application.DocumentUploadStagingService;
@@ -19,6 +20,7 @@ import uk.gegc.quizmaker.features.document.infra.converter.UniversalChunker;
 import uk.gegc.quizmaker.features.document.infra.mapping.DocumentMapper;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
 import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
 import java.io.InputStream;
@@ -27,7 +29,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,7 +75,6 @@ class DocumentProcessingServiceImplTest {
                 chunkRepository,
                 userRepository,
                 mock(DocumentMapper.class),
-                mock(DocumentConversionService.class),
                 mock(DocumentChunkingService.class),
                 mock(DocumentUploadStagingService.class),
                 parseExecutor,
@@ -101,7 +101,6 @@ class DocumentProcessingServiceImplTest {
         DocumentChunkRepository chunkRepository = mock(DocumentChunkRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
         DocumentMapper documentMapper = mock(DocumentMapper.class);
-        DocumentConversionService conversionService = mock(DocumentConversionService.class);
         DocumentChunkingService chunkingService = mock(DocumentChunkingService.class);
         DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
         DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
@@ -129,10 +128,7 @@ class DocumentProcessingServiceImplTest {
 
         when(stagingService.stage(any(InputStream.class), eq("notes.txt"), eq(null), eq(11L))).thenReturn(upload);
         when(stagingService.promote(upload)).thenReturn(publishedPath);
-        when(parseExecutor.execute(eq("owner"), any())).thenAnswer(invocation ->
-                ((Callable<?>) invocation.getArgument(1)).call());
-        when(conversionService.convertDocument(upload.stagingPath(), upload.originalFilename(),
-                upload.detectedContentType(), upload.sizeBytes())).thenReturn(convertedDocument);
+        when(parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class))).thenReturn(convertedDocument);
         when(chunkingService.chunkDocument(eq(convertedDocument), any(ProcessDocumentRequest.class))).thenReturn(List.of(chunk));
         when(userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
         when(documentRepository.save(any(Document.class))).thenReturn(resultDocument);
@@ -147,7 +143,6 @@ class DocumentProcessingServiceImplTest {
                 chunkRepository,
                 userRepository,
                 documentMapper,
-                conversionService,
                 chunkingService,
                 stagingService,
                 parseExecutor,
@@ -165,6 +160,27 @@ class DocumentProcessingServiceImplTest {
 
         verify(documentRepository).save(any(Document.class));
         verify(chunkRepository, never()).saveAll(any());
+        ArgumentCaptor<DocumentParseRequest> parseRequest = ArgumentCaptor.forClass(DocumentParseRequest.class);
+        verify(parseExecutor).execute(eq("owner"), parseRequest.capture());
+        assertThat(parseRequest.getValue()).isEqualTo(new DocumentParseRequest(
+                upload.stagingPath(), upload.originalFilename(), upload.detectedContentType(), upload.sizeBytes()));
+    }
+
+    @Test
+    @DisplayName("Does not promote or publish an upload when the parser rejects its worker response")
+    void uploadDoesNotPublishAfterParserProtocolFailure() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        DocumentProcessingException parserFailure = new DocumentProcessingException(
+                "Document parser returned an invalid response");
+        when(scenario.parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class)))
+                .thenThrow(parserFailure);
+
+        assertThatThrownBy(scenario::upload).isSameAs(parserFailure);
+
+        verify(scenario.stagingService, never()).promote(any(StagedDocumentUpload.class));
+        verify(scenario.transactionTemplate, never()).execute(any());
+        verify(scenario.documentRepository, never()).save(any(Document.class));
+        verify(scenario.stagingService).discard(scenario.upload.stagingPath());
     }
 
     @Test
@@ -228,7 +244,6 @@ class DocumentProcessingServiceImplTest {
         private final DocumentChunkRepository chunkRepository = mock(DocumentChunkRepository.class);
         private final UserRepository userRepository = mock(UserRepository.class);
         private final DocumentMapper documentMapper = mock(DocumentMapper.class);
-        private final DocumentConversionService conversionService = mock(DocumentConversionService.class);
         private final DocumentChunkingService chunkingService = mock(DocumentChunkingService.class);
         private final DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
         private final DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
@@ -250,10 +265,7 @@ class DocumentProcessingServiceImplTest {
             when(stagingService.stage(any(InputStream.class), eq("notes.txt"), eq(null), eq((long) content.length)))
                     .thenReturn(upload);
             when(stagingService.promote(upload)).thenReturn(publishedPath);
-            when(parseExecutor.execute(eq("owner"), any())).thenAnswer(invocation ->
-                    ((Callable<?>) invocation.getArgument(1)).call());
-            when(conversionService.convertDocument(upload.stagingPath(), upload.originalFilename(),
-                    upload.detectedContentType(), upload.sizeBytes())).thenReturn(convertedDocument);
+            when(parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class))).thenReturn(convertedDocument);
             when(chunkingService.chunkDocument(eq(convertedDocument), any(ProcessDocumentRequest.class)))
                     .thenReturn(List.of());
             when(userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
@@ -271,7 +283,6 @@ class DocumentProcessingServiceImplTest {
                     chunkRepository,
                     userRepository,
                     documentMapper,
-                    conversionService,
                     chunkingService,
                     stagingService,
                     parseExecutor,
