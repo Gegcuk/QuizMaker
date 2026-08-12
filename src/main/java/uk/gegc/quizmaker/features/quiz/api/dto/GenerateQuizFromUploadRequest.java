@@ -18,7 +18,13 @@ public record GenerateQuizFromUploadRequest(
         @Schema(description = "Document processing strategy", example = "CHAPTER_BASED")
         ProcessDocumentRequest.ChunkingStrategy chunkingStrategy,
 
-        @Schema(description = "Maximum characters per chunk", example = "50000")
+        @Schema(
+                description = "Maximum characters per chunk; omit to use the server default",
+                example = "50000",
+                minimum = "1000",
+                maximum = "100000",
+                defaultValue = "100000"
+        )
         @Min(value = 1000, message = "Max chunk size must be at least 1000 characters")
         @Max(value = 100000, message = "Max chunk size must not exceed 100000 characters")
         Integer maxChunkSize,

@@ -197,6 +197,14 @@ class QuizOpenApiContractTest {
                 .contains("Client-extracted selected text")
                 .contains("actual file bytes")
                 .contains("one-way source digest");
+        JsonNode uploadChunkSize = specification.at(
+                "/components/schemas/GenerateQuizFromUploadRequest/properties/maxChunkSize");
+        assertThat(uploadChunkSize.path("type").asText()).isEqualTo("integer");
+        assertThat(uploadChunkSize.path("minimum").asInt()).isEqualTo(1000);
+        assertThat(uploadChunkSize.path("maximum").asInt()).isEqualTo(100000);
+        assertThat(uploadChunkSize.path("default").asInt()).isEqualTo(100000);
+        assertThat(specification.at("/components/schemas/GenerateQuizFromUploadRequest/required").toString())
+                .doesNotContain("maxChunkSize");
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generate-from-text/post/description").asText())
                 .contains("identical text")
                 .contains("different same-length text returns 409")

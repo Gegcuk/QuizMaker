@@ -13,6 +13,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springdoc.core.annotations.ParameterObject;
@@ -776,7 +778,20 @@ public class QuizController {
     public ResponseEntity<QuizGenerationResponse> generateQuizFromUpload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "chunkingStrategy", required = false) String chunkingStrategy,
-            @RequestParam(value = "maxChunkSize", required = false) Integer maxChunkSize,
+            @Parameter(
+                    description = "Maximum characters per chunk. Omit to use the 100000-character default.",
+                    schema = @Schema(
+                            type = "integer",
+                            format = "int32",
+                            minimum = "1000",
+                            maximum = "100000",
+                            defaultValue = "100000"
+                    )
+            )
+            @Min(value = 1000, message = "Max chunk size must be at least 1000 characters")
+            @Max(value = 100000, message = "Max chunk size must not exceed 100000 characters")
+            @RequestParam(value = "maxChunkSize", required = false)
+            Integer maxChunkSize,
             @RequestParam(value = "quizScope", required = false) String quizScope,
             @RequestParam(value = "chunkIndices", required = false) List<Integer> chunkIndices,
             @RequestParam(value = "chapterTitle", required = false) String chapterTitle,
