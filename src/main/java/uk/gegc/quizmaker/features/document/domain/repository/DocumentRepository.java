@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +28,11 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
 
     boolean existsByOriginalFilenameAndUploadedBy(String filename, User user);
 
+    @Query("SELECT d.filePath FROM Document d WHERE d.filePath IN :filePaths")
+    List<String> findReferencedFilePaths(@Param("filePaths") Collection<String> filePaths);
+
+    boolean existsByFilePath(String filePath);
+
     /**
      * Find document by ID with chunks eagerly loaded
      */
@@ -38,4 +44,4 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
      */
     @Query("SELECT d FROM Document d LEFT JOIN FETCH d.chunks LEFT JOIN FETCH d.uploadedBy WHERE d.id = :id")
     Optional<Document> findByIdWithChunksAndUser(@Param("id") UUID id);
-} 
+}

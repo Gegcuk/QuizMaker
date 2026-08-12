@@ -17,7 +17,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -169,6 +173,29 @@ class LocalDocumentUploadStagingServiceTest {
                 "application/epub+zip",
                 epub.length
         )).isInstanceOf(DocumentResourceLimitException.class);
+    }
+
+    @Test
+    @DisplayName("Streams only expired published files and leaves deletion to the caller")
+    void visitsOnlyExpiredPublishedFiles() throws IOException {
+        DocumentProcessingLimits limits = limits(1024);
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits);
+        Path publishedDirectory = Files.createDirectories(storageRoot.resolve("published"));
+        Path stagingDirectory = Files.createDirectories(storageRoot.resolve(".staging"));
+        Path expiredPublished = Files.writeString(publishedDirectory.resolve("expired.pdf"), "old");
+        Path freshPublished = Files.writeString(publishedDirectory.resolve("fresh.pdf"), "new");
+        Path expiredStaging = Files.writeString(stagingDirectory.resolve("expired.upload"), "staged");
+        FileTime expiredAt = FileTime.from(Instant.now().minus(limits.getStagingRetention()).minusSeconds(1));
+        Files.setLastModifiedTime(expiredPublished, expiredAt);
+        Files.setLastModifiedTime(expiredStaging, expiredAt);
+        List<Path> visited = new ArrayList<>();
+
+        service.visitExpiredPublishedFiles(visited::add);
+
+        assertThat(visited).containsExactly(expiredPublished.toAbsolutePath().normalize());
+        assertThat(expiredPublished).exists();
+        assertThat(freshPublished).exists();
+        assertThat(expiredStaging).doesNotExist();
     }
 
     private DocumentProcessingLimits limits(long maxUploadBytes) {

@@ -22,17 +22,18 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -132,15 +133,8 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
     }
 
     @Override
-    public void reconcile(Collection<String> referencedFilePaths) {
-        Set<Path> referencedPaths = new HashSet<>();
-        if (referencedFilePaths != null) {
-            referencedFilePaths.stream()
-                    .filter(path -> path != null && !path.isBlank())
-                    .map(path -> Paths.get(path).toAbsolutePath().normalize())
-                    .forEach(referencedPaths::add);
-        }
-
+    public void visitExpiredPublishedFiles(Consumer<Path> visitor) {
+        Objects.requireNonNull(visitor, "Published-file visitor is required");
         try {
             cleanupExpiredStagingFiles(stagingDirectory());
             Path publishedDirectory = publishedDirectory();
@@ -148,13 +142,13 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
                 return;
             }
             try (var files = Files.list(publishedDirectory)) {
-                files.filter(Files::isRegularFile)
-                        .filter(path -> !referencedPaths.contains(path.toAbsolutePath().normalize()))
+                files.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                         .filter(this::isExpired)
-                        .forEach(this::discard);
+                        .map(path -> path.toAbsolutePath().normalize())
+                        .forEach(visitor);
             }
         } catch (IOException e) {
-            log.warn("Document storage reconciliation could not complete");
+            throw new DocumentStorageException("Failed to scan document storage for reconciliation", e);
         }
     }
 

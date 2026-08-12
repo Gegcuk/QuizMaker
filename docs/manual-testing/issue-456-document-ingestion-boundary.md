@@ -143,9 +143,11 @@ Expected result:
 
 ## Restart and storage reconciliation
 
+See also the focused [#723 storage reconciliation guide](issue-723-storage-reconciliation.md).
+
 1. Upload a normal document and confirm it remains available after restarting the backend.
-2. Allow the configured `DOCUMENT_STAGING_RETENTION` and `DOCUMENT_RECONCILIATION_INTERVAL` to elapse in a non-production environment, or invoke the scheduler through a debugger.
-3. Check the configured `DOCUMENT_STORAGE_ROOT`.
+2. Allow the configured `QUIZMAKER_DOCUMENT_PROCESSING_STAGING_RETENTION` and `QUIZMAKER_DOCUMENT_PROCESSING_RECONCILIATION_INTERVAL` to elapse in a non-production environment, or invoke the scheduler through a debugger.
+3. Check the configured `QUIZMAKER_DOCUMENT_PROCESSING_STORAGE_ROOT`.
 
 Expected result:
 
@@ -157,6 +159,7 @@ Expected result:
 
 Run locally:
 
-1. `./mvnw test -Dtest=LocalDocumentUploadStagingServiceTest,BoundedDocumentParseExecutorTest,DocumentStorageReconciliationSchedulerTest,DocumentConverterLimitsTest,DocumentProcessingServiceImplTest,DocumentControllerErrorTest,DocumentOpenApiContractTest,QuizOpenApiContractTest,QuizGenerationFacadeImplTest`
+1. `./mvnw test -Dtest=LocalDocumentUploadStagingServiceTest,BoundedDocumentParseExecutorTest,DocumentStorageReconciliationSchedulerTest,DocumentStorageReconciliationFilesystemTest,DocumentFileReferenceLookupImplTest,DocumentConverterLimitsTest,DocumentProcessingServiceImplTest,DocumentControllerErrorTest,DocumentOpenApiContractTest,QuizOpenApiContractTest,QuizGenerationFacadeImplTest`
+2. `./mvnw test -Dtest=DocumentStorageReconciliationMySqlIntegrationTest,DocumentFilePathIndexMigrationTest`
 
 Expected result: all focused tests pass. The full repository suite remains the final owner-run verification before release.
