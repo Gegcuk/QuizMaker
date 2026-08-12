@@ -162,7 +162,7 @@ public class PdfDocumentConverter implements DocumentConverter {
                         !line.matches(".*www\\..*")) {
                     // Truncate long lines to avoid database errors (VARCHAR(255) limit)
                     String chapterTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
-                    log.info("Found chapter header at line {}: '{}'", i, chapterTitle);
+                    log.info("Detected PDF chapter header (line={})", i);
 
                     // Save previous chapter if exists
                     if (currentChapterObj != null) {
@@ -173,7 +173,7 @@ public class PdfDocumentConverter implements DocumentConverter {
                             sectionContent = new StringBuilder();
                         }
                         currentChapterObj.setContent(chapterContent.toString());
-                        log.info("Saving chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
+                        log.info("Saving PDF chapter structure (characters={})", chapterContent.length());
                         document.getChapters().add(currentChapterObj);
                     }
 
@@ -196,7 +196,7 @@ public class PdfDocumentConverter implements DocumentConverter {
             if (sectionMatcher.find()) {
                 // Truncate long lines to avoid database errors (VARCHAR(255) limit)
                 String sectionTitle = line.length() > 255 ? line.substring(0, 252) + "..." : line;
-                log.info("Found section header at line {}: '{}'", i, sectionTitle);
+                log.info("Detected PDF section header (line={})", i);
 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -238,18 +238,15 @@ public class PdfDocumentConverter implements DocumentConverter {
         if (currentChapterObj != null) {
             currentChapterObj.setContent(chapterContent.toString());
             currentChapterObj.setEndPage(estimatePageNumber(lines.length, lines.length, document.getTotalPages()));
-            log.info("Saving final chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
+            log.info("Saving final PDF chapter structure (characters={})", chapterContent.length());
             document.getChapters().add(currentChapterObj);
         }
 
-        log.info("Extracted {} chapters from PDF", document.getChapters().size());
-        for (ConvertedDocument.Chapter chapter : document.getChapters()) {
-            log.info("Chapter '{}': {} characters, {} sections",
-                    chapter.getTitle(), chapter.getContent().length(), chapter.getSections().size());
-            for (ConvertedDocument.Section section : chapter.getSections()) {
-                log.info("  Section '{}': {} characters", section.getTitle(), section.getContent().length());
-            }
-        }
+        int totalSections = document.getChapters().stream()
+                .mapToInt(chapter -> chapter.getSections().size())
+                .sum();
+        log.info("Extracted PDF structure (chapters={}, sections={})",
+                document.getChapters().size(), totalSections);
 
         // If no chapters were detected, create a single chapter with all content
         if (document.getChapters().isEmpty()) {

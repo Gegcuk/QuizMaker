@@ -3,11 +3,13 @@ package uk.gegc.quizmaker.features.document.application.impl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
 import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.document.application.DocumentParseRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
@@ -21,6 +23,8 @@ import uk.gegc.quizmaker.features.document.infra.mapping.DocumentMapper;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingTimeoutException;
 import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
 import java.io.InputStream;
@@ -52,6 +56,7 @@ class DocumentProcessingServiceImplTest {
         UserRepository userRepository = mock(UserRepository.class);
         DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
         TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
 
         User owner = new User();
         owner.setId(UUID.randomUUID());
@@ -67,7 +72,7 @@ class DocumentProcessingServiceImplTest {
         when(documentRepository.findByIdWithChunksAndUser(document.getId())).thenReturn(Optional.of(document));
         when(userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
         when(parseExecutor.execute(eq("owner"), any())).thenThrow(
-                new DocumentResourceLimitException("Document processing exceeded the configured time limit")
+                new DocumentProcessingTimeoutException()
         );
 
         DocumentProcessingServiceImpl service = new DocumentProcessingServiceImpl(
@@ -80,7 +85,8 @@ class DocumentProcessingServiceImplTest {
                 parseExecutor,
                 DocumentProcessingLimits.defaults(),
                 transactionTemplate,
-                mock(DocumentDeletionService.class)
+                mock(DocumentDeletionService.class),
+                metrics
         );
 
         ProcessDocumentRequest request = new ProcessDocumentRequest();
@@ -92,6 +98,14 @@ class DocumentProcessingServiceImplTest {
 
         verify(chunkRepository, never()).deleteByDocument(any(Document.class));
         verify(transactionTemplate, never()).execute(any());
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.CONVERSION,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.TIMEOUT);
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.TIMEOUT);
     }
 
     @Test
@@ -105,6 +119,7 @@ class DocumentProcessingServiceImplTest {
         DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
         DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
         TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+        DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
 
         User owner = new User();
         owner.setId(UUID.randomUUID());
@@ -148,7 +163,8 @@ class DocumentProcessingServiceImplTest {
                 parseExecutor,
                 DocumentProcessingLimits.defaults(),
                 transactionTemplate,
-                mock(DocumentDeletionService.class)
+                mock(DocumentDeletionService.class),
+                metrics
         );
         ProcessDocumentRequest request = new ProcessDocumentRequest();
         request.setChunkingStrategy(ProcessDocumentRequest.ChunkingStrategy.SIZE_BASED);
@@ -164,6 +180,13 @@ class DocumentProcessingServiceImplTest {
         verify(parseExecutor).execute(eq("owner"), parseRequest.capture());
         assertThat(parseRequest.getValue()).isEqualTo(new DocumentParseRequest(
                 upload.stagingPath(), upload.originalFilename(), upload.detectedContentType(), upload.sizeBytes()));
+        verify(metrics).recordExtracted(DocumentIngestionMetrics.Format.TEXT, 11, null);
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
+        verify(metrics).ingestionStarted();
+        verify(metrics).ingestionStopped();
     }
 
     @Test
@@ -181,13 +204,65 @@ class DocumentProcessingServiceImplTest {
         verify(scenario.transactionTemplate, never()).execute(any());
         verify(scenario.documentRepository, never()).save(any(Document.class));
         verify(scenario.stagingService).discard(scenario.upload.stagingPath());
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.CONVERSION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.PROCESSING);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("Records capacity rejection without promoting or publishing the upload")
+    void recordsCapacityRejectionWithoutPublishing() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        when(scenario.parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class)))
+                .thenThrow(new DocumentProcessingCapacityExceededException());
+
+        assertThatThrownBy(scenario::upload)
+                .isInstanceOf(DocumentProcessingCapacityExceededException.class);
+
+        verify(scenario.stagingService, never()).promote(any(StagedDocumentUpload.class));
+        verify(scenario.transactionTemplate, never()).execute(any());
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.CONVERSION,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.CAPACITY);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.CAPACITY);
+    }
+
+    @Test
+    @DisplayName("Records a resource-limit rejection without promoting or publishing the upload")
+    void recordsResourceLimitRejectionWithoutPublishing() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        when(scenario.parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class)))
+                .thenThrow(new DocumentResourceLimitException("Extracted content exceeded the configured limit"));
+
+        assertThatThrownBy(scenario::upload)
+                .isInstanceOf(DocumentResourceLimitException.class);
+
+        verify(scenario.stagingService, never()).promote(any(StagedDocumentUpload.class));
+        verify(scenario.transactionTemplate, never()).execute(any());
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.CONVERSION,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.RESOURCE_LIMIT);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.RESOURCE_LIMIT);
     }
 
     @Test
     @DisplayName("Deletes the promoted file when document publication rolls back")
     void uploadDiscardsPromotedFileWhenPublicationFails() throws Exception {
         UploadScenario scenario = new UploadScenario();
-        RuntimeException persistenceFailure = new RuntimeException("Database publication failed");
+        RuntimeException persistenceFailure = new DataIntegrityViolationException("Database publication failed");
         when(scenario.documentRepository.save(any(Document.class))).thenThrow(persistenceFailure);
 
         assertThatThrownBy(scenario::upload)
@@ -196,6 +271,32 @@ class DocumentProcessingServiceImplTest {
         verify(scenario.stagingService).discard(scenario.publishedPath);
         verify(scenario.stagingService).discard(scenario.upload.stagingPath());
         verify(scenario.documentMapper, never()).toDto(any(Document.class));
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PUBLICATION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.PERSISTENCE);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.COMPENSATION,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
+    }
+
+    @Test
+    @DisplayName("Reports failed compensation when a rolled-back publication file cannot be removed")
+    void uploadReportsDeferredCompensationAfterPublicationFailure() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        RuntimeException persistenceFailure = new DataIntegrityViolationException("Database publication failed");
+        when(scenario.documentRepository.save(any(Document.class))).thenThrow(persistenceFailure);
+        when(scenario.stagingService.discard(scenario.publishedPath)).thenReturn(false);
+
+        assertThatThrownBy(scenario::upload)
+                .isSameAs(persistenceFailure);
+
+        verify(scenario.stagingService).discard(scenario.publishedPath);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.COMPENSATION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.CLEANUP);
     }
 
     @Test
@@ -221,6 +322,14 @@ class DocumentProcessingServiceImplTest {
         verify(scenario.documentRepository).save(any(Document.class));
         verify(scenario.stagingService, never()).discard(scenario.publishedPath);
         verify(scenario.stagingService).discard(scenario.upload.stagingPath());
+        verify(scenario.metrics, never()).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
+        verify(scenario.metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROCESSING,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.UNKNOWN);
     }
 
     @Test
@@ -249,6 +358,7 @@ class DocumentProcessingServiceImplTest {
         private final DocumentParseExecutor parseExecutor = mock(DocumentParseExecutor.class);
         private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
         private final DocumentDeletionService deletionService = mock(DocumentDeletionService.class);
+        private final DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
         private final Document persistedDocument = new Document();
         private final ProcessDocumentRequest request = new ProcessDocumentRequest();
         private final DocumentProcessingServiceImpl service;
@@ -265,6 +375,7 @@ class DocumentProcessingServiceImplTest {
             when(stagingService.stage(any(InputStream.class), eq("notes.txt"), eq(null), eq((long) content.length)))
                     .thenReturn(upload);
             when(stagingService.promote(upload)).thenReturn(publishedPath);
+            when(stagingService.discard(any(Path.class))).thenReturn(true);
             when(parseExecutor.execute(eq("owner"), any(DocumentParseRequest.class))).thenReturn(convertedDocument);
             when(chunkingService.chunkDocument(eq(convertedDocument), any(ProcessDocumentRequest.class)))
                     .thenReturn(List.of());
@@ -288,7 +399,8 @@ class DocumentProcessingServiceImplTest {
                     parseExecutor,
                     DocumentProcessingLimits.defaults(),
                     transactionTemplate,
-                    deletionService
+                    deletionService,
+                    metrics
             );
         }
 

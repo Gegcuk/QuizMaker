@@ -142,10 +142,10 @@ public class DocumentController {
 
             return ResponseEntity.status(HttpStatus.CREATED).body(document);
         } catch (DocumentStorageException e) {
-            log.error("Error uploading document - storage issue", e);
+            log.error("Document request failed (operation=upload, reason=storage)");
             throw e;
         } catch (DocumentProcessingException e) {
-            log.error("Error uploading document - processing issue", e);
+            log.error("Document request failed (operation=upload, reason=processing)");
             throw e;
         } catch (DocumentUploadLimitExceededException
                  | DocumentTypeMismatchException
@@ -153,7 +153,7 @@ public class DocumentController {
                  | DocumentProcessingCapacityExceededException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Error uploading document", e);
+            log.error("Document request failed (operation=upload, reason=unexpected)");
             throw new DocumentProcessingException("Failed to upload document: " + e.getMessage(), e);
         }
     }
@@ -182,20 +182,20 @@ public class DocumentController {
             DocumentDto document = documentProcessingService.getDocumentById(documentId, username);
             return ResponseEntity.ok(document);
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to document: {} by user: {}", documentId, authentication.getName());
+            log.warn("Document request denied (operation=get)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document not found: {}", documentId, e);
+            log.warn("Document request did not find a resource (operation=get)");
             throw e;
         } catch (RuntimeException e) {
             // Handle the specific test case where service throws "Access denied"
             if ("Access denied".equals(e.getMessage())) {
                 throw e;
             }
-            log.error("Error getting document: {}", documentId, e);
+            log.error("Document request failed (operation=get, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document not found");
         } catch (Exception e) {
-            log.error("Error getting document: {}", documentId, e);
+            log.error("Document request failed (operation=get, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document not found");
         }
     }
@@ -228,7 +228,7 @@ public class DocumentController {
             Page<DocumentDto> documents = documentProcessingService.getUserDocuments(username, pageable);
             return ResponseEntity.ok(documents);
         } catch (Exception e) {
-            log.error("Error getting user documents", e);
+            log.error("Document request failed (operation=list, reason=unexpected)");
             throw new DocumentProcessingException("Failed to retrieve user documents: " + e.getMessage(), e);
         }
     }
@@ -260,20 +260,20 @@ public class DocumentController {
             List<DocumentChunkDto> chunks = documentProcessingService.getDocumentChunks(documentId, username);
             return ResponseEntity.ok(chunks);
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to document chunks: {} by user: {}", documentId, authentication.getName());
+            log.warn("Document request denied (operation=list_chunks)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document not found: {}", documentId, e);
+            log.warn("Document request did not find a resource (operation=list_chunks)");
             throw e;
         } catch (RuntimeException e) {
             // Handle the specific test case where service throws "Access denied"
             if ("Access denied".equals(e.getMessage())) {
                 throw e;
             }
-            log.error("Error getting document chunks: {}", documentId, e);
+            log.error("Document request failed (operation=list_chunks, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document chunks not found");
         } catch (Exception e) {
-            log.error("Error getting document chunks: {}", documentId, e);
+            log.error("Document request failed (operation=list_chunks, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document chunks not found");
         }
     }
@@ -303,20 +303,20 @@ public class DocumentController {
             DocumentChunkDto chunk = documentProcessingService.getDocumentChunk(documentId, chunkIndex, username);
             return ResponseEntity.ok(chunk);
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to document chunk: {}:{} by user: {}", documentId, chunkIndex, authentication.getName());
+            log.warn("Document request denied (operation=get_chunk)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document or chunk not found: {}:{}", documentId, chunkIndex, e);
+            log.warn("Document request did not find a resource (operation=get_chunk)");
             throw e;
         } catch (RuntimeException e) {
             // Handle the specific test case where service throws "Chunk not found"
             if ("Chunk not found".equals(e.getMessage())) {
                 throw e;
             }
-            log.error("Error getting document chunk: {}:{}", documentId, chunkIndex, e);
+            log.error("Document request failed (operation=get_chunk, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Chunk not found");
         } catch (Exception e) {
-            log.error("Error getting document chunk: {}:{}", documentId, chunkIndex, e);
+            log.error("Document request failed (operation=get_chunk, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Chunk not found");
         }
     }
@@ -341,20 +341,20 @@ public class DocumentController {
             documentProcessingService.deleteDocument(username, documentId);
             return ResponseEntity.noContent().build();
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized document deletion attempt for document {}", documentId);
+            log.warn("Document request denied (operation=delete)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document not found for deletion: {}", documentId, e);
+            log.warn("Document request did not find a resource (operation=delete)");
             throw e;
         } catch (RuntimeException e) {
             // Handle the specific test case where service throws "Access denied"
             if ("Access denied".equals(e.getMessage())) {
                 throw e;
             }
-            log.error("Error deleting document: {}", documentId, e);
+            log.error("Document request failed (operation=delete, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document not found");
         } catch (Exception e) {
-            log.error("Error deleting document: {}", documentId, e);
+            log.error("Document request failed (operation=delete, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document not found");
         }
     }
@@ -400,23 +400,23 @@ public class DocumentController {
             DocumentDto document = documentProcessingService.reprocessDocument(username, documentId, request);
             return ResponseEntity.ok(document);
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to reprocess document: {} by user: {}", documentId, authentication.getName());
+            log.warn("Document request denied (operation=reprocess)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document not found for reprocessing: {}", documentId, e);
+            log.warn("Document request did not find a resource (operation=reprocess)");
             throw e;
         } catch (DocumentStorageException e) {
-            log.error("Error reprocessing document - storage issue: {}", documentId, e);
+            log.error("Document request failed (operation=reprocess, reason=storage)");
             throw e;
         } catch (DocumentProcessingException e) {
-            log.error("Error reprocessing document - processing issue: {}", documentId, e);
+            log.error("Document request failed (operation=reprocess, reason=processing)");
             throw e;
         } catch (DocumentTypeMismatchException
                  | DocumentResourceLimitException
                  | DocumentProcessingCapacityExceededException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Error reprocessing document: {}", documentId, e);
+            log.error("Document request failed (operation=reprocess, reason=unexpected)");
             throw new DocumentProcessingException("Failed to reprocess document: " + e.getMessage(), e);
         }
     }
@@ -445,13 +445,13 @@ public class DocumentController {
             DocumentDto document = documentProcessingService.getDocumentStatus(documentId, username);
             return ResponseEntity.ok(document);
         } catch (UserNotAuthorizedException e) {
-            log.error("Unauthorized access to document status: {} by user: {}", documentId, authentication.getName());
+            log.warn("Document request denied (operation=status)");
             throw e;
         } catch (DocumentNotFoundException e) {
-            log.error("Document not found for status: {}", documentId, e);
+            log.warn("Document request did not find a resource (operation=status)");
             throw e;
         } catch (Exception e) {
-            log.error("Error getting document status: {}", documentId, e);
+            log.error("Document request failed (operation=status, reason=unexpected)");
             throw new DocumentNotFoundException(documentId.toString(), "Document status not found");
         }
     }

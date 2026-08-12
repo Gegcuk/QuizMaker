@@ -30,11 +30,12 @@ public class AfterCommitDocumentSourceFileCleanup implements DocumentSourceFileC
             @Override
             public void afterCommit() {
                 try {
-                    uploadStagingService.discard(publishedPath);
+                    if (!uploadStagingService.discard(publishedPath)) {
+                        log.warn("Document source cleanup deferred after committed deletion (reason=cleanup)");
+                    }
                 } catch (RuntimeException cleanupFailure) {
                     // The database deletion is already committed; reconciliation owns the retry.
-                    log.warn("Document source cleanup deferred after committed deletion ({})",
-                            cleanupFailure.getClass().getSimpleName());
+                    log.warn("Document source cleanup deferred after committed deletion (reason=cleanup)");
                 }
             }
         });

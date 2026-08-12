@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 @Tag("db-serial")
 @DataJpaTest
@@ -106,7 +107,8 @@ class DocumentStorageReconciliationMySqlIntegrationTest {
 
         new DocumentStorageReconciliationScheduler(
                 referenceLookup,
-                new LocalDocumentUploadStagingService(limits)
+                new LocalDocumentUploadStagingService(limits, mock(DocumentIngestionMetrics.class)),
+                mock(DocumentIngestionMetrics.class)
         ).reconcile();
 
         assertThat(files).allMatch(Files::exists);
@@ -125,7 +127,8 @@ class DocumentStorageReconciliationMySqlIntegrationTest {
         DocumentFileReferenceLookup barrierLookup = barrierLookup(recheckEntered, releaseRecheck);
         var scheduler = new DocumentStorageReconciliationScheduler(
                 barrierLookup,
-                new LocalDocumentUploadStagingService(limits)
+                new LocalDocumentUploadStagingService(limits, mock(DocumentIngestionMetrics.class)),
+                mock(DocumentIngestionMetrics.class)
         );
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {

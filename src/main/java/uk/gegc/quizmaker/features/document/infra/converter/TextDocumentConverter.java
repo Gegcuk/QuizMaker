@@ -166,7 +166,7 @@ public class TextDocumentConverter implements DocumentConverter {
                 if (chapterHeader.length() > 200) {
                     chapterHeader = chapterHeader.substring(0, 197) + "...";
                 }
-                log.info("Found chapter header at line {}: '{}'", i, chapterHeader);
+                log.info("Detected text chapter header (line={})", i);
 
                 // Save previous chapter if exists
                 if (currentChapterObj != null) {
@@ -177,7 +177,7 @@ public class TextDocumentConverter implements DocumentConverter {
                         sectionContent = new StringBuilder();
                     }
                     currentChapterObj.setContent(chapterContent.toString());
-                    log.info("Saving chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
+                    log.info("Saving text chapter structure (characters={})", chapterContent.length());
                     document.getChapters().add(currentChapterObj);
                 }
 
@@ -203,7 +203,7 @@ public class TextDocumentConverter implements DocumentConverter {
                 if (sectionHeader.length() > 200) {
                     sectionHeader = sectionHeader.substring(0, 197) + "...";
                 }
-                log.info("Found section header at line {}: '{}'", i, sectionHeader);
+                log.info("Detected text section header (line={})", i);
 
                 // Save previous section if exists
                 if (currentSectionObj != null) {
@@ -245,18 +245,15 @@ public class TextDocumentConverter implements DocumentConverter {
         if (currentChapterObj != null) {
             currentChapterObj.setContent(chapterContent.toString());
             currentChapterObj.setEndPage(1);
-            log.info("Saving final chapter '{}' with {} characters", currentChapterObj.getTitle(), chapterContent.length());
+            log.info("Saving final text chapter structure (characters={})", chapterContent.length());
             document.getChapters().add(currentChapterObj);
         }
 
-        log.info("Extracted {} chapters from text document", document.getChapters().size());
-        for (ConvertedDocument.Chapter chapter : document.getChapters()) {
-            log.info("Chapter '{}': {} characters, {} sections",
-                    chapter.getTitle(), chapter.getContent().length(), chapter.getSections().size());
-            for (ConvertedDocument.Section section : chapter.getSections()) {
-                log.info("  Section '{}': {} characters", section.getTitle(), section.getContent().length());
-            }
-        }
+        int totalSections = document.getChapters().stream()
+                .mapToInt(chapter -> chapter.getSections().size())
+                .sum();
+        log.info("Extracted text structure (chapters={}, sections={})",
+                document.getChapters().size(), totalSections);
 
         // If no chapters were detected, create a single chapter with all content
         if (document.getChapters().isEmpty()) {

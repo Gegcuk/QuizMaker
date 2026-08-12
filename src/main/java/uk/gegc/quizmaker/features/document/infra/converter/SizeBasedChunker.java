@@ -21,8 +21,8 @@ public class SizeBasedChunker implements UniversalChunker {
 
     @Override
     public List<Chunk> chunkDocument(ConvertedDocument document, ProcessDocumentRequest request) {
-        log.info("Starting size-based chunking for document: {} ({} characters)",
-                document.getOriginalFilename(), document.getFullContent() != null ? document.getFullContent().length() : 0);
+        log.info("Starting size-based chunking (characters={})",
+                document.getFullContent() != null ? document.getFullContent().length() : 0);
 
         String content = document.getFullContent();
         if (content == null || content.trim().isEmpty()) {
@@ -57,12 +57,6 @@ public class SizeBasedChunker implements UniversalChunker {
         chunks = combineSmallChunks(chunks, request.getMinChunkSize() != null ? request.getMinChunkSize() : 300, request);
 
         log.info("Final chunking result: {} chunks", chunks.size());
-
-        // Log chunk sizes for debugging
-        for (int i = 0; i < chunks.size(); i++) {
-            Chunk chunk = chunks.get(i);
-            log.info("Final chunk {}: '{}' ({} chars)", i, chunk.getTitle(), chunk.getCharacterCount());
-        }
 
         return chunks;
     }
@@ -325,4 +319,3 @@ public class SizeBasedChunker implements UniversalChunker {
                 strategy == ProcessDocumentRequest.ChunkingStrategy.AUTO;
     }
 }
-

@@ -26,6 +26,8 @@ import static org.mockito.Mockito.when;
 @DisplayName("Document storage reconciliation scheduler")
 class DocumentStorageReconciliationSchedulerTest {
 
+    private final DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
+
     @Test
     @DisplayName("Resolves live files in fixed-size batches without per-file database lookups")
     void resolvesLiveFilesInBoundedBatches() {
@@ -38,7 +40,7 @@ class DocumentStorageReconciliationSchedulerTest {
         when(referenceLookup.findReferencedPaths(anyCollection()))
                 .thenAnswer(invocation -> new HashSet<>(invocation.<Collection<String>>getArgument(0)));
 
-        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService).reconcile();
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<String>> batches = ArgumentCaptor.forClass(Collection.class);
@@ -47,6 +49,11 @@ class DocumentStorageReconciliationSchedulerTest {
                 .containsExactly(DocumentStorageReconciliationScheduler.RECONCILIATION_BATCH_SIZE, 1);
         verify(referenceLookup, never()).isReferenced(any());
         verify(stagingService, never()).discard(any());
+        verify(metrics).recordReconciliationCandidates(251);
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.RECONCILIATION,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
     }
 
     @Test
@@ -58,8 +65,9 @@ class DocumentStorageReconciliationSchedulerTest {
         streamCandidates(stagingService, List.of(candidate));
         when(referenceLookup.findReferencedPaths(anyCollection())).thenReturn(Set.of());
         when(referenceLookup.isReferenced(candidate.toString())).thenReturn(false);
+        when(stagingService.discard(candidate)).thenReturn(true);
 
-        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService).reconcile();
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
 
         var ordered = inOrder(referenceLookup, stagingService);
         ordered.verify(referenceLookup).findReferencedPaths(List.of(candidate.toString()));
@@ -77,7 +85,7 @@ class DocumentStorageReconciliationSchedulerTest {
         when(referenceLookup.findReferencedPaths(anyCollection())).thenReturn(Set.of());
         when(referenceLookup.isReferenced(candidate.toString())).thenReturn(true);
 
-        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService).reconcile();
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
 
         verify(referenceLookup).isReferenced(candidate.toString());
         verify(stagingService, never()).discard(any());
@@ -93,9 +101,33 @@ class DocumentStorageReconciliationSchedulerTest {
         when(referenceLookup.findReferencedPaths(anyCollection()))
                 .thenThrow(new IllegalStateException("database unavailable"));
 
-        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService).reconcile();
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
 
         verify(stagingService, never()).discard(any());
+        verify(metrics).recordReconciliationCandidates(1);
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.RECONCILIATION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("Reports a partial reconciliation failure when orphan cleanup is deferred")
+    void reportsDeferredOrphanCleanup() {
+        DocumentFileReferenceLookup referenceLookup = mock(DocumentFileReferenceLookup.class);
+        DocumentUploadStagingService stagingService = mock(DocumentUploadStagingService.class);
+        Path candidate = Path.of("/storage/published/deferred.pdf");
+        streamCandidates(stagingService, List.of(candidate));
+        when(referenceLookup.findReferencedPaths(anyCollection())).thenReturn(Set.of());
+        when(referenceLookup.isReferenced(candidate.toString())).thenReturn(false);
+        when(stagingService.discard(candidate)).thenReturn(false);
+
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
+
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.RECONCILIATION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.CLEANUP);
     }
 
     private void streamCandidates(DocumentUploadStagingService stagingService, List<Path> candidates) {

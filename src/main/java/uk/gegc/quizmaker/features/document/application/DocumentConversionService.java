@@ -51,15 +51,16 @@ public class DocumentConversionService {
 
     private ConvertedDocument convertDocument(InputStream inputStream, String filename, String contentType, long fileSize) {
         try {
-            log.info("Starting document conversion for file: {} (content type: {})", filename, contentType);
+            log.info("Starting document conversion (format={})",
+                    DocumentIngestionMetrics.Format.fromContentType(contentType).tagValue());
 
             // Find the appropriate converter
             DocumentConverter converter = converterFactory.findConverter(contentType, filename);
 
             ConvertedDocument convertedDocument = converter.convert(inputStream, filename, fileSize);
 
-            log.info("Successfully converted document: {} ({} characters, {} chapters)",
-                    filename, convertedDocument.getFullContent().length(), convertedDocument.getChapters().size());
+            log.info("Document conversion succeeded (characters={}, chapters={})",
+                    convertedDocument.getFullContent().length(), convertedDocument.getChapters().size());
 
             return convertedDocument;
 
@@ -67,7 +68,7 @@ public class DocumentConversionService {
             throw e;
         } catch (Exception e) {
             String errorMessage = String.format("Failed to convert document %s: %s", filename, e.getMessage());
-            log.error(errorMessage, e);
+            log.error("Document conversion failed (reason=processing)");
             throw new DocumentProcessingException(errorMessage, e);
         }
     }

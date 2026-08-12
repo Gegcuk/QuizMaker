@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.document.application.DocumentParserWorkerMetri
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingTimeoutException;
 import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
 
 import java.time.Duration;
@@ -101,8 +102,7 @@ public class BoundedDocumentParseExecutor implements DocumentParseExecutor {
                 if (!terminateAndConfirm(registration.worker())) {
                     throw new DocumentProcessingException("Document parser could not be terminated safely");
                 }
-                throw new DocumentResourceLimitException(
-                        "Document processing exceeded the configured time limit");
+                throw new DocumentProcessingTimeoutException();
             }
             ConvertedDocument result = registration.worker().readResult();
             record(DocumentParserWorkerMetrics.Outcome.SUCCEEDED);

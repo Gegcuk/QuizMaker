@@ -5,15 +5,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.features.document.application.StagedDocumentUpload;
 import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentStorageException;
 import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 import uk.gegc.quizmaker.shared.exception.DocumentUploadLimitExceededException;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,11 +43,13 @@ class LocalDocumentUploadStagingServiceTest {
     @TempDir
     Path storageRoot;
 
+    private final DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
+
     @Test
     @DisplayName("Rejects an oversized multipart upload before opening its stream")
     void rejectsOversizedMultipartBeforeReadingStream() throws IOException {
         DocumentProcessingLimits limits = limits(3);
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits);
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits, metrics);
         MultipartFile file = mock(MultipartFile.class);
         when(file.isEmpty()).thenReturn(false);
         when(file.getSize()).thenReturn(4L);
@@ -52,12 +58,16 @@ class LocalDocumentUploadStagingServiceTest {
                 .isInstanceOf(DocumentUploadLimitExceededException.class);
 
         verify(file, never()).getInputStream();
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.STAGING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.UPLOAD_SIZE);
     }
 
     @Test
     @DisplayName("Stops streaming when actual content exceeds the server upload limit")
     void rejectsActualStreamThatExceedsLimit() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(3));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(3), metrics);
 
         assertThatThrownBy(() -> service.stage(
                 new ByteArrayInputStream("four".getBytes(StandardCharsets.UTF_8)),
@@ -72,7 +82,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Stages supported text using detected content rather than the generic declared MIME type")
     void stagesSupportedTextUsingDetectedContentType() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024), metrics);
 
         StagedDocumentUpload staged = service.stage(new MockMultipartFile(
                 "file",
@@ -85,6 +95,10 @@ class LocalDocumentUploadStagingServiceTest {
         assertThat(staged.sizeBytes()).isEqualTo("A short study note.".getBytes(StandardCharsets.UTF_8).length);
         assertThat(staged.stagingPath()).exists();
         assertThat(staged.stagingPath().getFileName().toString()).doesNotContain("notes.txt");
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.STAGING,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
 
         service.discard(staged.stagingPath());
     }
@@ -92,7 +106,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Stages selected UTF-8 text when detection ends within a multibyte character")
     void stagesSelectedUtf8TextWithIncompleteProbeCharacter() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(17 * 1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(17 * 1024), metrics);
         byte[] extractedText = utf8TextWithMultibyteCharacterAcrossDetectionBoundary();
 
         StagedDocumentUpload staged = service.stage(
@@ -110,7 +124,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Rejects malformed UTF-8 text extracted from a source document")
     void rejectsMalformedUtf8ExtractedText() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024), metrics);
         byte[] malformedText = {(byte) 0xC3, (byte) 0x28};
 
         assertThatThrownBy(() -> service.stage(
@@ -126,7 +140,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Rejects a truncated UTF-8 character when the probe contains the whole upload")
     void rejectsTruncatedUtf8WhenProbeContainsWholeUpload() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024), metrics);
         byte[] truncatedText = {(byte) 0xD0};
 
         assertThatThrownBy(() -> service.stage(
@@ -142,7 +156,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Rejects content that conflicts with the filename or declared content type")
     void rejectsTypeMismatches() {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024), metrics);
 
         assertThatThrownBy(() -> service.stage(
                 new ByteArrayInputStream("plain text".getBytes(StandardCharsets.UTF_8)),
@@ -157,6 +171,28 @@ class LocalDocumentUploadStagingServiceTest {
                 "application/pdf",
                 10
         )).isInstanceOf(DocumentTypeMismatchException.class);
+
+        verify(metrics, times(2)).recordEvent(
+                DocumentIngestionMetrics.Stage.STAGING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.TYPE_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("Closes the source and records type rejection when the filename is missing")
+    void rejectsMissingFilenameInsideOwnedStagingBoundary() {
+        LocalDocumentUploadStagingService service =
+                new LocalDocumentUploadStagingService(limits(1024), metrics);
+        TrackingInputStream source = new TrackingInputStream("plain text".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> service.stage(source, null, "text/plain", 10))
+                .isInstanceOf(DocumentTypeMismatchException.class);
+
+        assertThat(source.closed).isTrue();
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.STAGING,
+                DocumentIngestionMetrics.Outcome.REJECTED,
+                DocumentIngestionMetrics.Reason.TYPE_MISMATCH);
     }
 
     @Test
@@ -164,7 +200,7 @@ class LocalDocumentUploadStagingServiceTest {
     void rejectsEpubArchiveAboveEntryLimit() throws IOException {
         DocumentProcessingLimits limits = limits(1024 * 1024);
         limits.setMaxEpubEntries(1);
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits);
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits, metrics);
 
         byte[] epub = epubWithTwoEntries();
 
@@ -180,7 +216,7 @@ class LocalDocumentUploadStagingServiceTest {
     @DisplayName("Streams only expired published files and leaves deletion to the caller")
     void visitsOnlyExpiredPublishedFiles() throws IOException {
         DocumentProcessingLimits limits = limits(1024);
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits);
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits, metrics);
         Path publishedDirectory = Files.createDirectories(storageRoot.resolve("published"));
         Path stagingDirectory = Files.createDirectories(storageRoot.resolve(".staging"));
         Path expiredPublished = Files.writeString(publishedDirectory.resolve("expired.pdf"), "old");
@@ -202,7 +238,7 @@ class LocalDocumentUploadStagingServiceTest {
     @Test
     @DisplayName("Removes an existing published file idempotently across duplicate cleanup attempts")
     void discardsPublishedFileIdempotently() throws IOException {
-        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024));
+        LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(1024), metrics);
         Path publishedFile = Files.createDirectories(storageRoot.resolve("published"))
                 .resolve("document.pdf");
         Files.writeString(publishedFile, "fixture");
@@ -213,6 +249,64 @@ class LocalDocumentUploadStagingServiceTest {
         }).doesNotThrowAnyException();
 
         assertThat(publishedFile).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("Records successful promotion without exposing the original filename")
+    void recordsSuccessfulPromotion() {
+        LocalDocumentUploadStagingService service =
+                new LocalDocumentUploadStagingService(limits(1024), metrics);
+        StagedDocumentUpload staged = service.stage(new MockMultipartFile(
+                "file",
+                "private-study-notes.txt",
+                "text/plain",
+                "Study notes".getBytes(StandardCharsets.UTF_8)
+        ));
+
+        Path published = service.promote(staged);
+
+        assertThat(published).exists();
+        assertThat(staged.stagingPath()).doesNotExist();
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROMOTION,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
+        service.discard(published);
+    }
+
+    @Test
+    @DisplayName("Records a bounded storage failure when promotion cannot create its destination")
+    void recordsPromotionFailure() throws IOException {
+        LocalDocumentUploadStagingService service =
+                new LocalDocumentUploadStagingService(limits(1024), metrics);
+        Path stagedPath = Files.writeString(storageRoot.resolve("staged.upload"), "fixture");
+        Files.writeString(storageRoot.resolve("published"), "destination-blocker");
+        StagedDocumentUpload staged = new StagedDocumentUpload(
+                stagedPath, "private-name.txt", "text/plain", Files.size(stagedPath));
+
+        assertThatThrownBy(() -> service.promote(staged))
+                .isInstanceOf(DocumentStorageException.class);
+
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.PROMOTION,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.STORAGE);
+    }
+
+    @Test
+    @DisplayName("Returns deferred cleanup and records a bounded failure when deletion cannot complete")
+    void recordsDeferredCleanupWithoutThrowing() throws IOException {
+        LocalDocumentUploadStagingService service =
+                new LocalDocumentUploadStagingService(limits(1024), metrics);
+        Path nonEmptyDirectory = Files.createDirectories(storageRoot.resolve("published/not-a-file"));
+        Files.writeString(nonEmptyDirectory.resolve("child"), "fixture");
+
+        assertThat(service.discard(nonEmptyDirectory)).isFalse();
+
+        verify(metrics).recordEvent(
+                DocumentIngestionMetrics.Stage.CLEANUP,
+                DocumentIngestionMetrics.Outcome.FAILED,
+                DocumentIngestionMetrics.Reason.CLEANUP);
     }
 
     private DocumentProcessingLimits limits(long maxUploadBytes) {
@@ -241,6 +335,27 @@ class LocalDocumentUploadStagingServiceTest {
             zip.closeEntry();
             zip.finish();
             return bytes.toByteArray();
+        }
+    }
+
+    private static final class TrackingInputStream extends InputStream {
+
+        private final ByteArrayInputStream delegate;
+        private boolean closed;
+
+        private TrackingInputStream(byte[] content) {
+            delegate = new ByteArrayInputStream(content);
+        }
+
+        @Override
+        public int read() {
+            return delegate.read();
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            delegate.close();
         }
     }
 }

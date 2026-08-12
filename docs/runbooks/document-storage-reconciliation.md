@@ -37,7 +37,7 @@ Database and storage uncertainty always preserves files:
 - A failed individual file deletion is retried on a later run.
 - No durable cursor is required. A later run safely starts from the directory beginning because reference checks and deletion are idempotent.
 
-Repeated incomplete runs or deletion failures require operator investigation. Bounded metrics and alert thresholds are owned by issue #722.
+Repeated incomplete runs or deletion failures require operator investigation. Metric names, bounded outcomes, alert guidance, and triage are documented in [Document Ingestion Observability](document-ingestion-observability.md).
 
 ## User-Requested Deletion
 
@@ -57,4 +57,4 @@ Flyway migration `V71__index_document_file_path.sql` adds `idx_documents_file_pa
 
 ## Privacy
 
-Reconciliation and deletion-cleanup decisions must not log paths, filenames, owners, or content and must not use them as metric tags. Existing safe scheduler outcome logging remains operational; broader document-log redaction is tracked by issue #722.
+Reconciliation and deletion-cleanup decisions do not log paths, filenames, owners, content, raw exception details, or unbounded identifiers and do not use them as metric tags. Fixed stage/outcome/reason logging remains available for operators.

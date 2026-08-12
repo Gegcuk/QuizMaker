@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.features.document.application.DocumentUploadStagingService;
 import uk.gegc.quizmaker.features.document.application.StagedDocumentUpload;
@@ -50,19 +51,26 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
     );
 
     private final DocumentProcessingLimits limits;
+    private final DocumentIngestionMetrics metrics;
 
     @Override
     public StagedDocumentUpload stage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("File is empty");
+            IllegalArgumentException failure = new IllegalArgumentException("File is empty");
+            recordStagingFailure(failure);
+            throw failure;
         }
         if (file.getSize() > limits.getMaxUploadBytes()) {
-            throw new DocumentUploadLimitExceededException();
+            DocumentUploadLimitExceededException failure = new DocumentUploadLimitExceededException();
+            recordStagingFailure(failure);
+            throw failure;
         }
         try {
             return stage(file.getInputStream(), file.getOriginalFilename(), file.getContentType(), file.getSize());
         } catch (IOException e) {
-            throw new DocumentStorageException("Failed to read document upload", e);
+            DocumentStorageException failure = new DocumentStorageException("Failed to read document upload", e);
+            recordStagingFailure(failure);
+            throw failure;
         }
     }
 
@@ -74,15 +82,16 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             long declaredSize
     ) {
         if (source == null) {
-            throw new IllegalArgumentException("File content is required");
+            IllegalArgumentException failure = new IllegalArgumentException("File content is required");
+            recordStagingFailure(failure);
+            throw failure;
         }
-        if (declaredSize > limits.getMaxUploadBytes()) {
-            throw new DocumentUploadLimitExceededException();
-        }
-
-        String filename = sanitizeFilename(originalFilename);
         Path stagedFile = null;
         try (source) {
+            if (declaredSize > limits.getMaxUploadBytes()) {
+                throw new DocumentUploadLimitExceededException();
+            }
+            String filename = sanitizeFilename(originalFilename);
             Path stagingDirectory = stagingDirectory();
             Files.createDirectories(stagingDirectory);
             cleanupExpiredStagingFiles(stagingDirectory);
@@ -90,13 +99,22 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             long actualSize = copyWithLimit(source, stagedFile);
             String detectedContentType = detectContentType(stagedFile, filename, actualSize);
             validateDeclaredType(filename, declaredContentType, detectedContentType);
-            return new StagedDocumentUpload(stagedFile, filename, detectedContentType, actualSize);
-        } catch (DocumentUploadLimitExceededException | DocumentTypeMismatchException | DocumentResourceLimitException e) {
+            StagedDocumentUpload upload = new StagedDocumentUpload(
+                    stagedFile, filename, detectedContentType, actualSize);
+            metrics.recordEvent(
+                    DocumentIngestionMetrics.Stage.STAGING,
+                    DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                    DocumentIngestionMetrics.Reason.NONE);
+            return upload;
+        } catch (RuntimeException e) {
             discard(stagedFile);
+            recordStagingFailure(e);
             throw e;
         } catch (IOException e) {
             discard(stagedFile);
-            throw new DocumentStorageException("Failed to stage document upload", e);
+            DocumentStorageException failure = new DocumentStorageException("Failed to stage document upload", e);
+            recordStagingFailure(failure);
+            throw failure;
         }
     }
 
@@ -111,24 +129,44 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             Files.createDirectories(publishedDirectory);
             Path target = publishedDirectory.resolve(UUID.randomUUID() + extensionFor(upload.detectedContentType()));
             try {
-                return Files.move(upload.stagingPath(), target, StandardCopyOption.ATOMIC_MOVE);
+                Path published = Files.move(upload.stagingPath(), target, StandardCopyOption.ATOMIC_MOVE);
+                recordPromotionSuccess();
+                return published;
             } catch (AtomicMoveNotSupportedException ignored) {
-                return Files.move(upload.stagingPath(), target);
+                Path published = Files.move(upload.stagingPath(), target);
+                recordPromotionSuccess();
+                return published;
             }
         } catch (IOException e) {
-            throw new DocumentStorageException("Failed to publish staged document", e);
+            DocumentStorageException failure = new DocumentStorageException("Failed to publish staged document", e);
+            metrics.recordEvent(
+                    DocumentIngestionMetrics.Stage.PROMOTION,
+                    DocumentIngestionMetrics.Outcome.FAILED,
+                    DocumentIngestionMetrics.Reason.STORAGE);
+            throw failure;
         }
     }
 
     @Override
-    public void discard(Path path) {
+    public boolean discard(Path path) {
         if (path == null) {
-            return;
+            return true;
         }
         try {
-            Files.deleteIfExists(path);
-        } catch (IOException e) {
+            if (Files.deleteIfExists(path)) {
+                metrics.recordEvent(
+                        DocumentIngestionMetrics.Stage.CLEANUP,
+                        DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                        DocumentIngestionMetrics.Reason.NONE);
+            }
+            return true;
+        } catch (IOException | SecurityException e) {
+            metrics.recordEvent(
+                    DocumentIngestionMetrics.Stage.CLEANUP,
+                    DocumentIngestionMetrics.Outcome.FAILED,
+                    DocumentIngestionMetrics.Reason.CLEANUP);
             log.warn("Could not remove document storage file; cleanup will be retried where applicable");
+            return false;
         }
     }
 
@@ -332,6 +370,23 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             case "text/plain" -> ".txt";
             default -> ".bin";
         };
+    }
+
+    private void recordStagingFailure(RuntimeException failure) {
+        DocumentIngestionMetrics.Reason reason = DocumentIngestionMetrics.Reason.from(failure);
+        metrics.recordEvent(
+                DocumentIngestionMetrics.Stage.STAGING,
+                reason.isRejectedRequest()
+                        ? DocumentIngestionMetrics.Outcome.REJECTED
+                        : DocumentIngestionMetrics.Outcome.FAILED,
+                reason);
+    }
+
+    private void recordPromotionSuccess() {
+        metrics.recordEvent(
+                DocumentIngestionMetrics.Stage.PROMOTION,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                DocumentIngestionMetrics.Reason.NONE);
     }
 
     private Path stagingDirectory() {

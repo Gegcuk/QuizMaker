@@ -18,7 +18,12 @@ public interface DocumentUploadStagingService {
 
     Path promote(StagedDocumentUpload upload);
 
-    void discard(Path path);
+    /**
+     * Removes an owned storage path idempotently.
+     *
+     * @return {@code true} when the path is absent or removed, {@code false} when cleanup is deferred
+     */
+    boolean discard(Path path);
 
     /**
      * Visits published regular files whose retention period has elapsed.

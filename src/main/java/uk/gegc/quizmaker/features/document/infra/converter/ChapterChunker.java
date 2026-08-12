@@ -24,8 +24,8 @@ public class ChapterChunker implements UniversalChunker {
         List<Chunk> chunks = new ArrayList<>();
         int chunkIndex = 0;
 
-        log.info("Starting universal chapter-based chunking for document: {} ({} characters, {} chapters)",
-                document.getOriginalFilename(), document.getFullContent().length(), document.getChapters().size());
+        log.info("Starting chapter-based chunking (characters={}, chapters={})",
+                document.getFullContent().length(), document.getChapters().size());
 
         if (!document.getChapters().isEmpty()) {
             // Phase 1: Split by chapters first
@@ -64,12 +64,6 @@ public class ChapterChunker implements UniversalChunker {
 
         log.info("Final chunking result: {} chunks", chunks.size());
         
-        // Log chunk sizes for debugging
-        for (int i = 0; i < chunks.size(); i++) {
-            Chunk chunk = chunks.get(i);
-            log.info("Final chunk {}: '{}' ({} chars)", i, chunk.getTitle(), chunk.getCharacterCount());
-        }
-        
         return chunks;
     }
 
@@ -85,7 +79,7 @@ public class ChapterChunker implements UniversalChunker {
             
             // Handle null or empty chapter content
             if (chapterContent == null || chapterContent.trim().isEmpty()) {
-                log.warn("Chapter '{}' has no content, checking sections", chapter.getTitle());
+                log.warn("Chapter has no content; checking bounded section structure");
                 
                 // If chapter has no content but has sections, process the sections
                 if (!chapter.getSections().isEmpty()) {
@@ -134,7 +128,7 @@ public class ChapterChunker implements UniversalChunker {
 
             // Case 1: Chapter is too large - split it
             if (currentSize > maxSize) {
-                log.info("Chapter '{}' is too large ({} chars), splitting", currentChunk.getTitle(), currentSize);
+                log.info("Chapter chunk exceeds size limit (characters={}); splitting", currentSize);
                 List<Chunk> splitChunks = splitContentBySize(
                         currentChunk.getContent(), 
                         currentChunk.getTitle(),
@@ -151,9 +145,8 @@ public class ChapterChunker implements UniversalChunker {
                 Chunk nextChunk = chapterChunks.get(i + 1);
                 int combinedSize = currentSize + nextChunk.getCharacterCount();
                 
-                log.info("Chapter '{}' is too small ({} chars), combining with next chapter '{}' ({} chars) = {} chars", 
-                        currentChunk.getTitle(), currentSize, 
-                        nextChunk.getTitle(), nextChunk.getCharacterCount(), combinedSize);
+                log.info("Chapter chunk is below target size (currentCharacters={}, nextCharacters={}, combinedCharacters={})",
+                        currentSize, nextChunk.getCharacterCount(), combinedSize);
 
                 if (combinedSize <= maxSize) {
                     // Combine chunks
@@ -206,7 +199,7 @@ public class ChapterChunker implements UniversalChunker {
 
         // Handle null or empty chapter content
         if (chapterContent == null || chapterContent.trim().isEmpty()) {
-            log.warn("Chapter '{}' has no content, checking sections", chapter.getTitle());
+            log.warn("Chapter has no content; checking bounded section structure");
 
             // If chapter has no content but has sections, process the sections
             if (!chapter.getSections().isEmpty()) {
@@ -217,13 +210,13 @@ public class ChapterChunker implements UniversalChunker {
                 }
                 return chunks;
             } else {
-                log.warn("Chapter '{}' has no content and no sections, skipping", chapter.getTitle());
+                log.warn("Chapter has no content or sections; skipping structure entry");
                 return chunks;
             }
         }
 
-        log.info("Processing chapter: '{}', content length: {}, maxSize: {}",
-                chapter.getTitle(), chapterContent.length(), maxSize);
+        log.info("Processing chapter structure (contentLength={}, maxSize={})",
+                chapterContent.length(), maxSize);
 
         if (chapterContent.length() <= maxSize) {
             // Entire chapter fits into one chunk
@@ -272,12 +265,12 @@ public class ChapterChunker implements UniversalChunker {
 
         // Handle null or empty section content
         if (sectionContent == null || sectionContent.trim().isEmpty()) {
-            log.warn("Section '{}' has no content, skipping", section.getTitle());
+            log.warn("Section has no content; skipping structure entry");
             return chunks;
         }
 
-        log.info("Processing section: '{}', content length: {}, maxSize: {}",
-                section.getTitle(), sectionContent.length(), maxSize);
+        log.info("Processing section structure (contentLength={}, maxSize={})",
+                sectionContent.length(), maxSize);
 
         if (sectionContent.length() <= maxSize) {
             // Entire section fits into one chunk
@@ -314,8 +307,8 @@ public class ChapterChunker implements UniversalChunker {
         int aggressiveThreshold = request.getAggressiveCombinationThreshold() != null ? 
                 request.getAggressiveCombinationThreshold() : 3000;
 
-        log.info("Splitting content: title='{}', totalLength={}, maxSize={}, minSize={}, aggressiveThreshold={}", 
-                title, content.length(), maxSize, minSize, aggressiveThreshold);
+        log.info("Splitting structured content (totalLength={}, maxSize={}, minSize={}, aggressiveThreshold={})",
+                content.length(), maxSize, minSize, aggressiveThreshold);
 
         // Use recursive middle-first approach
         chunks = splitContentRecursively(content, title, startPage, endPage, request, startChunkIndex, document, 0);
@@ -645,4 +638,4 @@ public class ChapterChunker implements UniversalChunker {
     public boolean canHandle(ProcessDocumentRequest.ChunkingStrategy strategy) {
         return strategy == ProcessDocumentRequest.ChunkingStrategy.CHAPTER_BASED;
     }
-} 
+}
