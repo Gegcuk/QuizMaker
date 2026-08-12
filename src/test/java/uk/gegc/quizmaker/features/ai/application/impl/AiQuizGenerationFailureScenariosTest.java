@@ -27,10 +27,12 @@ import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -46,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -124,6 +127,8 @@ class AiQuizGenerationFailureScenariosTest {
                 .when(transactionTemplate).executeWithoutResult(any());
         lenient().doReturn(10L).when(service).calculateBackoffDelay(anyInt());
         lenient().doNothing().when(service).sleepForRateLimit(anyLong());
+        lenient().when(jobRepository.updateProcessedChunksAndStatus(any(), anyInt(), anyString()))
+                .thenReturn(1);
 
         lenient().when(rateLimitConfig.getMaxRetries()).thenReturn(2);
     }
@@ -279,7 +284,89 @@ class AiQuizGenerationFailureScenariosTest {
         verify(eventPublisher, never()).publishEvent(any());
     }
 
+    @Test
+    @DisplayName("Two-chunk coverage uses the full target and exact eighty percent releases the reservation")
+    void exactThresholdCoverageFailsAndReleasesReservation() {
+        Fixture fixture = prepareFixture(5, 2);
+        fixture.document().getChunks().forEach(chunk -> chunk.setContent("x".repeat(150)));
+        List<Question> generated = questions(4, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM);
+        doReturn(CompletableFuture.completedFuture(generated))
+                .when(service)
+                .generateQuestionsFromChunkWithJob(
+                        any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
+                        eq(fixture.job().getId()), eq("en"));
+
+        assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("8/10")
+                .hasMessageContaining("does not exceed the required 80% threshold");
+
+        verify(internalBillingService).release(
+                eq(fixture.reservationId()),
+                contains("Generation failed"),
+                eq(fixture.job().getId().toString()),
+                eq("quiz:" + fixture.job().getId() + ":release")
+        );
+        verify(eventPublisher, never()).publishEvent(any());
+        assertThat(fixture.job().getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(fixture.job().getBillingState()).isEqualTo(BillingState.RELEASED);
+    }
+
+    @Test
+    @DisplayName("Coverage above eighty percent publishes only accepted questions")
+    void aboveThresholdCoveragePublishesAcceptedQuestions() {
+        Fixture fixture = prepareFixture(10);
+        fixture.document().getChunks().get(0).setContent("x".repeat(150));
+        List<Question> generated = questions(9, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM);
+        doReturn(CompletableFuture.completedFuture(generated))
+                .when(service)
+                .generateQuestionsFromChunkWithJob(
+                        any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
+                        eq(fixture.job().getId()), eq("en"));
+
+        service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+
+        ArgumentCaptor<QuizGenerationCompletedEvent> eventCaptor =
+                ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getAllQuestions()).hasSize(9);
+        assertThat(eventCaptor.getValue().getChunkQuestions()).containsOnlyKeys(0);
+        assertThat(eventCaptor.getValue().getOriginalRequest()).isSameAs(fixture.request());
+        verify(internalBillingService, never()).release(
+                eq(fixture.reservationId()), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Exact full coverage preserves the existing successful completion path")
+    void exactCoveragePreservesSuccessfulCompletion() {
+        Fixture fixture = prepareFixture(3);
+        List<Question> generated = questions(3, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM);
+        doReturn(CompletableFuture.completedFuture(generated))
+                .when(service)
+                .generateQuestionsFromChunkWithJob(
+                        any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
+                        eq(fixture.job().getId()), eq("en"));
+
+        service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+
+        ArgumentCaptor<QuizGenerationCompletedEvent> eventCaptor =
+                ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getAllQuestions()).hasSize(3);
+        assertThat(eventCaptor.getValue().getChunkQuestions().get(0)).containsExactlyElementsOf(generated);
+        verify(internalBillingService, never()).release(
+                eq(fixture.reservationId()), anyString(), anyString(), anyString());
+    }
+
     private Fixture prepareFixture() {
+        return prepareFixture(2);
+    }
+
+    private Fixture prepareFixture(int requestedQuestionCount) {
+        return prepareFixture(requestedQuestionCount, 1);
+    }
+
+    private Fixture prepareFixture(int requestedQuestionCount, int chunkCount) {
         UUID jobId = UUID.randomUUID();
         UUID documentId = UUID.randomUUID();
         UUID reservationId = UUID.randomUUID();
@@ -312,20 +399,24 @@ class AiQuizGenerationFailureScenariosTest {
         document.setProcessedAt(LocalDateTime.now());
         document.setChunks(new ArrayList<>());
 
-        DocumentChunk chunk = new DocumentChunk();
-        chunk.setId(UUID.randomUUID());
-        chunk.setChunkIndex(0);
-        chunk.setTitle("Chunk 0");
-        chunk.setContent("This chunk contains enough content to allow generation attempts while testing failure paths. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
-        chunk.setStartPage(1);
-        chunk.setEndPage(1);
-        chunk.setWordCount(800);
-        chunk.setCharacterCount(4000);
-        chunk.setCreatedAt(LocalDateTime.now());
-        chunk.setChunkType(DocumentChunk.ChunkType.SECTION);
-        document.getChunks().add(chunk);
+        for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+            DocumentChunk chunk = new DocumentChunk();
+            chunk.setId(UUID.randomUUID());
+            chunk.setChunkIndex(chunkIndex);
+            chunk.setTitle("Chunk " + chunkIndex);
+            chunk.setContent("This chunk contains enough content to allow generation attempts while testing failure paths. "
+                    + "x".repeat(600));
+            chunk.setStartPage(chunkIndex + 1);
+            chunk.setEndPage(chunkIndex + 1);
+            chunk.setWordCount(800);
+            chunk.setCharacterCount(700);
+            chunk.setCreatedAt(LocalDateTime.now());
+            chunk.setChunkType(DocumentChunk.ChunkType.SECTION);
+            document.getChunks().add(chunk);
+        }
 
-        Map<QuestionType, Integer> questionsPerType = Map.of(QuestionType.MCQ_SINGLE, 2);
+        Map<QuestionType, Integer> questionsPerType = Map.of(
+                QuestionType.MCQ_SINGLE, requestedQuestionCount);
 
         GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
                 documentId,
@@ -361,15 +452,36 @@ class AiQuizGenerationFailureScenariosTest {
         when(internalBillingService.release(eq(reservationId), anyString(), eq(jobId.toString()), anyString()))
                 .thenReturn(new ReleaseResultDto(reservationId, 200L));
 
-        return new Fixture(job, request, reservationId);
+        return new Fixture(job, request, reservationId, document);
     }
 
-    private record Fixture(QuizGenerationJob job, GenerateQuizFromDocumentRequest request, UUID reservationId) {
+    private List<Question> questions(int count, QuestionType type, Difficulty difficulty) {
+        List<Question> questions = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            Question question = new Question();
+            question.setType(type);
+            question.setDifficulty(difficulty);
+            question.setQuestionText("Question " + index);
+            question.setContent(switch (type) {
+                case MCQ_SINGLE -> """
+                        {"options":[
+                          {"id":"a","text":"Correct","correct":true},
+                          {"id":"b","text":"Distractor","correct":false}
+                        ]}
+                        """;
+                case TRUE_FALSE -> "{\"answer\":true}";
+                default -> throw new IllegalArgumentException("No valid test fixture for " + type);
+            });
+            questions.add(question);
+        }
+        return questions;
+    }
+
+    private record Fixture(
+            QuizGenerationJob job,
+            GenerateQuizFromDocumentRequest request,
+            UUID reservationId,
+            Document document
+    ) {
     }
 }
-
-
-
-
-
-
