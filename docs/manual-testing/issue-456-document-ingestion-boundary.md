@@ -7,6 +7,7 @@ This change keeps the existing document upload APIs and success responses intact
 - uploads are staged by streaming instead of loading the whole multipart file into a byte array;
 - the server detects PDF, EPUB, and UTF-8 text content from the staged file and rejects mismatches;
 - document parsing has server-owned size, extraction, archive, page, PDF memory/storage, timeout, global-capacity, and per-user-capacity limits;
+- converter execution runs in a bounded child JVM that can be force-terminated after timeout;
 - a document record and its chunks are committed only after parsing and chunking have succeeded;
 - a failed reprocess retains the previously stored chunks.
 
@@ -110,8 +111,15 @@ The production properties are server-owned and do not change either upload API:
 | `DOCUMENT_MAX_PDF_MAIN_MEMORY_BYTES` | `16777216` | Bytes retained in PDFBox main-memory buffering (16 MiB). |
 | `DOCUMENT_MAX_PDF_STORAGE_BYTES` | `536870912` | Bytes allowed across PDFBox main-memory and temporary-file buffering (512 MiB total). Must be at least the main-memory value. |
 | `DOCUMENT_PDF_SCRATCH_RETENTION` | `PT24H` | Positive ISO-8601 duration after which crash-leftover `pdf-parse-*` directories are eligible for cleanup. |
+| `DOCUMENT_PARSER_WORKER_MAX_HEAP_BYTES` | `402653184` | Maximum heap for each isolated parser child JVM (384 MiB). |
+| `DOCUMENT_PARSER_WORKER_MAX_OUTPUT_BYTES` | `16777216` | Maximum converted-response protocol size (16 MiB). |
+| `DOCUMENT_PARSER_TERMINATION_GRACE` | `PT1S` | Graceful child termination period before force kill. |
+| `DOCUMENT_PARSER_FORCE_KILL_TIMEOUT` | `PT5S` | Bound for confirming forced child termination. |
+| `DOCUMENT_PARSER_SHUTDOWN_TIMEOUT` | `PT10S` | Total child drain/kill budget during backend shutdown. |
 
 Invalid combinations fail application startup. Resource exhaustion keeps the existing HTTP `422` `document-resource-limit-exceeded` contract, so existing web and iOS clients require no change. Use the focused [#720 PDF memory policy guide](issue-720-pdf-memory-policy.md) for manual verification.
+
+Use the focused [#725 parser isolation guide](issue-725-parser-isolation.md) and [operator runbook](../runbooks/document-parser-isolation.md) for child-process timeout, forced termination, cleanup, and metrics verification.
 
 ## Temporary capacity rejection
 
@@ -159,7 +167,7 @@ Expected result:
 
 Run locally:
 
-1. `./mvnw test -Dtest=LocalDocumentUploadStagingServiceTest,BoundedDocumentParseExecutorTest,DocumentStorageReconciliationSchedulerTest,DocumentStorageReconciliationFilesystemTest,DocumentFileReferenceLookupImplTest,DocumentConverterLimitsTest,DocumentProcessingServiceImplTest,DocumentControllerErrorTest,DocumentOpenApiContractTest,QuizOpenApiContractTest,QuizGenerationFacadeImplTest`
+1. `./mvnw test -Dtest=LocalDocumentUploadStagingServiceTest,BoundedDocumentParseExecutorTest,DocumentParserWorkerIntegrationTest,DocumentParserProcessBoundaryTest,LocalDocumentParserWorkerFactoryTest,LocalDocumentParserWorkerTest,DocumentParserWorkerMainTest,DocumentParserProtocolCodecTest,ParentProcessMonitorTest,MicrometerDocumentParserWorkerMetricsTest,DocumentProcessingLimitsTest,DeploymentDocumentParserConfigurationContractTest,DocumentStorageReconciliationSchedulerTest,DocumentStorageReconciliationFilesystemTest,DocumentFileReferenceLookupImplTest,DocumentConverterLimitsTest,DocumentProcessingServiceImplTest,DocumentControllerErrorTest,DocumentOpenApiContractTest,QuizOpenApiContractTest,QuizGenerationFacadeImplTest`
 2. `./mvnw test -Dtest=DocumentStorageReconciliationMySqlIntegrationTest,DocumentFilePathIndexMigrationTest`
 
 Expected result: all focused tests pass. The full repository suite remains the final owner-run verification before release.

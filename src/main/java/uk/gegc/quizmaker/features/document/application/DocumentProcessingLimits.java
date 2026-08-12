@@ -34,6 +34,11 @@ public class DocumentProcessingLimits {
     private static final int DEFAULT_MAX_CONCURRENT_PARSES = 2;
     private static final int DEFAULT_MAX_CONCURRENT_PARSES_PER_USER = 1;
     private static final Duration DEFAULT_PARSE_TIMEOUT = Duration.ofSeconds(60);
+    private static final long DEFAULT_PARSER_WORKER_MAX_HEAP_BYTES = 384L * 1024 * 1024;
+    private static final long DEFAULT_PARSER_WORKER_MAX_OUTPUT_BYTES = 16L * 1024 * 1024;
+    private static final Duration DEFAULT_PARSER_TERMINATION_GRACE = Duration.ofSeconds(1);
+    private static final Duration DEFAULT_PARSER_FORCE_KILL_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration DEFAULT_PARSER_SHUTDOWN_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration DEFAULT_STAGING_RETENTION = Duration.ofHours(24);
 
     @Min(1)
@@ -75,6 +80,20 @@ public class DocumentProcessingLimits {
 
     private Duration parseTimeout = DEFAULT_PARSE_TIMEOUT;
 
+    @Min(64L * 1024 * 1024)
+    @Max(2L * 1024 * 1024 * 1024)
+    private long parserWorkerMaxHeapBytes = DEFAULT_PARSER_WORKER_MAX_HEAP_BYTES;
+
+    @Min(1_024)
+    @Max(1L * 1024 * 1024 * 1024)
+    private long parserWorkerMaxOutputBytes = DEFAULT_PARSER_WORKER_MAX_OUTPUT_BYTES;
+
+    private Duration parserTerminationGrace = DEFAULT_PARSER_TERMINATION_GRACE;
+
+    private Duration parserForceKillTimeout = DEFAULT_PARSER_FORCE_KILL_TIMEOUT;
+
+    private Duration parserShutdownTimeout = DEFAULT_PARSER_SHUTDOWN_TIMEOUT;
+
     private Duration stagingRetention = DEFAULT_STAGING_RETENTION;
 
     @NotBlank
@@ -86,6 +105,21 @@ public class DocumentProcessingLimits {
                 && pdfScratchRetention != null
                 && !pdfScratchRetention.isZero()
                 && !pdfScratchRetention.isNegative();
+    }
+
+    @AssertTrue(message = "document parser isolation and retention durations must be positive, worker heap must cover PDF main memory, and worker output must cover extracted text")
+    public boolean isParserIsolationConfigurationValid() {
+        return isPositive(parseTimeout)
+                && isPositive(parserTerminationGrace)
+                && isPositive(parserForceKillTimeout)
+                && isPositive(parserShutdownTimeout)
+                && isPositive(stagingRetention)
+                && parserWorkerMaxHeapBytes >= maxPdfMainMemoryBytes
+                && parserWorkerMaxOutputBytes >= maxExtractedCharacters;
+    }
+
+    private boolean isPositive(Duration duration) {
+        return duration != null && !duration.isZero() && !duration.isNegative();
     }
 
     public static DocumentProcessingLimits defaults() {
