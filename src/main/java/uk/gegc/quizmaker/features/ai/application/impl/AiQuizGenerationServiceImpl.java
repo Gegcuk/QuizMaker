@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.GenerationCoveragePolicy;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
@@ -126,6 +127,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             progress.setTotalChunks(chunks.size());
 
+            Map<QuestionType, Integer> requestedByType = GenerationCoveragePolicy.expectedCounts(
+                    chunks.size(), request.questionsPerType());
+
             // Compute total tasks: each chunk × number of requested question types
             int totalTasks = computeTotalTasks(chunks.size(), request.questionsPerType());
             progress.setTotalTasks(totalTasks);
@@ -162,14 +166,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-            Map<QuestionType, Integer> generatedByType = new EnumMap<>(QuestionType.class);
-            Map<QuestionType, Integer> requestedByType = new EnumMap<>(request.questionsPerType());
-            
-            // Initialize counters
-            for (QuestionType type : QuestionType.values()) {
-                generatedByType.put(type, 0);
-            }
-            
+
             int processedChunks = 0;
 
             // Collect results from all chunks
@@ -181,11 +178,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     if (!chunkQuestionsList.isEmpty()) {
                         allQuestions.addAll(chunkQuestionsList);
                         chunkQuestions.put(chunkIndex, chunkQuestionsList);
-                        
-                        // Track generated question types
-                        for (Question question : chunkQuestionsList) {
-                            generatedByType.merge(question.getType(), 1, Integer::sum);
-                        }
                     }
                     
                     processedChunks++;
@@ -209,8 +201,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 throw new AiServiceException("Failed to generate any questions for job " + jobId + ". All generation attempts failed.");
             }
 
-            // Analyze coverage and attempt to fill gaps
-            Map<QuestionType, Integer> missingTypes = findMissingQuestionTypes(requestedByType, generatedByType);
+            GenerationCoveragePolicy.Decision initialCoverage = GenerationCoveragePolicy.evaluate(
+                    requestedByType,
+                    request.difficulty(),
+                    chunkQuestions
+            );
+            Map<QuestionType, Integer> generatedByType = new EnumMap<>(QuestionType.class);
+            generatedByType.putAll(initialCoverage.acceptedByType());
+            Map<QuestionType, Integer> missingTypes = new EnumMap<>(QuestionType.class);
+            missingTypes.putAll(initialCoverage.missingByType());
             
             if (!missingTypes.isEmpty()) {
                 log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
@@ -232,28 +231,60 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         request.language()
                 );
                         
-                // Update progress after redistribution (atomic)
-                String finalCoverage = formatCoverageSummary(generatedByType, requestedByType);
-                updateJobChunkProgressSafely(jobId, chunks.size(), 
-                    "Generation completed with redistribution: " + finalCoverage);
-            } else {
-                // Update progress when no redistribution needed (atomic)
-                String coverage = formatCoverageSummary(generatedByType, requestedByType);
-                updateJobChunkProgressSafely(jobId, chunks.size(), 
-                    "Generation completed successfully: " + coverage);
             }
+
+            GenerationCoveragePolicy.Decision coverage = GenerationCoveragePolicy.evaluate(
+                    requestedByType,
+                    request.difficulty(),
+                    chunkQuestions
+            );
+            String coverageSummary = formatCoverageSummary(
+                    coverage.acceptedByType(), coverage.expectedByType());
+
+            log.info(
+                    "Generation coverage reconciled for job {}: requested={}, accepted={}, missing={}, discarded={}, outcome={}",
+                    jobId,
+                    coverage.requestedTotal(),
+                    coverage.acceptedTotal(),
+                    coverage.requestedTotal() - coverage.acceptedTotal(),
+                    coverage.discardedTotal(),
+                    coverage.successful() ? (coverage.partial() ? "partial" : "complete") : "failed"
+            );
+
+            if (!coverage.successful()) {
+                updateJobChunkProgressSafely(
+                        jobId,
+                        chunks.size(),
+                        String.format("Generation failed coverage: %d/%d accepted",
+                                coverage.acceptedTotal(), coverage.requestedTotal())
+                );
+                throw new AiServiceException(String.format(
+                        "Generated question coverage %d/%d does not exceed the required %d%% threshold",
+                        coverage.acceptedTotal(),
+                        coverage.requestedTotal(),
+                        GenerationCoveragePolicy.SUCCESS_THRESHOLD_PERCENT
+                ));
+            }
+
+            String outcome = coverage.partial()
+                    ? "Generation completed with partial coverage: "
+                    : "Generation completed successfully: ";
+            updateJobChunkProgressSafely(jobId, chunks.size(), outcome + coverageSummary);
+
+            Map<Integer, List<Question>> acceptedChunkQuestions = coverage.acceptedByChunk();
+            List<Question> acceptedQuestions = coverage.acceptedQuestions();
 
             log.info("Quiz generation completed for job {} in {} seconds. Generated {} questions across {} chunks. Coverage: {}",
                     jobId, Duration.between(startTime, Instant.now()).getSeconds(), 
-                    allQuestions.size(), chunkQuestions.size(), formatCoverageSummary(generatedByType, requestedByType));
+                    acceptedQuestions.size(), acceptedChunkQuestions.size(), coverageSummary);
 
             // Publish event to trigger quiz creation
             // The event handler will mark the job as completed atomically with quiz creation
             eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
-                    this, jobId, chunkQuestions, request, allQuestions));
+                    this, jobId, acceptedChunkQuestions, request, acceptedQuestions));
 
             progress.setCompleted(true);
-            progress.setGeneratedQuestions(allQuestions);
+            progress.setGeneratedQuestions(acceptedQuestions);
             
             // Clean up progress map to prevent memory leaks
             generationProgress.remove(jobId);
@@ -588,7 +619,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     /**
-     * Enhanced question generation with multiple fallback strategies
+     * Retries generation without changing the user-requested type or difficulty.
+     * Reduced quantity is allowed because the job-level coverage policy makes the
+     * final partial-success decision after redistribution.
      */
     private List<Question> generateQuestionsByTypeWithFallbacks(
             String chunkContent,
@@ -678,143 +711,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
         }
 
-        // Strategy 3: Try with easier difficulty (if not already EASY)
-        if (difficulty != Difficulty.EASY) {
-            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using easier difficulty");
-            
-            try {
-                Difficulty easierDifficulty = getEasierDifficulty(difficulty);
-                log.debug("Strategy 3: Trying with {} difficulty for {} chunk {}", 
-                        easierDifficulty, questionType, chunkIndex);
-                
-                List<Question> questions = generateQuestionsByTypeWithJobId(
-                        chunkContent,
-                        questionType,
-                        questionCount,
-                        easierDifficulty,
-                        jobId,
-                        language
-                );
-                if (!questions.isEmpty()) {
-                    log.info("Strategy 3 (easier difficulty) succeeded: {}/{} questions for {} chunk {}", 
-                            questions.size(), questionCount, questionType, chunkIndex);
-                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty success");
-                    return questions;
-                }
-            } catch (Exception e) {
-                propagateProviderUsagePersistenceFailure(e);
-                log.warn("Strategy 3 (easier difficulty) failed for {} chunk {}: {}", questionType, chunkIndex, e.getMessage());
-                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " easier difficulty failed");
-            }
-        }
-
-        // Strategy 4: Try alternative question type that might work better with this content
-        QuestionType alternativeType = findAlternativeQuestionType(questionType);
-        if (alternativeType != null) {
-            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": trying " + alternativeType + " instead of " + questionType);
-            
-            try {
-                log.debug("Strategy 4: Trying alternative type {} instead of {} for chunk {}", 
-                        alternativeType, questionType, chunkIndex);
-                
-                List<Question> questions = generateQuestionsByTypeWithJobId(
-                        chunkContent,
-                        alternativeType,
-                        questionCount,
-                        difficulty,
-                        jobId,
-                        language
-                );
-                if (!questions.isEmpty()) {
-                    log.info("Strategy 4 (alternative type) succeeded: {} {} questions instead of {} for chunk {}", 
-                            questions.size(), alternativeType, questionType, chunkIndex);
-                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative success");
-                    return questions;
-                }
-            } catch (Exception e) {
-                propagateProviderUsagePersistenceFailure(e);
-                log.warn("Strategy 4 (alternative type) failed for {} chunk {}: {}", alternativeType, chunkIndex, e.getMessage());
-                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + alternativeType + " alternative failed");
-            }
-        }
-
-        // Strategy 5: Last resort - try the most reliable question type (MCQ_SINGLE)
-        if (questionType != QuestionType.MCQ_SINGLE) {
-            updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": last resort MCQ_SINGLE attempt");
-            
-            try {
-                log.debug("Strategy 5: Last resort - trying MCQ_SINGLE for chunk {}", chunkIndex);
-                
-                List<Question> questions = generateQuestionsByTypeWithJobId(
-                        chunkContent,
-                        QuestionType.MCQ_SINGLE,
-                        questionCount,
-                        difficulty,
-                        jobId,
-                        language
-                );
-                if (!questions.isEmpty()) {
-                    log.info("Strategy 5 (last resort MCQ) succeeded: {} questions for chunk {} (requested {})", 
-                            questions.size(), chunkIndex, questionType);
-                    updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": MCQ_SINGLE last resort success");
-                    return questions;
-                }
-            } catch (Exception e) {
-                propagateProviderUsagePersistenceFailure(e);
-                log.error("Strategy 5 (last resort MCQ) failed for chunk {}: {}", chunkIndex, e.getMessage());
-                updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": all fallback strategies failed");
-            }
-        }
-
-        log.error("All fallback strategies failed for {} questions of type {} in chunk {}", 
+        log.error("All same-contract generation strategies failed for {} questions of type {} in chunk {}",
                 questionCount, questionType, chunkIndex);
         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generation failed completely");
         return new ArrayList<>();
-    }
-
-    /**
-     * Get an easier difficulty level for fallback attempts
-     */
-    private Difficulty getEasierDifficulty(Difficulty current) {
-        return switch (current) {
-            case HARD -> Difficulty.MEDIUM;
-            case MEDIUM -> Difficulty.EASY;
-            case EASY -> Difficulty.EASY; // Already easiest
-        };
-    }
-
-    /**
-     * Find an alternative question type that might work better with certain content
-     */
-    private QuestionType findAlternativeQuestionType(QuestionType original) {
-        return switch (original) {
-            case ORDERING, HOTSPOT, TRUE_FALSE, MCQ_MULTI -> QuestionType.MCQ_SINGLE;
-            case COMPLIANCE, OPEN, MCQ_SINGLE -> QuestionType.TRUE_FALSE;
-            case FILL_GAP -> QuestionType.OPEN;
-            default -> null;
-        };
-    }
-
-    /**
-     * Find question types that are missing or under-represented
-     */
-    private Map<QuestionType, Integer> findMissingQuestionTypes(
-            Map<QuestionType, Integer> requested, 
-            Map<QuestionType, Integer> generated) {
-        
-        Map<QuestionType, Integer> missing = new EnumMap<>(QuestionType.class);
-        
-        for (Map.Entry<QuestionType, Integer> entry : requested.entrySet()) {
-            QuestionType type = entry.getKey();
-            int requestedCount = entry.getValue();
-            int generatedCount = generated.getOrDefault(type, 0);
-            
-            if (generatedCount < requestedCount) {
-                missing.put(type, requestedCount - generatedCount);
-            }
-        }
-        
-        return missing;
     }
 
     /**

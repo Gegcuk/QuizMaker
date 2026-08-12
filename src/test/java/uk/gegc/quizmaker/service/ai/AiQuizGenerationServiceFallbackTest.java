@@ -138,6 +138,7 @@ class AiQuizGenerationServiceFallbackTest {
     }
 
     @Test
+    @DisplayName("Fill-gap conversion preserves generated drag options")
     void convertStructuredQuestions_fillGapWithOptions_preservesOptionsInDomainContent() throws Exception {
         StructuredQuestion fillGapQuestion = StructuredQuestion.builder()
                 .questionText("Complete the cellular respiration sentence.")
@@ -189,71 +190,11 @@ class AiQuizGenerationServiceFallbackTest {
     }
 
     @Nested
+    @DisplayName("Coverage helper methods")
     class HelperMethodsTest {
 
         @Test
-        void getEasierDifficulty_shouldReturnCorrectDifficulty() throws Exception {
-            // Access private method using reflection
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod("getEasierDifficulty", Difficulty.class);
-            method.setAccessible(true);
-
-            // Test HARD -> MEDIUM
-            Difficulty result = (Difficulty) method.invoke(aiQuizGenerationService, Difficulty.HARD);
-            assertEquals(Difficulty.MEDIUM, result);
-
-            // Test MEDIUM -> EASY
-            result = (Difficulty) method.invoke(aiQuizGenerationService, Difficulty.MEDIUM);
-            assertEquals(Difficulty.EASY, result);
-
-            // Test EASY -> EASY (already easiest)
-            result = (Difficulty) method.invoke(aiQuizGenerationService, Difficulty.EASY);
-            assertEquals(Difficulty.EASY, result);
-        }
-
-        @Test
-        void findAlternativeQuestionType_shouldReturnCorrectAlternatives() throws Exception {
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod("findAlternativeQuestionType", QuestionType.class);
-            method.setAccessible(true);
-
-            // Test various question type alternatives
-            assertEquals(QuestionType.MCQ_SINGLE, method.invoke(aiQuizGenerationService, QuestionType.ORDERING));
-            assertEquals(QuestionType.MCQ_SINGLE, method.invoke(aiQuizGenerationService, QuestionType.HOTSPOT));
-            assertEquals(QuestionType.TRUE_FALSE, method.invoke(aiQuizGenerationService, QuestionType.COMPLIANCE));
-            assertEquals(QuestionType.OPEN, method.invoke(aiQuizGenerationService, QuestionType.FILL_GAP));
-            assertEquals(QuestionType.TRUE_FALSE, method.invoke(aiQuizGenerationService, QuestionType.OPEN));
-            assertEquals(QuestionType.MCQ_SINGLE, method.invoke(aiQuizGenerationService, QuestionType.TRUE_FALSE));
-            assertEquals(QuestionType.TRUE_FALSE, method.invoke(aiQuizGenerationService, QuestionType.MCQ_SINGLE));
-            assertEquals(QuestionType.MCQ_SINGLE, method.invoke(aiQuizGenerationService, QuestionType.MCQ_MULTI));
-        }
-
-        @Test
-        void findMissingQuestionTypes_shouldIdentifyMissingTypes() throws Exception {
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod("findMissingQuestionTypes", Map.class, Map.class);
-            method.setAccessible(true);
-
-            // Given
-            Map<QuestionType, Integer> requested = new EnumMap<>(QuestionType.class);
-            requested.put(QuestionType.MCQ_SINGLE, 5);
-            requested.put(QuestionType.TRUE_FALSE, 3);
-            requested.put(QuestionType.OPEN, 2);
-
-            Map<QuestionType, Integer> generated = new EnumMap<>(QuestionType.class);
-            generated.put(QuestionType.MCQ_SINGLE, 5); // Complete
-            generated.put(QuestionType.TRUE_FALSE, 1); // Missing 2
-            generated.put(QuestionType.OPEN, 0); // Missing 2
-
-            // When
-            @SuppressWarnings("unchecked")
-            Map<QuestionType, Integer> result = (Map<QuestionType, Integer>) method.invoke(aiQuizGenerationService, requested, generated);
-
-            // Then
-            assertEquals(2, result.size());
-            assertEquals(2, result.get(QuestionType.TRUE_FALSE));
-            assertEquals(2, result.get(QuestionType.OPEN));
-            assertNull(result.get(QuestionType.MCQ_SINGLE)); // Should not be in missing
-        }
-
-        @Test
+        @DisplayName("Coverage summary distinguishes complete, partial, and empty buckets")
         void formatCoverageSummary_shouldFormatCorrectly() throws Exception {
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod("formatCoverageSummary", Map.class, Map.class);
             method.setAccessible(true);
@@ -281,6 +222,7 @@ class AiQuizGenerationServiceFallbackTest {
     }
 
     @Nested
+    @DisplayName("Same-contract fallback strategies")
     class FallbackStrategiesTest {
 
         private StructuredQuestionResponse createStructuredResponse(
@@ -320,6 +262,7 @@ class AiQuizGenerationServiceFallbackTest {
         }
 
         @Test
+        @DisplayName("Normal generation returns requested type and difficulty")
         void generateQuestionsByTypeWithFallbacks_strategy1Success_shouldReturnQuestions() throws Exception {
             // Given - Strategy 1 succeeds on first attempt (Phase 3: uses StructuredAiClient)
             setupRateLimitConfig();
@@ -346,6 +289,7 @@ class AiQuizGenerationServiceFallbackTest {
         }
 
         @Test
+        @DisplayName("Final normal attempt may return a same-contract partial result")
         void generateQuestionsByTypeWithFallbacks_strategy1PartialSuccess_shouldReturnPartialResults() throws Exception {
             // Given - Strategy 1 returns partial results on last attempt (2 questions instead of 4)
             setupRateLimitConfig();
@@ -372,6 +316,7 @@ class AiQuizGenerationServiceFallbackTest {
         }
 
         @Test
+        @DisplayName("Reduced-count fallback preserves requested type and difficulty")
         void generateQuestionsByTypeWithFallbacks_strategy2Success_shouldReturnReducedCount() throws Exception {
             // Given - Strategy 1 fails all 3 attempts, Strategy 2 succeeds with reduced count
             setupRateLimitConfig();
@@ -400,54 +345,14 @@ class AiQuizGenerationServiceFallbackTest {
         }
 
         @Test
-        void generateQuestionsByTypeWithFallbacks_strategy3Success_shouldReturnEasierDifficulty() throws Exception {
-            // Given - Strategies 1 and 2 fail, Strategy 3 succeeds with easier difficulty
+        @DisplayName("Failed hotspot generation never requests an alternative type")
+        void generateQuestionsByTypeWithFallbacks_doesNotSubstituteAlternativeType() throws Exception {
+            // Given - all same-contract normal attempts fail
             setupRateLimitConfig();
             setupLoggerStubbing();
 
-            // Strategy 1: 3 attempts fail
-            // Strategy 2: 2 attempts fail (reduced count)
-            // Strategy 3: Succeeds with easier difficulty
             when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed")) // Strategy 1, attempt 1
-                    .thenThrow(new AiServiceException("Failed")) // Strategy 1, attempt 2
-                    .thenThrow(new AiServiceException("Failed")) // Strategy 1, attempt 3
-                    .thenThrow(new AiServiceException("Failed")) // Strategy 2, attempt 1
-                    .thenThrow(new AiServiceException("Failed")) // Strategy 2, attempt 2
-                    .thenReturn(createStructuredResponse(2, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM)); // Strategy 3
-
-            // When
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
-            method.setAccessible(true);
-
-            @SuppressWarnings("unchecked")
-            List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 2, Difficulty.HARD, 1, UUID.randomUUID(), "en");
-
-            // Then - Strategy 3 should return 2 questions with easier difficulty
-            assertEquals(2, result.size());
-            assertTrue(result.stream().allMatch(question -> question.getDifficulty() == Difficulty.MEDIUM));
-            verify(structuredAiClient, times(6)).generateQuestions(any(StructuredQuestionRequest.class));
-        }
-
-        @Test
-        void generateQuestionsByTypeWithFallbacks_strategy4Success_shouldReturnAlternativeType() throws Exception {
-            // Given - Strategies 1-3 fail, Strategy 4 succeeds with alternative type
-            setupRateLimitConfig();
-            setupLoggerStubbing();
-
-            // Strategy 1: 3 attempts fail
-            // Strategy 2: SKIPPED (questionCount = 1)
-            // Strategy 3: 1 attempt fails (easier difficulty)
-            // Strategy 4: Succeeds with alternative type (MCQ_SINGLE instead of HOTSPOT)
-            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 1
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 2
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 3
-                    // Strategy 2 is SKIPPED (questionCount = 1)
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 3 (easier difficulty)
-                    .thenReturn(createStructuredResponse(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM)); // Strategy 4: alternative type succeeds
+                    .thenThrow(new AiServiceException("Failed"));
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
@@ -458,92 +363,68 @@ class AiQuizGenerationServiceFallbackTest {
             List<Question> result = (List<Question>) method.invoke(
                     aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
 
-            // Then - Strategy 4 should return alternative question type
-            assertEquals(1, result.size());
-            assertEquals(QuestionType.MCQ_SINGLE, result.get(0).getType());
-            verify(structuredAiClient, times(5)).generateQuestions(any(StructuredQuestionRequest.class));
-        }
-
-        @Test
-        void generateQuestionsByTypeWithFallbacks_strategy5Success_shouldReturnMCQSingle() throws Exception {
-            // Given - Strategies 1-4 fail, Strategy 5 (last resort MCQ_SINGLE) succeeds
-            setupRateLimitConfig();
-            setupLoggerStubbing();
-
-            // Strategy 1: 3 attempts fail
-            // Strategy 2: SKIPPED (questionCount = 1)
-            // Strategy 3: 1 attempt fails (easier difficulty)
-            // Strategy 4: 1 attempt fails (alternative type)
-            // Strategy 5: Last resort MCQ_SINGLE succeeds
-            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 1
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 2
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 3
-                    // Strategy 2 is SKIPPED (questionCount = 1)
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 3 (easier difficulty)
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 4 (alternative type)
-                    .thenReturn(createStructuredResponse(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM)); // Strategy 5: last resort
-
-            // When
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
-            method.setAccessible(true);
-
-            @SuppressWarnings("unchecked")
-            List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.COMPLIANCE, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
-
-            // Then - Strategy 5 should return MCQ_SINGLE (last resort)
-            assertEquals(1, result.size());
-            assertEquals(QuestionType.MCQ_SINGLE, result.get(0).getType());
-            verify(structuredAiClient, times(6)).generateQuestions(any(StructuredQuestionRequest.class));
-        }
-
-        @Test
-        void generateQuestionsByTypeWithFallbacks_allStrategiesFail_shouldReturnEmptyList() throws Exception {
-            // Given - All 5 strategies fail
-            setupRateLimitConfig();
-            setupLoggerStubbing();
-
-            // All strategies fail completely
-            // Strategy 1: 3 attempts
-            // Strategy 2: SKIPPED (questionCount = 1)
-            // Strategy 3: 1 attempt
-            // Strategy 4: 1 attempt
-            // Strategy 5: 1 attempt
-            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed")); // All attempts fail
-
-            // When
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
-            method.setAccessible(true);
-
-            @SuppressWarnings("unchecked")
-            List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
-
-            // Then - Should return empty list
             assertTrue(result.isEmpty());
-            // Should try all strategies: 3 (strat1) + 0 (strat2 skipped) + 1 (strat3) + 1 (strat4) + 1 (strat5) = 6 attempts
-            verify(structuredAiClient, times(6)).generateQuestions(any(StructuredQuestionRequest.class));
+            verify(structuredAiClient, times(3)).generateQuestions(argThat(request ->
+                    request.getQuestionType() == QuestionType.HOTSPOT
+                            && request.getDifficulty() == Difficulty.MEDIUM));
         }
 
         @Test
-        void generateQuestionsByTypeWithFallbacks_singleQuestionCount_shouldSkipStrategy2() throws Exception{
-            // Given - Single question request should skip strategy 2 (reduced count)
+        @DisplayName("Failed hard generation never requests an easier difficulty")
+        void generateQuestionsByTypeWithFallbacks_doesNotSubstituteDifficulty() throws Exception {
+            setupRateLimitConfig();
+            setupLoggerStubbing();
+            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
+                    .thenThrow(new AiServiceException("Failed"));
+
+            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class,
+                    Difficulty.class, Integer.class, UUID.class, String.class);
+            method.setAccessible(true);
+
+            @SuppressWarnings("unchecked")
+            List<Question> result = (List<Question>) method.invoke(
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE,
+                    2, Difficulty.HARD, 1, UUID.randomUUID(), "en");
+
+            assertTrue(result.isEmpty());
+            verify(structuredAiClient, times(5)).generateQuestions(argThat(request ->
+                    request.getQuestionType() == QuestionType.MCQ_SINGLE
+                            && request.getDifficulty() == Difficulty.HARD));
+        }
+
+        @Test
+        @DisplayName("Failed compliance generation never uses the MCQ last resort")
+        void generateQuestionsByTypeWithFallbacks_doesNotUseLastResortType() throws Exception {
+            setupRateLimitConfig();
+            setupLoggerStubbing();
+            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
+                    .thenThrow(new AiServiceException("Failed"));
+
+            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class,
+                    Difficulty.class, Integer.class, UUID.class, String.class);
+            method.setAccessible(true);
+
+            @SuppressWarnings("unchecked")
+            List<Question> result = (List<Question>) method.invoke(
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.COMPLIANCE,
+                    1, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en");
+
+            assertTrue(result.isEmpty());
+            verify(structuredAiClient, times(3)).generateQuestions(argThat(request ->
+                    request.getQuestionType() == QuestionType.COMPLIANCE
+                            && request.getDifficulty() == Difficulty.MEDIUM));
+        }
+
+        @Test
+        @DisplayName("Single-question failure does not request easier difficulty or another type")
+        void generateQuestionsByTypeWithFallbacks_singleQuestionCountDoesNotSubstitute() throws Exception {
             setupRateLimitConfig();
             setupLoggerStubbing();
 
-            // Strategy 1: 3 attempts fail
-            // Strategy 2: SKIPPED (questionCount = 1, can't reduce)
-            // Strategy 3: Succeeds (easier difficulty)
             when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 1
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 2
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 3
-                    // Strategy 2 is skipped (questionCount = 1)
-                    .thenReturn(createStructuredResponse(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM)); // Strategy 3: easier difficulty
+                    .thenThrow(new AiServiceException("Failed"));
 
             // When
             Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
@@ -554,46 +435,11 @@ class AiQuizGenerationServiceFallbackTest {
             List<Question> result = (List<Question>) method.invoke(
                     aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE, 1, Difficulty.HARD, 1, UUID.randomUUID(), "en");
 
-            // Then - Strategy 3 succeeds, Strategy 2 was skipped
-            assertEquals(1, result.size());
-            // Should try: 3 (strategy 1) + 0 (strategy 2 skipped) + 1 (strategy 3) = 4 attempts
-            verify(structuredAiClient, times(4)).generateQuestions(any(StructuredQuestionRequest.class));
-        }
-
-        @Test
-        void generateQuestionsByTypeWithFallbacks_easyDifficulty_shouldSkipStrategy3() throws Exception {
-            // Given - Easy difficulty should skip strategy 3 (easier difficulty)
-            setupRateLimitConfig();
-            setupLoggerStubbing();
-
-            // Strategy 1: 3 attempts fail
-            // Strategy 2: 2 attempts fail (reduced count)
-            // Strategy 3: SKIPPED (already EASY difficulty)
-            // Strategy 4: Succeeds (alternative MCQ_SINGLE type)
-            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 1
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 2
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 1, attempt 3
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 2, attempt 1
-                    .thenThrow(new AiServiceException("Failed"))  // Strategy 2, attempt 2
-                    // Strategy 3 is skipped (difficulty is EASY)
-                    .thenReturn(createStructuredResponse(2, QuestionType.MCQ_SINGLE, Difficulty.EASY)); // Strategy 4: alternative type
-
-            // When
-            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
-                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class, Difficulty.class, Integer.class, UUID.class, String.class);
-            method.setAccessible(true);
-
-            @SuppressWarnings("unchecked")
-            List<Question> result = (List<Question>) method.invoke(
-                    aiQuizGenerationService, testChunk.getContent(), QuestionType.HOTSPOT, 2, Difficulty.EASY, 1, UUID.randomUUID(), "en");
-
-            // Then - Strategy 4 succeeds, Strategy 3 was skipped
-            assertEquals(2, result.size());
-            assertTrue(result.stream().allMatch(question -> question.getType() == QuestionType.MCQ_SINGLE));
-            assertTrue(result.stream().allMatch(question -> question.getDifficulty() == Difficulty.EASY));
-            // Should try: 3 (strategy 1) + 2 (strategy 2) + 0 (strategy 3 skipped) + 1 (strategy 4) = 6 attempts
-            verify(structuredAiClient, times(6)).generateQuestions(any(StructuredQuestionRequest.class));
+            assertTrue(result.isEmpty());
+            verify(structuredAiClient, times(3)).generateQuestions(argThat(request ->
+                    request.getQuestionType() == QuestionType.MCQ_SINGLE
+                            && request.getDifficulty() == Difficulty.HARD
+                            && request.getQuestionCount() == 1));
         }
     }
 
