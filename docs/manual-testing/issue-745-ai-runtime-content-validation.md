@@ -37,10 +37,10 @@ Verify that AI-generated content is accepted only when the existing runtime hand
 3. Run the directly affected existing service tests:
 
    ```bash
-   ./mvnw -Dtest=AiQuizGenerationServiceImplUncoveredMethodsTest,AiQuizGenerationFailureScenariosTest,AiQuizGenerationServiceProviderUsageTest,AiRateLimitTest test
+   ./mvnw -Dtest=AiQuizGenerationServiceFallbackTest,AiQuizGenerationServiceImplUncoveredMethodsTest,AiQuizGenerationFailureScenariosTest,AiQuizGenerationServiceProviderUsageTest,AiRateLimitTest test
    ```
 
-   Expected: all selected legacy tests pass and existing failure, usage, and rate-limit behavior remains unchanged.
+   Expected: all selected legacy tests pass and existing fallback, failure, usage, and rate-limit behavior remains unchanged.
 
 ## Behavior Checks
 
