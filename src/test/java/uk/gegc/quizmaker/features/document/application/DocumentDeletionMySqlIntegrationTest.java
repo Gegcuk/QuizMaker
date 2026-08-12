@@ -57,6 +57,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -123,7 +124,7 @@ class DocumentDeletionMySqlIntegrationTest {
 
         doAnswer(invocation -> {
             Files.deleteIfExists(invocation.getArgument(0, Path.class));
-            return null;
+            return true;
         }).when(uploadStagingService).discard(any(Path.class));
     }
 
@@ -211,7 +212,8 @@ class DocumentDeletionMySqlIntegrationTest {
 
         new DocumentStorageReconciliationScheduler(
                 referenceLookup,
-                new LocalDocumentUploadStagingService(limits)
+                new LocalDocumentUploadStagingService(limits, mock(DocumentIngestionMetrics.class)),
+                mock(DocumentIngestionMetrics.class)
         ).reconcile();
 
         assertThat(source).doesNotExist();

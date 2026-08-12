@@ -29,8 +29,8 @@ public class DocumentChunkingService {
      */
     public List<UniversalChunker.Chunk> chunkDocument(ConvertedDocument document, ProcessDocumentRequest request) {
         try {
-            log.info("Starting universal chunking for document: {} (strategy: {}, maxSize: {})",
-                    document.getOriginalFilename(), request.getChunkingStrategy(), request.getMaxChunkSize());
+            log.info("Starting document chunking (strategy={}, maxSize={})",
+                    request.getChunkingStrategy(), request.getMaxChunkSize());
 
             // Find the appropriate chunker
             UniversalChunker chunker = findChunker(request.getChunkingStrategy());
@@ -38,15 +38,14 @@ public class DocumentChunkingService {
             // Chunk the document
             List<UniversalChunker.Chunk> chunks = chunker.chunkDocument(document, request);
 
-            log.info("Successfully chunked document: {} ({} chunks created)",
-                    document.getOriginalFilename(), chunks.size());
+            log.info("Document chunking succeeded (chunks={})", chunks.size());
 
             return chunks;
 
         } catch (Exception e) {
             String errorMessage = String.format("Failed to chunk document %s: %s",
                     document.getOriginalFilename(), e.getMessage());
-            log.error(errorMessage, e);
+            log.error("Document chunking failed (reason=processing)");
             throw new DocumentProcessingException(errorMessage, e);
         }
     }
@@ -117,4 +116,4 @@ public class DocumentChunkingService {
             boolean supportsAuto
     ) {
     }
-} 
+}

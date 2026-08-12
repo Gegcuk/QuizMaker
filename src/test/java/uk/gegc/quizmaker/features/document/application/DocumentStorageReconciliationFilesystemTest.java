@@ -20,6 +20,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 @DisplayName("Document storage reconciliation on the local filesystem")
 class DocumentStorageReconciliationFilesystemTest {
@@ -35,9 +36,10 @@ class DocumentStorageReconciliationFilesystemTest {
         Path referenced = publishedFile("referenced.pdf", true, limits);
         Path freshOrphan = publishedFile("fresh-orphan.pdf", false, limits);
         DocumentFileReferenceLookup referenceLookup = referenceLookup(Set.of(referencePath(referenced)));
-        var stagingService = new LocalDocumentUploadStagingService(limits);
+        DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
+        var stagingService = new LocalDocumentUploadStagingService(limits, metrics);
 
-        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService).reconcile();
+        new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics).reconcile();
 
         assertThat(expiredOrphan).doesNotExist();
         assertThat(referenced).exists();
@@ -50,9 +52,10 @@ class DocumentStorageReconciliationFilesystemTest {
         DocumentProcessingLimits limits = limits();
         Path orphan = publishedFile("duplicate-scan.pdf", true, limits);
         DocumentFileReferenceLookup referenceLookup = referenceLookup(Set.of());
-        var stagingService = new LocalDocumentUploadStagingService(limits);
-        var firstScheduler = new DocumentStorageReconciliationScheduler(referenceLookup, stagingService);
-        var secondScheduler = new DocumentStorageReconciliationScheduler(referenceLookup, stagingService);
+        DocumentIngestionMetrics metrics = mock(DocumentIngestionMetrics.class);
+        var stagingService = new LocalDocumentUploadStagingService(limits, metrics);
+        var firstScheduler = new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics);
+        var secondScheduler = new DocumentStorageReconciliationScheduler(referenceLookup, stagingService, metrics);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {

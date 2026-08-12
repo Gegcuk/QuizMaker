@@ -121,6 +121,8 @@ Invalid combinations fail application startup. Resource exhaustion keeps the exi
 
 Use the focused [#725 parser isolation guide](issue-725-parser-isolation.md) and [operator runbook](../runbooks/document-parser-isolation.md) for child-process timeout, forced termination, cleanup, and metrics verification.
 
+Use the focused [#722 observability guide](issue-722-document-observability.md) and [operator runbook](../runbooks/document-ingestion-observability.md) for bounded ingestion outcomes, storage-recovery signals, and document-log privacy verification.
+
 ## Temporary capacity rejection
 
 In a local test environment only:

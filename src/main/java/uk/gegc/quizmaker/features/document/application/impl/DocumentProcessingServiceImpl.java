@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.document.application.ConvertedDocument;
 import uk.gegc.quizmaker.features.document.application.DocumentChunkingService;
 import uk.gegc.quizmaker.features.document.application.DocumentDeletionService;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.document.application.DocumentParseRequest;
 import uk.gegc.quizmaker.features.document.application.DocumentParseExecutor;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
@@ -34,6 +35,7 @@ import uk.gegc.quizmaker.shared.exception.UserNotAuthorizedException;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -52,6 +54,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
     private final DocumentProcessingLimits limits;
     private final TransactionTemplate transactionTemplate;
     private final DocumentDeletionService documentDeletionService;
+    private final DocumentIngestionMetrics metrics;
 
     @Override
     public DocumentDto uploadAndProcessDocument(String username, byte[] fileContent, String filename,
@@ -72,36 +75,60 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     private DocumentDto processStagedUpload(String username, StagedDocumentUpload upload,
                                             ProcessDocumentRequest request) {
+        long processingStarted = System.nanoTime();
+        metrics.ingestionStarted();
         Path publishedPath = null;
-        Document document;
+        boolean publicationCommitted = false;
         try {
             ConvertedDocument convertedDocument = convertWithinLimits(username, upload);
-            List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
+            List<UniversalChunker.Chunk> chunks = chunkWithinMetrics(convertedDocument, request);
             boolean storeChunks = shouldStoreChunks(request);
             publishedPath = uploadStagingService.promote(upload);
             Path finalPublishedPath = publishedPath;
-            document = transactionTemplate.execute(status -> publishNewDocument(
-                    username, upload, finalPublishedPath, convertedDocument, chunks, storeChunks));
+            Document document = publishWithinMetrics(() -> transactionTemplate.execute(status -> publishNewDocument(
+                    username, upload, finalPublishedPath, convertedDocument, chunks, storeChunks)));
+            publicationCommitted = true;
+            DocumentDto result = documentMapper.toDto(document);
+            recordStageSuccess(DocumentIngestionMetrics.Stage.PROCESSING, processingStarted);
+            return result;
         } catch (RuntimeException e) {
-            uploadStagingService.discard(publishedPath);
+            if (!publicationCommitted && publishedPath != null) {
+                boolean compensated = uploadStagingService.discard(publishedPath);
+                metrics.recordEvent(
+                        DocumentIngestionMetrics.Stage.COMPENSATION,
+                        compensated
+                                ? DocumentIngestionMetrics.Outcome.SUCCEEDED
+                                : DocumentIngestionMetrics.Outcome.FAILED,
+                        compensated
+                                ? DocumentIngestionMetrics.Reason.NONE
+                                : DocumentIngestionMetrics.Reason.CLEANUP);
+            }
+            recordStageFailure(DocumentIngestionMetrics.Stage.PROCESSING, e, processingStarted);
             throw e;
         } finally {
             uploadStagingService.discard(upload.stagingPath());
+            metrics.ingestionStopped();
         }
-        return documentMapper.toDto(document);
     }
 
     private ConvertedDocument convertWithinLimits(String username, StagedDocumentUpload upload) {
-        ConvertedDocument convertedDocument = documentParseExecutor.execute(
-                username, DocumentParseRequest.from(upload));
-        if (convertedDocument.getFullContent() == null || convertedDocument.getFullContent().isBlank()) {
-            throw new DocumentProcessingException("Document contains no extractable text");
+        long conversionStarted = System.nanoTime();
+        try {
+            ConvertedDocument convertedDocument = documentParseExecutor.execute(
+                    username, DocumentParseRequest.from(upload));
+            if (convertedDocument.getFullContent() == null || convertedDocument.getFullContent().isBlank()) {
+                throw new DocumentProcessingException("Document contains no extractable text");
+            }
+            if (convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
+                throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
+                        "Extracted document text exceeds the configured limit");
+            }
+            recordConversionSuccess(upload.detectedContentType(), convertedDocument, conversionStarted);
+            return convertedDocument;
+        } catch (RuntimeException failure) {
+            recordStageFailure(DocumentIngestionMetrics.Stage.CONVERSION, failure, conversionStarted);
+            throw failure;
         }
-        if (convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
-            throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
-                    "Extracted document text exceeds the configured limit");
-        }
-        return convertedDocument;
     }
 
     private Document publishNewDocument(
@@ -233,25 +260,112 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
 
     @Override
     public DocumentDto reprocessDocument(String username, UUID documentId, ProcessDocumentRequest request) {
-        // Parse first. Existing chunks remain available until the replacement is ready.
-        Document document = getDocumentForReprocessing(username, documentId);
-        Path source = Paths.get(document.getFilePath());
-        ConvertedDocument convertedDocument = documentParseExecutor.execute(username, new DocumentParseRequest(
-                source,
-                document.getOriginalFilename(),
-                document.getContentType(),
-                document.getFileSize()
-        ));
-        if (convertedDocument.getFullContent() == null
-                || convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
-            throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
-                    "Extracted document text exceeds the configured limit");
+        long processingStarted = System.nanoTime();
+        metrics.ingestionStarted();
+        try {
+            // Parse first. Existing chunks remain available until the replacement is ready.
+            Document document = getDocumentForReprocessing(username, documentId);
+            ConvertedDocument convertedDocument = convertReprocessWithinLimits(username, document);
+            List<UniversalChunker.Chunk> chunks = chunkWithinMetrics(convertedDocument, request);
+            boolean storeChunks = shouldStoreChunks(request);
+            Document updated = publishWithinMetrics(() -> transactionTemplate.execute(status -> replaceDocumentChunks(
+                    username, documentId, convertedDocument, chunks, storeChunks)));
+            DocumentDto result = documentMapper.toDto(updated);
+            recordStageSuccess(DocumentIngestionMetrics.Stage.PROCESSING, processingStarted);
+            return result;
+        } catch (RuntimeException failure) {
+            recordStageFailure(DocumentIngestionMetrics.Stage.PROCESSING, failure, processingStarted);
+            throw failure;
+        } finally {
+            metrics.ingestionStopped();
         }
-        List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
-        boolean storeChunks = shouldStoreChunks(request);
-        Document updated = transactionTemplate.execute(status -> replaceDocumentChunks(
-                username, documentId, convertedDocument, chunks, storeChunks));
-        return documentMapper.toDto(updated);
+    }
+
+    private ConvertedDocument convertReprocessWithinLimits(String username, Document document) {
+        long conversionStarted = System.nanoTime();
+        try {
+            Path source = Paths.get(document.getFilePath());
+            ConvertedDocument convertedDocument = documentParseExecutor.execute(username, new DocumentParseRequest(
+                    source,
+                    document.getOriginalFilename(),
+                    document.getContentType(),
+                    document.getFileSize()
+            ));
+            if (convertedDocument.getFullContent() == null
+                    || convertedDocument.getFullContent().length() > limits.getMaxExtractedCharacters()) {
+                throw new uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException(
+                        "Extracted document text exceeds the configured limit");
+            }
+            recordConversionSuccess(document.getContentType(), convertedDocument, conversionStarted);
+            return convertedDocument;
+        } catch (RuntimeException failure) {
+            recordStageFailure(DocumentIngestionMetrics.Stage.CONVERSION, failure, conversionStarted);
+            throw failure;
+        }
+    }
+
+    private List<UniversalChunker.Chunk> chunkWithinMetrics(
+            ConvertedDocument convertedDocument,
+            ProcessDocumentRequest request
+    ) {
+        long chunkingStarted = System.nanoTime();
+        try {
+            List<UniversalChunker.Chunk> chunks = documentChunkingService.chunkDocument(convertedDocument, request);
+            recordStageSuccess(DocumentIngestionMetrics.Stage.CHUNKING, chunkingStarted);
+            return chunks;
+        } catch (RuntimeException failure) {
+            recordStageFailure(DocumentIngestionMetrics.Stage.CHUNKING, failure, chunkingStarted);
+            throw failure;
+        }
+    }
+
+    private Document publishWithinMetrics(java.util.function.Supplier<Document> publication) {
+        long publicationStarted = System.nanoTime();
+        try {
+            Document document = publication.get();
+            recordStageSuccess(DocumentIngestionMetrics.Stage.PUBLICATION, publicationStarted);
+            return document;
+        } catch (RuntimeException failure) {
+            recordStageFailure(DocumentIngestionMetrics.Stage.PUBLICATION, failure, publicationStarted);
+            throw failure;
+        }
+    }
+
+    private void recordConversionSuccess(
+            String contentType,
+            ConvertedDocument convertedDocument,
+            long startedAtNanos
+    ) {
+        recordStageSuccess(DocumentIngestionMetrics.Stage.CONVERSION, startedAtNanos);
+        metrics.recordExtracted(
+                DocumentIngestionMetrics.Format.fromContentType(contentType),
+                convertedDocument.getFullContent().length(),
+                convertedDocument.getTotalPages());
+    }
+
+    private void recordStageSuccess(DocumentIngestionMetrics.Stage stage, long startedAtNanos) {
+        metrics.recordEvent(stage, DocumentIngestionMetrics.Outcome.SUCCEEDED, DocumentIngestionMetrics.Reason.NONE);
+        metrics.recordDuration(
+                stage,
+                DocumentIngestionMetrics.Outcome.SUCCEEDED,
+                elapsedSince(startedAtNanos));
+    }
+
+    private void recordStageFailure(
+            DocumentIngestionMetrics.Stage stage,
+            RuntimeException failure,
+            long startedAtNanos
+    ) {
+        DocumentIngestionMetrics.Reason reason = DocumentIngestionMetrics.Reason.from(failure);
+        DocumentIngestionMetrics.Outcome outcome = reason.isRejectedRequest()
+                ? DocumentIngestionMetrics.Outcome.REJECTED
+                : DocumentIngestionMetrics.Outcome.FAILED;
+        metrics.recordEvent(stage, outcome, reason);
+        metrics.recordDuration(stage, outcome, elapsedSince(startedAtNanos));
+    }
+
+    private Duration elapsedSince(long startedAtNanos) {
+        return Duration.ofNanos(Math.max(0, System.nanoTime() - startedAtNanos));
     }
 
     private Document replaceDocumentChunks(

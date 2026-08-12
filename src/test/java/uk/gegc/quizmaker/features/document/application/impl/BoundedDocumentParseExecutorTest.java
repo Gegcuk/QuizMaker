@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.features.document.application.DocumentParserWorkerMetri
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingLimits;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingCapacityExceededException;
 import uk.gegc.quizmaker.shared.exception.DocumentProcessingException;
-import uk.gegc.quizmaker.shared.exception.DocumentResourceLimitException;
+import uk.gegc.quizmaker.shared.exception.DocumentProcessingTimeoutException;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -98,7 +98,7 @@ class BoundedDocumentParseExecutorTest {
                 1, 1, Duration.ofMillis(20), new QueueWorkerFactory(timedOut, replacement));
 
         assertThatThrownBy(() -> executor.execute("user-a", request()))
-                .isInstanceOf(DocumentResourceLimitException.class)
+                .isInstanceOf(DocumentProcessingTimeoutException.class)
                 .hasMessage("Document processing exceeded the configured time limit");
 
         assertThat(timedOut.terminationRequested).isTrue();
