@@ -4,7 +4,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.Collection;
+import java.util.function.Consumer;
 
 /**
  * Stages untrusted uploads with bounded streaming and validates the type from
@@ -20,5 +20,11 @@ public interface DocumentUploadStagingService {
 
     void discard(Path path);
 
-    void reconcile(Collection<String> referencedFilePaths);
+    /**
+     * Visits published regular files whose retention period has elapsed.
+     * Implementations must stream candidates without materializing the full
+     * storage listing and provide absolute normalized paths. The caller owns
+     * reference checks and deletion decisions.
+     */
+    void visitExpiredPublishedFiles(Consumer<Path> visitor);
 }
