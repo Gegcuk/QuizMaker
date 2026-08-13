@@ -8,7 +8,7 @@ Read the authoritative quantity contract in [Quiz Generation Coverage](../quiz-g
 
 ## Deterministic Offline Verification
 
-Run every command locally from the repository root. These tests use in-memory questions, Mockito collaborators, and a fake structured-AI response. They do not call OpenAI, Stripe, MySQL, document parsers, or another external service.
+Run every command locally from the repository root. The first test group uses in-memory questions, Mockito collaborators, and a fake structured-AI response. It does not call OpenAI, Stripe, MySQL, document parsers, or another external service.
 
 1. Select JDK 17:
 
@@ -22,9 +22,15 @@ Run every command locally from the repository root. These tests use in-memory qu
    ./mvnw -Dtest=GeneratedQuestionSemanticIdentityTest,GenerationCoveragePolicyTest,AiQuizGenerationFailureScenariosTest test
    ```
 
-3. Confirm the command finishes with `BUILD SUCCESS`. Do not use `-DskipTests`, enable a live-provider profile, or provide a real API key.
+3. With the repository test MySQL database available on `localhost:3306`, run the focused persisted multi-chunk regression:
 
-The tests cover all supported question families, normalized stems, shuffled presentation order, changed answer semantics, same-batch and cross-chunk copies, deterministic first retention, the strict 80% failure boundary, redistribution, successful distinct output, billing release on failure, and successful completion without duplicate publication.
+   ```bash
+   ./mvnw -Dtest=QuizSingleChunkEndToEndTest test
+   ```
+
+4. Confirm both commands finish with `BUILD SUCCESS`. Do not use `-DskipTests`, enable a live-provider profile, or provide a real API key.
+
+The tests cover all supported question families, normalized stems, shuffled presentation order, changed answer semantics, same-batch and cross-chunk copies, deterministic first retention, the strict 80% failure boundary, redistribution, successful distinct output, billing release on failure, successful completion without duplicate publication, and persisted multi-chunk assembly with distinct fake-provider output derived from bounded chunk prefixes.
 
 ## Behavior Check
 
