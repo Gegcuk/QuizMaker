@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.service.ai.parser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -75,6 +76,73 @@ class FillGapQuestionParserTest {
         assertEquals("object-oriented", content.get("gaps").get(0).get("answer").asText());
         assertTrue(content.has("options"));
         assertEquals(7, content.get("options").size());
+    }
+
+    @Test
+    @DisplayName("Parser accepts two answers plus eight distractors at the ten-option cap")
+    void shouldParseTwoGapQuestionWithTenOptions() throws Exception {
+        JsonNode contentNode = objectMapper.readTree("""
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the geography relationship",
+                  "difficulty": "MEDIUM",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is {2}.",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 2, "answer": "Paris"}
+                    ],
+                    "options": [
+                      "France", "Paris", "Germany", "Berlin", "London",
+                      "Madrid", "Rome", "Italy", "Spain", "Lisbon"
+                    ]
+                  }
+                }
+              ]
+            }
+            """);
+
+        List<Question> questions = parser.parseFillGapQuestions(contentNode);
+
+        assertEquals(1, questions.size());
+        assertEquals(10, objectMapper.readTree(questions.get(0).getContent()).get("options").size());
+    }
+
+    @Test
+    @DisplayName("Parser rejects an option pool above ten total items")
+    void shouldRejectFillGapQuestionWithElevenOptions() throws Exception {
+        JsonNode contentNode = objectMapper.readTree("""
+            {
+              "questions": [
+                {
+                  "questionText": "Complete the geography relationship",
+                  "difficulty": "MEDIUM",
+                  "type": "FILL_GAP",
+                  "content": {
+                    "text": "The capital of {1} is {2}.",
+                    "gaps": [
+                      {"id": 1, "answer": "France"},
+                      {"id": 2, "answer": "Paris"}
+                    ],
+                    "options": [
+                      "France", "Paris", "Germany", "Berlin", "London", "Madrid",
+                      "Rome", "Italy", "Spain", "Lisbon", "Athens"
+                    ]
+                  }
+                }
+              ]
+            }
+            """);
+
+        AIResponseParseException exception = assertThrows(
+                AIResponseParseException.class,
+                () -> parser.parseFillGapQuestions(contentNode)
+        );
+
+        assertTrue(exception.getMessage().contains("no more than 10 total items"));
+        assertTrue(exception.getMessage().contains("found 11"));
     }
 
     @Test

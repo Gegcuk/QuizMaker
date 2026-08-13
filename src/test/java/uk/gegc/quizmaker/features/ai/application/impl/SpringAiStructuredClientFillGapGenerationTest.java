@@ -78,7 +78,7 @@ class SpringAiStructuredClientFillGapGenerationTest {
     }
 
     @Test
-    @DisplayName("generateQuestions: valid FILL_GAP response with options returns structured question")
+    @DisplayName("generateQuestions accepts two answers plus eight distractors in one provider response")
     void generateQuestions_fillGapWithOptions_returnsStructuredQuestion() throws Exception {
         when(chatClient.prompt(any(Prompt.class))).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(callResponseSpec);
@@ -95,7 +95,10 @@ class SpringAiStructuredClientFillGapGenerationTest {
                           {"id": 1, "answer": "mitochondria"},
                           {"id": 2, "answer": "ATP"}
                         ],
-                        "options": ["mitochondria", "ATP", "chloroplast", "ribosome", "nucleus", "glucose", "NADH", "oxygen"]
+                        "options": [
+                          "mitochondria", "ATP", "chloroplast", "ribosome", "nucleus",
+                          "glucose", "NADH", "oxygen", "cytoplasm", "cell membrane"
+                        ]
                       },
                       "hint": "Think about the powerhouse of the cell.",
                       "explanation": "Cellular respiration happens in mitochondria and produces ATP.",
@@ -112,7 +115,7 @@ class SpringAiStructuredClientFillGapGenerationTest {
         assertThat(question.getType()).isEqualTo(QuestionType.FILL_GAP);
 
         JsonNode content = objectMapper.readTree(question.getContent());
-        assertThat(content.get("options")).hasSize(8);
+        assertThat(content.get("options")).hasSize(10);
         List<String> options = StreamSupport.stream(content.get("options").spliterator(), false)
                 .map(JsonNode::asText)
                 .toList();
@@ -212,8 +215,18 @@ class SpringAiStructuredClientFillGapGenerationTest {
                 .path("properties")
                 .path("content")
                 .path("required");
+        JsonNode optionPool = schema
+                .path("properties")
+                .path("questions")
+                .path("items")
+                .path("properties")
+                .path("content")
+                .path("properties")
+                .path("options");
 
         assertThat(required.toString()).contains("text", "gaps", "options");
+        assertThat(optionPool.path("minItems").asInt()).isEqualTo(7);
+        assertThat(optionPool.path("maxItems").asInt()).isEqualTo(10);
         assertThat(schemaRegistry.getSchemaForQuestionTypeAi(QuestionType.FILL_GAP)
                 .path("properties")
                 .path("questions")

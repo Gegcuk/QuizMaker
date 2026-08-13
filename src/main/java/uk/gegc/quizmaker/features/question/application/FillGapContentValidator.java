@@ -19,7 +19,10 @@ import java.util.regex.Pattern;
  * - SpringAiStructuredClient (structured AI output)
  */
 public class FillGapContentValidator {
-    
+
+    public static final int MIN_DISTRACTOR_COUNT = 6;
+    public static final int MAX_OPTION_COUNT = 10;
+
     private static final Pattern GAP_PATTERN = Pattern.compile("\\{(\\d+)\\}");
     
     /**
@@ -141,7 +144,8 @@ public class FillGapContentValidator {
         boolean hasOptions = optionsNode != null;
         if(mode == ValidationMode.STRICT_AI && !hasOptions){
             return ValidationResult.error(
-                    "AI-generated FILL_GAP must include 'options' array with correct answers + 6-7 distractors");
+                    "AI-generated FILL_GAP must include 'options' array with every correct answer, " +
+                            "at least 6 distractors, and no more than 10 total options");
         }
 
         if(!hasOptions){
@@ -198,33 +202,38 @@ public class FillGapContentValidator {
                 return ValidationResult.error(
                         "Options must include all correct answers for drag-and-drop pool. " +
                                 "Missing: '" + gapAnswer + "'. " +
-                                "Add this to options array along with 6-7 distractors."
+                                "Add this to options array along with at least 6 distractors."
                 );
             }
         }
 
         int numCorrectAnswers = gaps.size();
-        int expectedMin = numCorrectAnswers + 6;
-        int expectedMax = numCorrectAnswers + 7;
         int actualSize = options.size();
+        int distractorCount = actualSize - numCorrectAnswers;
 
-        if(actualSize < expectedMin || actualSize > expectedMax){
+        if (distractorCount < MIN_DISTRACTOR_COUNT) {
             return ValidationResult.error(
                     String.format(
-                            "Options array should have %d-%d items (correct answers=%d + distractors=6-7), found %d. " +
-                                    "Include all gap answers in options plus 6-7 additional distractors.",
-                            expectedMin, expectedMax, numCorrectAnswers, actualSize
+                            "Not enough distractors. Found %d distractor(s), need at least %d. " +
+                                    "Options currently has %d items (%d correct + %d distractors).",
+                            distractorCount,
+                            MIN_DISTRACTOR_COUNT,
+                            actualSize,
+                            numCorrectAnswers,
+                            distractorCount
                     )
             );
         }
 
-        int distractorCount = actualSize - numCorrectAnswers;
-        if (distractorCount < 6) {
+        if (actualSize > MAX_OPTION_COUNT) {
             return ValidationResult.error(
                     String.format(
-                            "Not enough distractors. Found %d distractor(s), need 6-7. " +
-                                    "Options currently has %d items (%d correct + %d distractors).",
-                            distractorCount, actualSize, numCorrectAnswers, distractorCount
+                            "Options array must have no more than %d total items, found %d " +
+                                    "(%d correct + %d distractors). Keep every gap answer and remove excess distractors.",
+                            MAX_OPTION_COUNT,
+                            actualSize,
+                            numCorrectAnswers,
+                            distractorCount
                     )
             );
         }

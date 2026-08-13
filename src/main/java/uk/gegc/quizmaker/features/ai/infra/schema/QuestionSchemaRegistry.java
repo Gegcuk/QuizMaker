@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
+import static uk.gegc.quizmaker.features.question.application.FillGapContentValidator.MAX_OPTION_COUNT;
+import static uk.gegc.quizmaker.features.question.application.FillGapContentValidator.MIN_DISTRACTOR_COUNT;
+
 /**
  * Registry for JSON schemas used in structured output generation.
  * Provides type-specific schemas for LLM question generation with validation.
@@ -416,7 +419,7 @@ public class QuestionSchemaRegistry {
      * Schema for FILL_GAP content
      * Parser expects: content.text (string with {N} markers),
      * content.gaps [{id: int, answer: string}],
-     * and optional content.options (array of strings: correct answers + 6-7 distractors)
+     * and optional content.options (array of strings: correct answers + bounded distractors)
      * Example: {"text": "Java is a {1} language", "gaps": [{"id": 1, "answer": "programming"}], "options": ["programming", "..."]}
      */
     private ObjectNode createFillGapContentSchema() {
@@ -477,12 +480,15 @@ public class QuestionSchemaRegistry {
         options.put("type", "array");
         options.put("description",
                 "Optional drag-and-drop answer pool. If provided, it must include every gaps[].answer value " +
-                        "plus 6-7 plausible but incorrect distractors from the same domain/category as the correct answers. " +
+                        "plus at least 6 plausible but incorrect distractors from the same domain/category as the correct answers. " +
+                        "Prefer 6-7 distractors, but bounded additional distractors are valid when the complete pool " +
+                        "contains no more than 10 total options. " +
                         "Distractors should be grammatically compatible with the sentence, clearly wrong for the source content, " +
                         "and must not be synonyms or alternate correct answers. " +
-                        "Total size should be gaps.length + 6-7. Options must be unique after trimming and case-insensitive comparison.");
-        options.put("minItems", 7);
-        options.put("maxItems", 10);
+                        "Total size must be at least gaps.length + 6 and at most 10. " +
+                        "Options must be unique after trimming and case-insensitive comparison.");
+        options.put("minItems", MIN_DISTRACTOR_COUNT + 1);
+        options.put("maxItems", MAX_OPTION_COUNT);
 
         ObjectNode optionItem = objectMapper.createObjectNode();
         optionItem.put("type", "string");

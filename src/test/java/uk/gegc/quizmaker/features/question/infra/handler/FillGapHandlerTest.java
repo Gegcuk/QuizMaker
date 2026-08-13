@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.question.infra.handler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
@@ -57,6 +58,23 @@ class FillGapHandlerTest {
                   "options":["sky","ocean","grass","cloud","stone","river","flower"]
                 }
                 """);
+        assertDoesNotThrow(() -> handler.validateContent(new FakeReq(payload)));
+    }
+
+    @Test
+    @DisplayName("Manual drag-and-drop fill-gap accepts a bounded ten-option pool")
+    void boundedTenOptionManualContent_doesNotThrow() throws Exception {
+        JsonNode payload = mapper.readTree("""
+                {
+                  "text":"The capital of {1} is {2}",
+                  "gaps":[{"id":1,"answer":"France"},{"id":2,"answer":"Paris"}],
+                  "options":[
+                    "France","Paris","Germany","Berlin","London",
+                    "Madrid","Rome","Italy","Spain","Lisbon"
+                  ]
+                }
+                """);
+
         assertDoesNotThrow(() -> handler.validateContent(new FakeReq(payload)));
     }
 
