@@ -63,6 +63,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 import uk.gegc.quizmaker.shared.testing.RealProviderTest;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
@@ -200,7 +201,8 @@ class RealAiQuizGenerationIntegrationTest {
                 structuredAiClient,
                 new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
                 new QuestionContentValidationServiceImpl(handlerFactory),
-                mock(ProviderUsageService.class)
+                mock(ProviderUsageService.class),
+                DirectAiProviderTaskScheduler.INSTANCE
         );
 
         BillingProperties billingProperties = new BillingProperties();

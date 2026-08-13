@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.question.application.impl.QuestionContentValid
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.ComplianceHandler;
 import uk.gegc.quizmaker.features.question.infra.handler.FillGapHandler;
@@ -252,7 +253,8 @@ class AiQuizGenerationRuntimeContentValidationTest {
                 null,
                 shuffler,
                 validator,
-                null
+                null,
+                DirectAiProviderTaskScheduler.INSTANCE
         );
     }
 

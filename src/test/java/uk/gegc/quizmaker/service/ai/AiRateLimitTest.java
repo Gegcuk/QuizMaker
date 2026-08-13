@@ -11,6 +11,7 @@ import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,9 +38,7 @@ class AiRateLimitTest {
 
     @Test
     void testIsRateLimitError_With429Error() {
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         Exception rateLimitException = new RuntimeException("429 - Rate limit exceeded");
         assertTrue(aiService.isRateLimitError(rateLimitException));
@@ -47,9 +46,7 @@ class AiRateLimitTest {
 
     @Test
     void testIsRateLimitError_WithRateLimitMessage() {
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         Exception rateLimitException = new RuntimeException("rate_limit_exceeded");
         assertTrue(aiService.isRateLimitError(rateLimitException));
@@ -57,9 +54,7 @@ class AiRateLimitTest {
 
     @Test
     void testIsRateLimitError_WithTPMMessage() {
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         Exception rateLimitException = new RuntimeException("TPM limit reached");
         assertTrue(aiService.isRateLimitError(rateLimitException));
@@ -67,9 +62,7 @@ class AiRateLimitTest {
 
     @Test
     void testIsRateLimitError_WithRegularError() {
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         Exception regularException = new RuntimeException("Connection timeout");
         assertFalse(aiService.isRateLimitError(regularException));
@@ -77,9 +70,7 @@ class AiRateLimitTest {
 
     @Test
     void testIsRateLimitError_WithNullMessage() {
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         Exception nullMessageException = new RuntimeException();
         assertFalse(aiService.isRateLimitError(nullMessageException));
@@ -92,9 +83,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         long delay = aiService.calculateBackoffDelay(0);
         // Should be around 1000ms with jitter
@@ -108,9 +97,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         long delay = aiService.calculateBackoffDelay(1);
         // Should be around 2000ms with jitter
@@ -124,9 +111,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         long delay = aiService.calculateBackoffDelay(2);
         // Should be around 4000ms with jitter
@@ -140,9 +125,7 @@ class AiRateLimitTest {
         when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
 
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
 
         long delay = aiService.calculateBackoffDelay(10); // Very high retry count
         // Should be capped at maxDelayMs (10000)
@@ -156,12 +139,32 @@ class AiRateLimitTest {
         when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         when(rateLimitConfig.getJitterFactor()).thenReturn(0.0);
 
-        AiQuizGenerationServiceImpl aiService = new AiQuizGenerationServiceImpl(
-                null, null, null, null, null, null, null, null, rateLimitConfig, internalBillingService, transactionTemplate, structuredAiClient, new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(new com.fasterxml.jackson.databind.ObjectMapper()), null, null
-        );
+        AiQuizGenerationServiceImpl aiService = createService();
         
         long delay = aiService.calculateBackoffDelay(1);
         // Should be exactly 2000ms (no jitter)
         assertEquals(2000L, delay);
+    }
+
+    private AiQuizGenerationServiceImpl createService() {
+        return new AiQuizGenerationServiceImpl(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                rateLimitConfig,
+                internalBillingService,
+                transactionTemplate,
+                structuredAiClient,
+                new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(
+                        new com.fasterxml.jackson.databind.ObjectMapper()),
+                null,
+                null,
+                DirectAiProviderTaskScheduler.INSTANCE
+        );
     }
 }

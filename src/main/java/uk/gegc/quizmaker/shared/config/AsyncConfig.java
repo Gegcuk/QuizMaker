@@ -39,6 +39,21 @@ public class AsyncConfig implements AsyncConfigurer {
     @Value("${async.ai.keep-alive-seconds:60}")
     private int aiKeepAliveSeconds;
 
+    @Value("${async.ai.provider.core-pool-size:4}")
+    private int aiProviderCorePoolSize;
+
+    @Value("${async.ai.provider.max-pool-size:8}")
+    private int aiProviderMaxPoolSize;
+
+    @Value("${async.ai.provider.queue-capacity:50}")
+    private int aiProviderQueueCapacity;
+
+    @Value("${async.ai.provider.keep-alive-seconds:60}")
+    private int aiProviderKeepAliveSeconds;
+
+    @Value("${async.ai.provider.await-termination-seconds:30}")
+    private int aiProviderAwaitTerminationSeconds;
+
     @Value("${async.general.core-pool-size:2}")
     private int generalCorePoolSize;
 
@@ -88,6 +103,50 @@ public class AsyncConfig implements AsyncConfigurer {
                 aiCorePoolSize, aiMaxPoolSize, aiQueueCapacity, aiKeepAliveSeconds);
         
         return executor;
+    }
+
+    /**
+     * Dedicated bounded executor for provider-bound chunk work. It is separate
+     * from job orchestration so an orchestrator can wait for chunk futures
+     * without occupying the workers needed to complete them.
+     */
+    @Bean(name = "aiProviderTaskExecutor")
+    public Executor aiProviderTaskExecutor() {
+        validateProviderExecutorConfiguration();
+
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(aiProviderCorePoolSize);
+        executor.setMaxPoolSize(aiProviderMaxPoolSize);
+        executor.setQueueCapacity(aiProviderQueueCapacity);
+        executor.setKeepAliveSeconds(aiProviderKeepAliveSeconds);
+        executor.setThreadNamePrefix("ai-provider-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(aiProviderAwaitTerminationSeconds);
+        executor.initialize();
+
+        log.info("AI Provider Task Executor configured - Core: {}, Max: {}, Queue: {}, KeepAlive: {}s",
+                aiProviderCorePoolSize,
+                aiProviderMaxPoolSize,
+                aiProviderQueueCapacity,
+                aiProviderKeepAliveSeconds);
+        return executor;
+    }
+
+    private void validateProviderExecutorConfiguration() {
+        if (aiProviderCorePoolSize < 1) {
+            throw new IllegalStateException("async.ai.provider.core-pool-size must be at least 1");
+        }
+        if (aiProviderMaxPoolSize < aiProviderCorePoolSize) {
+            throw new IllegalStateException(
+                    "async.ai.provider.max-pool-size must be greater than or equal to core-pool-size");
+        }
+        if (aiProviderQueueCapacity < 0) {
+            throw new IllegalStateException("async.ai.provider.queue-capacity must not be negative");
+        }
+        if (aiProviderKeepAliveSeconds < 0 || aiProviderAwaitTerminationSeconds < 0) {
+            throw new IllegalStateException("AI provider executor timeout values must not be negative");
+        }
     }
 
     /**
@@ -143,4 +202,4 @@ public class AsyncConfig implements AsyncConfigurer {
             }
         };
     }
-} 
+}
