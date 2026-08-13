@@ -15,6 +15,7 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.AiProviderTaskScheduler;
 import uk.gegc.quizmaker.features.ai.application.GenerationCoveragePolicy;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
@@ -78,6 +79,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private final QuestionContentShuffler questionContentShuffler;
     private final QuestionContentValidationService questionContentValidationService;
     private final ProviderUsageService providerUsageService;
+    private final AiProviderTaskScheduler aiProviderTaskScheduler;
 
     // In-memory tracking for generation progress (will be replaced with database in Phase 2)
     private final Map<UUID, GenerationProgress> generationProgress = new ConcurrentHashMap<>();
@@ -366,7 +368,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage
     ) {
-        return CompletableFuture.supplyAsync(() -> {
+        return aiProviderTaskScheduler.submit(() -> {
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
             String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();

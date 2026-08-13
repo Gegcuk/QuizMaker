@@ -38,6 +38,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobReposi
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 
 import java.lang.reflect.Method;
 import java.util.EnumMap;
@@ -123,7 +124,8 @@ class AiQuizGenerationServiceFallbackTest {
                 structuredAiClient,
                 questionContentShuffler,
                 questionContentValidationService,
-                providerUsageService
+                providerUsageService,
+                DirectAiProviderTaskScheduler.INSTANCE
         );
 
         // Create test chunk

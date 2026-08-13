@@ -46,6 +46,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -114,7 +115,8 @@ class AiQuizGenerationFailureScenariosTest {
                 structuredAiClient,
                 new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
                 questionContentValidationService,
-                providerUsageService
+                providerUsageService,
+                DirectAiProviderTaskScheduler.INSTANCE
         ));
         lenient().when(transactionTemplate.execute(any()))
                 .thenAnswer(invocation -> {

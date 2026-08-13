@@ -1,10 +1,10 @@
 package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageServi
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 
 import java.util.Map;
 import java.util.UUID;
@@ -57,8 +58,29 @@ class AiQuizGenerationServiceProviderUsageTest {
     @Mock private QuestionContentValidationService questionContentValidationService;
     @Mock private ProviderUsageService providerUsageService;
 
-    @InjectMocks
     private AiQuizGenerationServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new AiQuizGenerationServiceImpl(
+                chatClient,
+                documentRepository,
+                promptTemplateService,
+                questionResponseParser,
+                jobRepository,
+                userRepository,
+                objectMapper,
+                eventPublisher,
+                rateLimitConfig,
+                internalBillingService,
+                transactionTemplate,
+                structuredAiClient,
+                questionContentShuffler,
+                questionContentValidationService,
+                providerUsageService,
+                DirectAiProviderTaskScheduler.INSTANCE
+        );
+    }
 
     @Test
     @DisplayName("reported provider usage is delegated with its stable attempt identity")

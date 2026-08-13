@@ -33,6 +33,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -117,7 +118,8 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
                     billingService, transactionTemplate, structuredAiClient,
                     new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
                     questionContentValidationService,
-                    providerUsageService);
+                    providerUsageService,
+                    DirectAiProviderTaskScheduler.INSTANCE);
         }
 
         @Override
@@ -318,7 +320,8 @@ class AiQuizGenerationServiceImplUncoveredMethodsTest {
                     billingService, transactionTemplate, structuredAiClient,
                     new uk.gegc.quizmaker.features.question.application.QuestionContentShuffler(objectMapper),
                     questionContentValidationService,
-                    providerUsageService);
+                    providerUsageService,
+                    DirectAiProviderTaskScheduler.INSTANCE);
             
             Thread.currentThread().interrupt(); // Interrupt current thread
 
