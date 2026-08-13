@@ -179,6 +179,100 @@ class GenerationCoveragePolicyTest {
     }
 
     @Test
+    @DisplayName("Exact duplicates across chunks retain the first occurrence and reconcile as discarded")
+    void exactDuplicatesAcrossChunksRetainFirstOccurrence() {
+        Question first = question(QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "Repeated question");
+        Question distinct = question(QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "Distinct question");
+        Question repeated = question(QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "  REPEATED   QUESTION ");
+
+        GenerationCoveragePolicy.Decision decision = GenerationCoveragePolicy.evaluate(
+                Map.of(QuestionType.MCQ_SINGLE, 3),
+                Difficulty.MEDIUM,
+                Map.of(
+                        2, List.of(repeated),
+                        0, List.of(first, distinct)
+                )
+        );
+
+        assertThat(decision.acceptedQuestions()).containsExactly(first, distinct);
+        assertThat(decision.acceptedByChunk()).containsOnlyKeys(0);
+        assertThat(decision.acceptedTotal()).isEqualTo(2);
+        assertThat(decision.missingByType()).containsEntry(QuestionType.MCQ_SINGLE, 1);
+        assertThat(decision.generatedTotal()).isEqualTo(3);
+        assertThat(decision.discardedTotal()).isEqualTo(1);
+        assertThat(decision.duplicateTotal()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Eight distinct questions plus repeated copies cannot cross the strict success threshold")
+    void repeatedCopiesCannotCrossSuccessThreshold() {
+        List<Question> generated = new ArrayList<>(questions(
+                8, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM));
+        generated.add(question(QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "MCQ_SINGLE-0"));
+        generated.add(question(QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "MCQ_SINGLE-1"));
+
+        GenerationCoveragePolicy.Decision decision = GenerationCoveragePolicy.evaluate(
+                Map.of(QuestionType.MCQ_SINGLE, 10),
+                Difficulty.MEDIUM,
+                Map.of(0, generated)
+        );
+
+        assertThat(decision.acceptedTotal()).isEqualTo(8);
+        assertThat(decision.duplicateTotal()).isEqualTo(2);
+        assertThat(decision.discardedTotal()).isEqualTo(2);
+        assertThat(decision.successful()).isFalse();
+        assertThat(decision.partial()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Meaningfully different stems remain eligible without fuzzy similarity rejection")
+    void meaningfullyDifferentStemsRemainEligible() {
+        Question first = question(
+                QuestionType.TRUE_FALSE,
+                Difficulty.MEDIUM,
+                "Java is statically typed");
+        first.setContent("{\"answer\":true}");
+        Question second = question(
+                QuestionType.TRUE_FALSE,
+                Difficulty.MEDIUM,
+                "JavaScript is statically typed");
+        second.setContent("{\"answer\":false}");
+
+        GenerationCoveragePolicy.Decision decision = GenerationCoveragePolicy.evaluate(
+                Map.of(QuestionType.TRUE_FALSE, 2),
+                Difficulty.MEDIUM,
+                Map.of(0, List.of(first, second))
+        );
+
+        assertThat(decision.acceptedQuestions()).containsExactly(first, second);
+        assertThat(decision.duplicateTotal()).isZero();
+        assertThat(decision.discardedTotal()).isZero();
+        assertThat(decision.successful()).isTrue();
+    }
+
+    @Test
+    @DisplayName("A candidate without a canonical identity is discarded and never counted")
+    void uncanonicalizableCandidateIsDiscarded() {
+        Question malformed = question(
+                QuestionType.MCQ_SINGLE,
+                Difficulty.MEDIUM,
+                "Malformed generated question");
+        malformed.setContent("{not-json");
+
+        GenerationCoveragePolicy.Decision decision = GenerationCoveragePolicy.evaluate(
+                Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM,
+                Map.of(0, List.of(malformed))
+        );
+
+        assertThat(decision.acceptedQuestions()).isEmpty();
+        assertThat(decision.acceptedTotal()).isZero();
+        assertThat(decision.discardedTotal()).isEqualTo(1);
+        assertThat(decision.duplicateTotal()).isZero();
+        assertThat(decision.successful()).isFalse();
+    }
+
+    @Test
     @DisplayName("Coverage decision collections are immutable snapshots")
     void decisionCollectionsAreImmutable() {
         List<Question> generated = new ArrayList<>(questions(
@@ -211,7 +305,23 @@ class GenerationCoveragePolicyTest {
         question.setType(type);
         question.setDifficulty(difficulty);
         question.setQuestionText(text);
-        question.setContent("{}");
+        if (type == null) {
+            question.setContent("{}");
+            return question;
+        }
+        question.setContent(switch (type) {
+            case MCQ_SINGLE -> """
+                    {"options":[
+                      {"id":"a","text":"Correct","correct":true},
+                      {"id":"b","text":"First distractor","correct":false},
+                      {"id":"c","text":"Second distractor","correct":false},
+                      {"id":"d","text":"Third distractor","correct":false}
+                    ]}
+                    """;
+            case TRUE_FALSE -> "{\"answer\":true}";
+            case OPEN -> "{\"answer\":\"Expected answer\"}";
+            default -> throw new IllegalArgumentException("No coverage fixture for type " + type);
+        });
         return question;
     }
 }

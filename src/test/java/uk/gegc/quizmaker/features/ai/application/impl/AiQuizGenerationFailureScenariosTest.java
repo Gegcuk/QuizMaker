@@ -15,6 +15,8 @@ import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
@@ -292,8 +294,15 @@ class AiQuizGenerationFailureScenariosTest {
     void exactThresholdCoverageFailsAndReleasesReservation() {
         Fixture fixture = prepareFixture(5, 2);
         fixture.document().getChunks().forEach(chunk -> chunk.setContent("x".repeat(150)));
-        List<Question> generated = questions(4, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM);
-        doReturn(CompletableFuture.completedFuture(generated))
+        doAnswer(invocation -> {
+            DocumentChunk chunk = invocation.getArgument(0);
+            return CompletableFuture.completedFuture(questions(
+                    4,
+                    QuestionType.MCQ_SINGLE,
+                    Difficulty.MEDIUM,
+                    "chunk-" + chunk.getChunkIndex() + "-"
+            ));
+        })
                 .when(service)
                 .generateQuestionsFromChunkWithJob(
                         any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
@@ -326,6 +335,102 @@ class AiQuizGenerationFailureScenariosTest {
         verify(eventPublisher, never()).publishEvent(isA(QuizGenerationCompletedEvent.class));
         assertThat(fixture.job().getStatus()).isEqualTo(GenerationStatus.FAILED);
         assertThat(fixture.job().getBillingState()).isEqualTo(BillingState.RELEASED);
+    }
+
+    @Test
+    @DisplayName("Repeated generated questions cannot turn exact eighty percent into a successful quiz")
+    void repeatedQuestionsCannotCrossCoverageThreshold() {
+        Fixture fixture = prepareFixture(10);
+        fixture.document().getChunks().get(0).setContent("x".repeat(150));
+        List<Question> generated = new ArrayList<>(questions(
+                8, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM));
+        generated.add(question(
+                QuestionType.MCQ_SINGLE,
+                Difficulty.MEDIUM,
+                "Question 0"
+        ));
+        doReturn(CompletableFuture.completedFuture(generated))
+                .when(service)
+                .generateQuestionsFromChunkWithJob(
+                        any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
+                        eq(fixture.job().getId()), eq("en"));
+
+        assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("8/10")
+                .hasMessageContaining("does not exceed the required 80% threshold");
+
+        ArgumentCaptor<ApplicationEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        QuizGenerationCoverageReconciledEvent coverageEvent =
+                (QuizGenerationCoverageReconciledEvent) eventCaptor.getValue();
+        assertThat(coverageEvent.getCoverage().acceptedTotal()).isEqualTo(8);
+        assertThat(coverageEvent.getCoverage().discardedTotal()).isEqualTo(1);
+        assertThat(coverageEvent.getCoverage().outcome())
+                .isEqualTo(GenerationCoverageOutcome.FAILED_THRESHOLD);
+        verify(eventPublisher, never()).publishEvent(isA(QuizGenerationCompletedEvent.class));
+        verify(internalBillingService).release(
+                eq(fixture.reservationId()),
+                contains("Generation failed"),
+                eq(fixture.job().getId().toString()),
+                eq("quiz:" + fixture.job().getId() + ":release")
+        );
+    }
+
+    @Test
+    @DisplayName("Redistribution closes a duplicate shortfall only with newly distinct questions")
+    void redistributionClosesDuplicateShortfallOnlyWithDistinctQuestions() {
+        Fixture fixture = prepareFixture(10);
+        List<Question> generated = new ArrayList<>(questions(
+                8, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM));
+        generated.add(question(
+                QuestionType.MCQ_SINGLE,
+                Difficulty.MEDIUM,
+                "Question 0"
+        ));
+        doReturn(CompletableFuture.completedFuture(generated))
+                .when(service)
+                .generateQuestionsFromChunkWithJob(
+                        any(DocumentChunk.class), anyMap(), eq(Difficulty.MEDIUM),
+                        eq(fixture.job().getId()), eq("en"));
+        when(structuredAiClient.generateQuestions(any())).thenReturn(StructuredQuestionResponse.builder()
+                .questions(List.of(
+                        structuredQuestion("Question 0"),
+                        structuredQuestion("New redistributed question")
+                ))
+                .build());
+
+        service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+
+        verify(structuredAiClient).generateQuestions(argThat(request ->
+                request.getQuestionType() == QuestionType.MCQ_SINGLE
+                        && request.getQuestionCount() == 2
+                        && request.getDifficulty() == Difficulty.MEDIUM));
+        ArgumentCaptor<ApplicationEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        QuizGenerationCoverageReconciledEvent coverageEvent =
+                (QuizGenerationCoverageReconciledEvent) eventCaptor.getAllValues().get(0);
+        assertThat(coverageEvent.getCoverage().outcome()).isEqualTo(GenerationCoverageOutcome.PARTIAL);
+        assertThat(coverageEvent.getCoverage().acceptedTotal()).isEqualTo(9);
+        assertThat(coverageEvent.getCoverage().discardedTotal()).isEqualTo(2);
+
+        QuizGenerationCompletedEvent completedEvent =
+                (QuizGenerationCompletedEvent) eventCaptor.getAllValues().get(1);
+        assertThat(completedEvent.getAllQuestions())
+                .extracting(Question::getQuestionText)
+                .containsExactly(
+                        "Question 0",
+                        "Question 1",
+                        "Question 2",
+                        "Question 3",
+                        "Question 4",
+                        "Question 5",
+                        "Question 6",
+                        "Question 7",
+                        "New redistributed question"
+                );
+        verify(internalBillingService, never()).release(
+                eq(fixture.reservationId()), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -484,25 +589,52 @@ class AiQuizGenerationFailureScenariosTest {
     }
 
     private List<Question> questions(int count, QuestionType type, Difficulty difficulty) {
+        return questions(count, type, difficulty, "Question ");
+    }
+
+    private List<Question> questions(
+            int count,
+            QuestionType type,
+            Difficulty difficulty,
+            String questionPrefix
+    ) {
         List<Question> questions = new ArrayList<>();
         for (int index = 0; index < count; index++) {
-            Question question = new Question();
-            question.setType(type);
-            question.setDifficulty(difficulty);
-            question.setQuestionText("Question " + index);
-            question.setContent(switch (type) {
-                case MCQ_SINGLE -> """
-                        {"options":[
-                          {"id":"a","text":"Correct","correct":true},
-                          {"id":"b","text":"Distractor","correct":false}
-                        ]}
-                        """;
-                case TRUE_FALSE -> "{\"answer\":true}";
-                default -> throw new IllegalArgumentException("No valid test fixture for " + type);
-            });
-            questions.add(question);
+            questions.add(question(type, difficulty, questionPrefix + index));
         }
         return questions;
+    }
+
+    private Question question(QuestionType type, Difficulty difficulty, String questionText) {
+        Question question = new Question();
+        question.setType(type);
+        question.setDifficulty(difficulty);
+        question.setQuestionText(questionText);
+        question.setContent(switch (type) {
+            case MCQ_SINGLE -> """
+                    {"options":[
+                      {"id":"a","text":"Correct","correct":true},
+                      {"id":"b","text":"Distractor","correct":false}
+                    ]}
+                    """;
+            case TRUE_FALSE -> "{\"answer\":true}";
+            default -> throw new IllegalArgumentException("No valid test fixture for " + type);
+        });
+        return question;
+    }
+
+    private StructuredQuestion structuredQuestion(String questionText) {
+        return StructuredQuestion.builder()
+                .questionText(questionText)
+                .type(QuestionType.MCQ_SINGLE)
+                .difficulty(Difficulty.MEDIUM)
+                .content("""
+                        {"options":[
+                          {"id":"generated-correct","text":"Correct","correct":true},
+                          {"id":"generated-distractor","text":"Distractor","correct":false}
+                        ]}
+                        """)
+                .build();
     }
 
     private record Fixture(

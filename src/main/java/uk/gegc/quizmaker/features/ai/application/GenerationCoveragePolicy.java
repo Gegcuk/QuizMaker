@@ -8,10 +8,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Applies the approved generation quantity contract to runtime-valid questions.
@@ -66,7 +69,9 @@ public final class GenerationCoveragePolicy {
         expected.keySet().forEach(type -> acceptedByType.put(type, 0));
 
         Map<Integer, List<Question>> acceptedByChunk = new LinkedHashMap<>();
+        Set<GeneratedQuestionSemanticIdentity.Identity> seenQuestions = new HashSet<>();
         int generatedTotal = 0;
+        int duplicateTotal = 0;
 
         List<Map.Entry<Integer, List<Question>>> chunks = generatedByChunk.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.nullsFirst(Integer::compareTo)))
@@ -84,6 +89,16 @@ public final class GenerationCoveragePolicy {
             for (Question question : chunk.getValue()) {
                 generatedTotal = Math.incrementExact(generatedTotal);
                 if (!matchesRequestedBucket(question, requestedDifficulty, expected)) {
+                    continue;
+                }
+
+                Optional<GeneratedQuestionSemanticIdentity.Identity> identity =
+                        GeneratedQuestionSemanticIdentity.from(question);
+                if (identity.isEmpty()) {
+                    continue;
+                }
+                if (!seenQuestions.add(identity.get())) {
+                    duplicateTotal = Math.incrementExact(duplicateTotal);
                     continue;
                 }
 
@@ -126,6 +141,7 @@ public final class GenerationCoveragePolicy {
                 acceptedTotal,
                 generatedTotal,
                 generatedTotal - acceptedTotal,
+                duplicateTotal,
                 successful
         );
     }
@@ -171,6 +187,7 @@ public final class GenerationCoveragePolicy {
             int acceptedTotal,
             int generatedTotal,
             int discardedTotal,
+            int duplicateTotal,
             boolean successful
     ) {
         public Decision {
@@ -181,6 +198,10 @@ public final class GenerationCoveragePolicy {
             Map<Integer, List<Question>> chunkCopy = new LinkedHashMap<>();
             acceptedByChunk.forEach((chunk, questions) -> chunkCopy.put(chunk, List.copyOf(questions)));
             acceptedByChunk = Collections.unmodifiableMap(chunkCopy);
+
+            if (duplicateTotal < 0 || duplicateTotal > discardedTotal) {
+                throw new IllegalArgumentException("duplicateTotal must be within discardedTotal");
+            }
         }
 
         public boolean partial() {
