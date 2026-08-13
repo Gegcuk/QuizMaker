@@ -83,20 +83,34 @@ public record QuizGenerationStatus(
         String estimationVersion,
 
         @Schema(description = "Completeness of provider usage telemetry. This does not determine the customer charge.", example = "COMPLETE", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
-        ProviderUsageState providerUsageState
+        ProviderUsageState providerUsageState,
+
+        @Schema(description = "Immutable requested-versus-accepted question coverage once reconciliation has completed. Null for legacy jobs and jobs that have not reached reconciliation. Coverage does not imply that a quiz is available; clients must still require status COMPLETED.", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
+        GenerationCoverage coverage
 ) {
 
     /**
      * Create a status DTO from a QuizGenerationJob entity
      */
     public static QuizGenerationStatus fromEntity(QuizGenerationJob job) {
-        return fromEntity(job, false);
+        return fromEntity(job, false, null);
     }
 
     /**
      * Create a status DTO from a QuizGenerationJob entity with billing fields conditionally exposed
      */
     public static QuizGenerationStatus fromEntity(QuizGenerationJob job, boolean includeBillingFields) {
+        return fromEntity(job, includeBillingFields, null);
+    }
+
+    /**
+     * Create a status DTO with an optional immutable coverage snapshot.
+     */
+    public static QuizGenerationStatus fromEntity(
+            QuizGenerationJob job,
+            boolean includeBillingFields,
+            GenerationCoverage coverage
+    ) {
         return new QuizGenerationStatus(
                 job.getId().toString(),
                 job.getStatus(),
@@ -123,7 +137,8 @@ public record QuizGenerationStatus(
                 includeBillingFields && job.getBillingState() != null ? job.getBillingState().name() : null,
                 includeBillingFields ? job.getInputPromptTokens() : null,
                 includeBillingFields ? job.getEstimationVersion() : null,
-                includeBillingFields ? job.getProviderUsageState() : null
+                includeBillingFields ? job.getProviderUsageState() : null,
+                coverage
         );
     }
 

@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,6 +34,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCoverageReconciledEvent;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationCoverageOutcome;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -307,7 +310,20 @@ class AiQuizGenerationFailureScenariosTest {
                 eq(fixture.job().getId().toString()),
                 eq("quiz:" + fixture.job().getId() + ":release")
         );
-        verify(eventPublisher, never()).publishEvent(any());
+        ArgumentCaptor<ApplicationEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationEvent.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isInstanceOf(QuizGenerationCoverageReconciledEvent.class);
+        QuizGenerationCoverageReconciledEvent coverageEvent =
+                (QuizGenerationCoverageReconciledEvent) eventCaptor.getValue();
+        assertThat(coverageEvent.getCoverage().outcome())
+                .isEqualTo(GenerationCoverageOutcome.FAILED_THRESHOLD);
+        assertThat(coverageEvent.getCoverage().requestedTotal()).isEqualTo(10);
+        assertThat(coverageEvent.getCoverage().acceptedTotal()).isEqualTo(8);
+        assertThat(coverageEvent.getCoverage().types()).singleElement().satisfies(type -> {
+            assertThat(type.questionType()).isEqualTo(QuestionType.MCQ_SINGLE);
+            assertThat(type.missing()).isEqualTo(2);
+        });
+        verify(eventPublisher, never()).publishEvent(isA(QuizGenerationCompletedEvent.class));
         assertThat(fixture.job().getStatus()).isEqualTo(GenerationStatus.FAILED);
         assertThat(fixture.job().getBillingState()).isEqualTo(BillingState.RELEASED);
     }
@@ -326,12 +342,19 @@ class AiQuizGenerationFailureScenariosTest {
 
         service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
 
-        ArgumentCaptor<QuizGenerationCompletedEvent> eventCaptor =
-                ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
-        verify(eventPublisher).publishEvent(eventCaptor.capture());
-        assertThat(eventCaptor.getValue().getAllQuestions()).hasSize(9);
-        assertThat(eventCaptor.getValue().getChunkQuestions()).containsOnlyKeys(0);
-        assertThat(eventCaptor.getValue().getOriginalRequest()).isSameAs(fixture.request());
+        ArgumentCaptor<ApplicationEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getAllValues().get(0)).isInstanceOf(QuizGenerationCoverageReconciledEvent.class);
+        QuizGenerationCoverageReconciledEvent coverageEvent =
+                (QuizGenerationCoverageReconciledEvent) eventCaptor.getAllValues().get(0);
+        assertThat(coverageEvent.getCoverage().outcome()).isEqualTo(GenerationCoverageOutcome.PARTIAL);
+        assertThat(coverageEvent.getCoverage().acceptedTotal()).isEqualTo(9);
+        assertThat(eventCaptor.getAllValues().get(1)).isInstanceOf(QuizGenerationCompletedEvent.class);
+        QuizGenerationCompletedEvent completedEvent =
+                (QuizGenerationCompletedEvent) eventCaptor.getAllValues().get(1);
+        assertThat(completedEvent.getAllQuestions()).hasSize(9);
+        assertThat(completedEvent.getChunkQuestions()).containsOnlyKeys(0);
+        assertThat(completedEvent.getOriginalRequest()).isSameAs(fixture.request());
         verify(internalBillingService, never()).release(
                 eq(fixture.reservationId()), anyString(), anyString(), anyString());
     }
@@ -349,11 +372,16 @@ class AiQuizGenerationFailureScenariosTest {
 
         service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
 
-        ArgumentCaptor<QuizGenerationCompletedEvent> eventCaptor =
-                ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
-        verify(eventPublisher).publishEvent(eventCaptor.capture());
-        assertThat(eventCaptor.getValue().getAllQuestions()).hasSize(3);
-        assertThat(eventCaptor.getValue().getChunkQuestions().get(0)).containsExactlyElementsOf(generated);
+        ArgumentCaptor<ApplicationEvent> eventCaptor = ArgumentCaptor.forClass(ApplicationEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        QuizGenerationCoverageReconciledEvent coverageEvent =
+                (QuizGenerationCoverageReconciledEvent) eventCaptor.getAllValues().get(0);
+        assertThat(coverageEvent.getCoverage().outcome()).isEqualTo(GenerationCoverageOutcome.COMPLETE);
+        assertThat(coverageEvent.getCoverage().missingTotal()).isZero();
+        QuizGenerationCompletedEvent completedEvent =
+                (QuizGenerationCompletedEvent) eventCaptor.getAllValues().get(1);
+        assertThat(completedEvent.getAllQuestions()).hasSize(3);
+        assertThat(completedEvent.getChunkQuestions().get(0)).containsExactlyElementsOf(generated);
         verify(internalBillingService, never()).release(
                 eq(fixture.reservationId()), anyString(), anyString(), anyString());
     }
