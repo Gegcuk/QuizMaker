@@ -11,11 +11,13 @@ REQUIREMENTS:
 - Base questions directly on the provided content
 - Ensure gaps test important concepts or key terms
 - Make sure there is only one correct answer per gap
-- CRITICAL: Include an "options" array with all correct answers plus 6-7 plausible distractors
+- CRITICAL: Include an "options" array with all correct answers plus at least 6 plausible distractors
 - The options array is the complete drag-and-drop pool:
   * Every value from gaps[].answer must appear in options
-  * Add 6-7 additional plausible but incorrect distractors
-  * Total options = number of gaps + 6-7
+  * Prefer 6-7 additional plausible but incorrect distractors
+  * Additional distractors are allowed, but the complete options array MUST NOT exceed 10 total items
+  * Total options must be at least number of gaps + 6 and at most 10
+  * Examples: 1 gap = 7-10 total options; 2 gaps = 8-10; 3 gaps = 9-10
   * All options must be unique after trimming and case-insensitive comparison
 
 CREATING EFFECTIVE GAPS:

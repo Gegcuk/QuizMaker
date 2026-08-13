@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FillGapPromptResourceTest {
 
     @Test
-    @DisplayName("fill-gap prompt resource requires drag options with answers and distractors")
+    @DisplayName("fill-gap prompt requires answers, preferred distractors, and a ten-option cap")
     void fillGapPromptResource_requiresOptionsPool() throws Exception {
         ClassPathResource resource = new ClassPathResource("prompts/question-types/fill-gap.txt");
 
@@ -21,8 +21,11 @@ class FillGapPromptResourceTest {
 
         assertThat(prompt).contains("\"options\" array");
         assertThat(prompt).contains("all correct answers");
-        assertThat(prompt).contains("6-7 plausible distractors");
+        assertThat(prompt).contains("at least 6 plausible distractors");
         assertThat(prompt).contains("Every value from gaps[].answer must appear in options");
-        assertThat(prompt).contains("Total options = number of gaps + 6-7");
+        assertThat(prompt).contains("Prefer 6-7 additional plausible but incorrect distractors");
+        assertThat(prompt).contains("MUST NOT exceed 10 total items");
+        assertThat(prompt).contains("at least number of gaps + 6 and at most 10");
+        assertThat(prompt).contains("2 gaps = 8-10");
     }
 }

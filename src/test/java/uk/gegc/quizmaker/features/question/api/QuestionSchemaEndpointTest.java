@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.question.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -31,6 +32,7 @@ class QuestionSchemaEndpointTest {
     }
 
     @Test
+    @DisplayName("Public fill-gap schema documents optional typed mode and bounded drag options")
     void getFillGapSchema_includesOptionsExampleButKeepsOptionsOptionalInPublicSchema() throws Exception {
         String response = mockMvc.perform(get("/api/v1/questions/schemas/FILL_GAP"))
                 .andExpect(status().isOk())
@@ -60,9 +62,14 @@ class QuestionSchemaEndpointTest {
                 .contains("'options' is optional")
                 .contains("If omitted, render blanks for typed answers")
                 .contains("If present, render the values as drag-and-drop options");
-        assertThat(contentSchema.get("properties").get("options").get("description").asText())
+        JsonNode optionsSchema = contentSchema.get("properties").get("options");
+        assertThat(optionsSchema.get("minItems").asInt()).isEqualTo(7);
+        assertThat(optionsSchema.get("maxItems").asInt()).isEqualTo(10);
+        assertThat(optionsSchema.get("description").asText())
                 .contains("include every gaps[].answer value")
-                .contains("6-7 plausible but incorrect distractors")
+                .contains("at least 6 plausible but incorrect distractors")
+                .contains("Prefer 6-7 distractors")
+                .contains("no more than 10 total options")
                 .contains("same domain/category")
                 .contains("must not be synonyms or alternate correct answers");
     }
