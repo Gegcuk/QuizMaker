@@ -39,10 +39,10 @@ public class AsyncConfig implements AsyncConfigurer {
     @Value("${async.ai.keep-alive-seconds:60}")
     private int aiKeepAliveSeconds;
 
-    @Value("${async.ai.provider.core-pool-size:4}")
+    @Value("${async.ai.provider.core-pool-size:8}")
     private int aiProviderCorePoolSize;
 
-    @Value("${async.ai.provider.max-pool-size:8}")
+    @Value("${async.ai.provider.max-pool-size:16}")
     private int aiProviderMaxPoolSize;
 
     @Value("${async.ai.provider.queue-capacity:50}")

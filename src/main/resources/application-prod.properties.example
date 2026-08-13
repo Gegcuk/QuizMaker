@@ -46,8 +46,8 @@ async.ai.keep-alive-seconds=60
 
 # Keep provider concurrency conservative until production latency and 429 data
 # justify a measured increase. Queue saturation fails closed; tasks never run on callers.
-async.ai.provider.core-pool-size=4
-async.ai.provider.max-pool-size=8
+async.ai.provider.core-pool-size=8
+async.ai.provider.max-pool-size=16
 async.ai.provider.queue-capacity=50
 async.ai.provider.keep-alive-seconds=60
 async.ai.provider.await-termination-seconds=30

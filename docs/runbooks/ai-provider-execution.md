@@ -14,8 +14,8 @@ caller-runs rejection policy.
 
 | Property | Production environment variable | Default | Unit | Meaning |
 | --- | --- | ---: | --- | --- |
-| `async.ai.provider.core-pool-size` | `ASYNC_AI_PROVIDER_CORE_POOL_SIZE` | `4` | workers | Provider workers kept available. |
-| `async.ai.provider.max-pool-size` | `ASYNC_AI_PROVIDER_MAX_POOL_SIZE` | `8` | workers | Hard local maximum of concurrent chunk tasks. |
+| `async.ai.provider.core-pool-size` | `ASYNC_AI_PROVIDER_CORE_POOL_SIZE` | `8` | workers | Provider workers kept available. |
+| `async.ai.provider.max-pool-size` | `ASYNC_AI_PROVIDER_MAX_POOL_SIZE` | `16` | workers | Hard local maximum of concurrent chunk tasks. |
 | `async.ai.provider.queue-capacity` | `ASYNC_AI_PROVIDER_QUEUE_CAPACITY` | `50` | tasks | Tasks waiting behind active workers. |
 | `async.ai.provider.keep-alive-seconds` | `ASYNC_AI_PROVIDER_KEEP_ALIVE_SECONDS` | `60` | seconds | Idle lifetime for workers above the core size. |
 | `async.ai.provider.await-termination-seconds` | `ASYNC_AI_PROVIDER_AWAIT_TERMINATION_SECONDS` | `30` | seconds | Graceful shutdown wait for accepted tasks. |

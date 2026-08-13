@@ -16,8 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeploymentAiProviderExecutorConfigurationContractTest {
 
     private static final List<Setting> SETTINGS = List.of(
-            new Setting("async.ai.provider.core-pool-size", "ASYNC_AI_PROVIDER_CORE_POOL_SIZE", "4"),
-            new Setting("async.ai.provider.max-pool-size", "ASYNC_AI_PROVIDER_MAX_POOL_SIZE", "8"),
+            new Setting("async.ai.provider.core-pool-size", "ASYNC_AI_PROVIDER_CORE_POOL_SIZE", "8"),
+            new Setting("async.ai.provider.max-pool-size", "ASYNC_AI_PROVIDER_MAX_POOL_SIZE", "16"),
             new Setting("async.ai.provider.queue-capacity", "ASYNC_AI_PROVIDER_QUEUE_CAPACITY", "50"),
             new Setting("async.ai.provider.keep-alive-seconds", "ASYNC_AI_PROVIDER_KEEP_ALIVE_SECONDS", "60"),
             new Setting("async.ai.provider.await-termination-seconds", "ASYNC_AI_PROVIDER_AWAIT_TERMINATION_SECONDS", "30")
