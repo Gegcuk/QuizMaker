@@ -121,7 +121,7 @@ class RealAiQuizGenerationIntegrationTest {
         OpenAiChatOptions options = OpenAiChatOptions.builder()
                 .model(model)
                 .temperature(0.2)
-                .maxTokens(512)
+                .maxCompletionTokens(512)
                 .build();
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(openAiApi)

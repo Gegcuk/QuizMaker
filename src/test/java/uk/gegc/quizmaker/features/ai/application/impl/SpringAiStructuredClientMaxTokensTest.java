@@ -18,11 +18,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for max-tokens configuration in SpringAiStructuredClient.
+ * Tests for max-completion-tokens configuration in SpringAiStructuredClient.
  * 
  * These tests verify that:
  * 1. The maxCompletionTokens configuration is properly injected
- * 2. The maxTokens value is correctly set in OpenAiChatOptions
+ * 2. The modern maxCompletionTokens value is set without the legacy maxTokens value
  * 3. Truncated JSON responses are detected and handled with helpful error messages
  * 4. Default values work when configuration is not provided
  * 
@@ -67,7 +67,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should use the configured value
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(customMaxTokens);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(customMaxTokens);
+            assertThat(options.getMaxTokens()).isNull();
         }
 
         @Test
@@ -83,7 +84,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should use the default value
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(16000);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(16000);
+            assertThat(options.getMaxTokens()).isNull();
         }
 
         @Test
@@ -99,7 +101,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should use the production value
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(24000);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(24000);
+            assertThat(options.getMaxTokens()).isNull();
         }
 
         @Test
@@ -115,7 +118,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should use the conservative value
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(4000);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(4000);
+            assertThat(options.getMaxTokens()).isNull();
         }
     }
 
@@ -124,8 +128,8 @@ class SpringAiStructuredClientMaxTokensTest {
     class OpenAiChatOptionsIntegrationTests {
 
         @Test
-        @DisplayName("Should include maxTokens along with responseFormat")
-        void shouldIncludeMaxTokensWithResponseFormat() throws Exception {
+        @DisplayName("Should include maxCompletionTokens along with responseFormat")
+        void shouldIncludeMaxCompletionTokensWithResponseFormat() throws Exception {
             // Given
             Integer maxTokens = 12000;
             ReflectionTestUtils.setField(client, "maxCompletionTokens", maxTokens);
@@ -134,17 +138,18 @@ class SpringAiStructuredClientMaxTokensTest {
             JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.FILL_GAP);
             OpenAiChatOptions options = invokeBuildChatOptions(QuestionType.FILL_GAP, schema);
 
-            // Then - Should have both responseFormat and maxTokens
+            // Then - Should have both responseFormat and maxCompletionTokens
             assertThat(options).isNotNull();
             assertThat(options.getResponseFormat()).isNotNull();
             assertThat(options.getResponseFormat().getType()).isEqualTo(
                 org.springframework.ai.openai.api.ResponseFormat.Type.JSON_SCHEMA);
-            assertThat(options.getMaxTokens()).isEqualTo(maxTokens);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(maxTokens);
+            assertThat(options.getMaxTokens()).isNull();
         }
 
         @Test
-        @DisplayName("Should set maxTokens for all question types")
-        void shouldSetMaxTokensForAllQuestionTypes() throws Exception {
+        @DisplayName("Should set maxCompletionTokens for all question types")
+        void shouldSetMaxCompletionTokensForAllQuestionTypes() throws Exception {
             // Given
             Integer maxTokens = 16000;
             ReflectionTestUtils.setField(client, "maxCompletionTokens", maxTokens);
@@ -155,15 +160,34 @@ class SpringAiStructuredClientMaxTokensTest {
                 OpenAiChatOptions options = invokeBuildChatOptions(type, schema);
 
                 assertThat(options).as("Options for type: " + type).isNotNull();
-                assertThat(options.getMaxTokens())
-                    .as("MaxTokens for type: " + type)
+                assertThat(options.getMaxCompletionTokens())
+                    .as("MaxCompletionTokens for type: " + type)
                     .isEqualTo(maxTokens);
+                assertThat(options.getMaxTokens())
+                    .as("Legacy maxTokens must not be sent for type: " + type)
+                    .isNull();
             }
         }
 
         @Test
-        @DisplayName("Should maintain maxTokens even if responseFormat fails")
-        void shouldMaintainMaxTokensEvenIfResponseFormatFails() throws Exception {
+        @DisplayName("Should serialize only the GPT-5-compatible completion token field")
+        void shouldSerializeOnlyMaxCompletionTokens() throws Exception {
+            // Given
+            ReflectionTestUtils.setField(client, "maxCompletionTokens", 16000);
+            JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.MATCHING);
+
+            // When
+            OpenAiChatOptions options = invokeBuildChatOptions(QuestionType.MATCHING, schema);
+            JsonNode serializedOptions = objectMapper.readTree(objectMapper.writeValueAsString(options));
+
+            // Then
+            assertThat(serializedOptions.path("max_completion_tokens").asInt()).isEqualTo(16000);
+            assertThat(serializedOptions.has("max_tokens")).isFalse();
+        }
+
+        @Test
+        @DisplayName("Should return no options if responseFormat serialization fails")
+        void shouldReturnNoOptionsIfResponseFormatSerializationFails() throws Exception {
             // Given - Use a failing ObjectMapper for schema serialization
             ObjectMapper failingMapper = new ObjectMapper() {
                 @Override
@@ -214,8 +238,8 @@ class SpringAiStructuredClientMaxTokensTest {
             assertThatThrownBy(() -> invokeParseStructuredResponse(truncatedJson, QuestionType.MCQ_SINGLE, schema))
                 .isInstanceOf(AIResponseParseException.class)
                 .hasMessageContaining("JSON response truncated due to token limit")
-                .hasMessageContaining("Current max-tokens: 16000")
-                .hasMessageContaining("Try reducing question count or increasing max-tokens");
+                .hasMessageContaining("Current max-completion-tokens: 16000")
+                .hasMessageContaining("Try reducing question count or increasing max-completion-tokens");
         }
 
         @Test
@@ -242,17 +266,17 @@ class SpringAiStructuredClientMaxTokensTest {
             assertThatThrownBy(() -> invokeParseStructuredResponse(truncatedJson, QuestionType.TRUE_FALSE, schema))
                 .isInstanceOf(AIResponseParseException.class)
                 .hasMessageContaining("JSON response truncated due to token limit")
-                .hasMessageContaining("Current max-tokens: 8000");
+                .hasMessageContaining("Current max-completion-tokens: 8000");
         }
 
         @Test
-        @DisplayName("Should include max-tokens value in truncation error message")
+        @DisplayName("Should include max-completion-tokens value in truncation error message")
         void shouldIncludeMaxTokensValueInTruncationError() throws Exception {
-            // Given - Different max-tokens values
+            // Given - Different max-completion-tokens values
             String truncatedJson = "{\"questions\": [";
             JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.OPEN);
 
-            // When/Then - Test with different max-tokens values
+            // When/Then - Test with different max-completion-tokens values
             Integer[] testValues = {4000, 8000, 16000, 24000};
             
             for (Integer maxTokens : testValues) {
@@ -260,7 +284,7 @@ class SpringAiStructuredClientMaxTokensTest {
                 
                 assertThatThrownBy(() -> invokeParseStructuredResponse(truncatedJson, QuestionType.OPEN, schema))
                     .isInstanceOf(AIResponseParseException.class)
-                    .hasMessageContaining("Current max-tokens: " + maxTokens);
+                    .hasMessageContaining("Current max-completion-tokens: " + maxTokens);
             }
         }
 
@@ -277,7 +301,7 @@ class SpringAiStructuredClientMaxTokensTest {
             assertThatThrownBy(() -> invokeParseStructuredResponse(truncatedJson, QuestionType.MATCHING, schema))
                 .isInstanceOf(AIResponseParseException.class)
                 .hasMessageContaining("reducing question count")
-                .hasMessageContaining("increasing max-tokens")
+                .hasMessageContaining("increasing max-completion-tokens")
                 .hasMessageContaining("configuration");
         }
 
@@ -308,7 +332,7 @@ class SpringAiStructuredClientMaxTokensTest {
                     // Should NOT be a truncation error
                     assertThat(exception.getMessage())
                         .doesNotContain("truncated due to token limit")
-                        .doesNotContain("Current max-tokens");
+                        .doesNotContain("Current max-completion-tokens");
                 });
         }
     }
@@ -327,8 +351,9 @@ class SpringAiStructuredClientMaxTokensTest {
             JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.COMPLIANCE);
             OpenAiChatOptions options = invokeBuildChatOptions(QuestionType.COMPLIANCE, schema);
 
-            // Then - Should still build options (with null maxTokens, API will use model default)
+            // Then - Should still build options (with no token cap, API will use model default)
             assertThat(options).isNotNull();
+            assertThat(options.getMaxCompletionTokens()).isNull();
             assertThat(options.getMaxTokens()).isNull();
         }
 
@@ -345,7 +370,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should accept the value (API will enforce its own limits)
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(1);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(1);
+            assertThat(options.getMaxTokens()).isNull();
         }
 
         @Test
@@ -361,7 +387,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // Then - Should accept the value
             assertThat(options).isNotNull();
-            assertThat(options.getMaxTokens()).isEqualTo(128_000);
+            assertThat(options.getMaxCompletionTokens()).isEqualTo(128_000);
+            assertThat(options.getMaxTokens()).isNull();
         }
     }
 
@@ -372,9 +399,9 @@ class SpringAiStructuredClientMaxTokensTest {
         @Test
         @DisplayName("Should prevent gpt-4.1-mini 32k token limit issue")
         void shouldPreventGpt41MiniTokenLimitIssue() throws Exception {
-            // Given - Simulate the original issue: no max-tokens set
+            // Given - Simulate the original issue: no completion token cap set
             // Original: model would generate up to 32,768 tokens and truncate
-            // Fixed: max-tokens=16000 prevents hitting the limit
+            // Fixed: max-completion-tokens=16000 prevents hitting the limit
             
             Integer safeMaxTokens = 16000; // Our configured safe limit
             Integer unsafeMaxTokens = 32768; // Model's hard limit (would cause truncation)
@@ -386,7 +413,7 @@ class SpringAiStructuredClientMaxTokensTest {
             OpenAiChatOptions options = invokeBuildChatOptions(QuestionType.MATCHING, schema);
 
             // Then - Should use safe limit, not model's hard limit
-            assertThat(options.getMaxTokens())
+            assertThat(options.getMaxCompletionTokens())
                 .as("Should use safe configured limit")
                 .isEqualTo(safeMaxTokens)
                 .isLessThan(unsafeMaxTokens);
@@ -416,7 +443,7 @@ class SpringAiStructuredClientMaxTokensTest {
                 JsonNode schema = schemaRegistry.getSchemaForQuestionType(type);
                 OpenAiChatOptions options = invokeBuildChatOptions(type, schema);
                 
-                assertThat(options.getMaxTokens())
+                assertThat(options.getMaxCompletionTokens())
                     .as("Token limit for " + type + " should support 10 questions")
                     .isGreaterThanOrEqualTo(10_000) // Minimum for 10 questions
                     .isLessThanOrEqualTo(20_000);   // Maximum for safety
@@ -444,7 +471,7 @@ class SpringAiStructuredClientMaxTokensTest {
                 JsonNode schema = schemaRegistry.getSchemaForQuestionType(type);
                 OpenAiChatOptions options = invokeBuildChatOptions(type, schema);
                 
-                assertThat(options.getMaxTokens())
+                assertThat(options.getMaxCompletionTokens())
                     .as("Cost-optimized limit for " + type)
                     .isEqualTo(4000);
             }
@@ -488,4 +515,3 @@ class SpringAiStructuredClientMaxTokensTest {
         }
     }
 }
-
