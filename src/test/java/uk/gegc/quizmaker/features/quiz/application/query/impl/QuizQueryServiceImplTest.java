@@ -74,6 +74,9 @@ class QuizQueryServiceImplTest {
     
     @Mock
     private FeatureFlags featureFlags;
+
+    @Mock
+    private QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
     
     @Mock
     private Authentication authentication;
@@ -697,6 +700,7 @@ class QuizQueryServiceImplTest {
             // Then
             assertThat(result).isNotNull();
             verify(jobService).getJobByIdAndUsername(jobId, "testuser");
+            verify(progressInvariantMonitor).observe(job);
             verify(featureFlags).isBilling();
         }
         
@@ -883,6 +887,10 @@ class QuizQueryServiceImplTest {
             // Then
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(2);
+            verify(jobService, times(1)).getJobsByUser("testuser", pageable);
+            verify(progressInvariantMonitor, times(1)).observe(job1);
+            verify(progressInvariantMonitor, times(1)).observe(job2);
+            verify(featureFlags, times(1)).isBilling();
         }
         
         @Test
@@ -982,4 +990,3 @@ class QuizQueryServiceImplTest {
         return job;
     }
 }
-

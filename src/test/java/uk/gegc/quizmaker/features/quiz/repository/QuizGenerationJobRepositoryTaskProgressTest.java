@@ -14,6 +14,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -156,14 +157,15 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         entityManager.clear();
 
         QuizGenerationJob capped = jobRepository.findById(testJob.getId()).orElseThrow();
-        assertEquals(100.0, capped.getProgressPercentage());
+        assertEquals(99.0, capped.getProgressPercentage());
     }
 
     @Test
-    @DisplayName("atomic progress updates never persist a negative percentage")
-    void incrementCompletedTasks_neverPersistsNegativePercentage() {
+    @DisplayName("Atomic updates preserve prior bounded progress when counters are malformed")
+    void incrementCompletedTasks_preservesProgressWhenCountersAreMalformed() {
         testJob.setTotalTasks(7);
         testJob.setCompletedTasks(-2);
+        testJob.setProgressPercentage(25.0);
         testJob = jobRepository.save(testJob);
         entityManager.flush();
         entityManager.clear();
@@ -174,7 +176,7 @@ class QuizGenerationJobRepositoryTaskProgressTest {
 
         QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
         assertEquals(-1, reloaded.getCompletedTasks());
-        assertEquals(0.0, reloaded.getProgressPercentage());
+        assertEquals(25.0, reloaded.getProgressPercentage());
     }
 
     @Test
@@ -193,6 +195,40 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         QuizGenerationJob after = jobRepository.findById(testJob.getId()).orElseThrow();
         assertNotNull(after.getVersion());
         assertEquals(initialVersion + 1, after.getVersion());
+    }
+
+    @Test
+    @DisplayName("updateProcessedChunksAndStatus bumps version for optimistic locking")
+    void updateProcessedChunksAndStatus_bumpsVersion() {
+        QuizGenerationJob before = jobRepository.findById(testJob.getId()).orElseThrow();
+        Long initialVersion = before.getVersion() != null ? before.getVersion() : 0L;
+
+        jobRepository.updateProcessedChunksAndStatus(testJob.getId(), 1, "Chunk done");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob after = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(initialVersion + 1, after.getVersion());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Stale entity saves cannot overwrite newer atomic progress")
+    void atomicProgressUpdate_rejectsStaleEntitySave() {
+        QuizGenerationJob staleJob = transactionTemplate.execute(status ->
+                jobRepository.findById(testJob.getId()).orElseThrow());
+
+        transactionTemplate.executeWithoutResult(status ->
+                jobRepository.incrementCompletedTasks(testJob.getId(), 5, "Atomic progress"));
+
+        assertThrows(ObjectOptimisticLockingFailureException.class, () ->
+                transactionTemplate.executeWithoutResult(status -> jobRepository.saveAndFlush(staleJob)));
+
+        QuizGenerationJob reloaded = transactionTemplate.execute(status ->
+                jobRepository.findById(testJob.getId()).orElseThrow());
+        assertNotNull(reloaded);
+        assertEquals(5, reloaded.getCompletedTasks());
+        assertEquals(33.33, reloaded.getProgressPercentage());
     }
 
     @Test
@@ -267,6 +303,22 @@ class QuizGenerationJobRepositoryTaskProgressTest {
     }
 
     @Test
+    @DisplayName("Atomic progress updates reject negative counters without mutation")
+    void atomicProgressUpdates_rejectNegativeCounters() {
+        int taskUpdates = jobRepository.incrementCompletedTasks(testJob.getId(), -1, "Invalid task");
+        int chunkUpdates = jobRepository.updateProcessedChunksAndStatus(testJob.getId(), -1, "Invalid chunk");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(0, taskUpdates);
+        assertEquals(0, chunkUpdates);
+        assertEquals(0, reloaded.getCompletedTasks());
+        assertEquals(0, reloaded.getProcessedChunks());
+        assertEquals(0.0, reloaded.getProgressPercentage());
+    }
+
+    @Test
     @DisplayName("updateProcessedChunksAndStatus preserves task-based progress when task counters exist")
     void updateProcessedChunksAndStatus_preservesTaskBasedProgress_whenTaskCountersExist() {
         // Given: set initial task progress
@@ -290,6 +342,25 @@ class QuizGenerationJobRepositoryTaskProgressTest {
         assertEquals("Chunk 3/5 done", after.getCurrentChunk());
         assertEquals(5, after.getCompletedTasks()); // Still 5
         assertEquals(taskBasedPercentage, after.getProgressPercentage(), 0.01); // Unchanged
+    }
+
+    @Test
+    @DisplayName("Out-of-order chunk updates preserve the highest counter and percentage")
+    void updateProcessedChunksAndStatus_preservesMonotonicChunkProgress() {
+        testJob.setTotalTasks(null);
+        testJob = jobRepository.save(testJob);
+        entityManager.flush();
+        entityManager.clear();
+
+        jobRepository.updateProcessedChunksAndStatus(testJob.getId(), 4, "Chunk 4/5 done");
+        jobRepository.updateProcessedChunksAndStatus(testJob.getId(), 2, "Late chunk 2/5 status");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(4, reloaded.getProcessedChunks());
+        assertEquals(80.0, reloaded.getProgressPercentage());
+        assertEquals("Chunk 4/5 done", reloaded.getCurrentChunk());
     }
 
     @Test
@@ -341,7 +412,28 @@ class QuizGenerationJobRepositoryTaskProgressTest {
 
         QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
         assertEquals(7, reloaded.getProcessedChunks());
+        assertEquals(99.0, reloaded.getProgressPercentage());
+    }
+
+    @Test
+    @DisplayName("Terminal jobs reject late atomic progress updates")
+    void atomicProgressUpdates_doNotMutateTerminalJobs() {
+        testJob.markCompleted(UUID.randomUUID(), 10);
+        testJob = jobRepository.saveAndFlush(testJob);
+        entityManager.clear();
+
+        int taskUpdates = jobRepository.incrementCompletedTasks(testJob.getId(), 1, "Late task");
+        int chunkUpdates = jobRepository.updateProcessedChunksAndStatus(testJob.getId(), 5, "Late chunk");
+        entityManager.flush();
+        entityManager.clear();
+
+        QuizGenerationJob reloaded = jobRepository.findById(testJob.getId()).orElseThrow();
+        assertEquals(0, taskUpdates);
+        assertEquals(0, chunkUpdates);
+        assertEquals(GenerationStatus.COMPLETED, reloaded.getStatus());
         assertEquals(100.0, reloaded.getProgressPercentage());
+        assertNotEquals("Late task", reloaded.getCurrentChunk());
+        assertNotEquals("Late chunk", reloaded.getCurrentChunk());
     }
 
     @Test

@@ -40,6 +40,7 @@ import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequ
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationOperation;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -761,6 +762,9 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             job.setHasStartedAiCalls(false);
             job.setBillingState(BillingState.RESERVED);
             job.setBillingReservationId(reservation.id());
+            job.setTotalTasks(1);
+            job.setCompletedTasks(1);
+            job.setProgressPercentage(100.0);
             
             when(jobRepository.findByIdForUpdate(job.getId())).thenReturn(Optional.of(job));
             
@@ -770,6 +774,8 @@ class QuizGenerationFacadeImplComplexFlowsTest {
             
             // Then
             assertThat(status).isNotNull();
+            assertThat(status.status()).isEqualTo(GenerationStatus.CANCELLED);
+            assertThat(status.progressPercentage()).isEqualTo(99.0);
             
             verify(jobService, never()).cancelJob(any(), any());
             verify(jobRepository, atLeastOnce()).save(job);

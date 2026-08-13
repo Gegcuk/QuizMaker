@@ -1025,7 +1025,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
              transactionTemplate.executeWithoutResult(status -> {
                  int updated = jobRepository.incrementCompletedTasks(jobId, completedDelta, statusMessage);
                  if (updated == 0) {
-                     log.warn("Failed to update task progress for job {} - job not found", jobId);
+                     log.debug("Task progress was not updated for job {} because it is terminal, missing, or the increment is invalid",
+                             jobId);
                  } else {
                      log.debug("Updated task progress for job {}: +{} tasks, status: {}", 
                              jobId, completedDelta, statusMessage);
@@ -1050,7 +1051,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
              transactionTemplate.executeWithoutResult(status -> {
                  int updated = jobRepository.updateProcessedChunksAndStatus(jobId, processedChunks, statusMessage);
                  if (updated == 0) {
-                     log.warn("Failed to update chunk progress for job {} - job not found", jobId);
+                     log.debug("Chunk progress was not updated for job {} because it is terminal, missing, or the counter is invalid",
+                             jobId);
                  }
              });
          } catch (Exception e) {
@@ -1167,10 +1169,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         public double getProgressPercentage() {
             // Prefer task counters when available
             if (totalTasks > 0) {
-                return QuizGenerationJob.calculateProgressPercentage(completedTasks.get(), totalTasks);
+                return QuizGenerationJob.calculateActiveProgressPercentage(completedTasks.get(), totalTasks);
             }
             // Fall back to chunk counters
-            return QuizGenerationJob.calculateProgressPercentage(processedChunks.get(), totalChunks);
+            return QuizGenerationJob.calculateActiveProgressPercentage(processedChunks.get(), totalChunks);
         }
 
         public Duration getElapsedTime() {

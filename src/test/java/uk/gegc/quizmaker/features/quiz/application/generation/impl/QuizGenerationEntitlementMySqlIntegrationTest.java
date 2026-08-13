@@ -314,6 +314,8 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
         QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(reloaded.getCompletedTasks()).isEqualTo(reloaded.getTotalTasks());
+        assertThat(reloaded.getProgressPercentage()).isEqualTo(99.0);
         assertThat(reloaded.getGeneratedQuizId()).isNull();
         assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
     }
@@ -333,6 +335,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
         QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.COMPLETED);
+        assertThat(reloaded.getProgressPercentage()).isEqualTo(100.0);
         assertThat(reloaded.getGeneratedQuizId()).isNotNull();
         assertThat(reloaded.getBillingState()).isEqualTo(BillingState.COMMITTED);
         assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.SUCCEEDED);
@@ -484,6 +487,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         assertThat(quizRepository.findByCreatorId(userId)).isEmpty();
         QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(reloaded.getProgressPercentage()).isEqualTo(99.0);
         assertThat(reloaded.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
         assertThat(checkpointRepository.existsById(job.getId())).isTrue();
     }
@@ -635,6 +639,11 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         job.setUser(user);
         job.setDocumentId(UUID.randomUUID());
         job.setStatus(GenerationStatus.PROCESSING);
+        job.setTotalChunks(1);
+        job.setProcessedChunks(1);
+        job.setTotalTasks(1);
+        job.setCompletedTasks(1);
+        job.updateProgress(1, "Generation tasks complete; awaiting finalization");
         try {
             job.setRequestData(objectMapper.writeValueAsString(request(job.getDocumentId())));
         } catch (Exception exception) {
