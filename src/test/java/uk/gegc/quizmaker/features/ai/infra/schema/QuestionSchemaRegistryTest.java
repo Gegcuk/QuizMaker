@@ -67,6 +67,7 @@ class QuestionSchemaRegistryTest {
     }
     
     @Test
+    @DisplayName("Public fill-gap schema keeps options optional and bounded to ten")
     void shouldGenerateFillGapSchemaWithTextAndGaps() {
         // When
         JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.FILL_GAP);
@@ -114,13 +115,17 @@ class QuestionSchemaRegistryTest {
         assertThat(options.get("items").get("type").asText()).isEqualTo("string");
         assertThat(options.get("description").asText())
                 .contains("include every gaps[].answer value")
-                .contains("6-7 plausible but incorrect distractors")
+                .contains("at least 6 plausible but incorrect distractors")
+                .contains("Prefer 6-7 distractors")
+                .contains("no more than 10 total options")
+                .contains("at least gaps.length + 6 and at most 10")
                 .contains("same domain/category")
                 .contains("must not be synonyms or alternate correct answers")
                 .contains("unique after trimming and case-insensitive comparison");
     }
 
     @Test
+    @DisplayName("AI fill-gap schema requires the bounded options pool")
     void shouldGenerateAiFillGapSchemaWithRequiredOptions() {
         JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(QuestionType.FILL_GAP);
 

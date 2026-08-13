@@ -383,6 +383,29 @@ class FillGapContentValidatorTest {
     }
 
     @Test
+    @DisplayName("Two gap answers plus eight distractors pass at the ten-option cap")
+    void validate_twoGapTenOptionPool_passes() throws Exception {
+        JsonNode content = objectMapper.readTree("""
+            {
+              "text": "The capital of {1} is {2}.",
+              "gaps": [
+                {"id": 1, "answer": "France"},
+                {"id": 2, "answer": "Paris"}
+              ],
+              "options": [
+                "France", "Paris", "Germany", "Berlin", "London",
+                "Madrid", "Rome", "Italy", "Spain", "Lisbon"
+              ]
+            }
+            """);
+
+        ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.errorMessage()).isNull();
+    }
+
+    @Test
     @DisplayName("Lenient mode: options present still validates options")
     void validate_lenientMode_optionsPresentInvalid_fails() throws Exception {
         String json = """
@@ -461,7 +484,7 @@ class FillGapContentValidatorTest {
     }
 
     @Test
-    @DisplayName("Too few options fails")
+    @DisplayName("Fewer than six distractors fails")
     void validate_tooFewOptions_fails() throws Exception {
         String json = """
             {
@@ -476,11 +499,14 @@ class FillGapContentValidatorTest {
         JsonNode content = objectMapper.readTree(json);
         ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
         assertThat(result.valid()).isFalse();
-        assertThat(result.errorMessage()).contains("should have 8-9 items").contains("found 5");
+        assertThat(result.errorMessage())
+                .contains("Not enough distractors")
+                .contains("Found 3 distractor(s)")
+                .contains("need at least 6");
     }
 
     @Test
-    @DisplayName("Too many options fails")
+    @DisplayName("More than ten total options fails")
     void validate_tooManyOptions_fails() throws Exception {
         String json = """
             {
@@ -489,13 +515,16 @@ class FillGapContentValidatorTest {
                 {"id": 1, "answer": "France"},
                 {"id": 2, "answer": "Paris"}
               ],
-              "options": ["France", "Paris", "Germany", "Berlin", "London", "Madrid", "Rome", "Italy", "Spain", "Lisbon", "Athens", "Greece"]
+              "options": ["France", "Paris", "Germany", "Berlin", "London", "Madrid", "Rome", "Italy", "Spain", "Lisbon", "Athens"]
             }
             """;
         JsonNode content = objectMapper.readTree(json);
         ValidationResult result = FillGapContentValidator.validate(content, ValidationMode.STRICT_AI);
         assertThat(result.valid()).isFalse();
-        assertThat(result.errorMessage()).contains("should have 8-9 items").contains("found 12");
+        assertThat(result.errorMessage())
+                .contains("no more than 10 total items")
+                .contains("found 11")
+                .contains("2 correct + 9 distractors");
     }
 
     @Test
