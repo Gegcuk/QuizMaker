@@ -158,28 +158,36 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      * @param jobId The job ID
      * @param increment Number of tasks to increment (usually 1)
      * @param statusMessage Human-readable status message for currentChunk field
-     * @return Number of rows updated (1 if successful, 0 if job not found)
+     * @return Number of rows updated (1 if successful, 0 if the job is missing, terminal, or the increment is invalid)
      */
     @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE QuizGenerationJob j 
         SET j.progressPercentage = CASE
                 WHEN j.totalTasks IS NOT NULL AND j.totalTasks > 0 THEN CASE
-                    WHEN COALESCE(j.completedTasks, 0) + :increment <= 0 THEN 0.0
-                    WHEN COALESCE(j.completedTasks, 0) + :increment >= j.totalTasks THEN 100.0
-                    ELSE ROUND((COALESCE(j.completedTasks, 0) + :increment) * 100.0 / j.totalTasks, 2)
+                    WHEN COALESCE(j.completedTasks, 0) + :increment <= 0
+                        THEN LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
+                    ELSE LEAST(99.0, GREATEST(
+                        COALESCE(j.progressPercentage, 0.0),
+                        ROUND((COALESCE(j.completedTasks, 0) + :increment) * 100.0 / j.totalTasks, 2)
+                    ))
                 END
                 WHEN j.totalChunks IS NOT NULL AND j.totalChunks > 0 THEN CASE
-                    WHEN COALESCE(j.processedChunks, 0) <= 0 THEN 0.0
-                    WHEN COALESCE(j.processedChunks, 0) >= j.totalChunks THEN 100.0
-                    ELSE ROUND(COALESCE(j.processedChunks, 0) * 100.0 / j.totalChunks, 2)
+                    WHEN COALESCE(j.processedChunks, 0) <= 0
+                        THEN LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
+                    ELSE LEAST(99.0, GREATEST(
+                        COALESCE(j.progressPercentage, 0.0),
+                        ROUND(COALESCE(j.processedChunks, 0) * 100.0 / j.totalChunks, 2)
+                    ))
                 END
-                ELSE 0.0
+                ELSE LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
             END,
             j.completedTasks = COALESCE(j.completedTasks, 0) + :increment,
             j.currentChunk = :statusMessage,
             j.version = COALESCE(j.version, 0) + 1
         WHERE j.id = :jobId
+          AND j.status IN ('PENDING', 'PROCESSING')
+          AND :increment >= 0
     """)
     int incrementCompletedTasks(
         @Param("jobId") UUID jobId, 
@@ -200,33 +208,46 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
     int updateTotalTasks(@Param("jobId") UUID jobId, @Param("totalTasks") int totalTasks);
 
     /**
-     * Atomically update chunk-level progress and recompute the bounded percentage from the
-     * authoritative task counters when present, otherwise from chunk counters.
+     * Atomically update monotonic chunk-level progress and recompute the bounded percentage from
+     * the authoritative task counters when present, otherwise from chunk counters. The version
+     * bump prevents a stale managed entity from overwriting the atomic update.
      * 
      * @param jobId The job ID
      * @param processedChunks Number of chunks processed
      * @param statusMessage Human-readable status message
-     * @return Number of rows updated
+     * @return Number of rows updated (1 if successful, 0 if the job is missing, terminal, or the counter is invalid)
      */
     @Modifying(clearAutomatically = true)
     @Query("""
         UPDATE QuizGenerationJob j 
-        SET j.processedChunks = :processedChunks,
-            j.currentChunk = :statusMessage,
-            j.progressPercentage = CASE
+        SET j.progressPercentage = CASE
                 WHEN j.totalTasks IS NOT NULL AND j.totalTasks > 0 THEN CASE
-                    WHEN COALESCE(j.completedTasks, 0) <= 0 THEN 0.0
-                    WHEN COALESCE(j.completedTasks, 0) >= j.totalTasks THEN 100.0
-                    ELSE ROUND(COALESCE(j.completedTasks, 0) * 100.0 / j.totalTasks, 2)
+                    WHEN COALESCE(j.completedTasks, 0) <= 0
+                        THEN LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
+                    ELSE LEAST(99.0, GREATEST(
+                        COALESCE(j.progressPercentage, 0.0),
+                        ROUND(COALESCE(j.completedTasks, 0) * 100.0 / j.totalTasks, 2)
+                    ))
                 END
                 WHEN j.totalChunks IS NOT NULL AND j.totalChunks > 0 THEN CASE
-                    WHEN :processedChunks <= 0 THEN 0.0
-                    WHEN :processedChunks >= j.totalChunks THEN 100.0
-                    ELSE ROUND(:processedChunks * 100.0 / j.totalChunks, 2)
+                    WHEN GREATEST(COALESCE(j.processedChunks, 0), :processedChunks) <= 0
+                        THEN LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
+                    ELSE LEAST(99.0, GREATEST(
+                        COALESCE(j.progressPercentage, 0.0),
+                        ROUND(GREATEST(COALESCE(j.processedChunks, 0), :processedChunks) * 100.0 / j.totalChunks, 2)
+                    ))
                 END
-                ELSE 0.0
-            END
+                ELSE LEAST(99.0, GREATEST(COALESCE(j.progressPercentage, 0.0), 0.0))
+            END,
+            j.currentChunk = CASE
+                WHEN :processedChunks >= COALESCE(j.processedChunks, 0) THEN :statusMessage
+                ELSE j.currentChunk
+            END,
+            j.processedChunks = GREATEST(COALESCE(j.processedChunks, 0), :processedChunks),
+            j.version = COALESCE(j.version, 0) + 1
         WHERE j.id = :jobId
+          AND j.status IN ('PENDING', 'PROCESSING')
+          AND :processedChunks >= 0
     """)
     int updateProcessedChunksAndStatus(
         @Param("jobId") UUID jobId,

@@ -149,13 +149,15 @@ class QuizGenerationJobTaskProgressTest {
         job.updateProgress(0, "Three tasks done");
         assertEquals(42.86, job.getProgressPercentage());
 
+        // Test a malformed initial counter independently; a real active job is monotonic.
+        job.setProgressPercentage(0.0);
         job.setCompletedTasks(-1);
         job.updateProgress(0, "Invalid negative count");
         assertEquals(0.0, job.getProgressPercentage());
 
         job.setCompletedTasks(8);
         job.updateProgress(0, "More tasks than planned");
-        assertEquals(100.0, job.getProgressPercentage());
+        assertEquals(99.0, job.getProgressPercentage());
     }
 
     @Test
@@ -169,6 +171,54 @@ class QuizGenerationJobTaskProgressTest {
 
         job.setProgressPercentage(Double.NaN);
         assertEquals(0.0, job.getProgressPercentage());
+    }
+
+    @Test
+    @DisplayName("Processing jobs normalize legacy 100 percent rows to 99 on read")
+    void getProgressPercentage_normalizesLegacyActiveCompletionValue() {
+        job.setProgressPercentage(100.0);
+
+        assertEquals(99.0, job.getProgressPercentage());
+        assertEquals(
+                QuizGenerationJob.ProgressInvariantViolation.NON_COMPLETED_AT_100,
+                job.detectProgressInvariantViolation()
+        );
+    }
+
+    @Test
+    @DisplayName("Completed jobs normalize legacy values below 100 to durable completion")
+    void getProgressPercentage_normalizesLegacyCompletedValue() {
+        job.setProgressPercentage(62.5);
+        job.setStatus(GenerationStatus.COMPLETED);
+
+        assertEquals(100.0, job.getProgressPercentage());
+        assertEquals(
+                QuizGenerationJob.ProgressInvariantViolation.COMPLETED_BELOW_100,
+                job.detectProgressInvariantViolation()
+        );
+    }
+
+    @Test
+    @DisplayName("Progress does not move backward when stale counters are recalculated")
+    void updateProgress_preservesMonotonicPercentage() {
+        job.setTotalTasks(10);
+        job.setCompletedTasks(7);
+        job.updateProgress(4, "Seven tasks complete");
+        assertEquals(70.0, job.getProgressPercentage());
+
+        job.setCompletedTasks(5);
+        job.updateProgress(3, "Stale update");
+
+        assertEquals(4, job.getProcessedChunks());
+        assertEquals(70.0, job.getProgressPercentage());
+        assertEquals("Seven tasks complete", job.getCurrentChunk());
+    }
+
+    @Test
+    @DisplayName("Negative chunk and task updates are rejected")
+    void progressUpdates_rejectNegativeCounters() {
+        assertThrows(IllegalArgumentException.class, () -> job.updateProgress(-1, "Invalid chunk"));
+        assertThrows(IllegalArgumentException.class, () -> job.updateTaskProgressIncrement(-1, "Invalid task"));
     }
 
     @Test
@@ -222,8 +272,23 @@ class QuizGenerationJobTaskProgressTest {
         // Then: keeps partial progress (doesn't recalculate to 0)
         assertEquals(GenerationStatus.FAILED, job.getStatus());
         assertEquals(10, job.getCompletedTasks());
-        // Progress stays as set (markFailed doesn't modify it)
+        assertEquals(50.0, job.getProgressPercentage());
         assertEquals("Test error", job.getErrorMessage());
+    }
+
+    @Test
+    @DisplayName("Failed and cancelled jobs cannot report successful 100 percent progress")
+    void unsuccessfulTerminalStates_retainBoundedProgress() {
+        job.setTotalTasks(1);
+        job.setCompletedTasks(1);
+        job.updateProgress(1, "All generation tasks complete");
+        assertEquals(99.0, job.getProgressPercentage());
+
+        job.markFailed("Finalization failed");
+        assertEquals(99.0, job.getProgressPercentage());
+
+        job.setStatus(GenerationStatus.CANCELLED);
+        assertEquals(99.0, job.getProgressPercentage());
     }
 
     @Test

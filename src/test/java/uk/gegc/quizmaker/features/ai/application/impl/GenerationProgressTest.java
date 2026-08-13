@@ -95,7 +95,7 @@ class GenerationProgressTest {
         
         // Then: all increments are counted
         assertEquals(1000, progress.getCompletedTasks());
-        assertEquals(100.0, progress.getProgressPercentage(), 0.01);
+        assertEquals(99.0, progress.getProgressPercentage(), 0.01);
     }
 
     @Test
@@ -122,7 +122,7 @@ class GenerationProgressTest {
         
         // Then: all increments are counted
         assertEquals(500, progress.getProcessedChunks());
-        assertEquals(100.0, progress.getProgressPercentage(), 0.01);
+        assertEquals(99.0, progress.getProgressPercentage(), 0.01);
     }
 
     @Test
@@ -155,6 +155,17 @@ class GenerationProgressTest {
             progress.incrementCompletedTasks();
         }
 
-        assertEquals(100.0, progress.getProgressPercentage());
+        assertEquals(99.0, progress.getProgressPercentage());
+    }
+
+    @Test
+    @DisplayName("Worker completion remains at 99 until durable job finalization")
+    void progressPercentage_doesNotTreatWorkerCompletionAsDurableCompletion() {
+        progress.setTotalTasks(1);
+        progress.incrementCompletedTasks();
+        progress.setCompleted(true);
+
+        assertTrue(progress.isCompleted());
+        assertEquals(99.0, progress.getProgressPercentage());
     }
 }

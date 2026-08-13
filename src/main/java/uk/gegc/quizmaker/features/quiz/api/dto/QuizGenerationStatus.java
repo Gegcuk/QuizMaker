@@ -21,7 +21,7 @@ public record QuizGenerationStatus(
         @Schema(description = "Number of chunks processed so far", example = "5")
         Integer processedChunks,
 
-        @Schema(description = "Progress percentage from 0 to 100, rounded to at most two decimal places. Computed from task counters when available, otherwise from chunk counters.", example = "50.0", minimum = "0", maximum = "100")
+        @Schema(description = "Progress percentage rounded to at most two decimal places. Values from 0 through 99 represent accepted or active work; 100 is reserved for a durably COMPLETED job. Failed and cancelled jobs retain their last bounded value. Clients must use status, not progress alone, to determine completion. Computed from task counters when available, otherwise from chunk counters.", example = "99.0", minimum = "0", maximum = "100")
         Double progressPercentage,
 
         @Schema(description = "Currently processing chunk or status message", example = "Chunk 2/5 · MCQ_SINGLE · done")

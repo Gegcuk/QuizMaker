@@ -50,6 +50,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     private final AppPermissionEvaluator appPermissionEvaluator;
     private final QuizGenerationJobService jobService;
     private final FeatureFlags featureFlags;
+    private final QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
 
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
@@ -164,6 +165,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     @Override
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
+        progressInvariantMonitor.observe(job);
         return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
     }
 
@@ -195,7 +197,11 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     @Override
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
-        return jobs.map(job -> QuizGenerationStatus.fromEntity(job, featureFlags.isBilling()));
+        boolean includeBillingFields = featureFlags.isBilling();
+        return jobs.map(job -> {
+            progressInvariantMonitor.observe(job);
+            return QuizGenerationStatus.fromEntity(job, includeBillingFields);
+        });
     }
 
     @Transactional

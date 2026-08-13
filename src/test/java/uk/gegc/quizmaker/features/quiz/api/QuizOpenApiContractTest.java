@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.document.application.DocumentValidationService
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateOperationResultDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationJobPageResponse;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
@@ -56,6 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         MultipleOpenApiSupportConfiguration.class,
         QuizOpenApiContractTest.SpringDocTestConfig.class
 })
+@DisplayName("Quiz OpenAPI contract tests")
 class QuizOpenApiContractTest {
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -151,6 +153,8 @@ class QuizOpenApiContractTest {
                 .contains("PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/description").asText())
                 .contains("durably finalized");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/progressPercentage/description").asText())
+                .contains("0 through 99", "100 is reserved", "status, not progress alone");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/providerUsageState/description").asText())
                 .contains("does not determine the customer charge");
         List<String> providerUsageStates = new ArrayList<>();
@@ -170,7 +174,32 @@ class QuizOpenApiContractTest {
         );
         assertThat(generationJobs.content()).hasSize(1);
         assertThat(generationJobs.content().get(0).status().name()).isEqualTo("PROCESSING");
+        assertThat(generationJobs.content().get(0).completedTasks())
+                .isEqualTo(generationJobs.content().get(0).totalTasks());
+        assertThat(generationJobs.content().get(0).progressPercentage()).isEqualTo(99.0);
         assertThat(generationJobs.pageable().pageSize()).isEqualTo(20);
+
+        JsonNode progressExamples = specification.at(
+                "/paths/~1api~1v1~1quizzes~1generation-status~1{jobId}/get/responses/200/content/application~1json/examples"
+        );
+        QuizGenerationStatus processing = strictObjectMapper().treeToValue(
+                progressExamples.path("Processing at finalization").path("value"), QuizGenerationStatus.class);
+        QuizGenerationStatus failed = strictObjectMapper().treeToValue(
+                progressExamples.path("Failed after work completed").path("value"), QuizGenerationStatus.class);
+        QuizGenerationStatus cancelled = strictObjectMapper().treeToValue(
+                progressExamples.path("Cancelled with partial progress").path("value"), QuizGenerationStatus.class);
+        QuizGenerationStatus completed = strictObjectMapper().treeToValue(
+                progressExamples.path("Durably completed").path("value"), QuizGenerationStatus.class);
+
+        assertThat(processing.status().name()).isEqualTo("PROCESSING");
+        assertThat(processing.progressPercentage()).isEqualTo(99.0);
+        assertThat(failed.status().name()).isEqualTo("FAILED");
+        assertThat(failed.progressPercentage()).isEqualTo(99.0);
+        assertThat(cancelled.status().name()).isEqualTo("CANCELLED");
+        assertThat(cancelled.progressPercentage()).isLessThan(100.0);
+        assertThat(completed.status().name()).isEqualTo("COMPLETED");
+        assertThat(completed.progressPercentage()).isEqualTo(100.0);
+        assertThat(completed.generatedQuizId()).isNotBlank();
 
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1bulk-update/patch/requestBody/content/application~1json/schema/$ref").asText())
                 .isEqualTo("#/components/schemas/BulkQuizUpdateRequest");

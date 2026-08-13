@@ -119,11 +119,11 @@ public class QuizController {
                   "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
                   "status": "PROCESSING",
                   "totalChunks": 5,
-                  "processedChunks": 2,
-                  "progressPercentage": 40.0,
-                  "currentChunk": "Processing chunk 2/5",
+                  "processedChunks": 5,
+                  "progressPercentage": 99.0,
+                  "currentChunk": "Finalizing generated quiz",
                   "totalTasks": 10,
-                  "completedTasks": 4,
+                  "completedTasks": 10,
                   "lastCompletedType": null,
                   "estimatedCompletion": "2026-07-21T23:20:00",
                   "errorMessage": null,
@@ -159,6 +159,59 @@ public class QuizController {
                 "paged": true,
                 "unpaged": false
               }
+            }
+            """;
+
+    private static final String GENERATION_STATUS_PROCESSING_EXAMPLE = """
+            {
+              "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+              "status": "PROCESSING",
+              "totalChunks": 5,
+              "processedChunks": 5,
+              "progressPercentage": 99.0,
+              "currentChunk": "Finalizing generated quiz",
+              "totalTasks": 10,
+              "completedTasks": 10,
+              "generatedQuizId": null
+            }
+            """;
+
+    private static final String GENERATION_STATUS_FAILED_EXAMPLE = """
+            {
+              "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+              "status": "FAILED",
+              "progressPercentage": 99.0,
+              "currentChunk": "Billing settlement failed",
+              "errorMessage": "Quiz generation could not be finalized",
+              "generatedQuizId": null,
+              "completedAt": "2026-07-21T23:20:00"
+            }
+            """;
+
+    private static final String GENERATION_STATUS_CANCELLED_EXAMPLE = """
+            {
+              "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+              "status": "CANCELLED",
+              "progressPercentage": 65.0,
+              "currentChunk": "Cancelled by user",
+              "errorMessage": "Cancelled by user",
+              "generatedQuizId": null,
+              "completedAt": "2026-07-21T23:18:00"
+            }
+            """;
+
+    private static final String GENERATION_STATUS_COMPLETED_EXAMPLE = """
+            {
+              "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+              "status": "COMPLETED",
+              "totalChunks": 5,
+              "processedChunks": 5,
+              "progressPercentage": 100.0,
+              "currentChunk": "Finalized",
+              "totalTasks": 10,
+              "completedTasks": 10,
+              "generatedQuizId": "f3e2d1c0-b9a8-4765-8432-10fedcba9876",
+              "completedAt": "2026-07-21T23:20:00"
             }
             """;
 
@@ -927,7 +980,13 @@ public class QuizController {
                             description = "Job status retrieved successfully",
                             content = @Content(
                                     mediaType = "application/json",
-                                    schema = @Schema(implementation = QuizGenerationStatus.class)
+                                    schema = @Schema(implementation = QuizGenerationStatus.class),
+                                    examples = {
+                                            @ExampleObject(name = "Processing at finalization", value = GENERATION_STATUS_PROCESSING_EXAMPLE),
+                                            @ExampleObject(name = "Failed after work completed", value = GENERATION_STATUS_FAILED_EXAMPLE),
+                                            @ExampleObject(name = "Cancelled with partial progress", value = GENERATION_STATUS_CANCELLED_EXAMPLE),
+                                            @ExampleObject(name = "Durably completed", value = GENERATION_STATUS_COMPLETED_EXAMPLE)
+                                    }
                             )
                     ),
                     @ApiResponse(

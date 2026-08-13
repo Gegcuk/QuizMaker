@@ -21,6 +21,7 @@ import java.util.UUID;
 public class QuizGenerationJob {
 
     private static final double MIN_PROGRESS_PERCENTAGE = 0.0;
+    private static final double MAX_ACTIVE_PROGRESS_PERCENTAGE = 99.0;
     private static final double MAX_PROGRESS_PERCENTAGE = 100.0;
     private static final int PROGRESS_SCALE = 2;
 
@@ -207,7 +208,7 @@ public class QuizGenerationJob {
         if (providerUsageState == null) {
             providerUsageState = ProviderUsageState.NOT_RECORDED;
         }
-        progressPercentage = normalizeProgressPercentage(progressPercentage);
+        progressPercentage = normalizeProgressPercentageForStatus(progressPercentage, status);
     }
 
     public void beginFinalization(LocalDateTime now) {
@@ -265,8 +266,15 @@ public class QuizGenerationJob {
      * Update progress for the generation job (chunk-level)
      */
     public void updateProgress(int processedChunks, String currentChunk) {
-        this.processedChunks = processedChunks;
-        this.currentChunk = currentChunk;
+        if (processedChunks < 0) {
+            throw new IllegalArgumentException("processedChunks must not be negative");
+        }
+
+        int currentProcessedChunks = this.processedChunks != null ? this.processedChunks : 0;
+        if (processedChunks >= currentProcessedChunks) {
+            this.currentChunk = currentChunk;
+        }
+        this.processedChunks = Math.max(currentProcessedChunks, processedChunks);
 
         recalculateProgressPercentage();
     }
@@ -277,6 +285,10 @@ public class QuizGenerationJob {
      * @param statusMessage Human-readable status message (e.g., "Chunk 1/4 · MCQ_SINGLE · done")
      */
     public void updateTaskProgressIncrement(int completedDelta, String statusMessage) {
+        if (completedDelta < 0) {
+            throw new IllegalArgumentException("completedDelta must not be negative");
+        }
+
         this.completedTasks = (this.completedTasks != null ? this.completedTasks : 0) + completedDelta;
         this.currentChunk = statusMessage;
 
@@ -310,6 +322,7 @@ public class QuizGenerationJob {
         this.status = GenerationStatus.FAILED;
         this.errorMessage = errorMessage;
         this.completedAt = LocalDateTime.now();
+        this.progressPercentage = normalizeProgressPercentageForStatus(progressPercentage, status);
     }
 
     /**
@@ -353,7 +366,7 @@ public class QuizGenerationJob {
     }
 
     public Double getProgressPercentage() {
-        return normalizeProgressPercentage(progressPercentage);
+        return normalizeProgressPercentageForStatus(progressPercentage, status);
     }
 
     public void setProgressPercentage(Double progressPercentage) {
@@ -367,6 +380,13 @@ public class QuizGenerationJob {
 
         int completedCount = completed != null ? completed : 0;
         return normalizeProgressPercentage(completedCount * MAX_PROGRESS_PERCENTAGE / total);
+    }
+
+    /**
+     * Calculate progress for work that has not completed durable finalization yet.
+     */
+    public static double calculateActiveProgressPercentage(Integer completed, Integer total) {
+        return Math.min(MAX_ACTIVE_PROGRESS_PERCENTAGE, calculateProgressPercentage(completed, total));
     }
 
     public static double normalizeProgressPercentage(Double progressPercentage) {
@@ -383,14 +403,65 @@ public class QuizGenerationJob {
                 .doubleValue();
     }
 
-    private void recalculateProgressPercentage() {
-        if (totalTasks != null && totalTasks > 0) {
-            progressPercentage = calculateProgressPercentage(completedTasks, totalTasks);
-        } else if (totalChunks != null && totalChunks > 0) {
-            progressPercentage = calculateProgressPercentage(processedChunks, totalChunks);
-        } else {
-            progressPercentage = normalizeProgressPercentage(progressPercentage);
+    /**
+     * Reserve 100% for a durably completed job. Failed, cancelled, pending, and
+     * processing jobs retain their last progress but can never imply success.
+     */
+    public static double normalizeProgressPercentageForStatus(
+            Double progressPercentage,
+            GenerationStatus status
+    ) {
+        if (status == GenerationStatus.COMPLETED) {
+            return MAX_PROGRESS_PERCENTAGE;
         }
+        return Math.min(MAX_ACTIVE_PROGRESS_PERCENTAGE, normalizeProgressPercentage(progressPercentage));
+    }
+
+    /**
+     * Detect malformed or legacy persisted values before status mapping normalizes them.
+     */
+    public ProgressInvariantViolation detectProgressInvariantViolation() {
+        if (progressPercentage == null
+                || !Double.isFinite(progressPercentage)
+                || progressPercentage < MIN_PROGRESS_PERCENTAGE
+                || progressPercentage > MAX_PROGRESS_PERCENTAGE) {
+            return ProgressInvariantViolation.INVALID_PERCENTAGE;
+        }
+        if (status == GenerationStatus.COMPLETED && progressPercentage < MAX_PROGRESS_PERCENTAGE) {
+            return ProgressInvariantViolation.COMPLETED_BELOW_100;
+        }
+        if (status != GenerationStatus.COMPLETED && progressPercentage >= MAX_PROGRESS_PERCENTAGE) {
+            return ProgressInvariantViolation.NON_COMPLETED_AT_100;
+        }
+        return null;
+    }
+
+    private void recalculateProgressPercentage() {
+        if (status == GenerationStatus.COMPLETED) {
+            progressPercentage = MAX_PROGRESS_PERCENTAGE;
+            return;
+        }
+
+        double calculatedProgress;
+        if (totalTasks != null && totalTasks > 0) {
+            calculatedProgress = calculateActiveProgressPercentage(completedTasks, totalTasks);
+        } else if (totalChunks != null && totalChunks > 0) {
+            calculatedProgress = calculateActiveProgressPercentage(processedChunks, totalChunks);
+        } else {
+            calculatedProgress = MIN_PROGRESS_PERCENTAGE;
+        }
+
+        double currentProgress = normalizeProgressPercentageForStatus(progressPercentage, status);
+        progressPercentage = normalizeProgressPercentageForStatus(
+                Math.max(currentProgress, calculatedProgress),
+                status
+        );
+    }
+
+    public enum ProgressInvariantViolation {
+        INVALID_PERCENTAGE,
+        COMPLETED_BELOW_100,
+        NON_COMPLETED_AT_100
     }
 
     /**
