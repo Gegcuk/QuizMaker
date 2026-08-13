@@ -23,10 +23,10 @@ Run locally from the repository root.
 2. Run only the focused tests:
 
    ```bash
-   ./mvnw -Dtest=ExecutorAiProviderTaskSchedulerTest,AiProviderExecutorConfigTest,DeploymentAiProviderExecutorConfigurationContractTest,AiQuizGenerationTaskSchedulingTest test
+   ./mvnw -Dtest=ExecutorAiProviderTaskSchedulerTest,AiProviderExecutorConfigTest,DeploymentAiProviderExecutorConfigurationContractTest,AiQuizGenerationTaskSchedulingTest,AiQuizGenerationServiceProviderUsageTest test
    ```
 
-3. Confirm `BUILD SUCCESS` with sixteen passing tests and no MySQL tests.
+3. Confirm `BUILD SUCCESS` with twenty passing tests and no MySQL tests.
 
 The tests prove:
 
@@ -44,6 +44,8 @@ The tests prove:
 - a request for three questions of one type produces one structured-client call
   whose `questionCount` remains three;
 - a scheduler rejection invokes no structured client.
+- provider-usage persistence failure still bypasses every generation fallback
+  after crossing the scheduler boundary.
 
 Do not use `-DskipTests`, a live-provider profile, or real provider credentials.
 
