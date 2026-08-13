@@ -44,7 +44,7 @@ import org.springframework.ai.openai.api.ResponseFormat;
  * Design notes:
  * - Uses Spring AI's ChatClient for LLM communication
  * - Applies JSON schema from QuestionSchemaRegistry to constrain responses
- * - Captures raw response + validation errors for observability
+ * - Records bounded metadata and stable failure categories without logging provider content
  * - Implements retry logic with exponential backoff for rate limits
  * - Falls back to legacy parsing if structured output fails (future enhancement)
  * 
@@ -97,7 +97,14 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 return attemptGeneration(request);
             } catch (ProviderUsagePersistenceException exception) {
                 throw exception;
+            } catch (PromptConstructionException exception) {
+                log.error("Structured generation stopped with category {}",
+                        GenerationFailureCategory.PROMPT_CONSTRUCTION);
+                throw new AiServiceException(
+                        "Failed to generate structured questions: "
+                                + GenerationFailureCategory.PROMPT_CONSTRUCTION);
             } catch (Exception e) {
+                GenerationFailureCategory failureCategory = classifyFailure(e);
                 if (isRateLimitError(e) && retryCount < maxRetries - 1) {
                     long delayMs = calculateBackoffDelay(retryCount);
                     log.warn("Rate limit hit for structured generation (attempt {}). Waiting {} ms",
@@ -105,13 +112,15 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     sleepForRateLimit(delayMs);
                     retryCount++;
                 } else if (retryCount < maxRetries - 1) {
-                    log.warn("Structured generation attempt {} failed: {}", retryCount + 1, e.getMessage());
+                    log.warn("Structured generation attempt {} failed with category {}",
+                            retryCount + 1, failureCategory);
                     retryCount++;
                 } else {
-                    log.error("Structured generation failed after {} attempts", maxRetries, e);
+                    log.error("Structured generation failed after {} attempts with category {}",
+                            maxRetries, failureCategory);
                     throw new AiServiceException(
-                            "Failed to generate structured questions after " + maxRetries + " attempts: " 
-                            + e.getMessage(), e);
+                            "Failed to generate structured questions after " + maxRetries + " attempts: "
+                                    + safeFailureSummary(e));
                 }
             }
         }
@@ -154,8 +163,9 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             } catch (ProviderUsagePersistenceException exception) {
                 throw exception;
             } catch (Exception e) {
-                log.warn("Failed to regenerate type {}: {}", missingType, e.getMessage());
-                allWarnings.add("Failed to regenerate " + missingType + ": " + e.getMessage());
+                GenerationFailureCategory failureCategory = classifyFailure(e);
+                log.warn("Failed to regenerate type {} with category {}", missingType, failureCategory);
+                allWarnings.add("Failed to regenerate " + missingType + " (" + failureCategory + ")");
             }
         }
         
@@ -176,11 +186,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         }
         
         // Models known to support JSON mode / structured output
-        // OpenAI: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4.1-mini, gpt-3.5-turbo-1106+
+        // OpenAI: GPT-4 and GPT-5 model families that expose structured output
         // Anthropic: claude-3-5-sonnet, claude-3-opus, claude-3-sonnet
         // Note: This is a best-effort check. In Phase 3, read from configuration.
         log.info("Structured output support check - Spring AI 1.0.0-M6+ with ChatClient available");
-        log.info("Supported models: OpenAI (gpt-4o*, gpt-4.1*, gpt-4o-mini), Anthropic (claude-3*)");
+        log.info("Supported models: OpenAI (GPT-4/GPT-5 structured-output families), Anthropic (claude-3*)");
         
         // For now, return true if ChatClient exists
         // Phase 3 TODO: Read spring.ai.openai.chat.options.model from config and validate
@@ -193,22 +203,25 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     private StructuredQuestionResponse attemptGeneration(StructuredQuestionRequest request) {
         UUID providerAttemptId = UUID.randomUUID();
 
-        // Build prompt using existing template service
-        String userPrompt = promptTemplateService.buildPromptForChunk(
-                request.getChunkContent(),
-                request.getQuestionType(),
-                request.getQuestionCount(),
-                request.getDifficulty(),
-                request.getLanguage()
-        );
+        String userPrompt;
+        String systemPrompt;
+        try {
+            userPrompt = promptTemplateService.buildPromptForChunk(
+                    request.getChunkContent(),
+                    request.getQuestionType(),
+                    request.getQuestionCount(),
+                    request.getDifficulty(),
+                    request.getLanguage()
+            );
+            systemPrompt = promptTemplateService.buildSystemPrompt();
+        } catch (RuntimeException exception) {
+            throw new PromptConstructionException();
+        }
         
         // Get AI-safe JSON schema for this question type (media stripped)
         JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(
                 request.getQuestionType(),
                 request.getDifficulty());
-        
-        // Build system message with structured output instructions (schema enforced server-side)
-        String systemPrompt = promptTemplateService.buildSystemPrompt();
 
         if (log.isDebugEnabled()) {
             log.debug("Sending structured generation request for {} {} questions (schema enforced)",
@@ -252,20 +265,19 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         String rawResponse = response.getResult().getOutput().getText();
 
         if (log.isDebugEnabled() && response.getMetadata() != null) {
-            log.debug("Structured response metadata: model={}, usage={}",
+            var usage = response.getMetadata().getUsage();
+            Long totalTokens = usage != null && !(usage instanceof EmptyUsage)
+                    ? Long.valueOf(usage.getTotalTokens())
+                    : null;
+            log.debug("Structured response metadata: model={}, totalTokens={}",
                     response.getMetadata().getModel(),
-                    response.getMetadata().getUsage());
+                    totalTokens);
         }
 
         if (rawResponse == null || rawResponse.trim().isEmpty()) {
             throw new AiServiceException("Empty response received from AI service");
         }
 
-        if (log.isDebugEnabled()) {
-            String preview = rawResponse.length() > 1000 ? rawResponse.substring(0, 1000) + "..." : rawResponse;
-            log.debug("Structured raw response preview: {}", preview);
-        }
-        
         // Parse and validate response
         StructuredQuestionResponse structuredResponse = parseStructuredResponse(
                 rawResponse, 
@@ -331,7 +343,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             return options;
 
         } catch (Exception e) {
-            log.error("Failed to build JSON schema response format for {}", questionType, e);
+            log.error("Failed to build JSON schema response format for {}", questionType);
             return null;
         }
     }
@@ -378,8 +390,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     
                     questions.add(question);
                 } catch (Exception e) {
-                    warnings.add("Failed to parse question: " + e.getMessage());
-                    log.warn("Failed to parse individual question", e);
+                    warnings.add("Failed to parse question: INVALID_STRUCTURE");
+                    log.warn("Rejected malformed structured question");
                 }
             }
             
@@ -394,7 +406,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     .build();
             
         } catch (JsonProcessingException e) {
-            log.error("Failed to parse structured response as JSON", e);
+            log.error("Rejected structured response with invalid JSON");
             
             // Check if this is a truncation error (EOF while parsing)
             if (e.getMessage() != null && 
@@ -408,10 +420,10 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 throw new AIResponseParseException(
                     "JSON response truncated due to token limit. " +
                     "Current max-completion-tokens: " + maxCompletionTokens + ". " +
-                    "Try reducing question count or increasing max-completion-tokens in configuration.", e);
+                    "Try reducing question count or increasing max-completion-tokens in configuration.");
             }
             
-            throw new AIResponseParseException("Invalid JSON in structured response: " + e.getMessage(), e);
+            throw new AIResponseParseException("Invalid JSON in structured response");
         }
     }
 
@@ -470,7 +482,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             String contentJson = objectMapper.writeValueAsString(contentNode);
             builder.content(contentJson);
         } catch (JsonProcessingException e) {
-            throw new AIResponseParseException("Failed to serialize content: " + e.getMessage(), e);
+            throw new AIResponseParseException("Failed to serialize structured question content");
         }
         
         // Now required fields (strict mode)
@@ -598,6 +610,31 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                message.contains("TPM") ||
                message.contains("RPM");
     }
+
+    private GenerationFailureCategory classifyFailure(Exception failure) {
+        if (isRateLimitError(failure)) {
+            return GenerationFailureCategory.RATE_LIMIT;
+        }
+        if (failure instanceof AIResponseParseException) {
+            return GenerationFailureCategory.INVALID_RESPONSE;
+        }
+        if (failure instanceof PromptConstructionException) {
+            return GenerationFailureCategory.PROMPT_CONSTRUCTION;
+        }
+        if (failure instanceof AiServiceException) {
+            return Thread.currentThread().isInterrupted()
+                    ? GenerationFailureCategory.INTERRUPTED
+                    : GenerationFailureCategory.AI_SERVICE;
+        }
+        return GenerationFailureCategory.PROVIDER_FAILURE;
+    }
+
+    private String safeFailureSummary(Exception failure) {
+        if (failure instanceof AIResponseParseException) {
+            return failure.getMessage();
+        }
+        return classifyFailure(failure).name();
+    }
     
     /**
      * Calculate exponential backoff delay with jitter
@@ -622,6 +659,22 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new AiServiceException("Interrupted while waiting for rate limit", ie);
+        }
+    }
+
+    private enum GenerationFailureCategory {
+        RATE_LIMIT,
+        INVALID_RESPONSE,
+        PROMPT_CONSTRUCTION,
+        AI_SERVICE,
+        INTERRUPTED,
+        PROVIDER_FAILURE
+    }
+
+    private static final class PromptConstructionException extends RuntimeException {
+
+        private PromptConstructionException() {
+            super("Prompt construction failed");
         }
     }
 }

@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.service.ai;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
@@ -51,8 +52,8 @@ class PromptTemplateServiceTest {
     @InjectMocks
     private PromptTemplateServiceImpl promptTemplateService;
 
-    private static final String SYSTEM_PROMPT = "You are an expert quiz generator. Generate content in {language}.";
-    private static final String CONTEXT_TEMPLATE = "Document content: {content}\nTarget language: {language}\nGenerate {questionCount} questions.";
+    private static final String SYSTEM_PROMPT = "You are an expert quiz generator. Use the trusted target language.";
+    private static final String CONTEXT_TEMPLATE = "Trusted parameters: {language}\nGenerate {questionCount} questions.";
     private static final String MCQ_TEMPLATE = """
             Generate {questionType} questions with {difficulty} difficulty.
             - Use {language} for all text sections.
@@ -141,6 +142,7 @@ class PromptTemplateServiceTest {
     }
     
     @Test
+    @DisplayName("Keeps the system message separate from the user prompt")
     void shouldNotIncludeSystemPromptInUserPrompt() throws IOException {
         // Given
         String chunkContent = "Test content";
@@ -156,7 +158,7 @@ class PromptTemplateServiceTest {
         assertFalse(userPrompt.contains(SYSTEM_PROMPT), 
                 "User prompt should not include system prompt - it's sent separately");
         // Should start with context template, not system prompt
-        assertTrue(userPrompt.startsWith("Document content:"), 
+        assertTrue(userPrompt.startsWith("Trusted parameters:"),
                 "User prompt should start with context template");
     }
     
@@ -410,6 +412,7 @@ class PromptTemplateServiceTest {
     }
     
     @Test
+    @DisplayName("Builds the system prompt without unresolved known placeholders")
     void shouldSystemPromptNotContainPlaceholders() throws IOException {
         // Given
         setupSystemPromptOnly();
@@ -417,10 +420,64 @@ class PromptTemplateServiceTest {
         // When
         String systemPrompt = promptTemplateService.buildSystemPrompt();
 
-        // Then - System prompt should have {language} placeholder (not replaced)
+        // Then
         assertNotNull(systemPrompt);
-        assertTrue(systemPrompt.contains("{language}"), 
-                "System prompt should contain {language} placeholder for template reuse");
+        assertFalse(systemPrompt.contains("{language}"),
+                "System prompt must not dispatch an unresolved language placeholder");
+    }
+
+    @Test
+    @DisplayName("Fails closed when a trusted prompt template cannot be loaded")
+    void shouldFailClosedWhenPromptTemplateCannotBeLoaded() throws IOException {
+        when(resourceLoader.getResource("classpath:prompts/base/context-template.txt"))
+                .thenReturn(contextTemplateResource);
+        when(contextTemplateResource.getInputStream()).thenThrow(new IOException("private resource detail"));
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> promptTemplateService.buildPromptForChunk(
+                        "Source that must never enter a fallback prompt",
+                        QuestionType.MCQ_SINGLE,
+                        1,
+                        Difficulty.EASY,
+                        "en"));
+
+        assertEquals("Failed to load prompt template: base/context-template.txt", exception.getMessage());
+        verify(resourceLoader, never()).getResource("classpath:prompts/question-types/mcq-single.txt");
+    }
+
+    @Test
+    @DisplayName("Preserves placeholder-looking document source verbatim")
+    void shouldPreservePlaceholderLookingSourceVerbatim() throws IOException {
+        String source = "Keep {content}, {language}, {questionCount}, and {difficulty} exactly as source data.";
+        setupMcqTemplatesOnly();
+
+        String prompt = promptTemplateService.buildPromptForChunk(
+                source, QuestionType.MCQ_SINGLE, 3, Difficulty.HARD, "fr");
+
+        assertTrue(prompt.contains("\n" + source + "\n"),
+                "Trusted template rendering must finish before source insertion");
+    }
+
+    @Test
+    @DisplayName("Fails closed if a trusted template reintroduces source interpolation")
+    void shouldFailClosedIfTrustedTemplateContainsContentPlaceholder() throws IOException {
+        when(resourceLoader.getResource("classpath:prompts/base/context-template.txt"))
+                .thenReturn(contextTemplateResource);
+        when(contextTemplateResource.getInputStream())
+                .thenReturn(new ByteArrayInputStream("Unsafe source slot: {content}".getBytes()));
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> promptTemplateService.buildPromptForChunk(
+                        "PRIVATE_SOURCE_CANARY",
+                        QuestionType.MCQ_SINGLE,
+                        1,
+                        Difficulty.EASY,
+                        "en"));
+
+        assertEquals(
+                "Unresolved required prompt placeholder in base/context-template.txt: {content}",
+                exception.getMessage());
+        verify(resourceLoader, never()).getResource("classpath:prompts/question-types/mcq-single.txt");
     }
     
     @Test
