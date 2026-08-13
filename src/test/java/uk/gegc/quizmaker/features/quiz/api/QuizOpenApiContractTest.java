@@ -20,8 +20,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateOperationResultDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerationTypeCoverage;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationJobPageResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
@@ -155,6 +157,20 @@ class QuizOpenApiContractTest {
                 .contains("durably finalized");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/progressPercentage/description").asText())
                 .contains("0 through 99", "100 is reserved", "status, not progress alone");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/coverage/$ref").asText())
+                .isEqualTo("#/components/schemas/GenerationCoverage");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/required").toString())
+                .doesNotContain("coverage");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/coverage/description").asText())
+                .contains("Null for legacy jobs", "status COMPLETED");
+        assertThat(specification.at("/components/schemas/GenerationCoverage/properties/types/items/$ref").asText())
+                .isEqualTo("#/components/schemas/GenerationTypeCoverage");
+        assertThat(specification.at("/components/schemas/GenerationCoverage/required").toString())
+                .contains("types");
+        assertThat(specification.at("/components/schemas/GenerationCoverage/description").asText())
+                .contains("status remains authoritative");
+        assertThat(specification.at("/components/schemas/GenerationCoverage/properties/thresholdPercent/description").asText())
+                .contains("greater than");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/providerUsageState/description").asText())
                 .contains("does not determine the customer charge");
         List<String> providerUsageStates = new ArrayList<>();
@@ -177,6 +193,10 @@ class QuizOpenApiContractTest {
         assertThat(generationJobs.content().get(0).completedTasks())
                 .isEqualTo(generationJobs.content().get(0).totalTasks());
         assertThat(generationJobs.content().get(0).progressPercentage()).isEqualTo(99.0);
+        assertThat(generationJobs.content().get(0).coverage().outcome().name()).isEqualTo("PARTIAL");
+        assertThat(generationJobs.content().get(0).coverage().types())
+                .extracting(GenerationTypeCoverage::questionType)
+                .containsExactly(QuestionType.MCQ_SINGLE, QuestionType.FILL_GAP);
         assertThat(generationJobs.pageable().pageSize()).isEqualTo(20);
 
         JsonNode progressExamples = specification.at(
@@ -190,16 +210,28 @@ class QuizOpenApiContractTest {
                 progressExamples.path("Cancelled with partial progress").path("value"), QuizGenerationStatus.class);
         QuizGenerationStatus completed = strictObjectMapper().treeToValue(
                 progressExamples.path("Durably completed").path("value"), QuizGenerationStatus.class);
+        QuizGenerationStatus legacy = strictObjectMapper().treeToValue(
+                progressExamples.path("Legacy job without coverage").path("value"), QuizGenerationStatus.class);
 
         assertThat(processing.status().name()).isEqualTo("PROCESSING");
         assertThat(processing.progressPercentage()).isEqualTo(99.0);
+        assertThat(processing.coverage().outcome().name()).isEqualTo("PARTIAL");
+        assertThat(processing.coverage().accepted()).isEqualTo(9);
         assertThat(failed.status().name()).isEqualTo("FAILED");
         assertThat(failed.progressPercentage()).isEqualTo(99.0);
+        assertThat(failed.coverage().outcome().name()).isEqualTo("FAILED_THRESHOLD");
+        assertThat(failed.coverage().accepted()).isEqualTo(8);
+        assertThat(failed.coverage().thresholdPercent()).isEqualTo(80);
         assertThat(cancelled.status().name()).isEqualTo("CANCELLED");
         assertThat(cancelled.progressPercentage()).isLessThan(100.0);
+        assertThat(cancelled.coverage()).isNull();
         assertThat(completed.status().name()).isEqualTo("COMPLETED");
         assertThat(completed.progressPercentage()).isEqualTo(100.0);
         assertThat(completed.generatedQuizId()).isNotBlank();
+        assertThat(completed.coverage().outcome().name()).isEqualTo("COMPLETE");
+        assertThat(completed.coverage().missing()).isZero();
+        assertThat(legacy.status().name()).isEqualTo("COMPLETED");
+        assertThat(legacy.coverage()).isNull();
 
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1bulk-update/patch/requestBody/content/application~1json/schema/$ref").asText())
                 .isEqualTo("#/components/schemas/BulkQuizUpdateRequest");

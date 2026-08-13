@@ -139,7 +139,19 @@ public class QuizController {
                   "billingCommittedTokens": null,
                   "billingState": null,
                   "inputPromptTokens": null,
-                  "estimationVersion": null
+                  "estimationVersion": null,
+                  "coverage": {
+                    "outcome": "PARTIAL",
+                    "thresholdPercent": 80,
+                    "requested": 10,
+                    "accepted": 9,
+                    "missing": 1,
+                    "discarded": 2,
+                    "types": [
+                      {"questionType": "MCQ_SINGLE", "requested": 5, "accepted": 5, "missing": 0},
+                      {"questionType": "FILL_GAP", "requested": 5, "accepted": 4, "missing": 1}
+                    ]
+                  }
                 }
               ],
               "totalPages": 1,
@@ -172,7 +184,19 @@ public class QuizController {
               "currentChunk": "Finalizing generated quiz",
               "totalTasks": 10,
               "completedTasks": 10,
-              "generatedQuizId": null
+              "generatedQuizId": null,
+              "coverage": {
+                "outcome": "PARTIAL",
+                "thresholdPercent": 80,
+                "requested": 10,
+                "accepted": 9,
+                "missing": 1,
+                "discarded": 2,
+                "types": [
+                  {"questionType": "MCQ_SINGLE", "requested": 5, "accepted": 5, "missing": 0},
+                  {"questionType": "FILL_GAP", "requested": 5, "accepted": 4, "missing": 1}
+                ]
+              }
             }
             """;
 
@@ -181,10 +205,21 @@ public class QuizController {
               "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
               "status": "FAILED",
               "progressPercentage": 99.0,
-              "currentChunk": "Billing settlement failed",
-              "errorMessage": "Quiz generation could not be finalized",
+              "currentChunk": "Generation failed coverage: 8/10 accepted",
+              "errorMessage": "Generated question coverage did not exceed the required threshold",
               "generatedQuizId": null,
-              "completedAt": "2026-07-21T23:20:00"
+              "completedAt": "2026-07-21T23:20:00",
+              "coverage": {
+                "outcome": "FAILED_THRESHOLD",
+                "thresholdPercent": 80,
+                "requested": 10,
+                "accepted": 8,
+                "missing": 2,
+                "discarded": 0,
+                "types": [
+                  {"questionType": "MCQ_SINGLE", "requested": 10, "accepted": 8, "missing": 2}
+                ]
+              }
             }
             """;
 
@@ -196,7 +231,8 @@ public class QuizController {
               "currentChunk": "Cancelled by user",
               "errorMessage": "Cancelled by user",
               "generatedQuizId": null,
-              "completedAt": "2026-07-21T23:18:00"
+              "completedAt": "2026-07-21T23:18:00",
+              "coverage": null
             }
             """;
 
@@ -211,7 +247,30 @@ public class QuizController {
               "totalTasks": 10,
               "completedTasks": 10,
               "generatedQuizId": "f3e2d1c0-b9a8-4765-8432-10fedcba9876",
-              "completedAt": "2026-07-21T23:20:00"
+              "completedAt": "2026-07-21T23:20:00",
+              "coverage": {
+                "outcome": "COMPLETE",
+                "thresholdPercent": 80,
+                "requested": 10,
+                "accepted": 10,
+                "missing": 0,
+                "discarded": 1,
+                "types": [
+                  {"questionType": "MCQ_SINGLE", "requested": 5, "accepted": 5, "missing": 0},
+                  {"questionType": "FILL_GAP", "requested": 5, "accepted": 5, "missing": 0}
+                ]
+              }
+            }
+            """;
+
+    private static final String GENERATION_STATUS_LEGACY_EXAMPLE = """
+            {
+              "jobId": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+              "status": "COMPLETED",
+              "progressPercentage": 100.0,
+              "generatedQuizId": "f3e2d1c0-b9a8-4765-8432-10fedcba9876",
+              "completedAt": "2026-07-01T12:00:00",
+              "coverage": null
             }
             """;
 
@@ -972,7 +1031,7 @@ public class QuizController {
 
     @Operation(
             summary = "Get quiz generation job status",
-            description = "Get the current status and progress of a quiz generation job. COMPLETED means the generated quiz and billing settlement were durably finalized; clients must not treat any earlier state as entitled content.",
+            description = "Get the current status and progress of a quiz generation job. COMPLETED means the generated quiz and billing settlement were durably finalized; clients must not treat any earlier state or coverage outcome as entitled content. Coverage is optional and remains null for legacy jobs or jobs that have not reached reconciliation.",
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(
@@ -985,7 +1044,8 @@ public class QuizController {
                                             @ExampleObject(name = "Processing at finalization", value = GENERATION_STATUS_PROCESSING_EXAMPLE),
                                             @ExampleObject(name = "Failed after work completed", value = GENERATION_STATUS_FAILED_EXAMPLE),
                                             @ExampleObject(name = "Cancelled with partial progress", value = GENERATION_STATUS_CANCELLED_EXAMPLE),
-                                            @ExampleObject(name = "Durably completed", value = GENERATION_STATUS_COMPLETED_EXAMPLE)
+                                            @ExampleObject(name = "Durably completed", value = GENERATION_STATUS_COMPLETED_EXAMPLE),
+                                            @ExampleObject(name = "Legacy job without coverage", value = GENERATION_STATUS_LEGACY_EXAMPLE)
                                     }
                             )
                     ),
@@ -1112,7 +1172,7 @@ public class QuizController {
 
     @Operation(
             summary = "List user's quiz generation jobs",
-            description = "Get a zero-based, paginated list of generation jobs owned by the authenticated user. Results default to 20 items ordered by startedAt descending. Each job status exposes its lifecycle state, including CANCELLED when cancellation succeeds, and timing/progress information available for that job.",
+            description = "Get a zero-based, paginated list of generation jobs owned by the authenticated user. Results default to 20 items ordered by startedAt descending. Each job status exposes its lifecycle state, including CANCELLED when cancellation succeeds, timing/progress information, and optional immutable coverage once reconciliation has completed. Legacy coverage remains null.",
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(

@@ -18,6 +18,8 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
@@ -32,6 +34,7 @@ import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -77,6 +80,9 @@ class QuizQueryServiceImplTest {
 
     @Mock
     private QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
+
+    @Mock
+    private QuizGenerationCoverageService generationCoverageService;
     
     @Mock
     private Authentication authentication;
@@ -693,12 +699,16 @@ class QuizQueryServiceImplTest {
             
             when(jobService.getJobByIdAndUsername(jobId, "testuser")).thenReturn(job);
             when(featureFlags.isBilling()).thenReturn(true);
+            when(generationCoverageService.findByJobIds(List.of(jobId)))
+                    .thenReturn(Map.of(jobId, coverageSnapshot()));
             
             // When
             QuizGenerationStatus result = queryService.getGenerationStatus(jobId, "testuser");
             
             // Then
             assertThat(result).isNotNull();
+            assertThat(result.coverage()).isNotNull();
+            assertThat(result.coverage().outcome()).isEqualTo(GenerationCoverageOutcome.PARTIAL);
             verify(jobService).getJobByIdAndUsername(jobId, "testuser");
             verify(progressInvariantMonitor).observe(job);
             verify(featureFlags).isBilling();
@@ -730,6 +740,7 @@ class QuizQueryServiceImplTest {
             // When & Then
             assertThatThrownBy(() -> queryService.getGenerationStatus(jobId, "otheruser"))
                 .isInstanceOf(ForbiddenException.class);
+            verifyNoInteractions(generationCoverageService);
         }
         
         @Test
@@ -741,12 +752,14 @@ class QuizQueryServiceImplTest {
             
             when(jobService.getJobByIdAndUsername(jobId, "testuser")).thenReturn(job);
             when(featureFlags.isBilling()).thenReturn(false);
+            when(generationCoverageService.findByJobIds(List.of(jobId))).thenReturn(Map.of());
             
             // When
             QuizGenerationStatus result = queryService.getGenerationStatus(jobId, "testuser");
             
             // Then
             assertThat(result).isNotNull();
+            assertThat(result.coverage()).isNull();
             verify(featureFlags).isBilling();
         }
     }
@@ -880,6 +893,8 @@ class QuizQueryServiceImplTest {
             
             when(jobService.getJobsByUser("testuser", pageable)).thenReturn(jobPage);
             when(featureFlags.isBilling()).thenReturn(true);
+            when(generationCoverageService.findByJobIds(any()))
+                    .thenReturn(Map.of(job1.getId(), coverageSnapshot()));
             
             // When
             Page<QuizGenerationStatus> result = queryService.getGenerationJobs("testuser", pageable);
@@ -887,7 +902,11 @@ class QuizQueryServiceImplTest {
             // Then
             assertThat(result).isNotNull();
             assertThat(result.getContent()).hasSize(2);
+            assertThat(result.getContent().get(0).coverage()).isNotNull();
+            assertThat(result.getContent().get(1).coverage()).isNull();
             verify(jobService, times(1)).getJobsByUser("testuser", pageable);
+            verify(generationCoverageService, times(1)).findByJobIds(argThat(ids ->
+                    ids.size() == 2 && ids.containsAll(List.of(job1.getId(), job2.getId()))));
             verify(progressInvariantMonitor, times(1)).observe(job1);
             verify(progressInvariantMonitor, times(1)).observe(job2);
             verify(featureFlags, times(1)).isBilling();
@@ -906,6 +925,7 @@ class QuizQueryServiceImplTest {
             
             // Then
             assertThat(result).isEmpty();
+            verifyNoInteractions(generationCoverageService);
         }
         
         @Test
@@ -919,6 +939,7 @@ class QuizQueryServiceImplTest {
             
             when(jobService.getJobsByUser("testuser", pageable)).thenReturn(jobPage);
             when(featureFlags.isBilling()).thenReturn(false);
+            when(generationCoverageService.findByJobIds(any())).thenReturn(Map.of());
             
             // When
             Page<QuizGenerationStatus> result = queryService.getGenerationJobs("testuser", pageable);
@@ -988,5 +1009,22 @@ class QuizQueryServiceImplTest {
         job.setUser(user);
         job.setStatus(status);
         return job;
+    }
+
+    private GenerationCoverageSnapshot coverageSnapshot() {
+        return new GenerationCoverageSnapshot(
+                GenerationCoverageOutcome.PARTIAL,
+                80,
+                10,
+                9,
+                1,
+                0,
+                List.of(new GenerationCoverageSnapshot.TypeCoverage(
+                        uk.gegc.quizmaker.features.question.domain.model.QuestionType.MCQ_SINGLE,
+                        10,
+                        9,
+                        1
+                ))
+        );
     }
 }

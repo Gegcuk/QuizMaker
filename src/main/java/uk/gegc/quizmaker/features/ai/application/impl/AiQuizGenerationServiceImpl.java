@@ -31,7 +31,10 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
+import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCoverageReconciledEvent;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationCoverageOutcome;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
@@ -250,6 +253,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     coverage.discardedTotal(),
                     coverage.successful() ? (coverage.partial() ? "partial" : "complete") : "failed"
             );
+
+            eventPublisher.publishEvent(new QuizGenerationCoverageReconciledEvent(
+                    this,
+                    jobId,
+                    toCoverageSnapshot(coverage)
+            ));
 
             if (!coverage.successful()) {
                 updateJobChunkProgressSafely(
@@ -830,6 +839,30 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
         
         return String.join(", ", summaryParts);
+    }
+
+    private GenerationCoverageSnapshot toCoverageSnapshot(GenerationCoveragePolicy.Decision coverage) {
+        GenerationCoverageOutcome outcome = !coverage.successful()
+                ? GenerationCoverageOutcome.FAILED_THRESHOLD
+                : coverage.partial() ? GenerationCoverageOutcome.PARTIAL : GenerationCoverageOutcome.COMPLETE;
+        List<GenerationCoverageSnapshot.TypeCoverage> types = coverage.expectedByType().entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.comparingInt(QuestionType::ordinal)))
+                .map(entry -> new GenerationCoverageSnapshot.TypeCoverage(
+                        entry.getKey(),
+                        entry.getValue(),
+                        coverage.acceptedByType().getOrDefault(entry.getKey(), 0),
+                        coverage.missingByType().getOrDefault(entry.getKey(), 0)
+                ))
+                .toList();
+        return new GenerationCoverageSnapshot(
+                outcome,
+                GenerationCoveragePolicy.SUCCESS_THRESHOLD_PERCENT,
+                coverage.requestedTotal(),
+                coverage.acceptedTotal(),
+                coverage.requestedTotal() - coverage.acceptedTotal(),
+                coverage.discardedTotal(),
+                types
+        );
     }
 
     @Override

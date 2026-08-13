@@ -2,14 +2,19 @@ package uk.gegc.quizmaker.features.quiz.api.dto;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationCoverageOutcome;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 @DisplayName("Quiz generation status mapping tests")
 class QuizGenerationStatusTest {
@@ -25,6 +30,7 @@ class QuizGenerationStatusTest {
         QuizGenerationStatus status = QuizGenerationStatus.fromEntity(job);
 
         assertEquals(42.81, status.progressPercentage());
+        assertNull(status.coverage());
     }
 
     @Test
@@ -76,6 +82,41 @@ class QuizGenerationStatusTest {
 
         assertEquals(null, publicStatus.providerUsageState());
         assertEquals(ProviderUsageState.INCOMPLETE, billingStatus.providerUsageState());
+    }
+
+    @Test
+    @DisplayName("Status mapping adds typed coverage without changing legacy null behavior")
+    void fromEntityMapsOptionalTypedCoverage() {
+        QuizGenerationJob job = jobWithProgress(GenerationStatus.PROCESSING, 99.0);
+        GenerationCoverageSnapshot snapshot = new GenerationCoverageSnapshot(
+                GenerationCoverageOutcome.PARTIAL,
+                80,
+                10,
+                9,
+                1,
+                2,
+                List.of(
+                        new GenerationCoverageSnapshot.TypeCoverage(QuestionType.FILL_GAP, 5, 4, 1),
+                        new GenerationCoverageSnapshot.TypeCoverage(QuestionType.MCQ_SINGLE, 5, 5, 0)
+                )
+        );
+
+        QuizGenerationStatus status = QuizGenerationStatus.fromEntity(
+                job,
+                false,
+                GenerationCoverage.fromSnapshot(snapshot)
+        );
+
+        assertAll(
+                () -> assertEquals(GenerationCoverageOutcome.PARTIAL, status.coverage().outcome()),
+                () -> assertEquals(10, status.coverage().requested()),
+                () -> assertEquals(9, status.coverage().accepted()),
+                () -> assertEquals(1, status.coverage().missing()),
+                () -> assertEquals(
+                        List.of(QuestionType.MCQ_SINGLE, QuestionType.FILL_GAP),
+                        status.coverage().types().stream().map(GenerationTypeCoverage::questionType).toList()
+                )
+        );
     }
 
     private QuizGenerationJob jobWithProgress(GenerationStatus status, double progressPercentage) {

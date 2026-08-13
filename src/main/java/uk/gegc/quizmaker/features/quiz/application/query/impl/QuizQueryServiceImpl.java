@@ -9,9 +9,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerationCoverage;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
+import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
@@ -51,6 +54,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     private final QuizGenerationJobService jobService;
     private final FeatureFlags featureFlags;
     private final QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
+    private final QuizGenerationCoverageService generationCoverageService;
 
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
@@ -166,7 +170,12 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
         progressInvariantMonitor.observe(job);
-        return QuizGenerationStatus.fromEntity(job, featureFlags.isBilling());
+        GenerationCoverageSnapshot coverage = generationCoverageService.findByJobIds(List.of(jobId)).get(jobId);
+        return QuizGenerationStatus.fromEntity(
+                job,
+                featureFlags.isBilling(),
+                GenerationCoverage.fromSnapshot(coverage)
+        );
     }
 
     @Transactional
@@ -198,9 +207,18 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
         boolean includeBillingFields = featureFlags.isBilling();
+        Map<UUID, GenerationCoverageSnapshot> coverageByJobId = jobs.isEmpty()
+                ? Map.of()
+                : generationCoverageService.findByJobIds(
+                        jobs.getContent().stream().map(QuizGenerationJob::getId).toList()
+                );
         return jobs.map(job -> {
             progressInvariantMonitor.observe(job);
-            return QuizGenerationStatus.fromEntity(job, includeBillingFields);
+            return QuizGenerationStatus.fromEntity(
+                    job,
+                    includeBillingFields,
+                    GenerationCoverage.fromSnapshot(coverageByJobId.get(job.getId()))
+            );
         });
     }
 
