@@ -73,6 +73,8 @@ import static org.mockito.Mockito.when;
 @DisplayName("Single-Chunk Quiz End-to-End Tests")
 class QuizSingleChunkEndToEndTest {
 
+    private static final int PROVIDER_FIXTURE_CONTEXT_LIMIT = 80;
+
     @Autowired
     private QuizServiceImpl quizService;
 
@@ -425,12 +427,16 @@ class QuizSingleChunkEndToEndTest {
             jobRepository.findById(jobId).orElseThrow()
         );
         
-        Quiz consolidatedQuiz = transactionTemplate.execute(status -> 
-            quizRepository.findById(completedJob.getGeneratedQuizId()).orElseThrow()
-        );
+        record ConsolidatedQuizSnapshot(String title, int questionCount) {
+        }
+        ConsolidatedQuizSnapshot consolidatedQuiz = transactionTemplate.execute(status -> {
+            Quiz quiz = quizRepository.findById(completedJob.getGeneratedQuizId()).orElseThrow();
+            return new ConsolidatedQuizSnapshot(quiz.getTitle(), quiz.getQuestions().size());
+        });
         
         // Consolidated quiz should have title matching request
-        assertThat(consolidatedQuiz.getTitle()).isEqualTo("Multi Chunk E2E Quiz");
+        assertThat(consolidatedQuiz.title()).isEqualTo("Multi Chunk E2E Quiz");
+        assertThat(consolidatedQuiz.questionCount()).isEqualTo(4);
     }
 
     // ========== Helper Methods ==========
@@ -516,9 +522,11 @@ class QuizSingleChunkEndToEndTest {
 
     private StructuredQuestionResponse createProviderResponse(StructuredQuestionRequest request) {
         List<StructuredQuestion> questions = new ArrayList<>();
+        String chunkContext = providerFixtureContext(request.getChunkContent());
         for (int index = 0; index < request.getQuestionCount(); index++) {
             questions.add(StructuredQuestion.builder()
-                    .questionText("Generated " + request.getQuestionType() + " question " + (index + 1))
+                    .questionText("Generated " + request.getQuestionType() + " question " + (index + 1)
+                            + " from " + chunkContext)
                     .type(request.getQuestionType())
                     .difficulty(request.getDifficulty())
                     .content(validProviderContent(request.getQuestionType()))
@@ -531,6 +539,22 @@ class QuizSingleChunkEndToEndTest {
                 .tokensUsed(0L)
                 .schemaValid(true)
                 .build();
+    }
+
+    private String providerFixtureContext(String chunkContent) {
+        if (chunkContent == null || chunkContent.isBlank()) {
+            return "unknown chunk";
+        }
+
+        String boundedPrefix = chunkContent.substring(
+                0,
+                Math.min(chunkContent.length(), PROVIDER_FIXTURE_CONTEXT_LIMIT)
+        );
+        return boundedPrefix.lines()
+                .map(String::trim)
+                .filter(line -> !line.isEmpty())
+                .findFirst()
+                .orElse("unknown chunk");
     }
 
     private String validProviderContent(QuestionType type) {

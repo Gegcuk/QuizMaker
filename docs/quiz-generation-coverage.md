@@ -51,7 +51,7 @@ The fields mean:
 - `requested`: the full positive-count target across selected chunks and requested question types.
 - `accepted`: runtime-valid questions retained in the requested type and difficulty buckets.
 - `missing`: `requested - accepted`.
-- `discarded`: generated candidates rejected as invalid, outside the requested bucket, or beyond the requested count. It is diagnostic and does not increase `missing`.
+- `discarded`: generated candidates rejected as invalid, duplicated within the job, outside the requested bucket, or beyond the requested count. It is diagnostic and does not increase `missing`.
 - `types`: one entry for every requested positive-count question type, in stable backend enum order. Zero-count and unrequested types are absent.
 - `thresholdPercent`: the policy threshold used by the recorded decision. V1 succeeds only when accepted coverage is strictly greater than 80%, unless all requested questions were accepted.
 
@@ -60,6 +60,14 @@ Outcomes are:
 - `COMPLETE`: every requested question was accepted.
 - `PARTIAL`: some questions are missing, but accepted coverage is strictly greater than the threshold and finalization may continue.
 - `FAILED_THRESHOLD`: accepted coverage is at or below the threshold. The job fails, no quiz is published, and the existing billing-release path applies.
+
+## Distinct Generated Questions
+
+Coverage counts an exact generated question only once within a generation job. The first occurrence in ascending chunk order and provider response order is retained; later copies are discarded before the quantity threshold, final quiz assembly, and valid-question billing.
+
+Identity is deliberately conservative: it uses question type, a Unicode/case/whitespace-normalized stem, and canonical type-specific content. JSON property order and display-only shuffling do not make a copy distinct. Fill-gap drag options are excluded because the template and gap answers define what is assessed. Meaningfully different stems or assessed answers remain eligible; the backend does not use fuzzy, embedding, synonym, paraphrase, cross-language, or cross-quiz matching.
+
+Redistribution still runs for the resulting shortfall. Only newly distinct, runtime-valid questions can close it. Existing manual questions and previously stored quizzes are not scanned or changed.
 
 ## Client Handling
 

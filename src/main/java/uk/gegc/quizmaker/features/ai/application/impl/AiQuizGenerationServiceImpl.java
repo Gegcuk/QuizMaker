@@ -245,12 +245,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     coverage.acceptedByType(), coverage.expectedByType());
 
             log.info(
-                    "Generation coverage reconciled for job {}: requested={}, accepted={}, missing={}, discarded={}, outcome={}",
+                    "Generation coverage reconciled for job {}: requested={}, accepted={}, missing={}, discarded={}, duplicates={}, outcome={}",
                     jobId,
                     coverage.requestedTotal(),
                     coverage.acceptedTotal(),
                     coverage.requestedTotal() - coverage.acceptedTotal(),
                     coverage.discardedTotal(),
+                    coverage.duplicateTotal(),
                     coverage.successful() ? (coverage.partial() ? "partial" : "complete") : "failed"
             );
 
