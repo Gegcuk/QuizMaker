@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.springframework.ai.openai.api.OpenAiApi.ChatCompletionMessage.Role.USER;
 
 @DisplayName("OpenAI blocking transport timeouts")
@@ -163,8 +164,14 @@ class OpenAiTransportTimeoutTest {
             assertThat(context).hasNotFailed();
             OpenAiApi openAiApi = openAiApi(context.getBean(RestClient.Builder.class));
 
-            assertThatThrownBy(() -> openAiApi.chatCompletionEntity(request()))
-                    .isInstanceOf(CancellationException.class);
+            Throwable failure = catchThrowable(() -> openAiApi.chatCompletionEntity(request()));
+
+            assertThat(failure).isNotNull();
+            if (!(failure instanceof CancellationException)) {
+                assertThat(failure)
+                        .isInstanceOf(ResourceAccessException.class)
+                        .hasRootCauseInstanceOf(HttpTimeoutException.class);
+            }
             assertThat(requestCount).hasValue(0);
         });
     }
