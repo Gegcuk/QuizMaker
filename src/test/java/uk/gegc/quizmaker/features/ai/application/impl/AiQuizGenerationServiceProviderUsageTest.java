@@ -50,7 +50,7 @@ class AiQuizGenerationServiceProviderUsageTest {
     @Mock private UserRepository userRepository;
     @Mock private ObjectMapper objectMapper;
     @Mock private ApplicationEventPublisher eventPublisher;
-    @Mock private AiRateLimitConfig rateLimitConfig;
+    private final AiRateLimitConfig rateLimitConfig = new AiRateLimitConfig();
     @Mock private InternalBillingService internalBillingService;
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private StructuredAiClient structuredAiClient;

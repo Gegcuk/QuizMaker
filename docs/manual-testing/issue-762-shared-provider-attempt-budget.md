@@ -26,7 +26,14 @@ responses; they do not call OpenAI or require MySQL.
    ./mvnw -Dtest=ProviderAttemptBudgetTest,SpringAiStructuredClientAttemptBudgetTest,AiQuizGenerationServiceFallbackTest,DeploymentAiAttemptBudgetConfigurationContractTest test
    ```
 
-3. Confirm the command ends with `BUILD SUCCESS` and reports no failures.
+3. Run the service compatibility fixtures that exercise scheduling, provider
+   usage failure, redistribution, and coverage reconciliation:
+
+   ```bash
+   ./mvnw -Dtest=AiQuizGenerationServiceProviderUsageTest,AiQuizGenerationTaskSchedulingTest,AiQuizGenerationFailureScenariosTest test
+   ```
+
+4. Confirm both commands end with `BUILD SUCCESS` and report no failures.
 
 The tests prove:
 

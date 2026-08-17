@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.McqSingleHandler;
+import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 
 import java.util.List;
 import java.util.Map;
@@ -98,7 +99,7 @@ class AiQuizGenerationTaskSchedulingTest {
                 null,
                 objectMapper,
                 null,
-                null,
+                new AiRateLimitConfig(),
                 null,
                 null,
                 structuredAiClient,
