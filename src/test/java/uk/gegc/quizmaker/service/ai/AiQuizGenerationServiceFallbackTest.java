@@ -17,6 +17,7 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.application.impl.AiQuizGenerationServiceImpl;
 import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
@@ -41,6 +42,7 @@ import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -177,6 +179,7 @@ class AiQuizGenerationServiceFallbackTest {
     private void setupRateLimitConfig() {
         // Set up rate limit configuration for tests that need it
         lenient().when(rateLimitConfig.getMaxRetries()).thenReturn(3);
+        lenient().when(rateLimitConfig.getMaxAttemptsPerTask()).thenReturn(5);
         lenient().when(rateLimitConfig.getBaseDelayMs()).thenReturn(1000L);
         lenient().when(rateLimitConfig.getMaxDelayMs()).thenReturn(10000L);
         lenient().when(rateLimitConfig.getJitterFactor()).thenReturn(0.25);
@@ -343,6 +346,81 @@ class AiQuizGenerationServiceFallbackTest {
 
             // Then - Strategy 2 should return 2 questions (reduced count)
             assertEquals(2, result.size());
+            verify(structuredAiClient, times(4)).generateQuestions(any(StructuredQuestionRequest.class));
+        }
+
+        @Test
+        @DisplayName("Normal retries share one provider dispatch budget")
+        void generateQuestionsByTypeWithFallbacks_sharesBudgetAcrossNormalRetries() throws Exception {
+            setupRateLimitConfig();
+            when(rateLimitConfig.getMaxAttemptsPerTask()).thenReturn(2);
+            List<StructuredQuestionRequest> requests = new ArrayList<>();
+
+            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
+                    .thenAnswer(invocation -> {
+                        StructuredQuestionRequest request = invocation.getArgument(0);
+                        requests.add(request);
+                        assertNotNull(request.getProviderAttemptBudget());
+                        assertTrue(request.getProviderAttemptBudget().tryAcquire());
+                        throw new AiServiceException("Simulated one-dispatch provider failure");
+                    });
+
+            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class,
+                    Difficulty.class, Integer.class, UUID.class, String.class);
+            method.setAccessible(true);
+
+            @SuppressWarnings("unchecked")
+            List<Question> result = (List<Question>) method.invoke(
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE,
+                    4, Difficulty.MEDIUM, 1, null, "en");
+
+            assertTrue(result.isEmpty());
+            assertEquals(2, requests.size());
+            ProviderAttemptBudget sharedBudget = requests.get(0).getProviderAttemptBudget();
+            assertSame(sharedBudget, requests.get(1).getProviderAttemptBudget());
+            assertEquals(2, sharedBudget.consumedAttempts());
+            assertTrue(sharedBudget.isExhausted());
+            verify(structuredAiClient, times(2)).generateQuestions(any(StructuredQuestionRequest.class));
+        }
+
+        @Test
+        @DisplayName("Reduced-count fallback reuses the normal strategy provider dispatch budget")
+        void generateQuestionsByTypeWithFallbacks_reusesBudgetForReducedCount() throws Exception {
+            setupRateLimitConfig();
+            when(rateLimitConfig.getMaxAttemptsPerTask()).thenReturn(4);
+            List<StructuredQuestionRequest> requests = new ArrayList<>();
+
+            when(structuredAiClient.generateQuestions(any(StructuredQuestionRequest.class)))
+                    .thenAnswer(invocation -> {
+                        StructuredQuestionRequest request = invocation.getArgument(0);
+                        requests.add(request);
+                        assertNotNull(request.getProviderAttemptBudget());
+                        assertTrue(request.getProviderAttemptBudget().tryAcquire());
+                        if (requests.size() < 4) {
+                            throw new AiServiceException("Simulated one-dispatch provider failure");
+                        }
+                        return createStructuredResponse(2, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM);
+                    });
+
+            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class,
+                    Difficulty.class, Integer.class, UUID.class, String.class);
+            method.setAccessible(true);
+
+            @SuppressWarnings("unchecked")
+            List<Question> result = (List<Question>) method.invoke(
+                    aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE,
+                    4, Difficulty.MEDIUM, 1, null, "en");
+
+            assertEquals(2, result.size());
+            assertEquals(List.of(4, 4, 4, 2), requests.stream()
+                    .map(StructuredQuestionRequest::getQuestionCount)
+                    .toList());
+            ProviderAttemptBudget sharedBudget = requests.get(0).getProviderAttemptBudget();
+            assertTrue(requests.stream()
+                    .allMatch(request -> request.getProviderAttemptBudget() == sharedBudget));
+            assertEquals(4, sharedBudget.consumedAttempts());
             verify(structuredAiClient, times(4)).generateQuestions(any(StructuredQuestionRequest.class));
         }
 

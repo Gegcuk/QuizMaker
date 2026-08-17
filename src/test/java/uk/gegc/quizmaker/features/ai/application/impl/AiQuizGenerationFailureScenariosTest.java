@@ -81,8 +81,7 @@ class AiQuizGenerationFailureScenariosTest {
     private UserRepository userRepository;
     @Mock
     private ApplicationEventPublisher eventPublisher;
-    @Mock
-    private AiRateLimitConfig rateLimitConfig;
+    private final AiRateLimitConfig rateLimitConfig = new AiRateLimitConfig();
     @Mock
     private InternalBillingService internalBillingService;
     @Mock
@@ -137,7 +136,7 @@ class AiQuizGenerationFailureScenariosTest {
         lenient().when(jobRepository.updateProcessedChunksAndStatus(any(), anyInt(), anyString()))
                 .thenReturn(1);
 
-        lenient().when(rateLimitConfig.getMaxRetries()).thenReturn(2);
+        rateLimitConfig.setMaxRetries(2);
     }
 
     @Test
@@ -202,7 +201,7 @@ class AiQuizGenerationFailureScenariosTest {
     @Test
     @DisplayName("Scenario 3.2: rate limiting retries and fails cleanly when exhausted")
     void rateLimitingRetriesThenFails() {
-        when(rateLimitConfig.getMaxRetries()).thenReturn(3);
+        rateLimitConfig.setMaxRetries(3);
         
         // Phase 3: StructuredAiClient handles retries internally and throws after exhaustion
         when(structuredAiClient.generateQuestions(any()))

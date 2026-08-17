@@ -18,6 +18,8 @@ import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.ai.application.AiProviderTaskScheduler;
 import uk.gegc.quizmaker.features.ai.application.GenerationCoveragePolicy;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
@@ -481,6 +483,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage
     ) {
+        return generateQuestionsByTypeWithJobId(
+                chunkContent,
+                questionType,
+                questionCount,
+                difficulty,
+                jobId,
+                targetLanguage,
+                null
+        );
+    }
+
+    private List<Question> generateQuestionsByTypeWithJobId(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty,
+            UUID jobId,
+            String targetLanguage,
+            ProviderAttemptBudget providerAttemptBudget
+    ) {
         // Input validation
         if (chunkContent == null || chunkContent.trim().isEmpty()) {
             throw new IllegalArgumentException("Chunk content cannot be null or empty");
@@ -525,6 +547,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     .language(language)
                     .metadata(jobId != null ? Map.of("jobId", jobId.toString()) : Map.of())
                     .cancellationChecker(jobId != null ? () -> isJobCancelled(jobId) : null)
+                    .providerAttemptBudget(providerAttemptBudget)
                     .providerUsageObserver(jobId != null ? usage -> recordProviderUsage(jobId, usage) : null)
                     .build();
 
@@ -555,6 +578,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             return questions;
 
+        } catch (ProviderAttemptBudgetExhaustedException exception) {
+            log.warn("Provider attempt budget exhausted while generating {} questions of type {}",
+                    questionCount, questionType);
+            throw exception;
         } catch (Exception e) {
             propagateProviderUsagePersistenceFailure(e);
             log.error("Error generating {} questions of type {} using structured client",
@@ -645,6 +672,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             String targetLanguage
     ) {
         String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
+        ProviderAttemptBudget providerAttemptBudget =
+                new ProviderAttemptBudget(rateLimitConfig.getMaxAttemptsPerTask());
 
         // Update job status to show fallback attempt
         updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
@@ -652,6 +681,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         // Strategy 1: Try normal generation (multiple attempts)
         int normalAttempts = 3;
         for (int attempt = 1; attempt <= normalAttempts; attempt++) {
+            if (providerAttemptBudget.isExhausted()) {
+                break;
+            }
             try {
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + "/3");
                 
@@ -661,7 +693,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         questionCount,
                         difficulty,
                         jobId,
-                        language
+                        language,
+                        providerAttemptBudget
                 );
                 if (questions.size() >= questionCount) {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
@@ -677,23 +710,32 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         return questions;
                     }
                 }
+            } catch (ProviderAttemptBudgetExhaustedException exception) {
+                logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
+                break;
             } catch (Exception e) {
                 propagateProviderUsagePersistenceFailure(e);
                 log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
                         attempt, questionType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + " failed, retrying...");
-                // Continue to next attempt unless this is the last one
+                if (providerAttemptBudget.isExhausted()) {
+                    logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
+                    break;
+                }
             }
         }
 
         // Strategy 2: Try with reduced count (multiple attempts, if requesting more than 1)
-        if (questionCount > 1) {
+        if (questionCount > 1 && !providerAttemptBudget.isExhausted()) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using reduced count strategy");
             
             int reducedAttempts = 2;
             int reducedCount = Math.max(1, questionCount / 2);
             
             for (int attempt = 1; attempt <= reducedAttempts; attempt++) {
+                if (providerAttemptBudget.isExhausted()) {
+                    break;
+                }
                 try {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + "/2");
                     log.debug("Strategy 2: Trying with reduced count {} (attempt {}) for {} chunk {}", 
@@ -705,7 +747,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                             reducedCount,
                             difficulty,
                             jobId,
-                            language
+                            language,
+                            providerAttemptBudget
                     );
                     if (!questions.isEmpty()) {
                         log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
@@ -713,12 +756,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count success");
                         return questions;
                     }
+                } catch (ProviderAttemptBudgetExhaustedException exception) {
+                    logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
+                    break;
                 } catch (Exception e) {
                     propagateProviderUsagePersistenceFailure(e);
                     log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
                             attempt, questionType, chunkIndex, e.getMessage());
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + " failed");
-                    // Continue to next attempt unless this is the last one
+                    if (providerAttemptBudget.isExhausted()) {
+                        logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
+                        break;
+                    }
                 }
             }
         }
@@ -727,6 +776,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 questionCount, questionType, chunkIndex);
         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generation failed completely");
         return new ArrayList<>();
+    }
+
+    private void logProviderAttemptBudgetExhausted(
+            QuestionType questionType,
+            Integer chunkIndex,
+            ProviderAttemptBudget providerAttemptBudget
+    ) {
+        log.warn("Provider attempt budget exhausted for type {} in chunk {} after {}/{} dispatches",
+                questionType,
+                chunkIndex,
+                providerAttemptBudget.consumedAttempts(),
+                providerAttemptBudget.maxAttempts());
     }
 
     /**
