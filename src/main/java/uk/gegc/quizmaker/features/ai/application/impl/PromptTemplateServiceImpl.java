@@ -11,7 +11,9 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -21,6 +23,20 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @RequiredArgsConstructor
 public class PromptTemplateServiceImpl implements PromptTemplateService {
+
+    private static final List<String> RENDERED_PLACEHOLDERS = List.of(
+            "{questionType}",
+            "{questionCount}",
+            "{difficulty}",
+            "{language}"
+    );
+    private static final List<String> KNOWN_PLACEHOLDERS = List.of(
+            "{content}",
+            "{questionType}",
+            "{questionCount}",
+            "{difficulty}",
+            "{language}"
+    );
 
     private final ResourceLoader resourceLoader;
     private final Map<String, String> templateCache = new ConcurrentHashMap<>();
@@ -52,40 +68,32 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
         String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
-        try {
-            // Load context template (user message content)
-            String contextTemplate = loadPromptTemplate("base/context-template.txt");
+        Map<String, String> variables = Map.of(
+                "{questionType}", questionType.name(),
+                "{questionCount}", String.valueOf(questionCount),
+                "{difficulty}", difficulty.name(),
+                "{language}", language
+        );
 
-            // Load question type specific template
-            String questionTemplate = loadPromptTemplate("question-types/" + getQuestionTypeTemplateName(questionType));
+        String context = renderTrustedTemplate(
+                loadPromptTemplate("base/context-template.txt"),
+                variables,
+                "base/context-template.txt");
+        String questionContract = renderTrustedTemplate(
+                loadPromptTemplate("question-types/" + getQuestionTypeTemplateName(questionType)),
+                variables,
+                "question type " + questionType);
+        SourceDelimiters delimiters = createSourceDelimiters(chunkContent);
 
-            // Build the user prompt (context + question template, NO system prompt)
-            // System prompt is sent separately via SystemMessage
-            StringBuilder prompt = new StringBuilder();
-            prompt.append(contextTemplate).append("\n\n");
-            prompt.append(questionTemplate);
-
-            // Replace placeholders
-            String finalPrompt = prompt.toString()
-                    .replace("{content}", chunkContent)
-                    .replace("{questionType}", questionType.name())
-                    .replace("{questionCount}", String.valueOf(questionCount))
-                    .replace("{difficulty}", difficulty.name())
-                    .replace("{language}", language);
-
-            return finalPrompt;
-
-        } catch (Exception e) {
-            log.error("Error building prompt for question type: {}", questionType, e);
-            // Fallback to simple prompt
-            return String.format("""
-                    Generate %d %s questions with %s difficulty in %s based on the following content:
-                    
-                    %s
-                    
-                    Respond with JSON only (no markdown fences, no commentary) and match the platform schema exactly.
-                    """, questionCount, questionType, difficulty, language, chunkContent);
-        }
+        return context
+                + "\n\nQUESTION TYPE CONTRACT:\n"
+                + questionContract
+                + "\n\nUNTRUSTED DOCUMENT SOURCE:\n"
+                + delimiters.start()
+                + "\n"
+                + chunkContent
+                + "\n"
+                + delimiters.end();
     }
 
     @Override
@@ -95,7 +103,42 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     public String buildSystemPrompt() {
-        return loadPromptTemplate("base/system-prompt.txt");
+        String systemPrompt = loadPromptTemplate("base/system-prompt.txt");
+        assertNoKnownPlaceholders(systemPrompt, "base/system-prompt.txt");
+        return systemPrompt;
+    }
+
+    private String renderTrustedTemplate(
+            String template,
+            Map<String, String> variables,
+            String templateName
+    ) {
+        String rendered = template;
+        for (String placeholder : RENDERED_PLACEHOLDERS) {
+            rendered = rendered.replace(placeholder, variables.get(placeholder));
+        }
+        assertNoKnownPlaceholders(rendered, templateName);
+        return rendered;
+    }
+
+    private void assertNoKnownPlaceholders(String renderedTemplate, String templateName) {
+        for (String placeholder : KNOWN_PLACEHOLDERS) {
+            if (renderedTemplate.contains(placeholder)) {
+                throw new IllegalStateException(
+                        "Unresolved required prompt placeholder in " + templateName + ": " + placeholder);
+            }
+        }
+    }
+
+    private SourceDelimiters createSourceDelimiters(String sourceContent) {
+        SourceDelimiters delimiters;
+        do {
+            String boundaryId = UUID.randomUUID().toString();
+            delimiters = new SourceDelimiters(
+                    "<<<QUIZMAKER_UNTRUSTED_SOURCE_" + boundaryId + "_START>>>",
+                    "<<<QUIZMAKER_UNTRUSTED_SOURCE_" + boundaryId + "_END>>>");
+        } while (sourceContent.contains(delimiters.start()) || sourceContent.contains(delimiters.end()));
+        return delimiters;
     }
 
     private String loadTemplateFromResources(String templateName) {
@@ -103,8 +146,8 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             Resource resource = resourceLoader.getResource("classpath:prompts/" + templateName);
             return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            log.error("Failed to load template: {}", templateName, e);
-            throw new RuntimeException("Failed to load template: " + templateName, e);
+            log.error("Failed to load prompt template: {}", templateName);
+            throw new IllegalStateException("Failed to load prompt template: " + templateName);
         }
     }
 
@@ -121,4 +164,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             case MATCHING -> "matching.txt";
         };
     }
-} 
+
+    private record SourceDelimiters(String start, String end) {
+    }
+}
