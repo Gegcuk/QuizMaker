@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 
 import jakarta.validation.constraints.NotBlank;
@@ -86,6 +87,12 @@ public class StructuredQuestionRequest {
      * on already-cancelled jobs.
      */
     private Supplier<Boolean> cancellationChecker;
+
+    /**
+     * Optional provider-dispatch budget shared across nested retries and fallbacks.
+     * Existing direct callers may omit it and retain the structured client's retry limit.
+     */
+    private ProviderAttemptBudget providerAttemptBudget;
 
     /**
      * Optional observer invoked once for each provider response, before parsing.

@@ -17,6 +17,8 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
+import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
@@ -92,10 +94,19 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                         .tokensUsed(0L)
                         .build();
             }
+
+            if (request.getProviderAttemptBudget() != null
+                    && request.getProviderAttemptBudget().isExhausted()) {
+                throw new ProviderAttemptBudgetExhaustedException();
+            }
             
             try {
                 return attemptGeneration(request);
             } catch (ProviderUsagePersistenceException exception) {
+                throw exception;
+            } catch (ProviderAttemptBudgetExhaustedException exception) {
+                log.warn("Structured generation stopped with category {}",
+                        GenerationFailureCategory.ATTEMPT_BUDGET_EXHAUSTED);
                 throw exception;
             } catch (PromptConstructionException exception) {
                 log.error("Structured generation stopped with category {}",
@@ -152,6 +163,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     .language(request.getLanguage())
                     .metadata(request.getMetadata())
                     .cancellationChecker(request.getCancellationChecker())
+                    .providerAttemptBudget(request.getProviderAttemptBudget())
                     .providerUsageObserver(request.getProviderUsageObserver())
                     .build();
             
@@ -162,6 +174,9 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 totalTokens += response.getTokensUsed();
             } catch (ProviderUsagePersistenceException exception) {
                 throw exception;
+            } catch (ProviderAttemptBudgetExhaustedException exception) {
+                allWarnings.add("Provider attempt budget exhausted while regenerating missing types");
+                break;
             } catch (Exception e) {
                 GenerationFailureCategory failureCategory = classifyFailure(e);
                 log.warn("Failed to regenerate type {} with category {}", missingType, failureCategory);
@@ -201,8 +216,6 @@ public class SpringAiStructuredClient implements StructuredAiClient {
      * Attempt to generate questions with structured output
      */
     private StructuredQuestionResponse attemptGeneration(StructuredQuestionRequest request) {
-        UUID providerAttemptId = UUID.randomUUID();
-
         String userPrompt;
         String systemPrompt;
         try {
@@ -251,6 +264,12 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                             ? chatOptions.getResponseFormat().getJsonSchema().getName()
                             : "n/a");
         }
+
+        ProviderAttemptBudget providerAttemptBudget = request.getProviderAttemptBudget();
+        if (providerAttemptBudget != null && !providerAttemptBudget.tryAcquire()) {
+            throw new ProviderAttemptBudgetExhaustedException();
+        }
+        UUID providerAttemptId = UUID.randomUUID();
 
         ChatResponse response = chatClient.prompt(prompt)
                 .call()
@@ -612,6 +631,9 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     }
 
     private GenerationFailureCategory classifyFailure(Exception failure) {
+        if (failure instanceof ProviderAttemptBudgetExhaustedException) {
+            return GenerationFailureCategory.ATTEMPT_BUDGET_EXHAUSTED;
+        }
         if (isRateLimitError(failure)) {
             return GenerationFailureCategory.RATE_LIMIT;
         }
@@ -663,6 +685,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     }
 
     private enum GenerationFailureCategory {
+        ATTEMPT_BUDGET_EXHAUSTED,
         RATE_LIMIT,
         INVALID_RESPONSE,
         PROMPT_CONSTRUCTION,
