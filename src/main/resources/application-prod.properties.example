@@ -22,6 +22,9 @@ spring.ai.openai.api-key=${OPENAI_API_KEY}
 spring.ai.openai.chat.options.model=${OPENAI_MODEL:gpt-5.6-luna}
 spring.ai.openai.chat.options.temperature=${OPENAI_TEMPERATURE:1.0}
 spring.ai.openai.chat.options.max-completion-tokens=${OPENAI_MAX_COMPLETION_TOKENS:16000}
+spring.http.client.factory=jdk
+spring.http.client.connect-timeout=${AI_PROVIDER_CONNECT_TIMEOUT:10s}
+spring.http.client.read-timeout=${AI_PROVIDER_READ_TIMEOUT:180s}
 
 # Bound all nested retries for one chunk/question-type generation task.
 spring.ai.retry.max-attempts=1
