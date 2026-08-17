@@ -24,6 +24,7 @@ spring.ai.openai.chat.options.temperature=${OPENAI_TEMPERATURE:1.0}
 spring.ai.openai.chat.options.max-completion-tokens=${OPENAI_MAX_COMPLETION_TOKENS:16000}
 
 # Bound all nested retries for one chunk/question-type generation task.
+spring.ai.retry.max-attempts=1
 ai.rate-limit.max-attempts-per-task=5
 
 # CORS Configuration for Production
