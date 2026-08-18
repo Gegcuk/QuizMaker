@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 /**
  * Spring AI implementation of StructuredAiClient.
@@ -67,6 +68,8 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 @Slf4j
 public class SpringAiStructuredClient implements StructuredAiClient {
+
+    private static final long CANCELLATION_CHECK_INTERVAL_MS = 1_000L;
     
     private final ChatClient chatClient;
     private final QuestionSchemaRegistry schemaRegistry;
@@ -90,15 +93,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         int retryCount = 0;
         
         while (retryCount < maxRetries) {
-            // Check for cancellation before each attempt (Phase 3 fix)
-            if (request.getCancellationChecker() != null && request.getCancellationChecker().get()) {
+            // Positive retry waits poll this same cooperative cancellation signal.
+            if (isCancellationRequested(request.getCancellationChecker())) {
                 log.info("Generation cancelled before attempt {} for {} type {}",
                         retryCount + 1, request.getQuestionCount(), request.getQuestionType());
-                return StructuredQuestionResponse.builder()
-                        .questions(List.of())
-                        .warnings(List.of("Generation cancelled by user"))
-                        .tokensUsed(0L)
-                        .build();
+                return cancelledResponse();
             }
 
             if (request.getProviderAttemptBudget() != null
@@ -132,7 +131,15 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     if (retryDecision.delayMs() > 0) {
                         log.warn("Waiting {} ms before the next structured generation attempt",
                                 retryDecision.delayMs());
-                        sleepForRateLimit(retryDecision.delayMs());
+                        if (!waitForRetry(
+                                retryDecision.delayMs(),
+                                request.getCancellationChecker())) {
+                            log.info("Generation cancelled during retry wait after attempt {} for {} type {}",
+                                    retryCount + 1,
+                                    request.getQuestionCount(),
+                                    request.getQuestionType());
+                            return cancelledResponse();
+                        }
                     }
                     retryCount++;
                 } else {
@@ -781,6 +788,41 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 maxDelayMs,
                 Math.max(normalBackoffMs, providerMinimumMs + positiveJitterMs)
         );
+    }
+
+    private boolean waitForRetry(long delayMs, Supplier<Boolean> cancellationChecker) {
+        if (cancellationChecker == null) {
+            sleepForRateLimit(delayMs);
+            return true;
+        }
+
+        long remainingDelayMs = delayMs;
+        while (remainingDelayMs > 0) {
+            if (isCancellationRequested(cancellationChecker)) {
+                return false;
+            }
+
+            long waitSliceMs = Math.min(
+                    remainingDelayMs,
+                    CANCELLATION_CHECK_INTERVAL_MS
+            );
+            sleepForRateLimit(waitSliceMs);
+            remainingDelayMs -= waitSliceMs;
+        }
+
+        return !isCancellationRequested(cancellationChecker);
+    }
+
+    private boolean isCancellationRequested(Supplier<Boolean> cancellationChecker) {
+        return cancellationChecker != null && Boolean.TRUE.equals(cancellationChecker.get());
+    }
+
+    private StructuredQuestionResponse cancelledResponse() {
+        return StructuredQuestionResponse.builder()
+                .questions(List.of())
+                .warnings(List.of("Generation cancelled by user"))
+                .tokensUsed(0L)
+                .build();
     }
     
     /**
