@@ -12,10 +12,16 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.ResponseFormat;
+import org.springframework.ai.retry.NonTransientAiException;
+import org.springframework.ai.retry.TransientAiException;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionRequest;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
+import uk.gegc.quizmaker.features.ai.application.AiProviderHttpException;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
@@ -30,12 +36,12 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AIResponseParseException;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
-
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.ResponseFormat;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Spring AI implementation of StructuredAiClient.
@@ -115,23 +121,28 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                         "Failed to generate structured questions: "
                                 + GenerationFailureCategory.PROMPT_CONSTRUCTION);
             } catch (Exception e) {
-                GenerationFailureCategory failureCategory = classifyFailure(e);
-                if (isRateLimitError(e) && retryCount < maxRetries - 1) {
-                    long delayMs = calculateBackoffDelay(retryCount);
-                    log.warn("Rate limit hit for structured generation (attempt {}). Waiting {} ms",
-                            retryCount + 1, delayMs);
-                    sleepForRateLimit(delayMs);
-                    retryCount++;
-                } else if (retryCount < maxRetries - 1) {
+                RetryDecision retryDecision = determineRetry(e, retryCount);
+                if (retryDecision.retry() && retryCount < maxRetries - 1) {
+                    if (request.getProviderAttemptBudget() != null
+                            && request.getProviderAttemptBudget().isExhausted()) {
+                        throw new ProviderAttemptBudgetExhaustedException();
+                    }
                     log.warn("Structured generation attempt {} failed with category {}",
-                            retryCount + 1, failureCategory);
+                            retryCount + 1, retryDecision.failureCategory());
+                    if (retryDecision.delayMs() > 0) {
+                        log.warn("Waiting {} ms before the next structured generation attempt",
+                                retryDecision.delayMs());
+                        sleepForRateLimit(retryDecision.delayMs());
+                    }
                     retryCount++;
                 } else {
-                    log.error("Structured generation failed after {} attempts with category {}",
-                            maxRetries, failureCategory);
+                    int attemptsMade = retryCount + 1;
+                    log.error("Structured generation failed on attempt {} with category {}",
+                            attemptsMade, retryDecision.failureCategory());
                     throw new AiServiceException(
-                            "Failed to generate structured questions after " + maxRetries + " attempts: "
-                                    + safeFailureSummary(e));
+                            "Failed to generate structured questions after " + attemptsMade
+                                    + (attemptsMade == 1 ? " attempt: " : " attempts: ")
+                                    + safeFailureSummary(e, retryDecision.failureCategory()));
                 }
             }
         }
@@ -616,7 +627,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     /**
      * Check if exception is a rate limit error
      */
-    private boolean isRateLimitError(Exception e) {
+    private boolean isRateLimitError(Throwable e) {
         String message = e.getMessage();
         if (message == null) {
             return false;
@@ -630,9 +641,74 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                message.contains("RPM");
     }
 
-    private GenerationFailureCategory classifyFailure(Exception failure) {
+    private RetryDecision determineRetry(Exception failure, int retryCount) {
+        Optional<AiProviderHttpException> providerFailure = findCause(
+                failure,
+                AiProviderHttpException.class
+        );
+        if (providerFailure.isPresent()) {
+            AiProviderHttpException typedFailure = providerFailure.get();
+            if (!typedFailure.failureKind().retryable()) {
+                return RetryDecision.stop(GenerationFailureCategory.PROVIDER_TERMINAL);
+            }
+
+            Optional<Duration> retryAfter = typedFailure.retryAfter();
+            if (retryAfter.isPresent()) {
+                Duration maxDelay = Duration.ofMillis(rateLimitConfig.getMaxDelayMs());
+                if (retryAfter.get().compareTo(maxDelay) > 0) {
+                    return RetryDecision.stop(GenerationFailureCategory.RETRY_DELAY_EXCEEDED);
+                }
+                long delayMs = calculateProviderRetryDelay(
+                        retryCount,
+                        retryAfter.get().toMillis()
+                );
+                return RetryDecision.retry(delayMs, classifyFailure(typedFailure));
+            }
+            return RetryDecision.retry(
+                    calculateBackoffDelay(retryCount),
+                    classifyFailure(typedFailure)
+            );
+        }
+
+        if (findCause(failure, NonTransientAiException.class).isPresent()) {
+            return RetryDecision.stop(GenerationFailureCategory.PROVIDER_TERMINAL);
+        }
+        if (findCause(failure, TransientAiException.class).isPresent()
+                || findCause(failure, ResourceAccessException.class).isPresent()
+                || isRateLimitError(failure)) {
+            return RetryDecision.retry(
+                    calculateBackoffDelay(retryCount),
+                    classifyFailure(failure)
+            );
+        }
+        if (Thread.currentThread().isInterrupted()) {
+            return RetryDecision.stop(GenerationFailureCategory.INTERRUPTED);
+        }
+        return RetryDecision.retry(0, classifyFailure(failure));
+    }
+
+    private GenerationFailureCategory classifyFailure(Throwable failure) {
         if (failure instanceof ProviderAttemptBudgetExhaustedException) {
             return GenerationFailureCategory.ATTEMPT_BUDGET_EXHAUSTED;
+        }
+        Optional<AiProviderHttpException> providerFailure = findCause(
+                failure,
+                AiProviderHttpException.class
+        );
+        if (providerFailure.isPresent()) {
+            AiProviderHttpException typedFailure = providerFailure.get();
+            return switch (typedFailure.failureKind()) {
+                case RATE_LIMIT -> GenerationFailureCategory.RATE_LIMIT;
+                case QUOTA_EXHAUSTED, CLIENT_ERROR -> GenerationFailureCategory.PROVIDER_TERMINAL;
+                case REQUEST_TIMEOUT, CONFLICT, SERVER_ERROR -> GenerationFailureCategory.PROVIDER_RETRYABLE;
+            };
+        }
+        if (findCause(failure, NonTransientAiException.class).isPresent()) {
+            return GenerationFailureCategory.PROVIDER_TERMINAL;
+        }
+        if (findCause(failure, TransientAiException.class).isPresent()
+                || findCause(failure, ResourceAccessException.class).isPresent()) {
+            return GenerationFailureCategory.PROVIDER_RETRYABLE;
         }
         if (isRateLimitError(failure)) {
             return GenerationFailureCategory.RATE_LIMIT;
@@ -651,11 +727,27 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         return GenerationFailureCategory.PROVIDER_FAILURE;
     }
 
-    private String safeFailureSummary(Exception failure) {
+    private <T extends Throwable> Optional<T> findCause(Throwable failure, Class<T> type) {
+        Throwable current = failure;
+        int depth = 0;
+        while (current != null && depth < 10) {
+            if (type.isInstance(current)) {
+                return Optional.of(type.cast(current));
+            }
+            current = current.getCause();
+            depth++;
+        }
+        return Optional.empty();
+    }
+
+    private String safeFailureSummary(
+            Exception failure,
+            GenerationFailureCategory failureCategory
+    ) {
         if (failure instanceof AIResponseParseException) {
             return failure.getMessage();
         }
-        return classifyFailure(failure).name();
+        return failureCategory.name();
     }
     
     /**
@@ -671,11 +763,30 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         
         return Math.min(delayWithJitter, rateLimitConfig.getMaxDelayMs());
     }
+
+    private long calculateProviderRetryDelay(int retryCount, long providerMinimumMs) {
+        long maxDelayMs = rateLimitConfig.getMaxDelayMs();
+        long normalBackoffMs = calculateBackoffDelay(retryCount);
+        long headroomMs = maxDelayMs - providerMinimumMs;
+        long jitterCapMs = Math.min(
+                headroomMs,
+                Math.max(0L, (long) (rateLimitConfig.getBaseDelayMs()
+                        * rateLimitConfig.getJitterFactor()))
+        );
+        long positiveJitterMs = jitterCapMs > 0
+                ? ThreadLocalRandom.current().nextLong(jitterCapMs + 1)
+                : 0;
+
+        return Math.min(
+                maxDelayMs,
+                Math.max(normalBackoffMs, providerMinimumMs + positiveJitterMs)
+        );
+    }
     
     /**
      * Sleep for rate limit delay
      */
-    private void sleepForRateLimit(long delayMs) {
+    void sleepForRateLimit(long delayMs) {
         try {
             Thread.sleep(delayMs);
         } catch (InterruptedException ie) {
@@ -687,11 +798,32 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     private enum GenerationFailureCategory {
         ATTEMPT_BUDGET_EXHAUSTED,
         RATE_LIMIT,
+        PROVIDER_RETRYABLE,
+        PROVIDER_TERMINAL,
+        RETRY_DELAY_EXCEEDED,
         INVALID_RESPONSE,
         PROMPT_CONSTRUCTION,
         AI_SERVICE,
         INTERRUPTED,
         PROVIDER_FAILURE
+    }
+
+    private record RetryDecision(
+            boolean retry,
+            long delayMs,
+            GenerationFailureCategory failureCategory
+    ) {
+
+        private static RetryDecision retry(
+                long delayMs,
+                GenerationFailureCategory failureCategory
+        ) {
+            return new RetryDecision(true, delayMs, failureCategory);
+        }
+
+        private static RetryDecision stop(GenerationFailureCategory failureCategory) {
+            return new RetryDecision(false, 0, failureCategory);
+        }
     }
 
     private static final class PromptConstructionException extends RuntimeException {
