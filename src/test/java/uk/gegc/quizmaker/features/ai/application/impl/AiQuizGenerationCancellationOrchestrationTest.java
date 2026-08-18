@@ -57,6 +57,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -307,6 +309,51 @@ class AiQuizGenerationCancellationOrchestrationTest {
         });
         verify(structuredAiClient).generateQuestions(any());
         verifyNoInteractions(jobRepository, internalBillingService, eventPublisher);
+    }
+
+    @Test
+    @DisplayName("Cancellation outcome cancels every incomplete sibling chunk future")
+    void cancellationOutcomeCancelsIncompleteSiblingChunkFutures() throws Exception {
+        Fixture fixture = fixture(Map.of(QuestionType.MCQ_SINGLE, 2));
+        DocumentChunk secondChunk = new DocumentChunk();
+        secondChunk.setId(UUID.randomUUID());
+        secondChunk.setChunkIndex(1);
+        secondChunk.setContent("A second sufficiently detailed chunk for queued cancellation testing.");
+        fixture.document().getChunks().add(secondChunk);
+
+        CompletableFuture<List<Question>> cancelledChunk = new CompletableFuture<>();
+        CompletableFuture<List<Question>> queuedSibling = new CompletableFuture<>();
+        AtomicInteger submissions = new AtomicInteger();
+        CountDownLatch bothChunksScheduled = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            CompletableFuture<List<Question>> result = submissions.getAndIncrement() == 0
+                    ? cancelledChunk
+                    : queuedSibling;
+            bothChunksScheduled.countDown();
+            return result;
+        }).when(service).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), any(), any(Difficulty.class),
+                any(UUID.class), anyString());
+
+        CompletableFuture<Void> orchestration = CompletableFuture.runAsync(
+                () -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()));
+        assertThat(bothChunksScheduled.await(1, TimeUnit.SECONDS)).isTrue();
+
+        fixture.job().setStatus(GenerationStatus.CANCELLED);
+        fixture.job().setFinalizationState(QuizGenerationFinalizationState.CANCELLED);
+        fixture.job().setBillingState(BillingState.RELEASED);
+        cancelledChunk.completeExceptionally(new QuizGenerationCancelledException());
+
+        orchestration.get(1, TimeUnit.SECONDS);
+
+        assertThat(cancelledChunk).isCompletedExceptionally().isNotCancelled();
+        assertThat(queuedSibling).isCancelled();
+        assertThat(service.getProgress(fixture.job().getId())).isNull();
+        verify(service, times(2)).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), any(), any(Difficulty.class),
+                any(UUID.class), anyString());
+        verify(eventPublisher, never()).publishEvent(any(ApplicationEvent.class));
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
     }
 
     private Fixture fixture(Map<QuestionType, Integer> questionsPerType) {
