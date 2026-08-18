@@ -58,6 +58,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -171,8 +172,8 @@ class AiQuizGenerationFailureScenariosTest {
     }
 
     @Test
-    @DisplayName("Terminal cancellation wins when a late generation worker fails")
-    void terminalCancellationWinsWhenLateWorkerFails() {
+    @DisplayName("Terminal cancellation wins and a late generation worker returns cleanly")
+    void terminalCancellationWinsAndLateWorkerReturnsCleanly() {
         Fixture fixture = prepareFixture();
         QuizGenerationJob job = fixture.job();
         List<GenerationStatus> persistedStatuses = new ArrayList<>();
@@ -187,9 +188,8 @@ class AiQuizGenerationFailureScenariosTest {
         }).when(service).generateQuestionsFromChunkWithJob(
                 any(DocumentChunk.class), anyMap(), any(Difficulty.class), eq(job.getId()), anyString());
 
-        assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(job, fixture.request()))
-                .isInstanceOf(AiServiceException.class)
-                .hasMessageContaining("Failed to generate quiz");
+        assertThatCode(() -> service.generateQuizFromDocumentAsync(job, fixture.request()))
+                .doesNotThrowAnyException();
 
         assertThat(job.getStatus()).isEqualTo(GenerationStatus.CANCELLED);
         assertThat(job.getBillingState()).isEqualTo(BillingState.RESERVED);

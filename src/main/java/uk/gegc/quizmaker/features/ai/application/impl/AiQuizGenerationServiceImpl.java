@@ -88,17 +88,19 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     @Override
     public void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request) {
-        QuizGenerationJob job = transactionTemplate.execute(status -> {
-            QuizGenerationJob managedJob = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            managedJob.setStatus(GenerationStatus.PROCESSING);
-            jobRepository.save(managedJob);
-            // initialize lazy relationships we will need outside the transaction
-            managedJob.getUser().getId();
-            managedJob.getUser().getUsername();
-            return managedJob;
-        });
-
+        QuizGenerationJob job;
+        try {
+            job = updateJobStatusToProcessing(jobId);
+        } catch (QuizGenerationCancelledException exception) {
+            finishCancelledGeneration(jobId);
+            return;
+        } catch (RuntimeException exception) {
+            if (isJobCancelled(jobId)) {
+                finishCancelledGeneration(jobId);
+                return;
+            }
+            throw exception;
+        }
         if (job == null) {
             return;
         }
@@ -155,11 +157,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Process chunks asynchronously
             List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
                     .map(chunk -> {
-                        // Check for cancellation before scheduling chunk processing
-                        if (isJobCancelled(jobId)) {
-                            log.info("Job {} cancelled before chunk processing", jobId);
-                            return CompletableFuture.completedFuture(List.<Question>of());
-                        }
+                        throwIfJobCancelled(jobId);
                         return generateQuestionsFromChunkWithJob(
                                 chunk,
                                 request.questionsPerType(),
@@ -195,6 +193,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 } catch (Exception e) {
                     propagateProviderUsagePersistenceFailure(e);
+                    propagateGenerationCancellation(e);
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
 
@@ -203,6 +202,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         String.format("Error in chunk %d", chunkIndex));
                 }
             }
+
+            throwIfJobCancelled(jobId);
 
             if (allQuestions.isEmpty()) {
                 throw new AiServiceException("Failed to generate any questions for job " + jobId + ". All generation attempts failed.");
@@ -219,6 +220,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             missingTypes.putAll(initialCoverage.missingByType());
             
             if (!missingTypes.isEmpty()) {
+                throwIfJobCancelled(jobId);
                 log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
                         jobId, missingTypes);
                 
@@ -237,7 +239,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         jobId,
                         request.language()
                 );
-                        
+
+                throwIfJobCancelled(jobId);
             }
 
             GenerationCoveragePolicy.Decision coverage = GenerationCoveragePolicy.evaluate(
@@ -259,11 +262,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     coverage.successful() ? (coverage.partial() ? "partial" : "complete") : "failed"
             );
 
+            throwIfJobCancelled(jobId);
             eventPublisher.publishEvent(new QuizGenerationCoverageReconciledEvent(
                     this,
                     jobId,
                     toCoverageSnapshot(coverage)
             ));
+
+            throwIfJobCancelled(jobId);
 
             if (!coverage.successful()) {
                 updateJobChunkProgressSafely(
@@ -294,6 +300,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Publish event to trigger quiz creation
             // The event handler will mark the job as completed atomically with quiz creation
+            throwIfJobCancelled(jobId);
             eventPublisher.publishEvent(new QuizGenerationCompletedEvent(
                     this, jobId, acceptedChunkQuestions, request, acceptedQuestions));
 
@@ -303,7 +310,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Clean up progress map to prevent memory leaks
             generationProgress.remove(jobId);
 
+        } catch (QuizGenerationCancelledException exception) {
+            finishCancelledGeneration(jobId);
         } catch (Exception e) {
+            propagateProviderUsagePersistenceFailure(e);
+            if (isJobCancelled(jobId)) {
+                finishCancelledGeneration(jobId);
+                return;
+            }
             log.error("Quiz generation failed for job {}", jobId, e);
 
             transactionTemplate.executeWithoutResult(status -> {
@@ -376,6 +390,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
             try {
+                throwIfJobCancelled(jobId);
+
                 // Validate chunk content
                 if (chunk.getContent() == null || chunk.getContent().trim().isEmpty()) {
                     throw new AiServiceException("Chunk content is empty or null");
@@ -388,11 +404,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 }
 
                 for (Map.Entry<QuestionType, Integer> entry : questionsPerType.entrySet()) {
+                    throwIfJobCancelled(jobId);
                     QuestionType questionType = entry.getKey();
                     Integer questionCount = entry.getValue();
 
                     if (questionCount > 0) {
                         boolean success = false;
+                        boolean cancelled = false;
                         try {
                             List<Question> questions = generateQuestionsByTypeWithFallbacks(
                                     chunk.getContent(),
@@ -411,10 +429,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                 chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
                                         questionType));
                             }
+                        } catch (QuizGenerationCancelledException exception) {
+                            cancelled = true;
+                            throw exception;
                         } finally {
                             // Increment task counter after each question type batch completes (success or failure)
                             // This is a terminal outcome for this task
-                            if (jobId != null) {
+                            if (!cancelled && jobId != null) {
                                 String status = success ? "done" : "failed";
                                 updateJobTaskProgressSafely(jobId, 1, 
                                     String.format("Chunk %d · %s · %s", chunk.getChunkIndex(), questionType, status));
@@ -443,8 +464,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 return allQuestions;
 
+            } catch (QuizGenerationCancelledException exception) {
+                throw exception;
             } catch (Exception e) {
                 propagateProviderUsagePersistenceFailure(e);
+                propagateGenerationCancellation(e);
                 log.error("Error generating questions for chunk {}", chunk.getChunkIndex(), e);
                 throw new AiServiceException("Failed to generate questions for chunk " +
                         chunk.getChunkIndex() + ": " + e.getMessage(), e);
@@ -527,16 +551,13 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
         try {
-            // Check for cancellation before LLM call
-            if (isJobCancelled(jobId)) {
-                log.info("Job {} cancelled before LLM call, stopping question generation", jobId);
-                return new ArrayList<>();
-            }
+            throwIfJobCancelled(jobId);
 
             // Record that AI calls have started (idempotent)
             if (jobId != null) {
                 recordAiCallStarted(jobId);
             }
+            throwIfJobCancelled(jobId);
 
             // Build structured request with cancellation checker
             StructuredQuestionRequest structuredRequest = StructuredQuestionRequest.builder()
@@ -553,6 +574,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Use structured AI client (handles retries internally)
             StructuredQuestionResponse structuredResponse = structuredAiClient.generateQuestions(structuredRequest);
+            throwIfJobCancelled(jobId);
 
             // Validate response
             if (structuredResponse == null) {
@@ -578,12 +600,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             return questions;
 
+        } catch (QuizGenerationCancelledException exception) {
+            throw exception;
         } catch (ProviderAttemptBudgetExhaustedException exception) {
+            throwIfJobCancelled(jobId);
             log.warn("Provider attempt budget exhausted while generating {} questions of type {}",
                     questionCount, questionType);
             throw exception;
         } catch (Exception e) {
             propagateProviderUsagePersistenceFailure(e);
+            throwIfJobCancelled(jobId);
             log.error("Error generating {} questions of type {} using structured client",
                     questionCount, questionType, e);
             throw new AiServiceException("Failed to generate questions: " + e.getMessage(), e);
@@ -675,12 +701,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         ProviderAttemptBudget providerAttemptBudget =
                 new ProviderAttemptBudget(rateLimitConfig.getMaxAttemptsPerTask());
 
+        throwIfJobCancelled(jobId);
+
         // Update job status to show fallback attempt
         updateJobStatusSafely(jobId, "Generating " + questionType + " questions for chunk " + chunkIndex);
 
         // Strategy 1: Try normal generation (multiple attempts)
         int normalAttempts = 3;
         for (int attempt = 1; attempt <= normalAttempts; attempt++) {
+            throwIfJobCancelled(jobId);
             if (providerAttemptBudget.isExhausted()) {
                 break;
             }
@@ -710,11 +739,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         return questions;
                     }
                 }
+            } catch (QuizGenerationCancelledException exception) {
+                throw exception;
             } catch (ProviderAttemptBudgetExhaustedException exception) {
+                throwIfJobCancelled(jobId);
                 logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                 break;
             } catch (Exception e) {
                 propagateProviderUsagePersistenceFailure(e);
+                throwIfJobCancelled(jobId);
                 log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
                         attempt, questionType, chunkIndex, e.getMessage());
                 updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " attempt " + attempt + " failed, retrying...");
@@ -726,6 +759,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
 
         // Strategy 2: Try with reduced count (multiple attempts, if requesting more than 1)
+        throwIfJobCancelled(jobId);
         if (questionCount > 1 && !providerAttemptBudget.isExhausted()) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using reduced count strategy");
             
@@ -733,6 +767,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             int reducedCount = Math.max(1, questionCount / 2);
             
             for (int attempt = 1; attempt <= reducedAttempts; attempt++) {
+                throwIfJobCancelled(jobId);
                 if (providerAttemptBudget.isExhausted()) {
                     break;
                 }
@@ -756,11 +791,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count success");
                         return questions;
                     }
+                } catch (QuizGenerationCancelledException exception) {
+                    throw exception;
                 } catch (ProviderAttemptBudgetExhaustedException exception) {
+                    throwIfJobCancelled(jobId);
                     logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                     break;
                 } catch (Exception e) {
                     propagateProviderUsagePersistenceFailure(e);
+                    throwIfJobCancelled(jobId);
                     log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
                             attempt, questionType, chunkIndex, e.getMessage());
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count attempt " + attempt + " failed");
@@ -772,6 +811,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
         }
 
+        throwIfJobCancelled(jobId);
         log.error("All same-contract generation strategies failed for {} questions of type {} in chunk {}",
                 questionCount, questionType, chunkIndex);
         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generation failed completely");
@@ -816,9 +856,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 .toList();
 
         log.debug("Attempting redistribution using {} good chunks", goodChunks.size());
+        throwIfJobCancelled(jobId);
         updateJobStatusSafely(jobId, "Redistribution: Found " + goodChunks.size() + " suitable chunks for missing types");
 
         for (Map.Entry<QuestionType, Integer> entry : missingTypes.entrySet()) {
+            throwIfJobCancelled(jobId);
             QuestionType missingType = entry.getKey();
             int neededCount = entry.getValue();
             int attemptedCount = 0;
@@ -827,6 +869,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             updateJobStatusSafely(jobId, "Redistribution: Attempting to generate " + neededCount + " missing " + missingType + " questions");
 
             for (DocumentChunk chunk : goodChunks) {
+                throwIfJobCancelled(jobId);
                 if (attemptedCount >= neededCount) {
                     break; // We have enough
                 }
@@ -858,13 +901,17 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         log.info("Redistributed {} {} questions to chunk {}", 
                                 redistributedQuestions.size(), missingType, chunk.getChunkIndex());
                     }
+                } catch (QuizGenerationCancelledException exception) {
+                    throw exception;
                 } catch (Exception e) {
                     propagateProviderUsagePersistenceFailure(e);
+                    throwIfJobCancelled(jobId);
                     log.warn("Failed to redistribute {} questions to chunk {}: {}", 
                             missingType, chunk.getChunkIndex(), e.getMessage());
                 }
             }
 
+            throwIfJobCancelled(jobId);
             if (attemptedCount > 0) {
                 log.info("Successfully redistributed {}/{} {} questions", 
                         attemptedCount, neededCount, missingType);
@@ -1082,6 +1129,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         QuizGenerationJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
 
+        if (job.isTerminal()) {
+            return;
+        }
         job.updateProgress(processedChunks, currentChunk);
         jobRepository.save(job);
     }
@@ -1099,7 +1149,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
          try {
              QuizGenerationJob job = jobRepository.findById(jobId)
                      .orElse(null);
-             if (job != null) {
+             if (job != null && !job.isTerminal()) {
                  job.updateProgress(job.getProcessedChunks(), statusMessage);
                  jobRepository.save(job);
              }
@@ -1342,6 +1392,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         return transactionTemplate.execute(status -> {
             QuizGenerationJob job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+            if (job.getStatus() == GenerationStatus.CANCELLED) {
+                throw new QuizGenerationCancelledException();
+            }
+            if (job.isTerminal()) {
+                throw new AiServiceException(
+                        "Generation job is already terminal: " + job.getStatus());
+            }
             
             // Initialize lazy relationships we will need outside the transaction
             job.getUser().getId();
@@ -1359,6 +1417,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         transactionTemplate.executeWithoutResult(status -> {
             QuizGenerationJob job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            if (job.isTerminal()) {
+                return;
+            }
             job.setTotalChunks(totalChunks);
             jobRepository.save(job);
         });
@@ -1371,6 +1432,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         transactionTemplate.executeWithoutResult(status -> {
             QuizGenerationJob job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+            if (job.isTerminal()) {
+                return;
+            }
             job.setTotalChunks(totalChunks);
             job.setTotalTasks(totalTasks);
             jobRepository.save(job);
@@ -1411,15 +1475,31 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 return false;
             }
             
-            GenerationStatus status = job.get().getStatus();
-            boolean cancelled = status == GenerationStatus.CANCELLED;
-            if (cancelled) {
-                log.info("Job {} detected as cancelled (status: {})", jobId, status);
-            }
-            return cancelled;
+            return job.get().getStatus() == GenerationStatus.CANCELLED;
         } catch (Exception e) {
             log.error("Error checking cancellation status for job {}", jobId, e);
             return false; // On error, continue processing rather than aborting
+        }
+    }
+
+    private void throwIfJobCancelled(UUID jobId) {
+        if (isJobCancelled(jobId)) {
+            throw new QuizGenerationCancelledException();
+        }
+    }
+
+    private void finishCancelledGeneration(UUID jobId) {
+        generationProgress.remove(jobId);
+        log.info("Generation worker stopped because cancellation won for job {}", jobId);
+    }
+
+    private void propagateGenerationCancellation(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof QuizGenerationCancelledException cancellation) {
+                throw cancellation;
+            }
+            current = current.getCause();
         }
     }
 
@@ -1436,7 +1516,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         try {
             transactionTemplate.executeWithoutResult(status -> {
                 QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-                if (job != null) {
+                if (job != null && !job.isTerminal()) {
                     if (!Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
                         job.setHasStartedAiCalls(true);
                         job.setFirstAiCallAt(java.time.LocalDateTime.now());
