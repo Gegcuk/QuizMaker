@@ -115,6 +115,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         log.info("Starting quiz generation for job {} with document {}", jobId, request.documentId());
         log.info("Thread: {}, Transaction: {}", Thread.currentThread().getName(), 
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
+        List<CompletableFuture<List<Question>>> chunkFutures = new ArrayList<>();
 
         try {
             // Get the job from database and update status in a short transaction
@@ -155,18 +156,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     chunks.size(), request.documentId(), totalTasks, requestedTypeCount);
 
             // Process chunks asynchronously
-            List<CompletableFuture<List<Question>>> chunkFutures = chunks.stream()
-                    .map(chunk -> {
-                        throwIfJobCancelled(jobId);
-                        return generateQuestionsFromChunkWithJob(
-                                chunk,
-                                request.questionsPerType(),
-                                request.difficulty(),
-                                jobId,
-                                request.language()
-                        );
-                    })
-                    .toList();
+            for (DocumentChunk chunk : chunks) {
+                throwIfJobCancelled(jobId);
+                chunkFutures.add(generateQuestionsFromChunkWithJob(
+                        chunk,
+                        request.questionsPerType(),
+                        request.difficulty(),
+                        jobId,
+                        request.language()
+                ));
+            }
 
             // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
@@ -311,10 +310,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             generationProgress.remove(jobId);
 
         } catch (QuizGenerationCancelledException exception) {
+            cancelIncompleteChunkFutures(chunkFutures);
             finishCancelledGeneration(jobId);
         } catch (Exception e) {
             propagateProviderUsagePersistenceFailure(e);
             if (isJobCancelled(jobId)) {
+                cancelIncompleteChunkFutures(chunkFutures);
                 finishCancelledGeneration(jobId);
                 return;
             }
@@ -1491,6 +1492,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     private void finishCancelledGeneration(UUID jobId) {
         generationProgress.remove(jobId);
         log.info("Generation worker stopped because cancellation won for job {}", jobId);
+    }
+
+    private void cancelIncompleteChunkFutures(List<? extends CompletableFuture<?>> chunkFutures) {
+        int cancelledCount = 0;
+        for (CompletableFuture<?> chunkFuture : chunkFutures) {
+            if (!chunkFuture.isDone() && chunkFuture.cancel(false)) {
+                cancelledCount++;
+            }
+        }
+        if (cancelledCount > 0) {
+            log.debug("Cancelled {} incomplete chunk tasks after generation cancellation", cancelledCount);
+        }
     }
 
     private void propagateGenerationCancellation(Throwable failure) {
