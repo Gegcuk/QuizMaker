@@ -104,7 +104,7 @@ public class ChunkedStructureService {
                     i + 1, chunkNodes.size(), filteredNodes.size());
                 
             } catch (Exception e) {
-                log.error("Failed to process chunk {} of document {}", i + 1, documentId, e);
+                log.error("Failed to process chunk {} of document {}", i + 1, documentId);
                 
                 // If this is a "No nodes generated" error, try to create a fallback node
                 if (e.getCause() instanceof LlmClient.LlmException && 
@@ -119,7 +119,7 @@ public class ChunkedStructureService {
                         log.info("Created fallback node for chunk {} with {} nodes", i + 1, fallbackNodes.size());
                         continue;
                     } catch (Exception fallbackError) {
-                        log.error("Failed to create fallback node for chunk {}", i + 1, fallbackError);
+                        log.error("Failed to create fallback node for chunk {}", i + 1);
                     }
                 }
                 

@@ -17,6 +17,7 @@ import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocumen
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationResult;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.util.UUID;
 
@@ -41,10 +42,15 @@ class DocumentIngestionServiceTest {
     private MimeTypeDetector mimeTypeDetector;
 
     private DocumentIngestionService service;
+    private User owner;
 
     @BeforeEach
     void setUp() {
         service = new DocumentIngestionService(conversionService, normalizationService, documentRepository, mimeTypeDetector);
+        owner = new User();
+        owner.setId(UUID.randomUUID());
+        owner.setUsername("owner");
+        owner.setActive(true);
     }
 
     @Test
@@ -61,7 +67,7 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When
-        NormalizedDocument result = service.ingestFromText(originalName, language, text);
+        NormalizedDocument result = service.ingestFromText(owner, originalName, language, text);
         
         // Then
         assertThat(result).isEqualTo(savedDocument);
@@ -76,6 +82,7 @@ class DocumentIngestionServiceTest {
         assertThat(captured.getCharCount()).isEqualTo(18);
         assertThat(captured.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.NORMALIZED);
         assertThat(captured.getSource()).isEqualTo(NormalizedDocument.DocumentSource.TEXT);
+        assertThat(captured.getOwner()).isSameAs(owner);
     }
 
     @Test
@@ -93,7 +100,7 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When
-        NormalizedDocument result = service.ingestFromText(originalName, language, text);
+        NormalizedDocument result = service.ingestFromText(owner, originalName, language, text);
         
         // Then
         assertThat(result.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.FAILED);
@@ -103,6 +110,7 @@ class DocumentIngestionServiceTest {
         
         NormalizedDocument captured = documentCaptor.getValue();
         assertThat(captured.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.FAILED);
+        assertThat(captured.getOwner()).isSameAs(owner);
     }
 
     @Test
@@ -121,7 +129,7 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When
-        NormalizedDocument result = service.ingestFromFile(originalName, fileBytes);
+        NormalizedDocument result = service.ingestFromFile(owner, originalName, fileBytes);
         
         // Then
         assertThat(result).isEqualTo(savedDocument);
@@ -136,6 +144,7 @@ class DocumentIngestionServiceTest {
         assertThat(captured.getCharCount()).isEqualTo(15);
         assertThat(captured.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.NORMALIZED);
         assertThat(captured.getSource()).isEqualTo(NormalizedDocument.DocumentSource.UPLOAD);
+        assertThat(captured.getOwner()).isSameAs(owner);
     }
 
     @Test
@@ -153,9 +162,9 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When & Then
-        assertThatThrownBy(() -> service.ingestFromFile(originalName, fileBytes))
+        assertThatThrownBy(() -> service.ingestFromFile(owner, originalName, fileBytes))
                 .isInstanceOf(UnsupportedFormatException.class)
-                .hasMessageContaining("Unsupported format");
+                .hasMessage("Unsupported document format");
         
         // Verify document was saved with FAILED status before exception was thrown
         ArgumentCaptor<NormalizedDocument> documentCaptor = ArgumentCaptor.forClass(NormalizedDocument.class);
@@ -181,7 +190,7 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When & Then
-        assertThatThrownBy(() -> service.ingestFromFile(originalName, fileBytes))
+        assertThatThrownBy(() -> service.ingestFromFile(owner, originalName, fileBytes))
                 .isInstanceOf(ConversionFailedException.class)
                 .hasMessageContaining("Document conversion failed");
         
@@ -208,7 +217,7 @@ class DocumentIngestionServiceTest {
         when(documentRepository.save(any(NormalizedDocument.class))).thenReturn(savedDocument);
         
         // When & Then
-        assertThatThrownBy(() -> service.ingestFromFile(originalName, fileBytes))
+        assertThatThrownBy(() -> service.ingestFromFile(owner, originalName, fileBytes))
                 .isInstanceOf(ConversionFailedException.class)
                 .hasMessageContaining("Document ingestion failed");
         

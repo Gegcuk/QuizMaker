@@ -295,11 +295,22 @@ Ask before:
 - For touched JPA read paths, prove that relationship loading has bounded query behavior with realistic multiple-parent fixtures. A passing functional assertion or the presence of `JOIN FETCH`, `@EntityGraph`, or batch configuration alone is not evidence that N+1 is absent.
 - Run scoped tests first, then `./mvnw verify` before handoff when practical.
 
+## Task communication and scope discipline
+
+- Do not create manual-testing documents, checklists, or files unless the user directly asks for one. When automated coverage is insufficient and manual verification is essential, put concise verification steps in the final response instead of adding a repository file.
+- End every completed task with a plain-language explanation of the original problem, how the change solves it, and what a user or operator will experience. Include at least one realistic example and report the verification performed; do not provide only class names, commits, or implementation jargon.
+- When a requirement needs a user decision, ask before implementing the ambiguous behavior. Explain the decision in ordinary language, show a realistic user-facing example, and offer clear options with consequences and a recommended option where evidence supports one.
+- Keep each task and prospective pull request independently understandable, testable, and reviewable. Target fewer than 400 added lines of handwritten source, tests, configuration, and documentation, and never exceed 500 added handwritten lines in one pull request.
+- If a coherent solution would exceed 500 added handwritten lines, stop and split it into smaller vertical sub-issues before implementation. Each sub-issue must deliver a useful, backward-compatible outcome with its own acceptance criteria, focused tests, branch, and local commit series; do not split work into incomplete class-by-class layers.
+
 ## Git and delivery safety
 
 - Work is local only. AI agents must never run `git push`, create or merge pull requests, publish releases, or trigger deployments.
 - Create local commits only when the user explicitly requests a commit.
 - Keep commits focused and exclude unrelated working-tree changes.
+- Use one issue per branch and never work directly on `main` or `master`.
+- Name branches `<type>/<issue-number>-<short-kebab-case-description>`, using `feature`, `fix`, `refactor`, `chore`, `docs`, or `test` as the type. Examples: `feature/123-record-local-activity`, `fix/167-prevent-duplicate-upload`, and `refactor/204-extract-route-policy`.
+- Create a task branch from the current target branch, do not reuse a merged branch for unrelated work, and keep dependent work on separate branches with the dependency recorded in its issue.
 - A human repository owner decides whether and when local commits are pushed.
 
 ## Issue readiness

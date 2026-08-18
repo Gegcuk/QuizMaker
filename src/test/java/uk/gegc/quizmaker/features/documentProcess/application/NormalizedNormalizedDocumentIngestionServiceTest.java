@@ -15,6 +15,9 @@ import uk.gegc.quizmaker.features.documentProcess.application.NormalizationResul
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
+
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,10 +40,15 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
     private MimeTypeDetector mimeTypeDetector;
 
     private DocumentIngestionService ingestionService;
+    private User owner;
 
     @BeforeEach
     void setUp() {
         ingestionService = new DocumentIngestionService(conversionService, normalizationService, normalizedDocumentRepository, mimeTypeDetector);
+        owner = new User();
+        owner.setId(UUID.randomUUID());
+        owner.setUsername("owner");
+        owner.setActive(true);
     }
 
     @Test
@@ -62,7 +70,7 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When
-        NormalizedDocument result = ingestionService.ingestFromText(originalName, language, rawText);
+        NormalizedDocument result = ingestionService.ingestFromText(owner, originalName, language, rawText);
 
         // Then
         assertThat(result.getOriginalName()).isEqualTo(originalName);
@@ -92,7 +100,7 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When
-        NormalizedDocument result = ingestionService.ingestFromText(originalName, language, rawText);
+        NormalizedDocument result = ingestionService.ingestFromText(owner, originalName, language, rawText);
 
         // Then
         assertThat(result.getOriginalName()).isEqualTo(originalName);
@@ -127,7 +135,7 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When
-        NormalizedDocument result = ingestionService.ingestFromFile(originalName, bytes);
+        NormalizedDocument result = ingestionService.ingestFromFile(owner, originalName, bytes);
 
         // Then
         assertThat(result.getOriginalName()).isEqualTo(originalName);
@@ -157,9 +165,9 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When & Then
-        assertThatThrownBy(() -> ingestionService.ingestFromFile(originalName, bytes))
+        assertThatThrownBy(() -> ingestionService.ingestFromFile(owner, originalName, bytes))
                 .isInstanceOf(ConversionFailedException.class)
-                .hasMessageContaining("Document conversion failed: Conversion failed");
+                .hasMessage("Document conversion failed");
     }
 
     @Test
@@ -179,9 +187,9 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When & Then
-        assertThatThrownBy(() -> ingestionService.ingestFromFile(originalName, bytes))
+        assertThatThrownBy(() -> ingestionService.ingestFromFile(owner, originalName, bytes))
                 .isInstanceOf(ConversionFailedException.class)
-                .hasMessageContaining("Document ingestion failed: Unexpected error");
+                .hasMessage("Document ingestion failed");
     }
 
     @Test
@@ -201,9 +209,9 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When & Then
-        assertThatThrownBy(() -> ingestionService.ingestFromFile(originalName, bytes))
+        assertThatThrownBy(() -> ingestionService.ingestFromFile(owner, originalName, bytes))
                 .isInstanceOf(ConversionFailedException.class)
-                .hasMessageContaining("Document conversion failed: Conversion failed");
+                .hasMessage("Document conversion failed");
     }
 
     @Test
@@ -223,8 +231,8 @@ class NormalizedNormalizedDocumentIngestionServiceTest {
                 });
 
         // When & Then
-        assertThatThrownBy(() -> ingestionService.ingestFromFile(originalName, bytes))
+        assertThatThrownBy(() -> ingestionService.ingestFromFile(owner, originalName, bytes))
                 .isInstanceOf(ConversionFailedException.class)
-                .hasMessageContaining("Document conversion failed: Conversion failed");
+                .hasMessage("Document conversion failed");
     }
 }

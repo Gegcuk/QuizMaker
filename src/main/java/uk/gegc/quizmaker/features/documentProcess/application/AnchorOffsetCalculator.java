@@ -39,8 +39,8 @@ public class AnchorOffsetCalculator {
             } catch (AnchorNotFoundException e) {
                 // Try to use AI-provided offsets as fallback
                 if (node.getStartOffset() != null && node.getEndOffset() != null) {
-                    log.warn("Anchor matching failed for '{}', using AI-provided offsets: [{}:{})", 
-                            node.getTitle(), node.getStartOffset(), node.getEndOffset());
+                    log.warn("Anchor matching failed; using AI-provided offsets [{}:{})",
+                            node.getStartOffset(), node.getEndOffset());
                     
                     // Validate AI offsets are within document bounds
                     if (node.getStartOffset() >= 0 && 
@@ -49,12 +49,12 @@ public class AnchorOffsetCalculator {
                         
                         offsetFallbacks++;
                     } else {
-                        log.error("AI-provided offsets are invalid for '{}': [{}:{}), document length: {}", 
-                                node.getTitle(), node.getStartOffset(), node.getEndOffset(), documentText.length());
+                        log.error("AI-provided offsets are invalid: [{}:{}), document length: {}",
+                                node.getStartOffset(), node.getEndOffset(), documentText.length());
                         throw e; // Re-throw the original anchor exception
                     }
                 } else {
-                    log.error("No AI-provided offsets available as fallback for '{}'", node.getTitle());
+                    log.error("No AI-provided offsets available as fallback");
                     throw e; // Re-throw the original anchor exception
                 }
             }
@@ -73,32 +73,31 @@ public class AnchorOffsetCalculator {
         String endAnchor = node.getEndAnchor();
         
         if (startAnchor == null || startAnchor.trim().isEmpty()) {
-            throw new AnchorNotFoundException("Start anchor is null or empty for node: " + node.getTitle());
+            throw new AnchorNotFoundException("Start anchor is null or empty");
         }
         
         if (endAnchor == null || endAnchor.trim().isEmpty()) {
-            throw new AnchorNotFoundException("End anchor is null or empty for node: " + node.getTitle());
+            throw new AnchorNotFoundException("End anchor is null or empty");
         }
         
         // Find start offset
         int startOffset = findAnchorPosition(documentText, startAnchor, node.getTitle(), "start");
         if (startOffset == -1) {
-            throw new AnchorNotFoundException("Start anchor not found: '" + startAnchor + "' for node: " + node.getTitle());
+            throw new AnchorNotFoundException("Start anchor not found");
         }
         
         // Find end offset (search from start position to avoid wrong matches)
         int endOffset = findAnchorPosition(documentText, endAnchor, node.getTitle(), "end", startOffset);
         if (endOffset == -1) {
             // Try to find a reasonable fallback end position
-            log.warn("End anchor not found: '{}' for node: {}. Attempting fallback positioning.", 
-                    endAnchor.substring(0, Math.min(50, endAnchor.length())), node.getTitle());
+            log.warn("End anchor not found; attempting fallback positioning");
             
             // Look for the next major section or chapter after the start position
             endOffset = findNextMajorSection(documentText, startOffset);
             if (endOffset == -1) {
                 // If no next section found, use document end
                 endOffset = documentText.length();
-                log.warn("No next section found for node: {}. Using document end as fallback.", node.getTitle());
+                log.warn("No next section found; using document end as fallback");
             }
         }
         
@@ -108,14 +107,14 @@ public class AnchorOffsetCalculator {
         // Validate that start < end
         if (startOffset >= endOffset) {
             throw new IllegalArgumentException(
-                "Invalid anchor positions for node '" + node.getTitle() + "': start=" + startOffset + ", end=" + endOffset
+                "Invalid anchor positions: start=" + startOffset + ", end=" + endOffset
             );
         }
         
         // Validate that offsets are within document bounds
         if (startOffset < 0 || endOffset > documentText.length()) {
             throw new IllegalArgumentException(
-                "Anchor positions out of bounds for node '" + node.getTitle() + "': start=" + startOffset + 
+                "Anchor positions out of bounds: start=" + startOffset +
                 ", end=" + endOffset + ", documentLength=" + documentText.length()
             );
         }
@@ -138,8 +137,8 @@ public class AnchorOffsetCalculator {
     private int findAnchorPosition(String documentText, String anchor, String nodeTitle, String anchorType, int fromIndex) {
         // Validate anchor length
         if (anchor.length() < 20) {
-            log.warn("{} anchor '{}' for node '{}' is too short ({} chars), should be at least 20 characters", 
-                    anchorType, anchor, nodeTitle, anchor.length());
+            log.warn("{} anchor is too short ({} characters); expected at least 20",
+                    anchorType, anchor.length());
         }
         
         // Normalize both document and anchor for Unicode consistency
@@ -181,8 +180,7 @@ public class AnchorOffsetCalculator {
         // Try exact match with unescaped quotes
         position = docUnescaped.indexOf(anchorUnescaped, fromIndex);
         if (position != -1) {
-            log.debug("Found {} anchor '{}' for node '{}' using quote unescaping at position {}", 
-                    anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle, position);
+            log.debug("Found {} anchor using quote unescaping at position {}", anchorType, position);
             return position;
         }
         
@@ -195,8 +193,8 @@ public class AnchorOffsetCalculator {
         if (normalizedPosition != -1) {
             // Convert back to original text position
             int originalPosition = findOriginalPosition(docUnescaped, docUnescapedWhitespaceNormalized, normalizedPosition);
-            log.debug("Found {} anchor '{}' for node '{}' using whitespace normalization + quote unescaping at position {}", 
-                    anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle, originalPosition);
+            log.debug("Found {} anchor using whitespace normalization and quote unescaping at position {}",
+                    anchorType, originalPosition);
             return originalPosition;
         }
         
@@ -205,8 +203,7 @@ public class AnchorOffsetCalculator {
         String lowerAnchor = normalizedAnchor.toLowerCase(java.util.Locale.ROOT);
         position = lowerDoc.indexOf(lowerAnchor, fromIndex);
         if (position != -1) {
-            log.warn("Found {} anchor '{}' for node '{}' using case-insensitive search at position {}", 
-                    anchorType, anchor, nodeTitle, position);
+            log.warn("Found {} anchor using case-insensitive search at position {}", anchorType, position);
             return position;
         }
         
@@ -225,9 +222,7 @@ public class AnchorOffsetCalculator {
         }
         
         // Try to find partial matches for debugging
-        log.warn("{} anchor '{}' not found for node '{}'. Document preview: '{}'", 
-                anchorType, anchor, nodeTitle, 
-                documentText.substring(0, Math.min(200, documentText.length())));
+        log.warn("{} anchor not found", anchorType);
         
         return -1;
     }
@@ -255,8 +250,7 @@ public class AnchorOffsetCalculator {
         // Validate each group of siblings
         for (Map.Entry<UUID, List<DocumentNode>> entry : childrenByParent.entrySet()) {
             List<DocumentNode> siblings = entry.getValue();
-            String parentName = entry.getKey() != null ? 
-                    siblings.get(0).getParent().getTitle() : "ROOT";
+            boolean hasParent = entry.getKey() != null;
 
             // Sort siblings by start offset
             siblings.sort((a, b) -> Integer.compare(a.getStartOffset(), b.getStartOffset()));
@@ -268,14 +262,13 @@ public class AnchorOffsetCalculator {
 
                 if (current.getEndOffset() > next.getStartOffset()) {
                     throw new IllegalArgumentException(
-                        "Overlapping siblings in " + parentName + ": " +
-                        current.getTitle() + " [" + current.getStartOffset() + "," + current.getEndOffset() + ") and " +
-                        next.getTitle() + " [" + next.getStartOffset() + "," + next.getEndOffset() + ")"
+                        "Overlapping sibling offsets [" + current.getStartOffset() + "," + current.getEndOffset()
+                                + ") and [" + next.getStartOffset() + "," + next.getEndOffset() + ")"
                     );
                 }
             }
 
-            log.debug("Validated {} siblings under {} for non-overlap", siblings.size(), parentName);
+            log.debug("Validated {} siblings for non-overlap (hasParent={})", siblings.size(), hasParent);
         }
     }
 
@@ -363,12 +356,10 @@ public class AnchorOffsetCalculator {
                 // Verify this shortened version is unique in the document
                 int secondOccurrence = documentText.indexOf(shortened, position + 1);
                 if (secondOccurrence == -1) {
-                    log.debug("Found {} anchor using shortened version '{}' for node '{}' at position {}", 
-                            anchorType, shortened.substring(0, Math.min(30, shortened.length())), nodeTitle, position);
+                    log.debug("Found {} anchor using a shortened version at position {}", anchorType, position);
                     return position;
                 } else {
-                    log.debug("Shortened anchor '{}' for node '{}' appears multiple times, trying shorter version", 
-                            shortened.substring(0, Math.min(30, shortened.length())), nodeTitle);
+                    log.debug("Shortened anchor appears multiple times; trying a shorter version");
                 }
             }
             
@@ -378,12 +369,11 @@ public class AnchorOffsetCalculator {
                 // Verify this shortened version is unique in the document
                 int secondOccurrence = documentText.indexOf(shortenedNormalized, position + 1);
                 if (secondOccurrence == -1) {
-                    log.debug("Found {} anchor using shortened newline-normalized version '{}' for node '{}' at position {}", 
-                            anchorType, shortenedNormalized.substring(0, Math.min(30, shortenedNormalized.length())), nodeTitle, position);
+                    log.debug("Found {} anchor using a shortened newline-normalized version at position {}",
+                            anchorType, position);
                     return position;
                 } else {
-                    log.debug("Shortened newline-normalized anchor '{}' for node '{}' appears multiple times, trying shorter version", 
-                            shortenedNormalized.substring(0, Math.min(30, shortenedNormalized.length())), nodeTitle);
+                    log.debug("Shortened newline-normalized anchor appears multiple times; trying a shorter version");
                 }
             }
             
@@ -398,8 +388,8 @@ public class AnchorOffsetCalculator {
                 int secondOccurrence = docWhitespaceNormalized.indexOf(shortenedWhitespaceNormalized, normalizedPosition + 1);
                 if (secondOccurrence == -1) {
                     int originalPosition = findOriginalPosition(documentText, docWhitespaceNormalized, normalizedPosition);
-                    log.debug("Found {} anchor using shortened whitespace-normalized version '{}' for node '{}' at position {}", 
-                            anchorType, shortened.substring(0, Math.min(30, shortened.length())), nodeTitle, originalPosition);
+                    log.debug("Found {} anchor using a shortened whitespace-normalized version at position {}",
+                            anchorType, originalPosition);
                     return originalPosition;
                 }
             }
@@ -413,15 +403,13 @@ public class AnchorOffsetCalculator {
                 // Verify uniqueness
                 int secondOccurrence = docUnescaped.indexOf(shortenedUnescaped, position + 1);
                 if (secondOccurrence == -1) {
-                    log.debug("Found {} anchor using shortened unescaped version '{}' for node '{}' at position {}", 
-                            anchorType, shortened.substring(0, Math.min(30, shortened.length())), nodeTitle, position);
+                    log.debug("Found {} anchor using a shortened unescaped version at position {}", anchorType, position);
                     return position;
                 }
             }
         }
         
-        log.debug("No shortened anchor found for {} anchor '{}' for node '{}'", 
-                anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle);
+        log.debug("No shortened anchor found for {} anchor", anchorType);
         return -1;
     }
 
@@ -488,17 +476,15 @@ public class AnchorOffsetCalculator {
                     int secondOccurrence = normalizedDocLower.indexOf(wordSubstring, position + 1);
                     if (secondOccurrence == -1) {
                         int originalPosition = findOriginalPosition(documentText, normalizedDocLower, position);
-                        log.debug("Found {} anchor using case-insensitive word-based fuzzy match '{}' ({} words) for node '{}' at position {}", 
-                                anchorType, wordSubstring.substring(0, Math.min(30, wordSubstring.length())), 
-                                wordCount, nodeTitle, originalPosition);
+                        log.debug("Found {} anchor using a case-insensitive {}-word fuzzy match at position {}",
+                                anchorType, wordCount, originalPosition);
                         return originalPosition;
                     }
                 }
             }
         }
         
-        log.debug("No fuzzy match found for {} anchor '{}' for node '{}'", 
-                anchorType, anchor.substring(0, Math.min(50, anchor.length())), nodeTitle);
+        log.debug("No fuzzy match found for {} anchor", anchorType);
         return -1;
     }
 
@@ -519,9 +505,8 @@ public class AnchorOffsetCalculator {
             int secondOccurrence = normalizedDoc.indexOf(substring, position + 1);
             if (secondOccurrence == -1) {
                 int originalPosition = findOriginalPosition(documentText, normalizedDoc, position);
-                log.debug("Found {} anchor using fuzzy match {} '{}' for node '{}' at position {}", 
-                        anchorType, strategy, substring.substring(0, Math.min(30, substring.length())), 
-                        nodeTitle, originalPosition);
+                log.debug("Found {} anchor using fuzzy-match strategy {} at position {}",
+                        anchorType, strategy, originalPosition);
                 return originalPosition;
             }
         }
@@ -535,9 +520,8 @@ public class AnchorOffsetCalculator {
             int secondOccurrence = normalizedDocLower.indexOf(substringLower, position + 1);
             if (secondOccurrence == -1) {
                 int originalPosition = findOriginalPosition(documentText, normalizedDocLower, position);
-                log.debug("Found {} anchor using case-insensitive fuzzy match {} '{}' for node '{}' at position {}", 
-                        anchorType, strategy, substring.substring(0, Math.min(30, substring.length())), 
-                        nodeTitle, originalPosition);
+                log.debug("Found {} anchor using case-insensitive fuzzy-match strategy {} at position {}",
+                        anchorType, strategy, originalPosition);
                 return originalPosition;
             }
         }

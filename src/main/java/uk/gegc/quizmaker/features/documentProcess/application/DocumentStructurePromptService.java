@@ -91,7 +91,7 @@ public class DocumentStructurePromptService {
             return result;
 
         } catch (Exception e) {
-            log.error("Error building structure prompt", e);
+            log.error("Error building structure prompt");
             // Fallback to simple prompt
             return String.format("""
                 Analyze the following document chunk and create a hierarchical structure.
@@ -143,7 +143,7 @@ public class DocumentStructurePromptService {
             Resource resource = resourceLoader.getResource("classpath:prompts/" + templateName);
             return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            log.error("Failed to load template: {}", templateName, e);
+            log.error("Failed to load structure template");
             throw new RuntimeException("Failed to load template: " + templateName, e);
         }
     }

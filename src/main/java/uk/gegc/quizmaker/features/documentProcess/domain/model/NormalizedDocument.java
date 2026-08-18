@@ -3,12 +3,18 @@ package uk.gegc.quizmaker.features.documentProcess.domain.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "normalized_documents")
+@Table(
+        name = "normalized_documents",
+        indexes = @Index(name = "ix_normalized_documents_owner_id", columnList = "owner_id")
+)
 @Getter
 @Setter
 public class NormalizedDocument {
@@ -45,6 +51,14 @@ public class NormalizedDocument {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(
+            name = "owner_id",
+            foreignKey = @ForeignKey(name = "fk_normalized_documents_owner")
+    )
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    private User owner;
 
     @PrePersist
     protected void onCreate() {

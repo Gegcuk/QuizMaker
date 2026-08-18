@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -26,11 +27,10 @@ import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
-import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
+import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.io.IOException;
 import java.net.URI;
@@ -139,14 +139,12 @@ public class DocumentProcessController {
             }
             """;
 
-    private final DocumentIngestionService ingestionService;
-    private final DocumentQueryService queryService;
-    private final StructureService structureService;
+    private final NormalizedDocumentAccessService documentAccessService;
     private final DocumentMapper mapper;
 
     @Operation(
             summary = "Ingest text document",
-            description = "Ingests plain text content, normalizes it, and stores for quiz generation"
+            description = "Ingests plain text content for the authenticated owner, normalizes it, and stores it for quiz generation. The owner is resolved from authentication and cannot be supplied by the client."
     )
     @ApiResponses({
             @ApiResponse(
@@ -155,6 +153,10 @@ public class DocumentProcessController {
                     content = @Content(schema = @Schema(implementation = IngestResponse.class))
             ),
             @ApiResponse(responseCode = "400", description = "Invalid request - text is blank or validation failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Authenticated owner account not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "422", description = "Normalization failed",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -166,12 +168,12 @@ public class DocumentProcessController {
                     required = true
             )
             @Valid @RequestBody IngestRequest request,
-            @Parameter(description = "Optional original filename") @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
-        
-        log.info("Ingesting JSON document: originalName={}", originalName);
+            @Parameter(description = "Optional original filename") @RequestParam(value = "originalName", required = false) String originalName,
+            Authentication authentication) throws IOException {
         
         String name = originalName != null ? originalName : "text-input";
-        NormalizedDocument document = ingestionService.ingestFromText(name, request.language(), request.text());
+        NormalizedDocument document = documentAccessService.ingestFromText(
+                principalName(authentication), name, request.language(), request.text());
         
         URI location = URI.create("/api/v1/documentProcess/documents/" + document.getId());
         return ResponseEntity.created(location).body(mapper.toIngestResponse(document));
@@ -179,7 +181,7 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Ingest file document",
-            description = "Uploads and ingests a document file (PDF, DOCX, TXT, etc.), converts to text, normalizes, and stores for quiz generation"
+            description = "Uploads a document for the authenticated owner, converts it to text, normalizes it, and stores it for quiz generation. The owner is resolved from authentication and cannot be supplied by the client."
     )
     @ApiResponses({
             @ApiResponse(
@@ -189,6 +191,10 @@ public class DocumentProcessController {
             ),
             @ApiResponse(responseCode = "400", description = "File is empty or missing",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Authenticated owner account not found",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "415", description = "Unsupported file format",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "422", description = "Conversion or normalization failed",
@@ -197,9 +203,8 @@ public class DocumentProcessController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<IngestResponse> ingestFile(
             @Parameter(description = "Document file to upload", required = true) @RequestParam("file") MultipartFile file,
-            @Parameter(description = "Optional original filename override") @RequestParam(value = "originalName", required = false) String originalName) throws IOException {
-        
-        log.info("Ingesting file document: originalName={}", originalName);
+            @Parameter(description = "Optional original filename override") @RequestParam(value = "originalName", required = false) String originalName,
+            Authentication authentication) throws IOException {
         
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File is required");
@@ -207,7 +212,8 @@ public class DocumentProcessController {
         
         String name = originalName != null ? originalName :
                      (file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.bin");
-        NormalizedDocument document = ingestionService.ingestFromFile(name, file.getBytes());
+        NormalizedDocument document = documentAccessService.ingestFromFile(
+                principalName(authentication), name, file.getBytes());
         
         URI location = URI.create("/api/v1/documentProcess/documents/" + document.getId());
         return ResponseEntity.created(location).body(mapper.toIngestResponse(document));
@@ -215,7 +221,7 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Get document metadata",
-            description = "Retrieves document metadata including status, character count, language, and timestamps"
+            description = "Retrieves metadata for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -227,20 +233,23 @@ public class DocumentProcessController {
                             examples = @ExampleObject(name = "Structured text document", value = DOCUMENT_METADATA_EXAMPLE)
                     )
             ),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}")
     public DocumentView getDocument(
-            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            Authentication authentication) {
 
-        NormalizedDocument document = queryService.getDocument(id);
+        NormalizedDocument document = documentAccessService.getDocument(principalName(authentication), id);
         return mapper.toDocumentView(document);
     }
 
     @Operation(
             summary = "Get document head (lightweight metadata)",
-            description = "Retrieves document metadata without loading the full normalized text"
+            description = "Retrieves lightweight metadata for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -252,20 +261,23 @@ public class DocumentProcessController {
                             examples = @ExampleObject(name = "Structured text document", value = DOCUMENT_METADATA_EXAMPLE)
                     )
             ),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/head")
     public DocumentView getDocumentHead(
-            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            Authentication authentication) {
 
-        NormalizedDocument document = queryService.getDocument(id);
+        NormalizedDocument document = documentAccessService.getDocument(principalName(authentication), id);
         return mapper.toDocumentView(document);
     }
 
     @Operation(
             summary = "Get text slice",
-            description = "Retrieves a portion of the normalized text by character offsets (start inclusive, end exclusive)"
+            description = "Retrieves a character-offset slice for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -274,6 +286,8 @@ public class DocumentProcessController {
                     content = @Content(schema = @Schema(implementation = TextSliceResponse.class))
             ),
             @ApiResponse(responseCode = "400", description = "Invalid offsets (negative or end < start)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
@@ -284,20 +298,21 @@ public class DocumentProcessController {
     public TextSliceResponse getTextSlice(
             @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
             @Parameter(description = "Start offset (inclusive)", example = "0") @RequestParam(value = "start", defaultValue = "0") @Min(0) int start,
-            @Parameter(description = "End offset (exclusive, defaults to document length)") @RequestParam(value = "end", required = false) @Min(0) Integer end) {
+            @Parameter(description = "End offset (exclusive, defaults to document length)") @RequestParam(value = "end", required = false) @Min(0) Integer end,
+            Authentication authentication) {
 
         if (end == null) {
             // Use char count to compute default end without loading the whole text
-            end = queryService.getTextLength(id);
+            end = documentAccessService.getTextLength(principalName(authentication), id);
         }
         
-        String sliceText = queryService.getTextSlice(id, start, end);
+        String sliceText = documentAccessService.getTextSlice(principalName(authentication), id, start, end);
         return mapper.toTextSliceResponse(id, start, end, sliceText);
     }
 
     @Operation(
             summary = "Get document structure",
-            description = "Retrieves the document structure. format=tree returns StructureTreeResponse with recursively nested children; format=flat returns StructureFlatResponse in document order."
+            description = "Retrieves structure for the authenticated document owner. format=tree returns nested children; format=flat returns nodes in document order. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -324,6 +339,8 @@ public class DocumentProcessController {
                             )
                     )
             ),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -334,19 +351,20 @@ public class DocumentProcessController {
                     description = "Response format: tree returns nested children; flat returns nodes in document order",
                     schema = @Schema(allowableValues = {"tree", "flat"}, defaultValue = "tree"),
                     example = "tree"
-            ) @RequestParam(value = "format", defaultValue = "tree") String format) {
+            ) @RequestParam(value = "format", defaultValue = "tree") String format,
+            Authentication authentication) {
 
         return switch (format.toLowerCase()) {
             case "tree" -> {
-                StructureTreeResponse response = structureService.getTree(id);
+                StructureTreeResponse response = documentAccessService.getTree(principalName(authentication), id);
                 yield ResponseEntity.ok(response);
             }
             case "flat" -> {
-                StructureFlatResponse response = structureService.getFlat(id);
+                StructureFlatResponse response = documentAccessService.getFlat(principalName(authentication), id);
                 yield ResponseEntity.ok(response);
             }
             default -> {
-                log.warn("Invalid structure format requested: {}", format);
+                log.warn("Invalid normalized-document structure format requested");
                 throw new IllegalArgumentException("Invalid format. Use 'tree' or 'flat'");
             }
         };
@@ -354,7 +372,7 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Build document structure",
-            description = "Triggers AI-based structure extraction to identify chapters, sections, and hierarchical organization"
+            description = "Triggers AI-based structure extraction for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -364,6 +382,8 @@ public class DocumentProcessController {
             ),
             @ApiResponse(responseCode = "400", description = "Structure building failed (see message)",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "500", description = "Unexpected error during structure building",
@@ -371,23 +391,26 @@ public class DocumentProcessController {
     })
     @PostMapping("/{id}/structure")
     public ResponseEntity<StructureBuildResponse> buildStructure(
-            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id) {
+            @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
+            Authentication authentication) {
         log.info("Structure building requested for document: {}", id);
         
         try {
-            structureService.buildStructure(id);
+            documentAccessService.buildStructure(principalName(authentication), id);
             
             StructureBuildResponse response = new StructureBuildResponse("STRUCTURED", "Structure built successfully");
             return ResponseEntity.ok(response);
             
+        } catch (ResourceNotFoundException e) {
+            throw e;
         } catch (IllegalStateException e) {
-            log.warn("Structure building failed for document: {} - {}", id, e.getMessage());
+            log.warn("Structure building failed for document: {}", id);
             
-            StructureBuildResponse response = new StructureBuildResponse("FAILED", e.getMessage());
+            StructureBuildResponse response = new StructureBuildResponse("FAILED", "Structure could not be built");
             return ResponseEntity.badRequest().body(response);
             
         } catch (Exception e) {
-            log.error("Unexpected error building structure for document: {}", id, e);
+            log.error("Unexpected error building structure for document: {}", id);
             
             StructureBuildResponse response = new StructureBuildResponse("ERROR", "An unexpected error occurred");
             return ResponseEntity.internalServerError().body(response);
@@ -396,7 +419,7 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Extract text by node",
-            description = "Extracts text content for a specific structural node (chapter, section, etc.) using pre-calculated offsets"
+            description = "Extracts text for a structural node for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
     )
     @ApiResponses({
             @ApiResponse(
@@ -406,15 +429,22 @@ public class DocumentProcessController {
             ),
             @ApiResponse(responseCode = "400", description = "Node does not belong to document",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document or node not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @GetMapping("/{id}/extract")
     public ExtractResponse extractByNode(
             @Parameter(description = "Document UUID", required = true) @PathVariable UUID id,
-            @Parameter(description = "Node UUID to extract", required = true) @RequestParam("nodeId") UUID nodeId) {
+            @Parameter(description = "Node UUID to extract", required = true) @RequestParam("nodeId") UUID nodeId,
+            Authentication authentication) {
 
-        return structureService.extractByNode(id, nodeId);
+        return documentAccessService.extractByNode(principalName(authentication), id, nodeId);
+    }
+
+    private String principalName(Authentication authentication) {
+        return authentication == null ? null : authentication.getName();
     }
 
     /**

@@ -27,11 +27,11 @@ import uk.gegc.quizmaker.features.documentProcess.api.DocumentProcessController;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.DocumentView;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
-import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
 import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -68,13 +68,7 @@ class DocumentOpenApiContractTest {
     private DocumentProcessingConfig documentConfig;
 
     @MockitoBean
-    private DocumentIngestionService documentIngestionService;
-
-    @MockitoBean
-    private DocumentQueryService documentQueryService;
-
-    @MockitoBean
-    private StructureService structureService;
+    private NormalizedDocumentAccessService normalizedDocumentAccessService;
 
     @MockitoBean
     private DocumentMapper documentMapper;
@@ -93,6 +87,17 @@ class DocumentOpenApiContractTest {
         assertThat(specification.path("paths").has("/api/documents/upload")).isTrue();
         assertThat(specification.path("paths").has("/api/v1/documentProcess/documents/{id}")).isTrue();
         assertThat(specification.path("paths").has("/api/v1/documentProcess/documents/{id}/structure")).isTrue();
+
+        List<String> ownerOnlyOperations = List.of(
+                "/paths/~1api~1v1~1documentProcess~1documents/post",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}/get",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}~1head/get",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}~1text/get",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}~1structure/get",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}~1structure/post",
+                "/paths/~1api~1v1~1documentProcess~1documents~1{id}~1extract/get"
+        );
+        ownerOnlyOperations.forEach(pointer -> assertOwnerOnlyOperation(specification, pointer));
 
         assertThat(specification.at("/paths/~1api~1documents/get/responses/200/content/application~1json/schema/$ref").asText())
                 .isEqualTo("#/components/schemas/DocumentPageResponse");
@@ -167,6 +172,16 @@ class DocumentOpenApiContractTest {
 
     private void assertResponseDocumented(JsonNode specification, String responsePointer) {
         assertThat(specification.at(responsePointer).isMissingNode()).isFalse();
+    }
+
+    private void assertOwnerOnlyOperation(JsonNode specification, String operationPointer) {
+        JsonNode operation = specification.at(operationPointer);
+        assertThat(operation.isMissingNode()).as(operationPointer).isFalse();
+        assertThat(operation.path("description").asText()).containsIgnoringCase("owner");
+        assertThat(operation.path("security").toString()).contains("Bearer Authentication");
+        assertThat(operation.at("/responses/401").isMissingNode()).isFalse();
+
+        assertThat(operation.at("/responses/404").isMissingNode()).isFalse();
     }
 
     private JsonNode parameterNamed(JsonNode parameters, String name) {

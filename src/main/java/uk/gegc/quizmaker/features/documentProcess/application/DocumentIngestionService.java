@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.conversion.domain.ConversionResult;
 import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
+import uk.gegc.quizmaker.features.user.domain.model.User;
 
 /**
  * Service for ingesting documents - orchestrates conversion, normalization, and persistence.
@@ -38,8 +39,8 @@ public class DocumentIngestionService {
      * @return the persisted Document entity
      */
     @Transactional
-    public NormalizedDocument ingestFromText(String originalName, String language, String text) {
-        log.info("Ingesting text document: {}", originalName);
+    public NormalizedDocument ingestFromText(User owner, String originalName, String language, String text) {
+        log.info("Ingesting normalized text document");
         
         try {
             // Normalize the text
@@ -47,6 +48,7 @@ public class DocumentIngestionService {
             
             // Create and persist document entity
             NormalizedDocument document = new NormalizedDocument();
+            document.setOwner(owner);
             document.setOriginalName(originalName);
             document.setMime("text/plain");
             document.setSource(NormalizedDocument.DocumentSource.TEXT);
@@ -56,14 +58,15 @@ public class DocumentIngestionService {
             document.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
 
             NormalizedDocument saved = documentRepository.save(document);
-            log.info("Successfully ingested text document: {} (id={})", originalName, saved.getId());
+            log.info("Successfully ingested normalized text document");
             
             return saved;
         } catch (Exception e) {
-            log.error("Failed to ingest text document: {}", originalName, e);
+            log.error("Failed to ingest normalized text document");
             
             // Create failed document record
             NormalizedDocument failedDocument = new NormalizedDocument();
+            failedDocument.setOwner(owner);
             failedDocument.setOriginalName(originalName);
             failedDocument.setMime("text/plain");
             failedDocument.setSource(NormalizedDocument.DocumentSource.TEXT);
@@ -82,10 +85,11 @@ public class DocumentIngestionService {
      * @return the persisted Document entity
      */
     @Transactional
-    public NormalizedDocument ingestFromFile(String originalName, byte[] bytes) {
-        log.info("Ingesting file document: {} ({} bytes)", originalName, bytes.length);
+    public NormalizedDocument ingestFromFile(User owner, String originalName, byte[] bytes) {
+        log.info("Ingesting normalized file document ({} bytes)", bytes.length);
 
         NormalizedDocument document = new NormalizedDocument();
+        document.setOwner(owner);
         document.setOriginalName(originalName);
         document.setSource(NormalizedDocument.DocumentSource.UPLOAD);
         document.setLanguage(null); // Will be detected later or remain null
@@ -105,29 +109,29 @@ public class DocumentIngestionService {
             document.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
 
             NormalizedDocument saved = documentRepository.save(document);
-            log.info("Successfully ingested file document: {} (id={})", originalName, saved.getId());
+            log.info("Successfully ingested normalized file document");
             
             return saved;
         } catch (UnsupportedFormatException e) {
-            log.error("Unsupported format for file document: {}", originalName, e);
+            log.error("Unsupported normalized document format");
             document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
             documentRepository.save(document);
             // Re-throw to be handled by GlobalExceptionHandler with appropriate HTTP status
-            throw e;
+            throw new UnsupportedFormatException("Unsupported document format", e);
         } catch (ConversionException e) {
-            log.error("Failed to convert file document: {}", originalName, e);
+            log.error("Failed to convert normalized document");
             document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
             documentRepository.save(document);
             // Convert to ConversionFailedException for proper error handling
-            throw new ConversionFailedException("Document conversion failed: " + e.getMessage(), e);
+            throw new ConversionFailedException("Document conversion failed", e);
         } catch (Exception e) {
-            log.error("Failed to ingest file document: {}", originalName, e);
+            log.error("Failed to ingest normalized file document");
             document.setMime(mimeTypeDetector.detectMimeType(originalName));
             document.setStatus(NormalizedDocument.DocumentStatus.FAILED);
             documentRepository.save(document);
-            throw new ConversionFailedException("Document ingestion failed: " + e.getMessage(), e);
+            throw new ConversionFailedException("Document ingestion failed", e);
         }
     }
 }

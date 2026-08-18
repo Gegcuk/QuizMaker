@@ -110,7 +110,7 @@ public class OpenAiLlmClient implements LlmClient {
                         throw new LlmException("Failed to generate structure after " + maxRetries + " retries", e);
                     }
                     
-                    log.warn("Structure generation attempt {} failed, retrying: {}", retryCount, e.getMessage());
+                    log.warn("Structure generation attempt {} failed; retrying", retryCount);
                     
                     try {
                         long delay = calculateBackoffDelay(retryCount);
@@ -174,21 +174,21 @@ public class OpenAiLlmClient implements LlmClient {
         }
         
         if (structureNode.startAnchor() == null || structureNode.startAnchor().trim().isEmpty()) {
-            throw new LlmException("Node '" + structureNode.title() + "' missing start anchor");
+            throw new LlmException("Node missing start anchor at index " + index);
         }
         
         if (structureNode.endAnchor() == null || structureNode.endAnchor().trim().isEmpty()) {
-            throw new LlmException("Node '" + structureNode.title() + "' missing end anchor");
+            throw new LlmException("Node missing end anchor at index " + index);
         }
 
         // Log warnings for invalid values (clamping will be handled in toDocumentNode)
         if (structureNode.depth() < 0) {
-            log.warn("Negative depth {} for node '{}', will be clamped to 0", structureNode.depth(), structureNode.title());
+            log.warn("Negative node depth {}; clamping to zero", structureNode.depth());
         }
 
         double confidence = structureNode.confidence();
         if (Double.isNaN(confidence) || confidence < 0.0 || confidence > 1.0) {
-            log.warn("Invalid confidence {} for node '{}', will be clamped to valid range", confidence, structureNode.title());
+            log.warn("Invalid node confidence {}; clamping to valid range", confidence);
         }
 
         return structureNode.toDocumentNode(index);
@@ -205,10 +205,10 @@ public class OpenAiLlmClient implements LlmClient {
         // Validate that all nodes have required anchor fields
         for (DocumentNode node : nodes) {
             if (node.getStartAnchor() == null || node.getStartAnchor().trim().isEmpty()) {
-                throw new LlmException("Node missing start anchor: " + node.getTitle());
+                throw new LlmException("Node missing start anchor");
             }
             if (node.getEndAnchor() == null || node.getEndAnchor().trim().isEmpty()) {
-                throw new LlmException("Node missing end anchor: " + node.getTitle());
+                throw new LlmException("Node missing end anchor");
             }
         }
     }
