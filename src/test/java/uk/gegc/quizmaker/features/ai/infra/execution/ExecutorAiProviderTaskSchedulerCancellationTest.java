@@ -86,6 +86,41 @@ class ExecutorAiProviderTaskSchedulerCancellationTest {
     }
 
     @Test
+    @DisplayName("Cancellation after dequeue wins before the atomic running claim")
+    void cancellationAfterDequeuePreventsSupplierStart() throws Exception {
+        CountDownLatch wrapperDequeued = new CountDownLatch(1);
+        CountDownLatch allowWrapperRun = new CountDownLatch(1);
+        CountDownLatch wrapperFinished = new CountDownLatch(1);
+        AtomicBoolean supplierRan = new AtomicBoolean();
+        Executor pausedAfterDequeue = command -> {
+            Thread worker = new Thread(() -> {
+                wrapperDequeued.countDown();
+                await(allowWrapperRun);
+                try {
+                    command.run();
+                } finally {
+                    wrapperFinished.countDown();
+                }
+            }, "ai-provider-dequeue-race-test");
+            worker.start();
+        };
+        ExecutorAiProviderTaskScheduler scheduler = new ExecutorAiProviderTaskScheduler(pausedAfterDequeue);
+
+        CompletableFuture<String> cancelled = scheduler.submit(() -> {
+            supplierRan.set(true);
+            return "unexpected";
+        });
+        assertThat(wrapperDequeued.await(1, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(cancelled.cancel(false)).isTrue();
+        allowWrapperRun.countDown();
+
+        assertThat(wrapperFinished.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(cancelled).isCancelled();
+        assertThat(supplierRan).isFalse();
+    }
+
+    @Test
     @DisplayName("Cancelling a running future does not interrupt its provider thread")
     void cancellingRunningTaskDoesNotInterruptSupplier() throws Exception {
         executor = executor(1, 1);

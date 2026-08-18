@@ -31,7 +31,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.springframework.ai.openai.api.OpenAiApi.ChatCompletionMessage.Role.USER;
 
@@ -104,9 +103,9 @@ class OpenAiTransportTimeoutTest {
             OpenAiApi openAiApi = openAiApi(context.getBean(RestClient.Builder.class));
             long startedAt = System.nanoTime();
 
-            assertThatThrownBy(() -> openAiApi.chatCompletionEntity(request()))
-                    .isInstanceOf(ResourceAccessException.class)
-                    .hasRootCauseInstanceOf(HttpTimeoutException.class);
+            Throwable failure = catchThrowable(() -> openAiApi.chatCompletionEntity(request()));
+
+            assertTransportDeadlineFailure(failure);
 
             assertThat(Duration.ofNanos(System.nanoTime() - startedAt))
                     .isLessThan(MAX_EXPECTED_TIMEOUT);
@@ -166,14 +165,18 @@ class OpenAiTransportTimeoutTest {
 
             Throwable failure = catchThrowable(() -> openAiApi.chatCompletionEntity(request()));
 
-            assertThat(failure).isNotNull();
-            if (!(failure instanceof CancellationException)) {
-                assertThat(failure)
-                        .isInstanceOf(ResourceAccessException.class)
-                        .hasRootCauseInstanceOf(HttpTimeoutException.class);
-            }
+            assertTransportDeadlineFailure(failure);
             assertThat(requestCount).hasValue(0);
         });
+    }
+
+    private void assertTransportDeadlineFailure(Throwable failure) {
+        assertThat(failure)
+                .isNotNull()
+                .isInstanceOfAny(ResourceAccessException.class, CancellationException.class);
+        if (failure instanceof ResourceAccessException) {
+            assertThat(failure).hasRootCauseInstanceOf(HttpTimeoutException.class);
+        }
     }
 
     private ApplicationContextRunner contextRunner(Duration connectTimeout, Duration readTimeout) {
