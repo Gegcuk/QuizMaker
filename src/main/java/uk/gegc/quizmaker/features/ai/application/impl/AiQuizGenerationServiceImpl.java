@@ -55,6 +55,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -116,6 +117,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         log.info("Thread: {}, Transaction: {}", Thread.currentThread().getName(), 
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
         List<CompletableFuture<List<Question>>> chunkFutures = new ArrayList<>();
+        ChunkFutureCancellationGroup chunkCancellationGroup = new ChunkFutureCancellationGroup(jobId);
 
         try {
             // Get the job from database and update status in a short transaction
@@ -158,13 +160,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             // Process chunks asynchronously
             for (DocumentChunk chunk : chunks) {
                 throwIfJobCancelled(jobId);
-                chunkFutures.add(generateQuestionsFromChunkWithJob(
+                CompletableFuture<List<Question>> chunkFuture = generateQuestionsFromChunkWithJob(
                         chunk,
                         request.questionsPerType(),
                         request.difficulty(),
                         jobId,
                         request.language()
-                ));
+                );
+                chunkFutures.add(chunkFuture);
+                chunkCancellationGroup.track(chunkFuture);
+                if (chunkCancellationGroup.isCancellationObserved()) {
+                    throw new QuizGenerationCancelledException();
+                }
             }
 
             // Collect all generated questions with enhanced tracking
@@ -193,6 +200,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 } catch (Exception e) {
                     propagateProviderUsagePersistenceFailure(e);
                     propagateGenerationCancellation(e);
+                    if (chunkCancellationGroup.isCancellationObserved()
+                            || (containsFutureCancellation(e) && isJobCancelled(jobId))) {
+                        throw new QuizGenerationCancelledException();
+                    }
                     log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
                     progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
 
@@ -310,12 +321,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             generationProgress.remove(jobId);
 
         } catch (QuizGenerationCancelledException exception) {
-            cancelIncompleteChunkFutures(chunkFutures);
+            chunkCancellationGroup.cancelIncomplete();
             finishCancelledGeneration(jobId);
         } catch (Exception e) {
             propagateProviderUsagePersistenceFailure(e);
             if (isJobCancelled(jobId)) {
-                cancelIncompleteChunkFutures(chunkFutures);
+                chunkCancellationGroup.cancelIncomplete();
                 finishCancelledGeneration(jobId);
                 return;
             }
@@ -1513,6 +1524,79 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 throw cancellation;
             }
             current = current.getCause();
+        }
+    }
+
+    private boolean containsFutureCancellation(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof CancellationException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private final class ChunkFutureCancellationGroup {
+
+        private final UUID jobId;
+        private final Object monitor = new Object();
+        private final List<CompletableFuture<?>> trackedFutures = new ArrayList<>();
+        private boolean cancellationObserved;
+
+        private ChunkFutureCancellationGroup(UUID jobId) {
+            this.jobId = jobId;
+        }
+
+        private void track(CompletableFuture<?> future) {
+            Objects.requireNonNull(future, "Chunk future is required");
+            boolean cancelImmediately;
+            synchronized (monitor) {
+                trackedFutures.add(future);
+                cancelImmediately = cancellationObserved;
+            }
+
+            future.whenComplete((ignored, failure) -> {
+                if (hasGenerationCancellation(failure)
+                        || (future.isCancelled()
+                            && (isCancellationObserved() || isJobCancelled(jobId)))) {
+                    cancelIncomplete();
+                }
+            });
+
+            if (cancelImmediately && !future.isDone()) {
+                future.cancel(false);
+            }
+        }
+
+        private boolean isCancellationObserved() {
+            synchronized (monitor) {
+                return cancellationObserved;
+            }
+        }
+
+        private void cancelIncomplete() {
+            List<CompletableFuture<?>> snapshot;
+            synchronized (monitor) {
+                if (cancellationObserved) {
+                    return;
+                }
+                cancellationObserved = true;
+                snapshot = List.copyOf(trackedFutures);
+            }
+            cancelIncompleteChunkFutures(snapshot);
+        }
+
+        private boolean hasGenerationCancellation(Throwable failure) {
+            Throwable current = failure;
+            while (current != null) {
+                if (current instanceof QuizGenerationCancelledException) {
+                    return true;
+                }
+                current = current.getCause();
+            }
+            return false;
         }
     }
 

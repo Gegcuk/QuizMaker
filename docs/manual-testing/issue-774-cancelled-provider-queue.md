@@ -21,27 +21,22 @@ Run locally with Java 17:
 
 ```bash
 JAVA_HOME=/path/to/java-17 ./mvnw \
-  -Dtest=ExecutorAiProviderTaskSchedulerCancellationTest \
+  -Dtest=ExecutorAiProviderTaskSchedulerCancellationTest,AiQuizGenerationCancellationOrchestrationTest \
   test
 ```
 
-Run the new orchestration scenario:
-
-```bash
-JAVA_HOME=/path/to/java-17 ./mvnw \
-  '-Dtest=AiQuizGenerationCancellationOrchestrationTest#cancellationOutcomeCancelsIncompleteSiblingChunkFutures' \
-  test
-```
-
-Expected result: five tests pass in total.
+Expected result: all focused tests pass.
 
 The focused tests prove:
 
 - cancelling queued work removes its wrapper immediately and makes the queue slot reusable;
 - a cancelled supplier never runs, including with a generic executor that cannot physically remove its wrapper;
+- cancellation after executor dequeue but before the atomic queued-to-running claim prevents provider invocation;
 - cancelling a future whose supplier already started does not interrupt the provider thread;
 - executor rejection remains the existing typed capacity failure;
 - when one chunk propagates cancellation, all incomplete sibling chunk futures are cancelled and no coverage, completion, or worker-side billing-release action occurs.
+- cancellation reported by a later chunk wakes and cancels an earlier blocked future without waiting in submission order, while an already-completed sibling keeps its result.
+- a generic cancelled future cannot fan cancellation out unless the persisted job is already `CANCELLED`; the database remains authoritative.
 
 The tests use local executors, latches, mocks, and controlled futures. They do not call OpenAI, Stripe, MySQL, email, storage, Docker, or another network service.
 
@@ -51,7 +46,7 @@ The tests use local executors, latches, mocks, and controlled futures. They do n
 2. Start a quiz from a document that produces several chunks and requests several question types.
 3. Cancel the generation while provider work is active or queued.
 4. Confirm the existing job-status response remains `CANCELLED` and never returns to `PROCESSING`, `FAILED`, or `COMPLETED`.
-5. Confirm no quiz is finalized and no new provider request starts after the worker observes persisted cancellation.
+5. Confirm no quiz is finalized and no queued provider request starts after the worker observes persisted cancellation.
 6. Start a small unrelated quiz immediately after cancellation.
 7. Confirm the unrelated quiz can use released executor capacity and follows the normal generation flow.
 8. Inspect logs for one clean worker-cancellation message and no later fallback, coverage, completion, or uncaught asynchronous error for the cancelled job.
@@ -76,7 +71,11 @@ Logs must not contain prompts, document content, filenames, provider responses, 
 
 ## Performance And Query Check
 
-Queue removal is an in-memory constant-time executor operation for each incomplete future owned by the cancelled job. Orchestration inspects only its already-created chunk futures and performs no new repository query.
+`ThreadPoolExecutor.remove` performs a bounded linear `O(n)` scan of the in-memory provider queue. The queue is already bounded at 50 entries, so cancellation work is bounded. Orchestration inspects only the futures already owned by that generation and adds no polling or normal-path repository query; bounded cancellation-status lookups may confirm an exceptional generic cancelled-future path.
+
+The scheduler uses one atomic queued-to-running claim. Cancellation that claims the queued state first prevents supplier invocation even if an executor already dequeued the wrapper. A task that claims the running state first keeps the existing non-interrupting behavior and remains bounded by provider transport and cooperative cancellation checks.
+
+Chunk futures are linked by an in-memory cancellation group. A cancellation observed from any chunk cancels every incomplete sibling immediately, independent of the order in which orchestration is waiting for results. Futures that already completed are not changed.
 
 N+1 is not applicable: this issue adds no JPA relationship traversal, collection repository query, entity mapper, or serialization path. No document bytes or extracted text are copied or hashed.
 

@@ -356,6 +356,111 @@ class AiQuizGenerationCancellationOrchestrationTest {
         verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
     }
 
+    @Test
+    @DisplayName("Later chunk cancellation cleans blocked earlier work without submission-order delay")
+    void laterChunkCancellationCleansBlockedEarlierWorkPromptly() throws Exception {
+        Fixture fixture = fixture(Map.of(QuestionType.MCQ_SINGLE, 2));
+        DocumentChunk secondChunk = new DocumentChunk();
+        secondChunk.setId(UUID.randomUUID());
+        secondChunk.setChunkIndex(1);
+        secondChunk.setContent("A second sufficiently detailed chunk that reports persisted cancellation.");
+        DocumentChunk completedThirdChunk = new DocumentChunk();
+        completedThirdChunk.setId(UUID.randomUUID());
+        completedThirdChunk.setChunkIndex(2);
+        completedThirdChunk.setContent("A third sufficiently detailed chunk that completed before cancellation.");
+        fixture.document().getChunks().add(secondChunk);
+        fixture.document().getChunks().add(completedThirdChunk);
+
+        CompletableFuture<List<Question>> blockedFirst = new CompletableFuture<>();
+        CompletableFuture<List<Question>> cancelledSecond = new CompletableFuture<>();
+        List<Question> completedQuestions = questions(2);
+        CompletableFuture<List<Question>> completedThird = CompletableFuture.completedFuture(completedQuestions);
+        List<CompletableFuture<List<Question>>> scheduled = List.of(
+                blockedFirst, cancelledSecond, completedThird);
+        AtomicInteger submissions = new AtomicInteger();
+        CountDownLatch allChunksScheduled = new CountDownLatch(3);
+        CountDownLatch blockedFirstCancelled = new CountDownLatch(1);
+        blockedFirst.whenComplete((ignored, failure) -> {
+            if (blockedFirst.isCancelled()) {
+                blockedFirstCancelled.countDown();
+            }
+        });
+        doAnswer(invocation -> {
+            CompletableFuture<List<Question>> result = scheduled.get(submissions.getAndIncrement());
+            allChunksScheduled.countDown();
+            return result;
+        }).when(service).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), any(), any(Difficulty.class),
+                any(UUID.class), anyString());
+
+        CompletableFuture<Void> orchestration = CompletableFuture.runAsync(
+                () -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()));
+        assertThat(allChunksScheduled.await(1, TimeUnit.SECONDS)).isTrue();
+
+        fixture.job().setStatus(GenerationStatus.CANCELLED);
+        fixture.job().setFinalizationState(QuizGenerationFinalizationState.CANCELLED);
+        fixture.job().setBillingState(BillingState.RELEASED);
+        assertThat(cancelledSecond.cancel(false)).isTrue();
+
+        assertThat(blockedFirstCancelled.await(1, TimeUnit.SECONDS)).isTrue();
+        orchestration.get(1, TimeUnit.SECONDS);
+
+        assertThat(blockedFirst).isCancelled();
+        assertThat(cancelledSecond).isCancelled();
+        assertThat(completedThird.isCancelled()).isFalse();
+        assertThat(completedThird.join()).isSameAs(completedQuestions);
+        assertThat(service.getProgress(fixture.job().getId())).isNull();
+        verify(service, times(3)).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), any(), any(Difficulty.class),
+                any(UUID.class), anyString());
+        verify(eventPublisher, never()).publishEvent(any(ApplicationEvent.class));
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Generic future cancellation does not fan out before persisted job cancellation")
+    void genericFutureCancellationRequiresPersistedJobCancellation() throws Exception {
+        Fixture fixture = fixture(Map.of(QuestionType.MCQ_SINGLE, 2));
+        DocumentChunk secondChunk = new DocumentChunk();
+        secondChunk.setId(UUID.randomUUID());
+        secondChunk.setChunkIndex(1);
+        secondChunk.setContent("A second sufficiently detailed chunk for cancellation authority testing.");
+        fixture.document().getChunks().add(secondChunk);
+
+        CompletableFuture<List<Question>> blockedFirst = new CompletableFuture<>();
+        CompletableFuture<List<Question>> cancelledSecond = new CompletableFuture<>();
+        AtomicInteger submissions = new AtomicInteger();
+        CountDownLatch bothChunksScheduled = new CountDownLatch(2);
+        doAnswer(invocation -> {
+            CompletableFuture<List<Question>> result = submissions.getAndIncrement() == 0
+                    ? blockedFirst
+                    : cancelledSecond;
+            bothChunksScheduled.countDown();
+            return result;
+        }).when(service).generateQuestionsFromChunkWithJob(
+                any(DocumentChunk.class), any(), any(Difficulty.class),
+                any(UUID.class), anyString());
+
+        CompletableFuture<Void> orchestration = CompletableFuture.runAsync(
+                () -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()));
+        assertThat(bothChunksScheduled.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(fixture.job().getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+
+        assertThat(cancelledSecond.cancel(false)).isTrue();
+
+        assertThat(blockedFirst).isNotDone();
+
+        fixture.job().setStatus(GenerationStatus.CANCELLED);
+        fixture.job().setFinalizationState(QuizGenerationFinalizationState.CANCELLED);
+        fixture.job().setBillingState(BillingState.RELEASED);
+        blockedFirst.completeExceptionally(new QuizGenerationCancelledException());
+        orchestration.get(1, TimeUnit.SECONDS);
+
+        assertThat(service.getProgress(fixture.job().getId())).isNull();
+        verify(eventPublisher, never()).publishEvent(any(ApplicationEvent.class));
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+    }
+
     private Fixture fixture(Map<QuestionType, Integer> questionsPerType) {
         UUID jobId = UUID.randomUUID();
         UUID documentId = UUID.randomUUID();
