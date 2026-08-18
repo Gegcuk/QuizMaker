@@ -208,13 +208,13 @@ public class StructureService {
             // Re-throw ResourceNotFoundException as-is (don't wrap it)
             throw e;
         } catch (LlmClient.LlmException e) {
-            log.error("AI structure generation failed for document: {}", documentId, e);
-            throw new IllegalStateException("Failed to generate structure: " + e.getMessage(), e);
+            log.error("AI structure generation failed for document: {}", documentId);
+            throw new IllegalStateException("Failed to generate document structure", e);
         } catch (AnchorOffsetCalculator.AnchorNotFoundException e) {
-            log.error("Anchor not found during offset calculation for document: {}", documentId, e);
-            throw new IllegalStateException("Failed to calculate offsets: " + e.getMessage(), e);
+            log.error("Anchor offset calculation failed for document: {}", documentId);
+            throw new IllegalStateException("Failed to calculate document offsets", e);
         } catch (Exception e) {
-            log.error("Unexpected error building structure for document: {}", documentId, e);
+            log.error("Unexpected error building structure for document: {}", documentId);
             throw new IllegalStateException("Unexpected error during structure building", e);
         }
     }
@@ -308,17 +308,17 @@ public class StructureService {
                 log.info("Successfully processed and saved depth level {} with {} nodes", depth, levelNodes.size());
                 
             } catch (Exception e) {
-                log.error("Failed to process depth level {} with {} nodes", depth, originalLevelNodes.size(), e);
+                log.error("Failed to process depth level {} with {} nodes", depth, originalLevelNodes.size());
                 
                 // Check if we have successfully processed any levels before this failure
                 if (totalProcessed > 0) {
                     log.warn("Layer-by-layer processing failed at depth {}, but {} nodes from previous levels were successfully saved", 
                             depth, totalProcessed);
-                    throw new IllegalStateException("Level-by-level processing failed at depth " + depth + 
-                            " after successfully saving " + totalProcessed + " nodes from previous levels: " + e.getMessage(), e);
+                    throw new IllegalStateException("Level-by-level processing failed at depth " + depth
+                            + " after successfully saving " + totalProcessed + " nodes from previous levels", e);
                 } else {
                     // No levels were successfully processed
-                    throw new IllegalStateException("Level-by-level processing failed at depth " + depth + ": " + e.getMessage(), e);
+                    throw new IllegalStateException("Level-by-level processing failed at depth " + depth, e);
                 }
             }
         }
@@ -367,8 +367,7 @@ public class StructureService {
             int childIndex = childCountByParent.merge(parentKey, 0, (oldVal, val) -> oldVal + 1);
             node.setIdx(childIndex);
             
-            log.debug("Assigned parent '{}' and index {} to node '{}'", 
-                    bestParent != null ? bestParent.getTitle() : "ROOT", childIndex, node.getTitle());
+            log.debug("Assigned parent relationship and sibling index {}", childIndex);
         }
     }
 
@@ -444,32 +443,32 @@ public class StructureService {
         for (DocumentNode node : nodes) {
             // Validate offsets (now calculated from anchors)
             if (node.getStartOffset() < 0) {
-                throw new IllegalArgumentException("Node start offset cannot be negative: " + node.getTitle());
+                throw new IllegalArgumentException("Node start offset cannot be negative");
             }
             if (charCount != null && node.getEndOffset() > charCount) {
-                throw new IllegalArgumentException("Node end offset exceeds document length: " + node.getTitle());
+                throw new IllegalArgumentException("Node end offset exceeds document length");
             }
             if (node.getStartOffset() >= node.getEndOffset()) {
-                throw new IllegalArgumentException("Node start offset must be less than end offset: " + node.getTitle());
+                throw new IllegalArgumentException("Node start offset must be less than end offset");
             }
             
             // Validate anchors
             if (node.getStartAnchor() == null || node.getStartAnchor().trim().isEmpty()) {
-                throw new IllegalArgumentException("Node start anchor is required: " + node.getTitle());
+                throw new IllegalArgumentException("Node start anchor is required");
             }
             if (node.getEndAnchor() == null || node.getEndAnchor().trim().isEmpty()) {
-                throw new IllegalArgumentException("Node end anchor is required: " + node.getTitle());
+                throw new IllegalArgumentException("Node end anchor is required");
             }
             
             // Validate required fields
             if (node.getType() == null) {
-                throw new IllegalArgumentException("Node type is required: " + node.getTitle());
+                throw new IllegalArgumentException("Node type is required");
             }
             if (node.getTitle() == null || node.getTitle().trim().isEmpty()) {
                 throw new IllegalArgumentException("Node title is required");
             }
             if (node.getDepth() == null || node.getDepth() < 0) {
-                throw new IllegalArgumentException("Node depth must be non-negative: " + node.getTitle());
+                throw new IllegalArgumentException("Node depth must be non-negative");
             }
         }
         
@@ -496,8 +495,7 @@ public class StructureService {
             
             log.info("Global validation completed successfully for {} nodes", allSavedNodes.size());
         } catch (Exception e) {
-            log.warn("Global validation failed, but {} nodes were successfully saved. Validation error: {}", 
-                    totalProcessed, e.getMessage());
+            log.warn("Global validation failed after {} nodes were saved", totalProcessed);
             // Don't throw the exception - the nodes are already saved successfully
             // Just log the validation issue for debugging
         }

@@ -13,9 +13,7 @@ import uk.gegc.quizmaker.features.documentProcess.api.dto.FlatNode;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.NodeView;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
-import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
 import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
@@ -42,13 +40,7 @@ class DocumentProcessControllerStructureTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private DocumentIngestionService ingestionService;
-
-    @MockitoBean
-    private DocumentQueryService queryService;
-
-    @MockitoBean
-    private StructureService structureService;
+    private NormalizedDocumentAccessService documentAccessService;
 
     @MockitoBean
     private DocumentMapper mapper;
@@ -68,7 +60,7 @@ class DocumentProcessControllerStructureTest {
                 documentId, List.of(rootNode), 1
         );
 
-        when(structureService.getTree(documentId)).thenReturn(expectedResponse);
+        when(documentAccessService.getTree("user", documentId)).thenReturn(expectedResponse);
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId)
@@ -92,7 +84,7 @@ class DocumentProcessControllerStructureTest {
                 documentId, List.of(flatNode), 1
         );
 
-        when(structureService.getFlat(documentId)).thenReturn(expectedResponse);
+        when(documentAccessService.getFlat("user", documentId)).thenReturn(expectedResponse);
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId)
@@ -120,7 +112,7 @@ class DocumentProcessControllerStructureTest {
                 .andExpect(jsonPath("$.instance").value("/api/v1/documentProcess/documents/" + documentId + "/structure"))
                 .andExpect(jsonPath("$.timestamp").exists());
 
-        verifyNoInteractions(structureService);
+        verifyNoInteractions(documentAccessService);
     }
 
     @Test
@@ -128,7 +120,7 @@ class DocumentProcessControllerStructureTest {
     @WithMockUser
     void getStructure_unknownDocument_404() throws Exception {
         // Given
-        when(structureService.getTree(documentId))
+        when(documentAccessService.getTree("user", documentId))
                 .thenThrow(new ResourceNotFoundException("Document not found: " + documentId));
 
         // When & Then
@@ -147,7 +139,7 @@ class DocumentProcessControllerStructureTest {
                 documentId, List.of(), 0
         );
 
-        when(structureService.getTree(documentId)).thenReturn(expectedResponse);
+        when(documentAccessService.getTree("user", documentId)).thenReturn(expectedResponse);
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId)

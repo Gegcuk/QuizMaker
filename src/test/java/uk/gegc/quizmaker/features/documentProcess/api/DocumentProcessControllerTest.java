@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
@@ -22,14 +23,13 @@ import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
-import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
-import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -39,10 +39,13 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(DocumentProcessController.class)
+@Import(WebMvcSecurityTestConfig.class)
 @DisplayName("DocumentProcessController Tests")
 class DocumentProcessControllerTest {
 
@@ -53,10 +56,7 @@ class DocumentProcessControllerTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private DocumentIngestionService ingestionService;
-
-    @MockitoBean
-    private DocumentQueryService queryService;
+    private NormalizedDocumentAccessService documentAccessService;
 
     @MockitoBean
     private DocumentMapper mapper;
@@ -69,9 +69,6 @@ class DocumentProcessControllerTest {
 
     @MockitoBean
     private NormalizationService normalizationService;
-
-    @MockitoBean
-    private StructureService structureService;
 
     private UUID documentId;
     private NormalizedDocument testDocument;
@@ -108,7 +105,7 @@ class DocumentProcessControllerTest {
     // ===== GlobalExceptionHandler Mapping Tests =====
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "owner")
     @DisplayName("unsupportedFormat_returns415 - POST multipart .unknown → 415 with body 'Unsupported Format'")
     void unsupportedFormat_returns415() throws Exception {
         // Given
@@ -116,8 +113,8 @@ class DocumentProcessControllerTest {
                 "file", "test.unknown", "application/octet-stream", "test content".getBytes()
         );
         
-        when(ingestionService.ingestFromFile(anyString(), any(byte[].class)))
-                .thenThrow(new UnsupportedFormatException("Unsupported file format: .unknown"));
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
+                .thenThrow(new UnsupportedFormatException("Unsupported document format"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
@@ -127,7 +124,7 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(415))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
                 .andExpect(jsonPath("$.title").value("Unsupported Format"))
-                .andExpect(jsonPath("$.detail").value("Unsupported file format: .unknown"))
+                .andExpect(jsonPath("$.detail").value("Unsupported document format"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -140,8 +137,8 @@ class DocumentProcessControllerTest {
                 "file", "test.pdf", "application/pdf", "test content".getBytes()
         );
         
-        when(ingestionService.ingestFromFile(anyString(), any(byte[].class)))
-                .thenThrow(new ConversionFailedException("PDF conversion failed"));
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
+                .thenThrow(new ConversionFailedException("Document conversion failed"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
@@ -151,7 +148,7 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/conversion-failed"))
                 .andExpect(jsonPath("$.title").value("Conversion Failed"))
-                .andExpect(jsonPath("$.detail").value("PDF conversion failed"))
+                .andExpect(jsonPath("$.detail").value("Document conversion failed"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -160,8 +157,8 @@ class DocumentProcessControllerTest {
     @DisplayName("normalizationFailed_returns422 - NormalizationFailedException → 422 'Processing Failed'")
     void normalizationFailed_returns422() throws Exception {
         // Given
-        when(ingestionService.ingestFromText(anyString(), anyString(), anyString()))
-                .thenThrow(new NormalizationFailedException("Text normalization failed"));
+        when(documentAccessService.ingestFromText(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new NormalizationFailedException("Document normalization failed"));
 
         // When & Then
         mockMvc.perform(post("/api/v1/documentProcess/documents")
@@ -172,7 +169,7 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(422))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/normalization-failed"))
                 .andExpect(jsonPath("$.title").value("Normalization Failed"))
-                .andExpect(jsonPath("$.detail").value("Text normalization failed"))
+                .andExpect(jsonPath("$.detail").value("Document normalization failed"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -202,7 +199,7 @@ class DocumentProcessControllerTest {
     @DisplayName("validationErrors_return400 - QueryService throws ValidationErrorException → 400")
     void validationErrors_queryServiceThrowsValidationErrorException_returns400() throws Exception {
         // Given
-        when(queryService.getTextSlice(any(UUID.class), anyInt(), anyInt()))
+        when(documentAccessService.getTextSlice(anyString(), any(UUID.class), anyInt(), anyInt()))
                 .thenThrow(new ValidationErrorException("End offset must be greater than or equal to start"));
 
         // When & Then
@@ -223,8 +220,8 @@ class DocumentProcessControllerTest {
     void notFound_returns404() throws Exception {
         // Given
         UUID unknownId = UUID.randomUUID();
-        when(queryService.getDocument(unknownId))
-                .thenThrow(new ResourceNotFoundException("Document not found: " + unknownId));
+        when(documentAccessService.getDocument(anyString(), org.mockito.ArgumentMatchers.eq(unknownId)))
+                .thenThrow(new ResourceNotFoundException("Document not found"));
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}", unknownId))
@@ -232,7 +229,7 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
-                .andExpect(jsonPath("$.detail").value("Document not found: " + unknownId))
+                .andExpect(jsonPath("$.detail").value("Document not found"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -241,7 +238,7 @@ class DocumentProcessControllerTest {
     @DisplayName("illegalState_returns422 - for 'no normalized text'")
     void illegalState_returns422() throws Exception {
         // Given
-        when(queryService.getTextSlice(any(UUID.class), anyInt(), anyInt()))
+        when(documentAccessService.getTextSlice(anyString(), any(UUID.class), anyInt(), anyInt()))
                 .thenThrow(new IllegalStateException("Document has no normalized text: " + documentId));
 
         // When & Then
@@ -259,11 +256,11 @@ class DocumentProcessControllerTest {
     // ===== DocumentProcessController Tests =====
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "owner")
     @DisplayName("postDocuments_json_201_createdAndLocationHeader - Body {text:'hi',language:'en'} → 201, Location header present, body has id, status")
     void postDocuments_json_201_createdAndLocationHeader() throws Exception {
         // Given
-        when(ingestionService.ingestFromText(anyString(), anyString(), anyString()))
+        when(documentAccessService.ingestFromText(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(testDocument);
         when(mapper.toIngestResponse(testDocument)).thenReturn(testIngestResponse);
 
@@ -276,10 +273,12 @@ class DocumentProcessControllerTest {
                 .andExpect(header().string("Location", "/api/v1/documentProcess/documents/" + documentId))
                 .andExpect(jsonPath("$.id").value(documentId.toString()))
                 .andExpect(jsonPath("$.status").value("NORMALIZED"));
+
+        verify(documentAccessService).ingestFromText("owner", "text-input", "en", "Hello world");
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "owner")
     @DisplayName("postDocuments_json_invalidBody_400 - Invalid JSON body")
     void postDocuments_json_invalidBody_400() throws Exception {
         // Given
@@ -306,7 +305,7 @@ class DocumentProcessControllerTest {
                 "file", "test.txt", "text/plain", "Hello world".getBytes()
         );
         
-        when(ingestionService.ingestFromFile(anyString(), any(byte[].class)))
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
                 .thenReturn(testDocument);
         when(mapper.toIngestResponse(testDocument)).thenReturn(testIngestResponse);
 
@@ -350,7 +349,7 @@ class DocumentProcessControllerTest {
                 "file", null, "text/plain", "Hello world".getBytes()
         );
         
-        when(ingestionService.ingestFromFile(anyString(), any(byte[].class)))
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
                 .thenReturn(testDocument);
         when(mapper.toIngestResponse(testDocument)).thenReturn(testIngestResponse);
 
@@ -371,8 +370,8 @@ class DocumentProcessControllerTest {
                 "file", "test.xyz", "application/octet-stream", "test content".getBytes()
         );
         
-        when(ingestionService.ingestFromFile(anyString(), any(byte[].class)))
-                .thenThrow(new UnsupportedFormatException("Unsupported format: .xyz"));
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
+                .thenThrow(new UnsupportedFormatException("Unsupported document format"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
@@ -381,15 +380,16 @@ class DocumentProcessControllerTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
                 .andExpect(jsonPath("$.title").value("Unsupported Format"))
+                .andExpect(jsonPath("$.detail").value("Unsupported document format"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(username = "owner")
     @DisplayName("getDocument_200_returnsDocumentView - Get document metadata")
     void getDocument_200_returnsDocumentView() throws Exception {
         // Given
-        when(queryService.getDocument(documentId)).thenReturn(testDocument);
+        when(documentAccessService.getDocument(anyString(), org.mockito.ArgumentMatchers.eq(documentId))).thenReturn(testDocument);
         when(mapper.toDocumentView(testDocument)).thenReturn(testDocumentView);
 
         // When & Then
@@ -402,6 +402,77 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.language").value("en"))
                 .andExpect(jsonPath("$.charCount").value(11))
                 .andExpect(jsonPath("$.status").value("NORMALIZED"));
+
+        verify(documentAccessService).getDocument("owner", documentId);
+    }
+
+    @Test
+    @DisplayName("every normalized-document endpoint requires authentication")
+    void everyEndpointRequiresAuthentication() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "test.txt", "text/plain", "content".getBytes()
+        );
+        UUID nodeId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/v1/documentProcess/documents")
+                        .with(SecurityMockMvcRequestPostProcessors.csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(testIngestRequest)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(multipart("/api/v1/documentProcess/documents")
+                        .file(file)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}", documentId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/head", documentId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/text", documentId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/documentProcess/documents/{id}/structure", documentId)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(username = "other-user")
+    @DisplayName("wrong-owner reads, structure operations, and extraction are indistinguishable 404 responses")
+    void wrongOwnerOperationsReturnNonEnumeratingNotFound() throws Exception {
+        UUID nodeId = UUID.randomUUID();
+        ResourceNotFoundException notFound = new ResourceNotFoundException("Document not found");
+        when(documentAccessService.getDocument("other-user", documentId)).thenThrow(notFound);
+        when(documentAccessService.getTextSlice("other-user", documentId, 0, 5)).thenThrow(notFound);
+        when(documentAccessService.getTree("other-user", documentId)).thenThrow(notFound);
+        doThrow(notFound).when(documentAccessService).buildStructure("other-user", documentId);
+        when(documentAccessService.extractByNode("other-user", documentId, nodeId)).thenThrow(notFound);
+
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}", documentId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/head", documentId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/text", documentId)
+                        .param("start", "0")
+                        .param("end", "5"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/structure", documentId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
+        mockMvc.perform(post("/api/v1/documentProcess/documents/{id}/structure", documentId)
+                        .with(SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
+        mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
+                        .param("nodeId", nodeId.toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Document not found"));
     }
 
     @Test
@@ -409,8 +480,8 @@ class DocumentProcessControllerTest {
     @DisplayName("getTextSlice_onlyStart_defaultsToCharCount - ensures controller uses getTextLength() projection")
     void getTextSlice_onlyStart_defaultsToCharCount() throws Exception {
         // Given
-        when(queryService.getTextLength(documentId)).thenReturn(11);
-        when(queryService.getTextSlice(documentId, 0, 11)).thenReturn("Hello world");
+        when(documentAccessService.getTextLength(anyString(), org.mockito.ArgumentMatchers.eq(documentId))).thenReturn(11);
+        when(documentAccessService.getTextSlice(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(11))).thenReturn("Hello world");
         when(mapper.toTextSliceResponse(documentId, 0, 11, "Hello world"))
                 .thenReturn(new TextSliceResponse(documentId, 0, 11, "Hello world"));
 
@@ -429,7 +500,7 @@ class DocumentProcessControllerTest {
     @DisplayName("getTextSlice_withStartEnd_returnsSlice - with both start and end parameters")
     void getTextSlice_withStartEnd_returnsSlice() throws Exception {
         // Given
-        when(queryService.getTextSlice(documentId, 0, 5)).thenReturn("Hello");
+        when(documentAccessService.getTextSlice(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(5))).thenReturn("Hello");
         when(mapper.toTextSliceResponse(documentId, 0, 5, "Hello")).thenReturn(testTextSliceResponse);
 
         // When & Then
@@ -478,7 +549,7 @@ class DocumentProcessControllerTest {
     @DisplayName("getTextSlice_endLessThanStart_400 - via service → handler")
     void getTextSlice_endLessThanStart_400() throws Exception {
         // Given
-        when(queryService.getTextSlice(documentId, 10, 5))
+        when(documentAccessService.getTextSlice(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(10), org.mockito.ArgumentMatchers.eq(5)))
                 .thenThrow(new ValidationErrorException("End offset must be greater than or equal to start: end=5, start=10"));
 
         // When & Then
@@ -509,7 +580,7 @@ class DocumentProcessControllerTest {
                 "This is the content of chapter 1."
         );
 
-        when(structureService.extractByNode(documentId, nodeId)).thenReturn(expectedResponse);
+        when(documentAccessService.extractByNode(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(nodeId))).thenReturn(expectedResponse);
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
@@ -543,8 +614,8 @@ class DocumentProcessControllerTest {
         UUID documentId = UUID.randomUUID();
         UUID nodeId = UUID.randomUUID();
 
-        when(structureService.extractByNode(documentId, nodeId))
-                .thenThrow(new ResourceNotFoundException("Document not found: " + documentId));
+        when(documentAccessService.extractByNode(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(nodeId)))
+                .thenThrow(new ResourceNotFoundException("Document not found"));
 
         // When & Then
         mockMvc.perform(get("/api/v1/documentProcess/documents/{id}/extract", documentId)
@@ -553,7 +624,7 @@ class DocumentProcessControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/resource-not-found"))
                 .andExpect(jsonPath("$.title").value("Resource Not Found"))
-                .andExpect(jsonPath("$.detail").value("Document not found: " + documentId))
+                .andExpect(jsonPath("$.detail").value("Document not found"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -565,7 +636,7 @@ class DocumentProcessControllerTest {
         UUID documentId = UUID.randomUUID();
         UUID nodeId = UUID.randomUUID();
 
-        when(structureService.extractByNode(documentId, nodeId))
+        when(documentAccessService.extractByNode(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(nodeId)))
                 .thenThrow(new ResourceNotFoundException("Node not found: " + nodeId));
 
         // When & Then
@@ -587,7 +658,7 @@ class DocumentProcessControllerTest {
         UUID documentId = UUID.randomUUID();
         UUID nodeId = UUID.randomUUID();
 
-        when(structureService.extractByNode(documentId, nodeId))
+        when(documentAccessService.extractByNode(anyString(), org.mockito.ArgumentMatchers.eq(documentId), org.mockito.ArgumentMatchers.eq(nodeId)))
                 .thenThrow(new IllegalArgumentException("Node " + nodeId + " does not belong to document " + documentId));
 
         // When & Then

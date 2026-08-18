@@ -248,7 +248,7 @@ class AnchorOffsetCalculatorTest {
             // When & Then
             assertThatThrownBy(() -> calculator.validateSiblingNonOverlap(nodes))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Overlapping siblings");
+                    .hasMessageContaining("Overlapping sibling offsets");
         }
 
         @Test
@@ -1080,4 +1080,3 @@ class AnchorOffsetCalculatorTest {
         return node;
     }
 }
-

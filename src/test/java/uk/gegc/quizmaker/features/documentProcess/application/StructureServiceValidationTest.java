@@ -106,7 +106,7 @@ class StructureServiceValidationTest {
             assertThatThrownBy(() -> service.buildStructure(documentId))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Unexpected error during structure building")
-                    .hasRootCauseMessage("Node end anchor is required: Test Node");
+                    .hasRootCauseMessage("Node end anchor is required");
         }
 
         @Test
@@ -126,7 +126,7 @@ class StructureServiceValidationTest {
             // When & Then - Line 460-461 covered
             assertThatThrownBy(() -> service.buildStructure(documentId))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasRootCauseMessage("Node end anchor is required: Test Node");
+                    .hasRootCauseMessage("Node end anchor is required");
         }
 
         @Test
@@ -146,7 +146,7 @@ class StructureServiceValidationTest {
             // When & Then - Line 465-466 covered
             assertThatThrownBy(() -> service.buildStructure(documentId))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasRootCauseMessage("Node type is required: Test Node");
+                    .hasRootCauseMessage("Node type is required");
         }
 
         @Test
@@ -190,7 +190,7 @@ class StructureServiceValidationTest {
             // When & Then - Line 471-472 covered
             assertThatThrownBy(() -> service.buildStructure(documentId))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasRootCauseMessage("Node depth must be non-negative: Test Node");
+                    .hasRootCauseMessage("Node depth must be non-negative");
         }
     }
 
@@ -701,4 +701,3 @@ class StructureServiceValidationTest {
         return node;
     }
 }
-
