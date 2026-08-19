@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.user.domain.repository;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,6 +15,10 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByUsername(String username);
+
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT u FROM User u WHERE u.id = :id")
+    Optional<User> findByIdForOwnershipWrite(@Param("id") UUID id);
 
     Optional<User> findByEmail(String email);
 

@@ -55,6 +55,11 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
 
     @Override
     public StagedDocumentUpload stage(MultipartFile file) {
+        return stage(file, file == null ? null : file.getOriginalFilename());
+    }
+
+    @Override
+    public StagedDocumentUpload stage(MultipartFile file, String originalFilename) {
         if (file == null || file.isEmpty()) {
             IllegalArgumentException failure = new IllegalArgumentException("File is empty");
             recordStagingFailure(failure);
@@ -66,7 +71,7 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
             throw failure;
         }
         try {
-            return stage(file.getInputStream(), file.getOriginalFilename(), file.getContentType(), file.getSize());
+            return stage(file.getInputStream(), originalFilename, file.getContentType(), file.getSize());
         } catch (IOException e) {
             DocumentStorageException failure = new DocumentStorageException("Failed to read document upload", e);
             recordStagingFailure(failure);
@@ -356,10 +361,11 @@ public class LocalDocumentUploadStagingService implements DocumentUploadStagingS
     }
 
     private String normalizeDeclaredContentType(String contentType) {
-        return switch (contentType.toLowerCase(Locale.ROOT).trim()) {
+        String baseType = contentType.split(";", 2)[0].toLowerCase(Locale.ROOT).trim();
+        return switch (baseType) {
             case "application/epub", "application/x-epub" -> "application/epub+zip";
             case "text/txt" -> "text/plain";
-            default -> contentType.toLowerCase(Locale.ROOT).trim();
+            default -> baseType;
         };
     }
 

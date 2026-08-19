@@ -99,6 +99,18 @@ class DocumentOpenApiContractTest {
         );
         ownerOnlyOperations.forEach(pointer -> assertOwnerOnlyOperation(specification, pointer));
 
+        String normalizedUpload = "/paths/~1api~1v1~1documentProcess~1documents/post";
+        assertResponseDocumented(specification, normalizedUpload + "/responses/413");
+        assertResponseDocumented(specification, normalizedUpload + "/responses/415");
+        assertResponseDocumented(specification, normalizedUpload + "/responses/422");
+        assertResponseDocumented(specification, normalizedUpload + "/responses/503");
+        assertResponseDocumented(specification, normalizedUpload + "/responses/500");
+        assertThat(specification.at(normalizedUpload + "/description").asText())
+                .contains("shared bounded parser")
+                .contains("outside the publication transaction");
+        assertThat(specification.at(normalizedUpload + "/requestBody/content").has("application/json")).isTrue();
+        assertThat(specification.at(normalizedUpload + "/requestBody/content").has("multipart/form-data")).isTrue();
+
         assertThat(specification.at("/paths/~1api~1documents/get/responses/200/content/application~1json/schema/$ref").asText())
                 .isEqualTo("#/components/schemas/DocumentPageResponse");
         assertThat(specification.at("/components/schemas/DocumentPageResponse/properties/content/items/$ref").asText())

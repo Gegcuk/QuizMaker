@@ -9,6 +9,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
@@ -16,6 +20,7 @@ import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionS
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
 import uk.gegc.quizmaker.features.documentProcess.application.LlmClient;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessMetrics;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentFilePreparationService;
 import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
@@ -30,6 +35,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +58,12 @@ class NormalizedDocumentAccessServiceImplTest {
     private StructureService structureService;
     @Mock
     private NormalizedDocumentAccessMetrics metrics;
+    @Mock
+    private NormalizedDocumentFilePreparationService filePreparationService;
+    @Mock
+    private TransactionTemplate transactionTemplate;
+    @Mock
+    private DocumentIngestionMetrics ingestionMetrics;
 
     @InjectMocks
     private NormalizedDocumentAccessServiceImpl service;
@@ -92,17 +104,42 @@ class NormalizedDocumentAccessServiceImplTest {
         }
 
         @Test
-        @DisplayName("rejects a deleted authenticated owner before file bytes are processed")
+        @DisplayName("rejects a deleted authenticated owner before the upload is staged")
         void rejectsDeletedOwnerBeforeIngestion() {
             User deletedOwner = user("owner", true, true);
             when(userRepository.findByUsername("owner")).thenReturn(Optional.of(deletedOwner));
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "notes.txt", "text/plain", new byte[]{1});
 
-            assertThatThrownBy(() -> service.ingestFromFile("owner", "notes.txt", new byte[]{1}))
+            assertThatThrownBy(() -> service.ingestFromFile("owner", "notes.txt", file))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessage("Document not found");
 
-            verifyNoInteractions(ingestionService);
+            verifyNoInteractions(filePreparationService, ingestionMetrics);
             verify(metrics).record(NormalizedDocumentAccessMetrics.Outcome.OWNER_DENIED);
+        }
+
+        @Test
+        @DisplayName("does not publish when the owner is deleted while parsing is in progress")
+        void rejectsOwnerDeletedBeforePublication() {
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "notes.txt", "text/plain", "content".getBytes());
+            NormalizedDocument prepared = preparedUpload();
+            User deletedOwner = user("owner", true, true);
+            deletedOwner.setId(owner.getId());
+            when(userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
+            when(filePreparationService.prepare(owner.getId().toString(), "notes.txt", file))
+                    .thenReturn(prepared);
+            executeTransactions();
+            when(userRepository.findByIdForOwnershipWrite(owner.getId()))
+                    .thenReturn(Optional.of(deletedOwner));
+
+            assertThatThrownBy(() -> service.ingestFromFile("owner", "notes.txt", file))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessage("Document not found");
+
+            verify(documentRepository, never()).saveAndFlush(any());
+            verify(ingestionMetrics).ingestionStopped();
         }
     }
 
@@ -290,6 +327,24 @@ class NormalizedDocumentAccessServiceImplTest {
         user.setActive(active);
         user.setDeleted(deleted);
         return user;
+    }
+
+    private NormalizedDocument preparedUpload() {
+        NormalizedDocument prepared = new NormalizedDocument();
+        prepared.setOriginalName("notes.txt");
+        prepared.setMime("text/plain");
+        prepared.setSource(NormalizedDocument.DocumentSource.UPLOAD);
+        prepared.setNormalizedText("content");
+        prepared.setCharCount(7);
+        prepared.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
+        return prepared;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void executeTransactions() {
+        when(transactionTemplate.execute(any())).thenAnswer(invocation ->
+                invocation.<TransactionCallback<NormalizedDocument>>getArgument(0)
+                        .doInTransaction(null));
     }
 
     private OwnerAuthorization ownerAuthorization(String username, Boolean active, Boolean deleted) {
