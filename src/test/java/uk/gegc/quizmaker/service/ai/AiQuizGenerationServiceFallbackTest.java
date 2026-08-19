@@ -160,6 +160,7 @@ class AiQuizGenerationServiceFallbackTest {
                         """)
                 .hint("Think about the powerhouse of the cell.")
                 .explanation("Cellular respiration happens in mitochondria and produces ATP.")
+                .confidence(1.0)
                 .build();
 
         List<Question> questions = aiQuizGenerationService.convertStructuredQuestions(List.of(fillGapQuestion));
@@ -241,6 +242,7 @@ class AiQuizGenerationServiceFallbackTest {
                             .type(type)
                             .difficulty(difficulty)
                             .content(validContent(type))
+                            .confidence(1.0)
                             .build())
                     .toList();
 

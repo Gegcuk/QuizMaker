@@ -531,6 +531,7 @@ class QuizSingleChunkEndToEndTest {
                     .difficulty(request.getDifficulty())
                     .content(validProviderContent(request.getQuestionType()))
                     .explanation("Provider fixture explanation " + (index + 1))
+                    .confidence(1.0)
                     .build());
         }
 

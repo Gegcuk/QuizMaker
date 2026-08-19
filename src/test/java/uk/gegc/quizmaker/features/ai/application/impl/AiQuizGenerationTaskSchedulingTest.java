@@ -133,6 +133,7 @@ class AiQuizGenerationTaskSchedulingTest {
                                 """)
                         .hint("Hint")
                         .explanation("Explanation")
+                        .confidence(1.0)
                         .build())
                 .toList();
         return StructuredQuestionResponse.builder()

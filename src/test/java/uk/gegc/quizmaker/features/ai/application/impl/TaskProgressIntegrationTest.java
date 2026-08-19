@@ -412,6 +412,7 @@ class TaskProgressIntegrationTest {
             q.setQuestionText("Test question " + i);
             q.setType(request.getQuestionType());
             q.setDifficulty(request.getDifficulty());
+            q.setConfidence(1.0);
             q.setContent(validContent(request.getQuestionType()));
             questions.add(q);
         }

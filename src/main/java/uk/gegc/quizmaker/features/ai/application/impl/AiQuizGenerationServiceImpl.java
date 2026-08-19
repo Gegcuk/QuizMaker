@@ -67,6 +67,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
+    private static final double MINIMUM_ACCEPTED_CONFIDENCE = 0.70;
+
     private final ChatClient chatClient;
     private final DocumentRepository documentRepository;
     private final PromptTemplateService promptTemplateService;
@@ -638,7 +640,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
         for (int index = 0; index < structuredQuestions.size(); index++) {
             StructuredQuestion sq = structuredQuestions.get(index);
-            if (!hasRuntimeValidContent(sq, index)) {
+            if (!hasAcceptedConfidence(sq, index) || !hasRuntimeValidContent(sq, index)) {
                 continue;
             }
 
@@ -664,9 +666,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         return questions;
     }
 
+    private boolean hasAcceptedConfidence(StructuredQuestion question, int index) {
+        if (question == null) {
+            logGeneratedContentRejection(index, null, "invalid_confidence");
+            return false;
+        }
+        Double confidence = question.getConfidence();
+        if (confidence == null || !Double.isFinite(confidence) || confidence < 0.0 || confidence > 1.0) {
+            logGeneratedContentRejection(index, question.getType(), "invalid_confidence");
+            return false;
+        }
+        if (confidence < MINIMUM_ACCEPTED_CONFIDENCE) {
+            logGeneratedContentRejection(index, question.getType(), "confidence_below_threshold");
+            return false;
+        }
+        return true;
+    }
+
     private boolean hasRuntimeValidContent(StructuredQuestion question, int index) {
-        if (question == null || question.getContent() == null || question.getContent().isBlank()) {
-            logGeneratedContentRejection(index, question != null ? question.getType() : null, "malformed_content");
+        if (question.getContent() == null || question.getContent().isBlank()) {
+            logGeneratedContentRejection(index, question.getType(), "malformed_content");
             return false;
         }
 

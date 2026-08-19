@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.question.application.QuestionContentShuffler;
 import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
@@ -88,6 +90,97 @@ class AiQuizGenerationRuntimeContentValidationTest {
                     objectMapper.readTree(question.getContent())))
                     .doesNotThrowAnyException();
         });
+    }
+
+    @Test
+    @DisplayName("Accepts the exact confidence threshold")
+    void convertStructuredQuestionsAcceptsExactConfidenceThreshold() {
+        StructuredQuestion generated = structuredQuestion(
+                "Boundary confidence",
+                QuestionType.TRUE_FALSE,
+                "{\"answer\": true}"
+        );
+        generated.setConfidence(0.70);
+
+        List<Question> result = service.convertStructuredQuestions(List.of(generated));
+
+        assertThat(result).singleElement()
+                .extracting(Question::getQuestionText)
+                .isEqualTo("Boundary confidence");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(doubles = {
+            0.699999,
+            -0.01,
+            1.01,
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY
+    })
+    @DisplayName("Rejects low or invalid confidence before validation and shuffling")
+    void convertStructuredQuestionsRejectsLowOrInvalidConfidence(Double confidence) {
+        QuestionContentValidationService validator = mock(QuestionContentValidationService.class);
+        QuestionContentShuffler shuffler = mock(QuestionContentShuffler.class);
+        AiQuizGenerationServiceImpl validatingService = createService(shuffler, validator);
+        StructuredQuestion generated = structuredQuestion(
+                "Rejected confidence",
+                QuestionType.TRUE_FALSE,
+                "{\"answer\": true}"
+        );
+        generated.setConfidence(confidence);
+
+        List<Question> result = validatingService.convertStructuredQuestions(List.of(generated));
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(validator, shuffler);
+    }
+
+    @Test
+    @DisplayName("Rejects omitted confidence instead of assuming provider certainty")
+    void convertStructuredQuestionsRejectsOmittedConfidence() {
+        QuestionContentValidationService validator = mock(QuestionContentValidationService.class);
+        QuestionContentShuffler shuffler = mock(QuestionContentShuffler.class);
+        AiQuizGenerationServiceImpl validatingService = createService(shuffler, validator);
+        StructuredQuestion generated = StructuredQuestion.builder()
+                .questionText("Missing confidence")
+                .type(QuestionType.TRUE_FALSE)
+                .difficulty(Difficulty.MEDIUM)
+                .content("{\"answer\": true}")
+                .build();
+
+        List<Question> result = validatingService.convertStructuredQuestions(List.of(generated));
+
+        assertThat(generated.getConfidence()).isNull();
+        assertThat(result).isEmpty();
+        verifyNoInteractions(validator, shuffler);
+    }
+
+    @Test
+    @DisplayName("Drops low-confidence entries while preserving accepted order")
+    void convertStructuredQuestionsDropsLowConfidenceAndPreservesAcceptedOrder() {
+        StructuredQuestion first = structuredQuestion(
+                "First accepted",
+                QuestionType.TRUE_FALSE,
+                "{\"answer\": true}"
+        );
+        StructuredQuestion rejected = structuredQuestion(
+                "Rejected middle",
+                QuestionType.TRUE_FALSE,
+                "{\"answer\": false}"
+        );
+        rejected.setConfidence(0.69);
+        StructuredQuestion last = structuredQuestion(
+                "Last accepted",
+                QuestionType.OPEN,
+                "{\"answer\": \"Paris\"}"
+        );
+
+        List<Question> result = service.convertStructuredQuestions(List.of(first, rejected, last));
+
+        assertThat(result).extracting(Question::getQuestionText)
+                .containsExactly("First accepted", "Last accepted");
     }
 
     @Test
@@ -269,6 +362,7 @@ class AiQuizGenerationRuntimeContentValidationTest {
                 .content(content)
                 .hint("Hint")
                 .explanation("Explanation")
+                .confidence(1.0)
                 .build();
     }
 
