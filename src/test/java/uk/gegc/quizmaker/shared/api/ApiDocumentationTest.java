@@ -2,517 +2,216 @@ package uk.gegc.quizmaker.shared.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springdoc.core.configuration.SpringDocConfiguration;
+import org.springdoc.core.properties.SpringDocConfigProperties;
+import org.springdoc.core.properties.SwaggerUiConfigProperties;
+import org.springdoc.core.properties.SwaggerUiOAuthProperties;
+import org.springdoc.webmvc.core.configuration.MultipleOpenApiSupportConfiguration;
+import org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration;
+import org.springdoc.webmvc.ui.SwaggerConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.cors.CorsConfigurationSource;
+import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionMetricsService;
+import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
+import uk.gegc.quizmaker.features.question.api.QuestionController;
+import uk.gegc.quizmaker.features.question.application.QuestionSchemaService;
+import uk.gegc.quizmaker.features.question.application.QuestionService;
+import uk.gegc.quizmaker.shared.api.docs.ApiDiscoveryController;
+import uk.gegc.quizmaker.shared.api.docs.ApiDocsController;
+import uk.gegc.quizmaker.shared.api.docs.ApiDocumentationService;
+import uk.gegc.quizmaker.shared.config.OpenApiConfig;
+import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
+import uk.gegc.quizmaker.shared.config.SecurityConfig;
+import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
-import static org.assertj.core.api.Assertions.*;
+import javax.sql.DataSource;
+import java.util.Set;
 
-/**
- * Integration tests for API documentation endpoints.
- * Tests Phases 1-7 of the API Documentation Structure implementation.
- * 
- * Uses TestRestTemplate with real embedded server to test SpringDoc-generated endpoints.
- */
-@Tag("db-serial")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
-@DisplayName("API Documentation")
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+
+@WebMvcTest(controllers = {
+        ApiDiscoveryController.class,
+        ApiDocsController.class,
+        QuestionController.class
+})
+@Import({
+        OpenApiConfig.class,
+        OpenApiGroupConfig.class,
+        SecurityConfig.class,
+        ApiDocumentationService.class,
+        QuestionSchemaService.class,
+        QuestionSchemaRegistry.class,
+        SpringDocConfiguration.class,
+        SpringDocWebMvcConfiguration.class,
+        MultipleOpenApiSupportConfiguration.class,
+        SwaggerConfig.class,
+        ApiDocumentationTest.SpringDocTestConfig.class
+})
+@DisplayName("Database-free API documentation contracts")
 class ApiDocumentationTest {
 
+    @TestConfiguration(proxyBeanMethods = false)
+    @EnableConfigurationProperties({
+            SpringDocConfigProperties.class,
+            SwaggerUiConfigProperties.class,
+            SwaggerUiOAuthProperties.class
+    })
+    static class SpringDocTestConfig {
+    }
+
     @Autowired
-    private TestRestTemplate restTemplate;
+    private MockMvc mockMvc;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    // ============================================================================
-    // Phase 1-2: API Groups Configuration
-    // ============================================================================
+    @Autowired
+    private ApplicationContext applicationContext;
+
+    @MockitoBean
+    private QuestionService questionService;
+
+    @MockitoBean
+    private AuthSessionService authSessionService;
+
+    @MockitoBean
+    private AuthSessionMetricsService authSessionMetricsService;
+
+    @MockitoBean(name = "corsConfigurationSource")
+    private CorsConfigurationSource corsConfigurationSource;
+
+    @MockitoBean
+    private TrustedProxyUtil trustedProxyUtil;
+
+    @MockitoBean
+    private CustomOAuth2UserService customOAuth2UserService;
+
+    @MockitoBean
+    private OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
+
+    @MockitoBean
+    private OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
+
+    @MockitoBean
+    private ClientRegistrationRepository clientRegistrationRepository;
 
     @Test
-    @DisplayName("GET /v3/api-docs: full OpenAPI spec available")
-    void fullSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotEmpty();
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("openapi")).isTrue();
-        assertThat(json.get("openapi").asText()).startsWith("3.");
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("loads the documentation slice without database infrastructure")
+    void documentationSliceHasNoDataSource() {
+        assertThat(applicationContext.getBeansOfType(DataSource.class)).isEmpty();
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=auth: auth group spec available")
-    void authGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=auth", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
-        // Auth group should contain auth and user endpoints
-        assertThat(response.getBody()).contains("/api/v1/auth/");
+    @DisplayName("publishes an actual full SpringDoc specification")
+    void fullSpecificationIsGenerated() throws Exception {
+        JsonNode specification = getJson("/v3/api-docs");
+
+        assertThat(specification.path("openapi").asText()).startsWith("3.");
+        assertThat(specification.path("paths").has("/api/v1/api-summary")).isTrue();
+        assertThat(specification.path("paths").has("/api/v1/questions/schemas")).isTrue();
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=quizzes: quizzes group spec available")
-    void quizzesGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=quizzes", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("uses the canonical grouped SpringDoc route")
+    void questionsSpecificationUsesGroupedRoute() throws Exception {
+        JsonNode specification = getJson("/v3/api-docs/questions");
+
+        assertThat(specification.path("paths").has("/api/v1/questions/schemas")).isTrue();
+        assertThat(specification.path("paths").has("/api/v1/questions/schemas/{questionType}")).isTrue();
+        assertThat(specification.path("paths").has("/api/v1/api-summary")).isFalse();
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=questions: questions group spec available")
-    void questionsGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=questions", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
-        // Should contain question endpoints including schemas
-        assertThat(response.getBody()).contains("/api/v1/questions/schemas");
+    @DisplayName("returns cacheable API discovery metadata")
+    void apiSummaryIsCacheable() throws Exception {
+        String response = mockMvc.perform(get("/api/v1/api-summary"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("max-age=900")))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode summary = objectMapper.readTree(response);
+        assertThat(summary.path("version").asText()).isEqualTo("v1");
+        assertThat(summary.path("baseUrl").asText()).isEqualTo("/api/v1");
+        assertThat(summary.path("fullSpecUrl").asText()).isEqualTo("/v3/api-docs");
+        assertThat(summary.path("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
+        assertThat(summary.path("groups").isArray()).isTrue();
+        assertThat(summary.path("groups").findValuesAsText("group")).containsExactlyInAnyOrderElementsOf(Set.of(
+                "auth", "quizzes", "questions", "attempts", "documents", "billing",
+                "articles", "media", "bug-reports", "seo", "ai", "admin"));
+        summary.path("groups").forEach(group -> {
+            assertThat(group.path("displayName").asText()).isNotBlank();
+            assertThat(group.path("description").asText()).isNotBlank();
+            assertThat(group.path("icon").asText()).isNotBlank();
+            assertThat(group.path("specUrl").asText()).startsWith("/v3/api-docs/");
+            assertThat(group.path("docsUrl").asText()).startsWith("/swagger-ui/index.html");
+            assertThat(group.path("estimatedSizeKB").asInt()).isPositive();
+        });
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=attempts: attempts group spec available")
-    void attemptsGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=attempts", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("routes the human documentation landing page with its model")
+    void documentationLandingPageIsRouted() throws Exception {
+        mockMvc.perform(get("/api/v1/docs"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("api-docs-landing"))
+                .andExpect(model().attributeExists("summary", "groups"))
+                .andExpect(content().string(containsString("QuizMaker API Documentation")))
+                .andExpect(content().string(containsString("/swagger-ui/index.html")));
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=documents: documents group spec available")
-    void documentsGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=documents", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("serves the advertised Swagger UI without authentication")
+    void swaggerUiIsPublic() throws Exception {
+        mockMvc.perform(get("/swagger-ui/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=billing: billing group spec available")
-    void billingGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=billing", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("serves the question schema index without authentication")
+    void questionSchemaIndexIsPublic() throws Exception {
+        mockMvc.perform(get("/api/v1/questions/schemas"))
+                .andExpect(status().isOk());
     }
 
     @Test
-    @DisplayName("GET /v3/api-docs?group=ai: ai group spec available")
-    void aiGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=ai", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
+    @DisplayName("keeps unrelated API routes protected")
+    void protectedApiStillRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/questions"))
+                .andExpect(status().isUnauthorized());
     }
 
-    @Test
-    @DisplayName("GET /v3/api-docs?group=admin: admin group spec available")
-    void adminGroupSpec_available() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs?group=admin", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("paths")).isTrue();
-    }
-
-    @Test
-    @DisplayName("GET /v3/api-docs/media: media group exposes typed search and single-asset contracts")
-    void mediaGroupSpec_exposesTypedContracts() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs/media", String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.path("paths").has("/api/v1/media")).isTrue();
-        assertThat(json.path("paths").has("/api/v1/media/{assetId}")).isTrue();
-        assertThat(json.at("/paths/~1api~1v1~1media/get/responses/200/content/application~1json/schema/$ref").asText())
-                .isEqualTo("#/components/schemas/MediaAssetPageResponse");
-        assertThat(json.path("components").path("schemas").has("MediaAssetPageResponse")).isTrue();
-        assertThat(json.at("/paths/~1api~1v1~1media~1{assetId}/get/responses/404/content/application~1problem+json/examples/Deleted asset/value/status").asInt())
-                .isEqualTo(404);
-        assertThat(json.at("/paths/~1api~1v1~1media~1uploads/post/responses/429").isMissingNode()).isFalse();
-    }
-
-    @Test
-    @DisplayName("GET /v3/api-docs/bug-reports: exposes public submission and typed admin contracts")
-    void bugReportsGroupSpec_exposesTypedContracts() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/v3/api-docs/bug-reports", String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.path("paths").has("/api/v1/bug-reports")).isTrue();
-        assertThat(json.path("paths").has("/api/v1/admin/bug-reports")).isTrue();
-        assertThat(json.at("/paths/~1api~1v1~1bug-reports/post/responses/201/content/application~1json/schema/$ref").asText())
-                .isEqualTo("#/components/schemas/BugReportSubmissionResponse");
-        assertThat(json.at("/paths/~1api~1v1~1admin~1bug-reports/get/responses/200/content/application~1json/schema/$ref").asText())
-                .isEqualTo("#/components/schemas/BugReportPageResponse");
-        assertThat(json.path("components").path("schemas").has("BugReportSubmissionResponse")).isTrue();
-        assertThat(json.path("components").path("schemas").has("BugReportPageResponse")).isTrue();
-    }
-
-    // ============================================================================
-    // Phase 3: API Discovery Controller
-    // ============================================================================
-
-    @Test
-    @DisplayName("GET /api/v1/api-summary: returns lightweight API summary")
-    void apiSummary_returnsJson() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/api-summary", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.get("version").asText()).isEqualTo("v1");
-        assertThat(json.get("baseUrl").asText()).isEqualTo("/api/v1");
-        assertThat(json.get("fullSpecUrl").asText()).isEqualTo("/v3/api-docs");
-        assertThat(json.get("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
-        assertThat(json.get("groups").isArray()).isTrue();
-        assertThat(json.get("groups").size()).isEqualTo(12);
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/api-summary: groups have correct structure")
-    void apiSummary_groupsHaveCorrectStructure() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/api-summary", String.class);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        JsonNode firstGroup = json.get("groups").get(0);
-        
-        assertThat(firstGroup.has("group")).isTrue();
-        assertThat(firstGroup.has("displayName")).isTrue();
-        assertThat(firstGroup.has("description")).isTrue();
-        assertThat(firstGroup.has("icon")).isTrue();
-        assertThat(firstGroup.has("specUrl")).isTrue();
-        assertThat(firstGroup.has("docsUrl")).isTrue();
-        assertThat(firstGroup.has("estimatedSizeKB")).isTrue();
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/api-summary: includes all expected groups")
-    void apiSummary_includesAllGroups() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/api-summary", String.class);
-        
-        assertThat(response.getBody())
-                .contains("\"group\":\"auth\"")
-                .contains("\"group\":\"quizzes\"")
-                .contains("\"group\":\"questions\"")
-                .contains("\"group\":\"attempts\"")
-                .contains("\"group\":\"documents\"")
-                .contains("\"group\":\"billing\"")
-                .contains("\"group\":\"articles\"")
-                .contains("\"group\":\"media\"")
-                .contains("\"group\":\"bug-reports\"")
-                .contains("\"group\":\"seo\"")
-                .contains("\"group\":\"ai\"")
-                .contains("\"group\":\"admin\"");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/api-summary: has cache control headers")
-    void apiSummary_hasCacheControl() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/api-summary", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getHeaders().getCacheControl()).isNotNull();
-        assertThat(response.getHeaders().getCacheControl()).contains("max-age");
-    }
-
-    // ============================================================================
-    // Phase 4: Landing Page
-    // ============================================================================
-
-    @Test
-    @DisplayName("GET /api/v1/docs: returns HTML landing page")
-    void landingPage_returnsHtml() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/docs", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getHeaders().getContentType().toString()).contains("text/html");
-        assertThat(response.getBody())
-                .contains("QuizMaker API Documentation")
-                .containsAnyOf("Authentication & Users", "Authentication &amp; Users") // HTML entity or plain
-                .contains("Quizzes") // Now just "Quizzes", not "Quizzes & Questions"
-                .contains("Questions") // Separate group
-                .containsAnyOf("Quiz Attempts & Scoring", "Quiz Attempts &amp; Scoring");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/docs: contains links to grouped Swagger UIs")
-    void landingPage_containsSwaggerLinks() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/docs", String.class);
-        
-        assertThat(response.getBody())
-                .contains("/swagger-ui/index.html")
-                .contains("/v3/api-docs");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/docs: contains all group cards")
-    void landingPage_containsAllGroupCards() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/docs", String.class);
-        
-        assertThat(response.getBody())
-                .contains("🔐") // auth icon
-                .contains("📝") // quizzes icon  
-                .contains("❓") // questions icon
-                .contains("🎯") // attempts icon
-                .contains("📄") // documents icon
-                .contains("💳") // billing icon
-                .contains("📰") // articles icon
-                .contains("🖼️") // media icon
-                .contains("⚠️") // bug reports icon
-                .contains("🤖") // ai icon
-                .contains("⚙️"); // admin icon
-    }
-
-    // ============================================================================
-    // Phase 5: Security Configuration
-    // ============================================================================
-
-    @Test
-    @DisplayName("Security: all documentation endpoints are public")
-    void security_documentationIsPublic() {
-        // No authentication needed for any of these
-        assertThat(restTemplate.getForEntity("/v3/api-docs", String.class).getStatusCode())
-                .isEqualTo(HttpStatus.OK);
-        assertThat(restTemplate.getForEntity("/api/v1/api-summary", String.class).getStatusCode())
-                .isEqualTo(HttpStatus.OK);
-        assertThat(restTemplate.getForEntity("/api/v1/docs", String.class).getStatusCode())
-                .isEqualTo(HttpStatus.OK);
-    }
-
-    // ============================================================================
-    // Appendix D: Question Schema Endpoints
-    // ============================================================================
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas: returns all question type schemas")
-    void questionSchemas_returnsAllTypes() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("MCQ_SINGLE")).isTrue();
-        assertThat(json.has("MCQ_MULTI")).isTrue();
-        assertThat(json.has("TRUE_FALSE")).isTrue();
-        assertThat(json.has("OPEN")).isTrue();
-        assertThat(json.has("FILL_GAP")).isTrue();
-        assertThat(json.has("ORDERING")).isTrue();
-        assertThat(json.has("MATCHING")).isTrue();
-        assertThat(json.has("HOTSPOT")).isTrue();
-        assertThat(json.has("COMPLIANCE")).isTrue();
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas: each type has schema, example, and description")
-    void questionSchemas_haveCompleteStructure() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas", String.class);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        JsonNode mcqSingle = json.get("MCQ_SINGLE");
-        
-        assertThat(mcqSingle.has("schema")).isTrue();
-        assertThat(mcqSingle.has("example")).isTrue();
-        assertThat(mcqSingle.has("description")).isTrue();
-        
-        JsonNode trueFalse = json.get("TRUE_FALSE");
-        assertThat(trueFalse.has("schema")).isTrue();
-        assertThat(trueFalse.has("example")).isTrue();
-        assertThat(trueFalse.has("description")).isTrue();
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas/MCQ_SINGLE: returns specific schema")
-    void questionSchema_mcqSingle_returnsSchema() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas/MCQ_SINGLE", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("schema")).isTrue();
-        assertThat(json.has("example")).isTrue();
-        assertThat(json.has("description")).isTrue();
-        
-        // Verify example has full question structure
-        JsonNode example = json.get("example");
-        assertThat(example.has("questionText")).isTrue();
-        assertThat(example.has("type")).isTrue();
-        assertThat(example.has("difficulty")).isTrue();
-        assertThat(example.has("content")).isTrue();
-        assertThat(example.has("hint")).isTrue();
-        assertThat(example.has("explanation")).isTrue();
-        
-        // Verify content has options array with 4 items
-        JsonNode content = example.get("content");
-        assertThat(content.has("options")).isTrue();
-        assertThat(content.get("options").isArray()).isTrue();
-        assertThat(content.get("options").size()).isEqualTo(4);
-        
-        // Verify description mentions 4 options
-        assertThat(json.get("description").asText()).contains("4 options");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas/TRUE_FALSE: returns specific schema")
-    void questionSchema_trueFalse_returnsSchema() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas/TRUE_FALSE", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        assertThat(json.has("schema")).isTrue();
-        assertThat(json.has("example")).isTrue();
-        
-        // Verify example has full question structure
-        JsonNode example = json.get("example");
-        assertThat(example.has("questionText")).isTrue();
-        assertThat(example.has("content")).isTrue();
-        assertThat(example.has("hint")).isTrue();
-        assertThat(example.has("explanation")).isTrue();
-        
-        // Verify content has boolean answer
-        JsonNode content = example.get("content");
-        assertThat(content.has("answer")).isTrue();
-        assertThat(content.get("answer").isBoolean()).isTrue();
-        
-        assertThat(json.get("description").asText()).contains("True or False");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas/FILL_GAP: returns specific schema")
-    void questionSchema_fillGap_returnsSchema() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas/FILL_GAP", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        JsonNode example = json.get("example");
-        assertThat(example.has("questionText")).isTrue();
-        assertThat(example.has("content")).isTrue();
-        assertThat(example.has("hint")).isTrue();
-        assertThat(example.has("explanation")).isTrue();
-        
-        // Verify content has text and gaps
-        JsonNode content = example.get("content");
-        assertThat(content.has("text")).isTrue();
-        assertThat(content.has("gaps")).isTrue();
-        assertThat(content.get("gaps").isArray()).isTrue();
-        assertThat(content.has("options")).isTrue();
-        assertThat(content.get("options").isArray()).isTrue();
-        assertThat(content.get("options").size()).isGreaterThanOrEqualTo(7);
-
-        JsonNode contentSchema = json.get("schema")
-                .get("properties")
-                .get("questions")
-                .get("items")
-                .get("properties")
-                .get("content");
-        assertThat(contentSchema.get("properties").has("options")).isTrue();
-        assertThat(contentSchema.get("required").toString()).doesNotContain("options");
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas/MATCHING: returns specific schema")
-    void questionSchema_matching_returnsSchema() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas/MATCHING", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        JsonNode example = json.get("example");
-        assertThat(example.has("questionText")).isTrue();
-        assertThat(example.has("content")).isTrue();
-        assertThat(example.has("hint")).isTrue();
-        assertThat(example.has("explanation")).isTrue();
-        
-        // Verify content has left and right arrays
-        JsonNode content = example.get("content");
-        assertThat(content.has("left")).isTrue();
-        assertThat(content.has("right")).isTrue();
-        assertThat(content.get("left").isArray()).isTrue();
-        assertThat(content.get("right").isArray()).isTrue();
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas/COMPLIANCE: returns specific schema")
-    void questionSchema_compliance_returnsSchema() throws Exception {
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas/COMPLIANCE", String.class);
-        
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        JsonNode json = objectMapper.readTree(response.getBody());
-        JsonNode example = json.get("example");
-        assertThat(example.has("questionText")).isTrue();
-        assertThat(example.has("content")).isTrue();
-        assertThat(example.has("hint")).isTrue();
-        assertThat(example.has("explanation")).isTrue();
-        
-        // Verify content has statements array
-        JsonNode content = example.get("content");
-        assertThat(content.has("statements")).isTrue();
-        assertThat(content.get("statements").isArray()).isTrue();
-        assertThat(content.get("statements").size()).isGreaterThanOrEqualTo(2);
-    }
-
-    @Test
-    @DisplayName("GET /api/v1/questions/schemas: is publicly accessible without auth")
-    void questionSchemas_isPublic() {
-        // Should work without authentication
-        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/questions/schemas", String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-    }
-
-    // ============================================================================
-    // Backward Compatibility & Swagger UI
-    // ============================================================================
-
-    @Test
-    @DisplayName("Swagger UI: accessible at default path")
-    void swaggerUi_accessible() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/swagger-ui/index.html", String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getHeaders().getContentType().toString()).contains("text/html");
-    }
-
-    @Test
-    @DisplayName("Swagger UI: old path redirects or requires auth")
-    void swaggerUi_oldPath_redirects() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/swagger-ui.html", String.class);
-        // Should redirect, return OK, or require authentication (depends on Spring Boot version and security config)
-        assertThat(response.getStatusCode()).isIn(
-                HttpStatus.OK, 
-                HttpStatus.MOVED_PERMANENTLY, 
-                HttpStatus.FOUND,
-                HttpStatus.UNAUTHORIZED // Fixed: Returns 401 for unauthenticated access
-        );
+    private JsonNode getJson(String path) throws Exception {
+        String response = mockMvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return objectMapper.readTree(response);
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.question.application.QuestionSchemaService;
 import uk.gegc.quizmaker.features.question.application.QuestionService;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -72,5 +73,25 @@ class QuestionSchemaEndpointTest {
                 .contains("no more than 10 total options")
                 .contains("same domain/category")
                 .contains("must not be synonyms or alternate correct answers");
+    }
+
+    @Test
+    @DisplayName("Public schema index exposes a complete contract for every question type")
+    void getAllSchemas_exposesEveryQuestionTypeWithContractFields() throws Exception {
+        String response = mockMvc.perform(get("/api/v1/questions/schemas"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode schemas = objectMapper.readTree(response);
+        assertThat(schemas).hasSize(QuestionType.values().length);
+        for (QuestionType type : QuestionType.values()) {
+            JsonNode contract = schemas.path(type.name());
+            assertThat(contract.isMissingNode()).as("schema for %s", type).isFalse();
+            assertThat(contract.path("schema").isObject()).as("JSON schema for %s", type).isTrue();
+            assertThat(contract.path("example").isObject()).as("example for %s", type).isTrue();
+            assertThat(contract.path("description").asText()).as("description for %s", type).isNotBlank();
+        }
     }
 }
