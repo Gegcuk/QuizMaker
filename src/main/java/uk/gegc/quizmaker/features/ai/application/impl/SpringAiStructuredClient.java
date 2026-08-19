@@ -288,14 +288,25 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             throw new ProviderAttemptBudgetExhaustedException();
         }
         UUID providerAttemptId = UUID.randomUUID();
+        observeProviderUsage(request, ProviderUsageObservation.started(providerAttemptId));
 
-        ChatResponse response = chatClient.prompt(prompt)
-                .call()
-                .chatResponse();
+        ChatResponse response;
+        try {
+            response = chatClient.prompt(prompt)
+                    .call()
+                    .chatResponse();
+        } catch (RuntimeException exception) {
+            observeProviderUsage(request, ProviderUsageObservation.failed(providerAttemptId));
+            throw exception;
+        }
 
-        observeProviderUsage(request, providerAttemptId, response);
-        
-        if (response == null || response.getResult() == null) {
+        if (response == null) {
+            observeProviderUsage(request, ProviderUsageObservation.failed(providerAttemptId));
+            throw new AiServiceException("No response received from AI service");
+        }
+        observeProviderResponse(request, providerAttemptId, response);
+
+        if (response.getResult() == null) {
             throw new AiServiceException("No response received from AI service");
         }
         
@@ -335,7 +346,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         return structuredResponse;
     }
 
-    private void observeProviderUsage(
+    private void observeProviderResponse(
             StructuredQuestionRequest request,
             UUID providerAttemptId,
             ChatResponse response
@@ -349,8 +360,21 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         Long providerLlmTokens = usage != null && !(usage instanceof EmptyUsage)
                 ? Long.valueOf(usage.getTotalTokens())
                 : null;
-        request.getProviderUsageObserver().accept(
-                new ProviderUsageObservation(providerAttemptId, providerLlmTokens));
+        observeProviderUsage(
+                request,
+                providerLlmTokens == null
+                        ? ProviderUsageObservation.missing(providerAttemptId)
+                        : ProviderUsageObservation.reported(providerAttemptId, providerLlmTokens)
+        );
+    }
+
+    private void observeProviderUsage(
+            StructuredQuestionRequest request,
+            ProviderUsageObservation observation
+    ) {
+        if (request.getProviderUsageObserver() != null) {
+            request.getProviderUsageObserver().accept(observation);
+        }
     }
 
     private OpenAiChatOptions buildChatOptions(QuestionType questionType, JsonNode schema) {

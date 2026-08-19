@@ -7,7 +7,11 @@ import java.util.UUID;
  */
 public interface ProviderUsageService {
 
+    ProviderUsageRecordResult recordStarted(UUID jobId, UUID providerAttemptId);
+
     ProviderUsageRecordResult recordReported(UUID jobId, UUID providerAttemptId, long providerLlmTokens);
 
     ProviderUsageRecordResult recordMissing(UUID jobId, UUID providerAttemptId);
+
+    ProviderUsageRecordResult recordFailed(UUID jobId, UUID providerAttemptId);
 }
