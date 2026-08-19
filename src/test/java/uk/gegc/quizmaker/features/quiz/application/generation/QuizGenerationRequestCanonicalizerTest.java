@@ -12,6 +12,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -167,12 +168,53 @@ class QuizGenerationRequestCanonicalizerTest {
                 .hasMessage("Unable to read upload content for idempotency validation");
     }
 
+    @Test
+    @DisplayName("Rejects invalid language instead of changing command identity")
+    void rejectsInvalidLanguageInsteadOfNormalizingIt() {
+        GenerateQuizFromDocumentRequest request = request(
+                UUID.randomUUID(),
+                List.of(1),
+                List.of(),
+                Map.of(QuestionType.MCQ_SINGLE, 2),
+                "Biology",
+                "EN"
+        );
+
+        assertThatThrownBy(() -> canonicalizer.forDocument(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE);
+    }
+
+    @Test
+    @DisplayName("Preserves a supported non-English language in command identity")
+    void preservesSupportedNonEnglishLanguageInCommandIdentity() {
+        UUID documentId = UUID.randomUUID();
+        GenerateQuizFromDocumentRequest english = request(
+                documentId, List.of(1), List.of(), Map.of(QuestionType.MCQ_SINGLE, 2), "Biology", "en");
+        GenerateQuizFromDocumentRequest french = request(
+                documentId, List.of(1), List.of(), Map.of(QuestionType.MCQ_SINGLE, 2), "Biology", "fr");
+
+        assertThat(canonicalizer.forDocument(french).hash())
+                .isNotEqualTo(canonicalizer.forDocument(english).hash());
+    }
+
     private GenerateQuizFromDocumentRequest request(
             UUID documentId,
             List<Integer> chunkIndices,
             List<UUID> tagIds,
             Map<QuestionType, Integer> questionsPerType,
             String title
+    ) {
+        return request(documentId, chunkIndices, tagIds, questionsPerType, title, "en");
+    }
+
+    private GenerateQuizFromDocumentRequest request(
+            UUID documentId,
+            List<Integer> chunkIndices,
+            List<UUID> tagIds,
+            Map<QuestionType, Integer> questionsPerType,
+            String title,
+            String language
     ) {
         return new GenerateQuizFromDocumentRequest(
                 documentId,
@@ -187,7 +229,7 @@ class QuizGenerationRequestCanonicalizerTest {
                 2,
                 null,
                 tagIds,
-                "EN"
+                language
         );
     }
 

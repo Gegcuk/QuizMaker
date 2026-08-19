@@ -246,13 +246,19 @@ class QuizOpenApiContractTest {
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post");
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post");
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-text/post");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/400");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/409");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/429");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post/responses/503");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/400");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/413");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/415");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/422");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post/responses/503");
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generate-from-text/post/responses/400");
+        assertLanguageSchema(specification, "GenerateQuizFromDocumentRequest");
+        assertLanguageSchema(specification, "GenerateQuizFromTextRequest");
+        assertLanguageSchema(specification, "GenerateQuizFromUploadRequest");
         assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generate-from-upload/post/description").asText())
                 .contains("streams the upload into bounded staging")
                 .contains("Client-extracted selected text")
@@ -309,5 +315,13 @@ class QuizOpenApiContractTest {
         assertThat(idempotencyHeader.path("required").asBoolean()).isFalse();
         assertThat(idempotencyHeader.at("/schema/minLength").asInt()).isEqualTo(1);
         assertThat(idempotencyHeader.at("/schema/maxLength").asInt()).isEqualTo(128);
+    }
+
+    private void assertLanguageSchema(JsonNode specification, String requestSchema) {
+        JsonNode language = specification.at("/components/schemas/" + requestSchema + "/properties/language");
+        assertThat(language.path("pattern").asText()).isEqualTo("^[a-z]{2}$");
+        assertThat(language.path("default").asText()).isEqualTo("en");
+        assertThat(language.path("description").asText())
+                .contains("supported lowercase ISO 639-1", "omit to default to en");
     }
 }

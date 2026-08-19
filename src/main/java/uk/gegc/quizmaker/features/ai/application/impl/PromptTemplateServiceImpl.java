@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -66,7 +67,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             throw new IllegalArgumentException("Question type cannot be null");
         }
 
-        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
+        String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
 
         Map<String, String> variables = Map.of(
                 "{questionType}", questionType.name(),

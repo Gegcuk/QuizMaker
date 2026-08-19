@@ -73,6 +73,7 @@ import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -807,6 +808,8 @@ public class QuizController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
+        GenerationLanguagePolicy.requireSupportedOrDefault(request.language());
+
         // Rate limit quiz generation starts: 3 per minute per user
         rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
         
@@ -915,6 +918,11 @@ public class QuizController {
             @RequestParam(value = "estimatedTimePerQuestion", required = false) Integer estimatedTimePerQuestion,
             @RequestParam(value = "categoryId", required = false) UUID categoryId,
             @RequestParam(value = "tagIds", required = false) List<UUID> tagIds,
+            @Parameter(
+                    description = "Exact supported lowercase ISO 639-1 code; omit to default to en",
+                    schema = @Schema(pattern = "^[a-z]{2}$", defaultValue = "en"),
+                    example = "en"
+            )
             @RequestParam(value = "language", required = false) String language,
             @Parameter(
                     description = "Optional opaque retry key, 1-128 characters. Reuse only for byte-identical upload content and the same generation settings.",
@@ -924,6 +932,8 @@ public class QuizController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
+        String acceptedLanguage = GenerationLanguagePolicy.requireSupportedOrDefault(language);
+
         // Validate file upload
         documentValidationService.validateFileUpload(file, chunkingStrategy, maxChunkSize);
 
@@ -945,7 +955,7 @@ public class QuizController {
                 estimatedTimePerQuestion,
                 categoryId,
                 tagIds,
-                language
+                acceptedLanguage
         );
 
         // Process document and start quiz generation
@@ -1022,6 +1032,8 @@ public class QuizController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication
     ) {
+        GenerationLanguagePolicy.requireSupportedOrDefault(request.language());
+
         // Rate limit quiz generation starts: 3 per minute per user
         rateLimitService.checkRateLimit("quiz-generation-start", authentication.getName(), 3);
         

@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Size;
 import uk.gegc.quizmaker.features.document.api.dto.ProcessDocumentRequest;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.util.List;
 import java.util.Map;
@@ -21,7 +22,12 @@ public record GenerateQuizFromTextRequest(
         @Size(max = 300000, message = "Text content must not exceed 300,000 characters")
         String text,
 
-        @Schema(description = "Language of the text content (optional)", example = "en")
+        @Schema(
+                description = "Exact supported lowercase ISO 639-1 code for generated content; omit to default to en",
+                example = "en",
+                pattern = "^[a-z]{2}$",
+                defaultValue = "en"
+        )
         String language,
 
         @Schema(description = "Document processing strategy", example = "CHAPTER_BASED")
@@ -77,7 +83,7 @@ public record GenerateQuizFromTextRequest(
         maxChunkSize = (maxChunkSize == null) ? 250000 : maxChunkSize;
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
-        language = (language == null || language.isBlank()) ? "en" : language.trim();
+        language = GenerationLanguagePolicy.defaultIfAbsent(language);
         
         // Defensive fallback for difficulty (validation should catch null, but this prevents NPE)
         difficulty = (difficulty == null) ? Difficulty.MEDIUM : difficulty;

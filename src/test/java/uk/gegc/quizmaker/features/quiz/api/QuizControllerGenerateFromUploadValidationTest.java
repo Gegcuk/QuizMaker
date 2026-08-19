@@ -18,6 +18,8 @@ import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
@@ -32,6 +34,7 @@ import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -45,12 +48,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(QuizController.class)
-@DisplayName("Generate quiz from upload validation")
+@DisplayName("Quiz generation request validation")
 class QuizControllerGenerateFromUploadValidationTest {
 
     private static final String USERNAME = "upload-author";
@@ -158,6 +162,130 @@ class QuizControllerGenerateFromUploadValidationTest {
         verify(quizService).generateQuizFromUpload(
                 eq(USERNAME), any(MultipartFile.class), requestCaptor.capture(), isNull());
         assertThat(requestCaptor.getValue().maxChunkSize()).isEqualTo(100000);
+        assertThat(requestCaptor.getValue().language()).isEqualTo("en");
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME, roles = "ADMIN")
+    @DisplayName("Defaults omitted document language to English")
+    void defaultsOmittedDocumentLanguageToEnglish() throws Exception {
+        when(quizService.startQuizGeneration(
+                anyString(), any(GenerateQuizFromDocumentRequest.class), isNull()))
+                .thenReturn(generationResponse());
+        String requestBody = """
+                {
+                  "documentId": "%s",
+                  "questionsPerType": {"MCQ_SINGLE": 1},
+                  "difficulty": "MEDIUM"
+                }
+                """.formatted(UUID.randomUUID());
+
+        mockMvc.perform(post("/api/v1/quizzes/generate-from-document")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody)
+                        .with(csrf()))
+                .andExpect(status().isAccepted());
+
+        var requestCaptor = ArgumentCaptor.forClass(GenerateQuizFromDocumentRequest.class);
+        verify(quizService).startQuizGeneration(eq(USERNAME), requestCaptor.capture(), isNull());
+        assertThat(requestCaptor.getValue().language()).isEqualTo("en");
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME, roles = "ADMIN")
+    @DisplayName("Defaults omitted text language to English")
+    void defaultsOmittedTextLanguageToEnglish() throws Exception {
+        when(quizService.generateQuizFromText(
+                anyString(), any(GenerateQuizFromTextRequest.class), isNull()))
+                .thenReturn(generationResponse());
+        String requestBody = """
+                {
+                  "text": "A valid local text fixture for default language validation.",
+                  "questionsPerType": {"MCQ_SINGLE": 1},
+                  "difficulty": "MEDIUM"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/quizzes/generate-from-text")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody)
+                        .with(csrf()))
+                .andExpect(status().isAccepted());
+
+        var requestCaptor = ArgumentCaptor.forClass(GenerateQuizFromTextRequest.class);
+        verify(quizService).generateQuizFromText(eq(USERNAME), requestCaptor.capture(), isNull());
+        assertThat(requestCaptor.getValue().language()).isEqualTo("en");
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME, roles = "ADMIN")
+    @DisplayName("Rejects invalid document language before rate limiting or generation")
+    void rejectsInvalidDocumentLanguageBeforeDispatch() throws Exception {
+        String invalidLanguage = "EN";
+        String requestBody = """
+                {
+                  "documentId": "%s",
+                  "questionsPerType": {"MCQ_SINGLE": 1},
+                  "difficulty": "MEDIUM",
+                  "language": "%s"
+                }
+                """.formatted(UUID.randomUUID(), invalidLanguage);
+
+        String responseBody = mockMvc.perform(post("/api/v1/quizzes/generate-from-document")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody)
+                        .with(csrf()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(responseBody).doesNotContain(invalidLanguage);
+        verifyNoInteractions(documentValidationService, rateLimitService, quizService);
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME, roles = "ADMIN")
+    @DisplayName("Rejects invalid text language before rate limiting or generation")
+    void rejectsInvalidTextLanguageBeforeDispatch() throws Exception {
+        String invalidLanguage = "en-US";
+        String requestBody = """
+                {
+                  "text": "A valid local text fixture for language validation.",
+                  "questionsPerType": {"MCQ_SINGLE": 1},
+                  "difficulty": "MEDIUM",
+                  "language": "%s"
+                }
+                """.formatted(invalidLanguage);
+
+        String responseBody = mockMvc.perform(post("/api/v1/quizzes/generate-from-text")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody)
+                        .with(csrf()))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(responseBody).doesNotContain(invalidLanguage);
+        verifyNoInteractions(documentValidationService, rateLimitService, quizService);
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME, roles = "ADMIN")
+    @DisplayName("Rejects unsafe upload language before reading or validating the file")
+    void rejectsUnsafeUploadLanguageBeforeFileProcessing() throws Exception {
+        String privateCanary = "PRIVATE_LANGUAGE_CANARY";
+        String invalidLanguage = "English\n" + privateCanary;
+
+        String responseBody = mockMvc.perform(uploadRequest().param("language", invalidLanguage))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(responseBody).doesNotContain(privateCanary);
+        verifyNoInteractions(documentValidationService, rateLimitService, quizService);
     }
 
     private MockHttpServletRequestBuilder uploadRequest() {
@@ -180,11 +308,15 @@ class QuizControllerGenerateFromUploadValidationTest {
                 any(MultipartFile.class),
                 any(GenerateQuizFromUploadRequest.class),
                 isNull()
-        )).thenReturn(new QuizGenerationResponse(
+        )).thenReturn(generationResponse());
+    }
+
+    private QuizGenerationResponse generationResponse() {
+        return new QuizGenerationResponse(
                 UUID.randomUUID(),
                 GenerationStatus.PROCESSING,
                 "Quiz generation started successfully",
                 30L
-        ));
+        );
     }
 }
