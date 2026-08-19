@@ -58,10 +58,8 @@ public class StructuredQuestion {
     private String explanation;
     
     /**
-     * Confidence score from LLM (0.0-1.0), if supported
+     * Required confidence score from the provider (0.0-1.0).
      */
     @JsonProperty("confidence")
-    @Builder.Default
-    private Double confidence = 1.0;
+    private Double confidence;
 }
-

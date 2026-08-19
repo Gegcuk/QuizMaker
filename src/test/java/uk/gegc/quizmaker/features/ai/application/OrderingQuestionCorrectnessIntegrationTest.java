@@ -58,6 +58,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         structuredQuestion.setQuestionText("Arrange the following SSL/TLS versions in chronological order:");
         structuredQuestion.setType(QuestionType.ORDERING);
         structuredQuestion.setDifficulty(Difficulty.MEDIUM);
+        structuredQuestion.setConfidence(1.0);
         
         // CRITICAL: AI returns items in CORRECT chronological order with sequential IDs
         structuredQuestion.setContent("""
@@ -140,6 +141,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         structuredQuestion.setQuestionText("Arrange the steps of photosynthesis in the correct order:");
         structuredQuestion.setType(QuestionType.ORDERING);
         structuredQuestion.setDifficulty(Difficulty.HARD);
+        structuredQuestion.setConfidence(1.0);
         
         // AI returns process steps in CORRECT order with sequential IDs
         structuredQuestion.setContent("""
@@ -195,6 +197,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         structuredQuestion.setQuestionText("Arrange these historical events in order:");
         structuredQuestion.setType(QuestionType.ORDERING);
         structuredQuestion.setDifficulty(Difficulty.EASY);
+        structuredQuestion.setConfidence(1.0);
         
         // AI returns in CORRECT chronological order
         structuredQuestion.setContent("""
@@ -255,6 +258,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         structuredQuestion.setQuestionText("Arrange SSL/TLS versions in order:");
         structuredQuestion.setType(QuestionType.ORDERING);
         structuredQuestion.setDifficulty(Difficulty.MEDIUM);
+        structuredQuestion.setConfidence(1.0);
         
         // AI mistakenly returns in WRONG chronological order (matching your database example)
         structuredQuestion.setContent("""
@@ -315,6 +319,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         structuredQuestion.setQuestionText("Order these programming languages by year of first release:");
         structuredQuestion.setType(QuestionType.ORDERING);
         structuredQuestion.setDifficulty(Difficulty.MEDIUM);
+        structuredQuestion.setConfidence(1.0);
         
         // AI correctly returns in chronological order
         structuredQuestion.setContent("""
@@ -378,6 +383,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         question1.setQuestionText("Order these numbers:");
         question1.setType(QuestionType.ORDERING);
         question1.setDifficulty(Difficulty.EASY);
+        question1.setConfidence(1.0);
         question1.setContent("""
             {
                 "items": [
@@ -394,6 +400,7 @@ class OrderingQuestionCorrectnessIntegrationTest {
         question2.setQuestionText("Order these letters:");
         question2.setType(QuestionType.ORDERING);
         question2.setDifficulty(Difficulty.EASY);
+        question2.setConfidence(1.0);
         question2.setContent("""
             {
                 "items": [
@@ -432,4 +439,3 @@ class OrderingQuestionCorrectnessIntegrationTest {
         assertThat(correctOrder2.get(3).asInt()).isEqualTo(4);
     }
 }
-

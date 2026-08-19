@@ -2,9 +2,12 @@ package uk.gegc.quizmaker.features.ai.application.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -457,6 +460,70 @@ class SpringAiStructuredClientParsingTest {
         assertThatThrownBy(() -> invokeParseQuestion(questionNode))
                 .isInstanceOf(Exception.class);
     }
+
+    @Test
+    @DisplayName("Should reject an otherwise valid question with missing confidence")
+    void shouldRejectMissingConfidence() throws Exception {
+        ObjectNode questionNode = validTrueFalseQuestion();
+        questionNode.remove("confidence");
+
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("missing required fields");
+    }
+
+    @Test
+    @DisplayName("Should reject an otherwise valid question with null confidence")
+    void shouldRejectNullConfidence() throws Exception {
+        ObjectNode questionNode = validTrueFalseQuestion();
+        questionNode.putNull("confidence");
+
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("null values");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"0.95\"", "true", "{}", "[]"})
+    @DisplayName("Should reject confidence values that are not JSON numbers")
+    void shouldRejectNonNumericConfidence(String confidenceJson) throws Exception {
+        ObjectNode questionNode = validTrueFalseQuestion();
+        questionNode.set("confidence", objectMapper.readTree(confidenceJson));
+
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("confidence must be numeric");
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {
+            -0.01,
+            1.01,
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.NEGATIVE_INFINITY
+    })
+    @DisplayName("Should reject non-finite or out-of-range numeric confidence")
+    void shouldRejectInvalidNumericConfidence(double confidence) throws Exception {
+        ObjectNode questionNode = validTrueFalseQuestion();
+        questionNode.put("confidence", confidence);
+
+        assertThatThrownBy(() -> invokeParseQuestion(questionNode))
+                .isInstanceOf(AIResponseParseException.class)
+                .hasMessageContaining("finite number between 0.0 and 1.0");
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = {0.0, 1.0})
+    @DisplayName("Should accept the inclusive structural confidence range")
+    void shouldAcceptStructuralConfidenceBoundaries(double confidence) throws Exception {
+        ObjectNode questionNode = validTrueFalseQuestion();
+        questionNode.put("confidence", confidence);
+
+        StructuredQuestion question = invokeParseQuestion(questionNode);
+
+        assertThat(question.getConfidence()).isEqualTo(confidence);
+    }
     
     @Test
     @DisplayName("Should parse MATCHING question successfully")
@@ -568,5 +635,19 @@ class SpringAiStructuredClientParsingTest {
             }
             throw e;
         }
+    }
+
+    private ObjectNode validTrueFalseQuestion() throws Exception {
+        return (ObjectNode) objectMapper.readTree("""
+                {
+                  "questionText": "Is the sky blue?",
+                  "type": "TRUE_FALSE",
+                  "difficulty": "EASY",
+                  "content": {"answer": true},
+                  "hint": "Look up",
+                  "explanation": "Rayleigh scattering",
+                  "confidence": 0.95
+                }
+                """);
     }
 }

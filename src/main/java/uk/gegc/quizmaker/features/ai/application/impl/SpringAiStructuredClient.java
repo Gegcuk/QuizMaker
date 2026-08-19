@@ -526,6 +526,16 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 || !questionNode.has("confidence") || questionNode.get("confidence").isNull()) {
             throw new AIResponseParseException("Question missing required fields or has null values");
         }
+
+        JsonNode confidenceNode = questionNode.get("confidence");
+        if (!confidenceNode.isNumber()) {
+            throw new AIResponseParseException("Question confidence must be numeric");
+        }
+        double confidence = confidenceNode.doubleValue();
+        if (!Double.isFinite(confidence) || confidence < 0.0 || confidence > 1.0) {
+            throw new AIResponseParseException(
+                    "Question confidence must be a finite number between 0.0 and 1.0");
+        }
         
         builder.questionText(questionNode.get("questionText").asText());
         QuestionType type = QuestionType.valueOf(questionNode.get("type").asText());
@@ -549,7 +559,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         // Now required fields (strict mode)
         builder.hint(questionNode.get("hint").asText());
         builder.explanation(questionNode.get("explanation").asText());
-        builder.confidence(questionNode.get("confidence").asDouble());
+        builder.confidence(confidence);
         
         return builder.build();
     }

@@ -557,6 +557,7 @@ class AiQuizGenerationCancellationOrchestrationTest {
                           {"id":"distractor","text":"Distractor","correct":false}
                         ]}
                         """)
+                .confidence(1.0)
                 .build();
     }
 

@@ -291,6 +291,36 @@ class AiQuizGenerationFailureScenariosTest {
     }
 
     @Test
+    @DisplayName("All-low-confidence provider output fails generation and releases the reservation")
+    void allLowConfidenceOutputFailsAndReleasesReservation() {
+        Fixture fixture = prepareFixture();
+        StructuredQuestion lowConfidence = structuredQuestion("Low-confidence output");
+        lowConfidence.setConfidence(0.69);
+        when(structuredAiClient.generateQuestions(any())).thenReturn(
+                StructuredQuestionResponse.builder()
+                        .questions(List.of(lowConfidence))
+                        .warnings(List.of())
+                        .build()
+        );
+
+        assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(
+                fixture.job(), fixture.request()))
+                .isInstanceOf(AiServiceException.class)
+                .hasMessageContaining("Failed to generate quiz");
+
+        verify(structuredAiClient, times(5)).generateQuestions(any());
+        verify(internalBillingService).release(
+                eq(fixture.reservationId()),
+                contains("Generation failed"),
+                eq(fixture.job().getId().toString()),
+                eq("quiz:" + fixture.job().getId() + ":release")
+        );
+        verify(eventPublisher, never()).publishEvent(isA(QuizGenerationCompletedEvent.class));
+        assertThat(fixture.job().getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(fixture.job().getBillingState()).isEqualTo(BillingState.RELEASED);
+    }
+
+    @Test
     @DisplayName("Two-chunk coverage uses the full target and exact eighty percent releases the reservation")
     void exactThresholdCoverageFailsAndReleasesReservation() {
         Fixture fixture = prepareFixture(5, 2);
@@ -635,6 +665,7 @@ class AiQuizGenerationFailureScenariosTest {
                           {"id":"generated-distractor","text":"Distractor","correct":false}
                         ]}
                         """)
+                .confidence(1.0)
                 .build();
     }
 
