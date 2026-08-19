@@ -88,7 +88,7 @@ class AiQuizGenerationServiceProviderUsageTest {
         UUID jobId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
 
-        service.recordProviderUsage(jobId, new ProviderUsageObservation(attemptId, 100L));
+        service.recordProviderUsage(jobId, ProviderUsageObservation.reported(attemptId, 100L));
 
         verify(providerUsageService).recordReported(jobId, attemptId, 100L);
     }
@@ -99,9 +99,22 @@ class AiQuizGenerationServiceProviderUsageTest {
         UUID jobId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
 
-        service.recordProviderUsage(jobId, new ProviderUsageObservation(attemptId, null));
+        service.recordProviderUsage(jobId, ProviderUsageObservation.missing(attemptId));
 
         verify(providerUsageService).recordMissing(jobId, attemptId);
+    }
+
+    @Test
+    @DisplayName("provider attempt start and failure lifecycle facts are delegated")
+    void providerAttemptLifecycleFactsAreDelegated() {
+        UUID jobId = UUID.randomUUID();
+        UUID attemptId = UUID.randomUUID();
+
+        service.recordProviderUsage(jobId, ProviderUsageObservation.started(attemptId));
+        service.recordProviderUsage(jobId, ProviderUsageObservation.failed(attemptId));
+
+        verify(providerUsageService).recordStarted(jobId, attemptId);
+        verify(providerUsageService).recordFailed(jobId, attemptId);
     }
 
     @Test
@@ -113,7 +126,7 @@ class AiQuizGenerationServiceProviderUsageTest {
                 .when(providerUsageService).recordReported(jobId, attemptId, 100L);
 
         assertThatThrownBy(() -> service.recordProviderUsage(
-                jobId, new ProviderUsageObservation(attemptId, 100L)))
+                jobId, ProviderUsageObservation.reported(attemptId, 100L)))
                 .isInstanceOf(ProviderUsagePersistenceException.class)
                 .hasMessageContaining(jobId.toString())
                 .hasRootCauseMessage("storage unavailable");

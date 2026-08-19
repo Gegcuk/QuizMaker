@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("Quiz generation provider usage")
 class QuizGenerationProviderUsageTest {
@@ -39,19 +40,20 @@ class QuizGenerationProviderUsageTest {
     }
 
     @Test
-    @DisplayName("Provider usage records enforce reported and missing value invariants")
-    void providerUsageRecordEnforcesStateValueInvariant() {
+    @DisplayName("Provider attempt rows transition once and reject conflicting terminal facts")
+    void providerUsageRecordEnforcesLifecycleInvariant() {
         UUID jobId = UUID.randomUUID();
         UUID attemptId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.parse("2026-08-10T12:00:00");
 
-        var reported = QuizGenerationProviderUsage.reported(jobId, attemptId, 0L, now);
-        var missing = QuizGenerationProviderUsage.missing(jobId, UUID.randomUUID(), now);
+        var attempt = QuizGenerationProviderUsage.started(jobId, attemptId, now);
 
-        assertThat(reported.matches(ProviderUsageRecordState.REPORTED, 0L)).isTrue();
-        assertThat(missing.matches(ProviderUsageRecordState.MISSING, null)).isTrue();
+        assertThat(attempt.matches(ProviderUsageRecordState.STARTED, null)).isTrue();
+        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L)).isTrue();
+        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L)).isFalse();
+        assertThatThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.MISSING, null))
+                .isInstanceOf(IllegalStateException.class);
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> QuizGenerationProviderUsage.reported(
-                        jobId, UUID.randomUUID(), -1L, now));
+                .isThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.REPORTED, -1L));
     }
 }

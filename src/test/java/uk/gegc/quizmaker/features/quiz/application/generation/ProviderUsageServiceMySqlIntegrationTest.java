@@ -32,6 +32,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -92,6 +93,8 @@ class ProviderUsageServiceMySqlIntegrationTest {
         QuizGenerationJob job = persistJob();
         UUID firstAttempt = UUID.randomUUID();
         UUID secondAttempt = UUID.randomUUID();
+        providerUsageService.recordStarted(job.getId(), firstAttempt);
+        providerUsageService.recordStarted(job.getId(), secondAttempt);
         CyclicBarrier barrier = new CyclicBarrier(2);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -115,51 +118,57 @@ class ProviderUsageServiceMySqlIntegrationTest {
     }
 
     @Test
-    @DisplayName("Concurrent duplicate delivery contributes exactly once")
-    void concurrentDuplicateDeliveryContributesExactlyOnce() throws Exception {
+    @DisplayName("Concurrent conflicting terminal facts retain one outcome")
+    void concurrentConflictingDeliveryRetainsOneOutcome() throws Exception {
         QuizGenerationJob job = persistJob();
         UUID providerAttemptId = UUID.randomUUID();
+        providerUsageService.recordStarted(job.getId(), providerAttemptId);
         CyclicBarrier barrier = new CyclicBarrier(2);
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             List<Future<ProviderUsageRecordResult>> futures = List.of(
                     executor.submit(() -> recordAfterBarrier(barrier, job.getId(), providerAttemptId, 125L)),
-                    executor.submit(() -> recordAfterBarrier(barrier, job.getId(), providerAttemptId, 125L))
+                    executor.submit(() -> {
+                        barrier.await();
+                        return providerUsageService.recordMissing(job.getId(), providerAttemptId);
+                    })
             );
 
-            assertThat(List.of(futures.get(0).get(), futures.get(1).get()))
-                    .containsExactlyInAnyOrder(
-                            ProviderUsageRecordResult.RECORDED,
-                            ProviderUsageRecordResult.DUPLICATE
-                    );
+            assertThatThrownBy(() -> List.of(futures.get(0).get(), futures.get(1).get()))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(IllegalStateException.class);
         } finally {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
 
         QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
-        assertThat(reloaded.getProviderLlmTokens()).isEqualTo(125L);
+        assertThat(reloaded.getProviderLlmTokens()).isIn(null, 125L);
         assertThat(usageRepository.countByJobId(job.getId())).isEqualTo(1L);
+        assertThat(usageRepository.findByJobIdAndProviderAttemptId(job.getId(), providerAttemptId).orElseThrow()
+                .getRecordState()).isIn(ProviderUsageRecordState.REPORTED, ProviderUsageRecordState.MISSING);
     }
 
     @Test
-    @DisplayName("Missing usage is durable and cannot be replaced by a conflicting retry")
+    @DisplayName("Missing usage is durable and preserves legacy review")
     void missingUsageIsDurableAndConflictingRetryIsRejected() {
         QuizGenerationJob job = persistJob();
         UUID providerAttemptId = UUID.randomUUID();
+        job.setProviderUsageState(ProviderUsageState.LEGACY_REVIEW);
+        jobRepository.saveAndFlush(job);
 
+        providerUsageService.recordStarted(job.getId(), providerAttemptId);
         assertThat(providerUsageService.recordMissing(job.getId(), providerAttemptId))
                 .isEqualTo(ProviderUsageRecordResult.RECORDED);
         assertThat(providerUsageService.recordMissing(job.getId(), providerAttemptId))
                 .isEqualTo(ProviderUsageRecordResult.DUPLICATE);
         assertThatThrownBy(() -> providerUsageService.recordReported(job.getId(), providerAttemptId, 99L))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(providerAttemptId.toString());
+                .isInstanceOf(IllegalStateException.class);
 
         QuizGenerationJob reloaded = jobRepository.findById(job.getId()).orElseThrow();
         assertThat(reloaded.getProviderLlmTokens()).isNull();
-        assertThat(reloaded.getProviderUsageState()).isEqualTo(ProviderUsageState.INCOMPLETE);
+        assertThat(reloaded.getProviderUsageState()).isEqualTo(ProviderUsageState.LEGACY_REVIEW);
         assertThat(usageRepository.findByJobIdAndProviderAttemptId(job.getId(), providerAttemptId))
                 .get()
                 .satisfies(usage -> {
@@ -169,15 +178,44 @@ class ProviderUsageServiceMySqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("Started and failed attempts stay incomplete and terminal-only facts are rejected")
+    void unresolvedAttemptsStayIncompleteAndRequireDurableStart() {
+        QuizGenerationJob job = persistJob();
+        UUID providerAttemptId = UUID.randomUUID();
+
+        assertThat(providerUsageService.recordStarted(job.getId(), providerAttemptId))
+                .isEqualTo(ProviderUsageRecordResult.RECORDED);
+        assertThat(usageRepository.findByJobIdAndProviderAttemptId(job.getId(), providerAttemptId).orElseThrow()
+                .getRecordState()).isEqualTo(ProviderUsageRecordState.STARTED);
+        assertThat(providerUsageService.recordFailed(job.getId(), providerAttemptId))
+                .isEqualTo(ProviderUsageRecordResult.RECORDED);
+        assertThat(providerUsageService.recordStarted(job.getId(), providerAttemptId))
+                .isEqualTo(ProviderUsageRecordResult.DUPLICATE);
+        assertThatThrownBy(() -> providerUsageService.recordReported(
+                job.getId(), UUID.randomUUID(), 10L)).isInstanceOf(IllegalStateException.class);
+
+        assertThat(jobRepository.findById(job.getId()).orElseThrow().getProviderUsageState())
+                .isEqualTo(ProviderUsageState.INCOMPLETE);
+        assertThat(usageRepository.findByJobIdAndProviderAttemptId(job.getId(), providerAttemptId))
+                .get().extracting("recordState", "providerLlmTokens")
+                .containsExactly(ProviderUsageRecordState.FAILED, null);
+    }
+
+    @Test
     @DisplayName("Recording outcomes expose only bounded metric tags")
     void recordingOutcomesExposeBoundedMetrics() {
         QuizGenerationJob job = persistJob();
         UUID providerAttemptId = UUID.randomUUID();
+        UUID missingAttemptId = UUID.randomUUID();
 
+        providerUsageService.recordStarted(job.getId(), providerAttemptId);
         providerUsageService.recordReported(job.getId(), providerAttemptId, 10L);
         providerUsageService.recordReported(job.getId(), providerAttemptId, 10L);
-        providerUsageService.recordMissing(job.getId(), UUID.randomUUID());
+        providerUsageService.recordStarted(job.getId(), missingAttemptId);
+        providerUsageService.recordMissing(job.getId(), missingAttemptId);
 
+        assertThat(meterRegistry.find("quiz.generation.provider.usage")
+                .tag("outcome", "started").counter().count()).isEqualTo(2.0);
         assertThat(meterRegistry.find("quiz.generation.provider.usage")
                 .tag("outcome", "reported").counter().count()).isEqualTo(1.0);
         assertThat(meterRegistry.find("quiz.generation.provider.usage")

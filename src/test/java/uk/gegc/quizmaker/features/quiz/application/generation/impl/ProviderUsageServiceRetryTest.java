@@ -12,6 +12,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageRecordResult;
+import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationProviderUsageRepository;
@@ -71,15 +72,16 @@ class ProviderUsageServiceRetryTest {
         when(usageRepository.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(jobRepository.saveAndFlush(job)).thenReturn(job);
 
-        assertThat(service.recordReported(jobId, providerAttemptId, 75L))
+        assertThat(service.recordStarted(jobId, providerAttemptId))
                 .isEqualTo(ProviderUsageRecordResult.RECORDED);
 
-        assertThat(job.getProviderLlmTokens()).isEqualTo(75L);
+        assertThat(job.getProviderLlmTokens()).isNull();
+        assertThat(job.getProviderUsageState()).isEqualTo(ProviderUsageState.INCOMPLETE);
         verify(transactionManager).rollback(transactionStatus);
         verify(transactionManager).commit(transactionStatus);
         verify(usageRepository).saveAndFlush(any());
         assertThat(counter("retry")).isEqualTo(1.0);
-        assertThat(counter("reported")).isEqualTo(1.0);
+        assertThat(counter("started")).isEqualTo(1.0);
         assertThat(counter("failure")).isZero();
     }
 
@@ -91,7 +93,7 @@ class ProviderUsageServiceRetryTest {
         when(jobRepository.findByIdForUpdate(jobId))
                 .thenThrow(new TransientDataAccessResourceException("database unavailable"));
 
-        assertThatThrownBy(() -> service.recordReported(jobId, providerAttemptId, 75L))
+        assertThatThrownBy(() -> service.recordStarted(jobId, providerAttemptId))
                 .isInstanceOf(TransientDataAccessResourceException.class)
                 .hasMessage("database unavailable");
 
@@ -100,7 +102,7 @@ class ProviderUsageServiceRetryTest {
         verify(usageRepository, never()).saveAndFlush(any());
         assertThat(counter("retry")).isEqualTo(2.0);
         assertThat(counter("failure")).isEqualTo(1.0);
-        assertThat(counter("reported")).isZero();
+        assertThat(counter("started")).isZero();
     }
 
     @Test
@@ -111,7 +113,7 @@ class ProviderUsageServiceRetryTest {
         when(transactionManager.getTransaction(any()))
                 .thenThrow(new CannotCreateTransactionException("cannot connect"));
 
-        assertThatThrownBy(() -> service.recordMissing(jobId, providerAttemptId))
+        assertThatThrownBy(() -> service.recordStarted(jobId, providerAttemptId))
                 .isInstanceOf(CannotCreateTransactionException.class)
                 .hasMessage("cannot connect");
 
@@ -121,7 +123,7 @@ class ProviderUsageServiceRetryTest {
         verify(jobRepository, never()).findByIdForUpdate(any());
         assertThat(counter("retry")).isEqualTo(2.0);
         assertThat(counter("failure")).isEqualTo(1.0);
-        assertThat(counter("missing")).isZero();
+        assertThat(counter("started")).isZero();
     }
 
     private double counter(String outcome) {

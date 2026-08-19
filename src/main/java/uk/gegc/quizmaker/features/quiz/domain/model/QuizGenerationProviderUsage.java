@@ -39,10 +39,10 @@ public class QuizGenerationProviderUsage {
     private UUID providerAttemptId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "record_state", nullable = false, updatable = false, length = 16)
+    @Column(name = "record_state", nullable = false, length = 16)
     private ProviderUsageRecordState recordState;
 
-    @Column(name = "provider_llm_tokens", updatable = false)
+    @Column(name = "provider_llm_tokens")
     private Long providerLlmTokens;
 
     @Column(name = "recorded_at", nullable = false, updatable = false)
@@ -59,32 +59,11 @@ public class QuizGenerationProviderUsage {
         this.providerAttemptId = Objects.requireNonNull(providerAttemptId, "providerAttemptId must not be null");
         this.recordState = Objects.requireNonNull(recordState, "recordState must not be null");
         this.recordedAt = Objects.requireNonNull(recordedAt, "recordedAt must not be null");
-        if (recordState == ProviderUsageRecordState.REPORTED) {
-            if (providerLlmTokens == null || providerLlmTokens < 0L) {
-                throw new IllegalArgumentException("reported provider LLM tokens must not be negative");
-            }
-            this.providerLlmTokens = providerLlmTokens;
-        } else if (providerLlmTokens != null) {
-            throw new IllegalArgumentException("missing provider usage must not contain a token value");
-        }
+        validateTokens(recordState, providerLlmTokens);
+        this.providerLlmTokens = providerLlmTokens;
     }
 
-    public static QuizGenerationProviderUsage reported(
-            UUID jobId,
-            UUID providerAttemptId,
-            long providerLlmTokens,
-            LocalDateTime recordedAt
-    ) {
-        return new QuizGenerationProviderUsage(
-                jobId,
-                providerAttemptId,
-                ProviderUsageRecordState.REPORTED,
-                providerLlmTokens,
-                recordedAt
-        );
-    }
-
-    public static QuizGenerationProviderUsage missing(
+    public static QuizGenerationProviderUsage started(
             UUID jobId,
             UUID providerAttemptId,
             LocalDateTime recordedAt
@@ -92,10 +71,40 @@ public class QuizGenerationProviderUsage {
         return new QuizGenerationProviderUsage(
                 jobId,
                 providerAttemptId,
-                ProviderUsageRecordState.MISSING,
+                ProviderUsageRecordState.STARTED,
                 null,
                 recordedAt
         );
+    }
+
+    public boolean transitionTo(
+            ProviderUsageRecordState terminalState,
+            Long tokens
+    ) {
+        Objects.requireNonNull(terminalState, "terminalState must not be null");
+        if (terminalState == ProviderUsageRecordState.STARTED) {
+            throw new IllegalArgumentException("terminalState must be terminal");
+        }
+        validateTokens(terminalState, tokens);
+        if (matches(terminalState, tokens)) {
+            return false;
+        }
+        if (recordState != ProviderUsageRecordState.STARTED) {
+            throw new IllegalStateException("Provider attempt already has a different terminal fact");
+        }
+        recordState = terminalState;
+        providerLlmTokens = tokens;
+        return true;
+    }
+
+    private static void validateTokens(ProviderUsageRecordState state, Long tokens) {
+        if (state == ProviderUsageRecordState.REPORTED) {
+            if (tokens == null || tokens < 0L) {
+                throw new IllegalArgumentException("reported provider LLM tokens must not be negative");
+            }
+        } else if (tokens != null) {
+            throw new IllegalArgumentException("non-reported provider usage must not contain a token value");
+        }
     }
 
     public boolean matches(ProviderUsageRecordState expectedState, Long expectedTokens) {

@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageRecordState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationProviderUsage;
 
 import java.util.Optional;
@@ -15,4 +16,6 @@ public interface QuizGenerationProviderUsageRepository
     );
 
     long countByJobId(UUID jobId);
+
+    boolean existsByJobIdAndRecordStateNot(UUID jobId, ProviderUsageRecordState recordState);
 }

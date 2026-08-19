@@ -544,6 +544,20 @@ public class QuizGenerationJob {
         }
     }
 
+    public void markProviderAttemptStarted() {
+        if (providerUsageState != ProviderUsageState.LEGACY_REVIEW) {
+            providerUsageState = ProviderUsageState.INCOMPLETE;
+        }
+    }
+
+    public void reconcileProviderUsageCompleteness(boolean allAttemptsReported) {
+        if (providerUsageState != ProviderUsageState.LEGACY_REVIEW) {
+            providerUsageState = allAttemptsReported
+                    ? ProviderUsageState.COMPLETE
+                    : ProviderUsageState.INCOMPLETE;
+        }
+    }
+
     /**
      * Compatibility helper for legacy in-memory callers. Production provider
      * accounting uses {@code ProviderUsageService} with a durable attempt ID.

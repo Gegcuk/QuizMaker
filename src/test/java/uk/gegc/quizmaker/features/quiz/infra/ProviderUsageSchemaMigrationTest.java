@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -97,6 +98,68 @@ class ProviderUsageSchemaMigrationTest {
                 ) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), 'REPORTED', 125, CURRENT_TIMESTAMP)
                 """, jobId, providerAttemptId))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("V75 preserves terminal rows and enforces provider attempt lifecycle values")
+    void migrateV75PreservesRowsAndEnforcesLifecycle() {
+        createPreV75UsageTable();
+        String jobId = jdbcTemplate.queryForObject(
+                "SELECT BIN_TO_UUID(id) FROM quiz_generation_jobs WHERE test_key = 'active-snapshot'",
+                String.class
+        );
+        insertUsage(jobId, "REPORTED", 125L);
+        insertUsage(jobId, "MISSING", null);
+
+        Flyway.configure()
+                .dataSource(jdbcTemplate.getDataSource())
+                .table(MIGRATION_HISTORY_TABLE)
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .baselineVersion("74")
+                .target("75")
+                .load()
+                .migrate();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM quiz_generation_provider_usage", Long.class)).isEqualTo(2L);
+        insertUsage(jobId, "STARTED", null);
+        insertUsage(jobId, "FAILED", null);
+        assertThatThrownBy(() -> insertUsage(jobId, "STARTED", 1L))
+                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> insertUsage(jobId, "REPORTED", null))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    private void createPreV75UsageTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE quiz_generation_provider_usage (
+                    id BINARY(16) NOT NULL PRIMARY KEY,
+                    job_id BINARY(16) NOT NULL,
+                    provider_attempt_id BINARY(16) NOT NULL,
+                    record_state VARCHAR(16) NOT NULL,
+                    provider_llm_tokens BIGINT NULL,
+                    recorded_at TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_qgpu_job_attempt UNIQUE (job_id, provider_attempt_id),
+                    CONSTRAINT fk_qgpu_job FOREIGN KEY (job_id)
+                        REFERENCES quiz_generation_jobs(id) ON DELETE CASCADE,
+                    CONSTRAINT chk_qgpu_record CHECK (
+                        (record_state = 'REPORTED' AND provider_llm_tokens IS NOT NULL
+                            AND provider_llm_tokens >= 0)
+                        OR (record_state = 'MISSING' AND provider_llm_tokens IS NULL)
+                    ),
+                    INDEX idx_qgpu_job_recorded (job_id, recorded_at),
+                    INDEX idx_qgpu_state_recorded (record_state, recorded_at)
+                ) ENGINE=InnoDB
+                """);
+    }
+
+    private void insertUsage(String jobId, String state, Long tokens) {
+        jdbcTemplate.update("""
+                INSERT INTO quiz_generation_provider_usage (
+                    id, job_id, provider_attempt_id, record_state, provider_llm_tokens, recorded_at
+                ) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(UUID()), ?, ?, CURRENT_TIMESTAMP)
+                """, jobId, state, tokens);
     }
 
     private void insertJob(String testKey, String status, boolean completeTariff) {

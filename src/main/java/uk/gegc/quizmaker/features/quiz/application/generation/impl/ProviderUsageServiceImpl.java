@@ -34,7 +34,10 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
     private final Clock clock;
     private final Counter reportedCounter;
     private final Counter missingCounter;
+    private final Counter startedCounter;
+    private final Counter failedCounter;
     private final Counter duplicateCounter;
+    private final Counter conflictCounter;
     private final Counter retryCounter;
     private final Counter failureCounter;
     private final Counter providerTokensCounter;
@@ -50,14 +53,22 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         this.usageRepository = usageRepository;
         this.transactionManager = transactionManager;
         this.clock = clock;
+        this.startedCounter = counter(meterRegistry, "started");
         this.reportedCounter = counter(meterRegistry, "reported");
         this.missingCounter = counter(meterRegistry, "missing");
+        this.failedCounter = counter(meterRegistry, "failed");
         this.duplicateCounter = counter(meterRegistry, "duplicate");
+        this.conflictCounter = counter(meterRegistry, "conflict");
         this.retryCounter = counter(meterRegistry, "retry");
         this.failureCounter = counter(meterRegistry, "failure");
         this.providerTokensCounter = Counter.builder("quiz.generation.provider.tokens")
                 .description("Total provider-reported LLM tokens recorded durably")
                 .register(meterRegistry);
+    }
+
+    @Override
+    public ProviderUsageRecordResult recordStarted(UUID jobId, UUID providerAttemptId) {
+        return record(jobId, providerAttemptId, ProviderUsageRecordState.STARTED, null);
     }
 
     @Override
@@ -75,6 +86,11 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
     @Override
     public ProviderUsageRecordResult recordMissing(UUID jobId, UUID providerAttemptId) {
         return record(jobId, providerAttemptId, ProviderUsageRecordState.MISSING, null);
+    }
+
+    @Override
+    public ProviderUsageRecordResult recordFailed(UUID jobId, UUID providerAttemptId) {
+        return record(jobId, providerAttemptId, ProviderUsageRecordState.FAILED, null);
     }
 
     private ProviderUsageRecordResult record(
@@ -112,7 +128,11 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                 log.warn("Retrying provider usage persistence for job {} after transient database failure ({}/{})",
                         jobId, attempt, MAX_TRANSIENT_ATTEMPTS);
             } catch (RuntimeException exception) {
-                failureCounter.increment();
+                if (exception instanceof IllegalStateException) {
+                    conflictCounter.increment();
+                } else {
+                    failureCounter.increment();
+                }
                 throw exception;
             }
         }
@@ -129,21 +149,28 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
         var existing = usageRepository.findByJobIdAndProviderAttemptId(jobId, providerAttemptId);
-        if (existing.isPresent()) {
-            if (!existing.get().matches(recordState, providerLlmTokens)) {
-                throw new IllegalStateException(
-                        "Provider attempt " + providerAttemptId + " was already recorded with different usage");
+        if (recordState == ProviderUsageRecordState.STARTED) {
+            if (existing.isPresent()) {
+                return ProviderUsageRecordResult.DUPLICATE;
             }
-            return ProviderUsageRecordResult.DUPLICATE;
+            usageRepository.saveAndFlush(QuizGenerationProviderUsage.started(
+                    jobId, providerAttemptId, LocalDateTime.now(clock)));
+            job.markProviderAttemptStarted();
+            jobRepository.saveAndFlush(job);
+            return ProviderUsageRecordResult.RECORDED;
         }
 
-        QuizGenerationProviderUsage usage = recordState == ProviderUsageRecordState.REPORTED
-                ? QuizGenerationProviderUsage.reported(
-                        jobId, providerAttemptId, providerLlmTokens, LocalDateTime.now(clock))
-                : QuizGenerationProviderUsage.missing(
-                        jobId, providerAttemptId, LocalDateTime.now(clock));
+        QuizGenerationProviderUsage usage = existing.orElseThrow(() -> new IllegalStateException(
+                "Provider attempt " + providerAttemptId + " has no durable start"));
+        if (!usage.transitionTo(recordState, providerLlmTokens)) {
+            return ProviderUsageRecordResult.DUPLICATE;
+        }
         usageRepository.saveAndFlush(usage);
-        job.recordProviderUsage(providerLlmTokens);
+        if (recordState == ProviderUsageRecordState.REPORTED) {
+            job.recordProviderUsage(providerLlmTokens);
+        }
+        job.reconcileProviderUsageCompleteness(!usageRepository.existsByJobIdAndRecordStateNot(
+                jobId, ProviderUsageRecordState.REPORTED));
         jobRepository.saveAndFlush(job);
         return ProviderUsageRecordResult.RECORDED;
     }
@@ -158,7 +185,12 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         if (result == ProviderUsageRecordResult.DUPLICATE) {
             return duplicateCounter;
         }
-        return state == ProviderUsageRecordState.REPORTED ? reportedCounter : missingCounter;
+        return switch (state) {
+            case STARTED -> startedCounter;
+            case REPORTED -> reportedCounter;
+            case MISSING -> missingCounter;
+            case FAILED -> failedCounter;
+        };
     }
 
     private Counter counter(MeterRegistry meterRegistry, String outcome) {

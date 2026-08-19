@@ -1639,14 +1639,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     void recordProviderUsage(UUID jobId, ProviderUsageObservation usage) {
         try {
-            if (usage.isReported()) {
-                providerUsageService.recordReported(
-                        jobId,
-                        usage.providerAttemptId(),
-                        usage.providerLlmTokens()
-                );
-            } else {
-                providerUsageService.recordMissing(jobId, usage.providerAttemptId());
+            switch (usage.state()) {
+                case STARTED -> providerUsageService.recordStarted(jobId, usage.providerAttemptId());
+                case REPORTED -> providerUsageService.recordReported(
+                        jobId, usage.providerAttemptId(), usage.providerLlmTokens());
+                case MISSING -> providerUsageService.recordMissing(jobId, usage.providerAttemptId());
+                case FAILED -> providerUsageService.recordFailed(jobId, usage.providerAttemptId());
             }
         } catch (RuntimeException exception) {
             throw new ProviderUsagePersistenceException(

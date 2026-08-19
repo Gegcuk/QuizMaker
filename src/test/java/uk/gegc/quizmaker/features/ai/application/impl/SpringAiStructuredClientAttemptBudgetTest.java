@@ -101,10 +101,10 @@ class SpringAiStructuredClientAttemptBudgetTest {
             assertThat(question.getDifficulty()).isEqualTo(Difficulty.MEDIUM);
         });
         assertThat(response.getTokensUsed()).isEqualTo(30L);
-        assertThat(observations).singleElement().satisfies(observation -> {
-            assertThat(observation.providerAttemptId()).isNotNull();
-            assertThat(observation.providerLlmTokens()).isEqualTo(30L);
-        });
+        assertThat(observations).extracting(ProviderUsageObservation::state).containsExactly(
+                ProviderUsageObservation.State.STARTED, ProviderUsageObservation.State.REPORTED);
+        assertThat(observations.get(1).providerAttemptId()).isEqualTo(observations.get(0).providerAttemptId());
+        assertThat(observations.get(1).providerLlmTokens()).isEqualTo(30L);
         assertThat(budget.consumedAttempts()).isEqualTo(1);
         assertThat(budget.remainingAttempts()).isEqualTo(2);
         verify(chatClient).prompt(any(Prompt.class));
