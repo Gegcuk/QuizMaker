@@ -104,6 +104,25 @@ class LocalDocumentUploadStagingServiceTest {
     }
 
     @Test
+    @DisplayName("Uses the API filename override and accepts a declared MIME charset")
+    void stagesMultipartWithFilenameOverrideAndMimeCharset() {
+        LocalDocumentUploadStagingService service =
+                new LocalDocumentUploadStagingService(limits(1024), metrics);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "ignored.bin",
+                "text/plain; charset=UTF-8",
+                "Selected study text".getBytes(StandardCharsets.UTF_8)
+        );
+
+        StagedDocumentUpload staged = service.stage(file, "selected.txt");
+
+        assertThat(staged.originalFilename()).isEqualTo("selected.txt");
+        assertThat(staged.detectedContentType()).isEqualTo("text/plain");
+        service.discard(staged.stagingPath());
+    }
+
+    @Test
     @DisplayName("Stages selected UTF-8 text when detection ends within a multibyte character")
     void stagesSelectedUtf8TextWithIncompleteProbeCharacter() {
         LocalDocumentUploadStagingService service = new LocalDocumentUploadStagingService(limits(17 * 1024), metrics);

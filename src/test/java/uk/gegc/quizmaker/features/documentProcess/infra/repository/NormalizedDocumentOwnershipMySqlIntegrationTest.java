@@ -12,20 +12,22 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import uk.gegc.quizmaker.features.conversion.application.DocumentConversionService;
-import uk.gegc.quizmaker.features.conversion.application.MimeTypeDetector;
+import uk.gegc.quizmaker.features.document.application.DocumentIngestionMetrics;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentIngestionService;
 import uk.gegc.quizmaker.features.documentProcess.application.DocumentQueryService;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessMetrics;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
+import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentFilePreparationService;
 import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
 import uk.gegc.quizmaker.features.documentProcess.application.impl.NormalizedDocumentAccessServiceImpl;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
@@ -41,6 +43,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.when;
 
 @Tag("db-serial")
 @DataJpaTest
@@ -76,15 +81,15 @@ class NormalizedDocumentOwnershipMySqlIntegrationTest {
     private NormalizedDocumentAccessService documentAccessService;
 
     @MockitoBean
-    private DocumentConversionService conversionService;
-    @MockitoBean
-    private MimeTypeDetector mimeTypeDetector;
-    @MockitoBean
     private DocumentQueryService queryService;
     @MockitoBean
     private StructureService structureService;
     @MockitoBean
     private NormalizedDocumentAccessMetrics metrics;
+    @MockitoBean
+    private NormalizedDocumentFilePreparationService filePreparationService;
+    @MockitoBean
+    private DocumentIngestionMetrics ingestionMetrics;
 
     @Test
     @Transactional
@@ -107,6 +112,35 @@ class NormalizedDocumentOwnershipMySqlIntegrationTest {
         NormalizedDocument reloaded = documentRepository.findById(created.getId()).orElseThrow();
         assertThat(authorization.getOwnerUsername()).isEqualTo(owner.getUsername());
         assertThat(reloaded.getNormalizedText()).isEqualTo("private text");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("parses without a transaction and atomically publishes the authenticated owner")
+    void filePreparationRunsOutsidePublicationTransaction() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        User owner = transaction.execute(status -> userRepository.saveAndFlush(newUser("upload")));
+        assertThat(owner).isNotNull();
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "notes.txt", "text/plain", "private text".getBytes());
+        when(filePreparationService.prepare(eq(owner.getId().toString()), eq("notes.txt"), same(file)))
+                .thenAnswer(invocation -> {
+                    assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+                    return newDocument(null);
+                });
+
+        NormalizedDocument created = documentAccessService.ingestFromFile(owner.getUsername(), "notes.txt", file);
+
+        NormalizedDocument reloaded = transaction.execute(
+                status -> documentRepository.findById(created.getId()).orElseThrow());
+        assertThat(reloaded).isNotNull();
+        assertThat(reloaded.getOwner().getId()).isEqualTo(owner.getId());
+
+        transaction.executeWithoutResult(status -> {
+            documentRepository.deleteById(created.getId());
+            documentRepository.flush();
+            userRepository.deleteById(owner.getId());
+        });
     }
 
     @Test

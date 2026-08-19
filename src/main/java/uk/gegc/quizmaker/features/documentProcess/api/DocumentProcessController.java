@@ -143,8 +143,8 @@ public class DocumentProcessController {
     private final DocumentMapper mapper;
 
     @Operation(
-            summary = "Ingest text document",
-            description = "Ingests plain text content for the authenticated owner, normalizes it, and stores it for quiz generation. The owner is resolved from authentication and cannot be supplied by the client."
+            summary = "Ingest text or file document",
+            description = "Ingests JSON text or a multipart PDF, EPUB, or UTF-8 text document for the authenticated owner. Multipart files use the shared bounded parser with the primary document API's capacity, size, output, and timeout limits, outside the publication transaction. The owner is resolved from authentication and cannot be supplied by the client."
     )
     @ApiResponses({
             @ApiResponse(
@@ -181,7 +181,7 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Ingest file document",
-            description = "Uploads a document for the authenticated owner, converts it to text, normalizes it, and stores it for quiz generation. The owner is resolved from authentication and cannot be supplied by the client."
+            description = "Streams a PDF, EPUB, or UTF-8 text document through the shared bounded parser and stores the normalized result for the authenticated owner. Parsing uses the same global and per-owner capacity, size, output, and timeout limits as the primary document API and runs outside the publication transaction."
     )
     @ApiResponses({
             @ApiResponse(
@@ -195,25 +195,32 @@ public class DocumentProcessController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Authenticated owner account not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "415", description = "Unsupported file format",
+            @ApiResponse(responseCode = "413", description = "Upload exceeds the configured input limit",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "422", description = "Conversion or normalization failed",
+            @ApiResponse(responseCode = "415", description = "Filename, declared MIME type, or content evidence is unsupported or mismatched",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Parser time/resource limit, conversion, or normalization failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Shared document processing capacity is unavailable",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Parser worker, staging storage, or publication failed",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<IngestResponse> ingestFile(
             @Parameter(description = "Document file to upload", required = true) @RequestParam("file") MultipartFile file,
             @Parameter(description = "Optional original filename override") @RequestParam(value = "originalName", required = false) String originalName,
-            Authentication authentication) throws IOException {
+            Authentication authentication) {
         
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File is required");
         }
         
-        String name = originalName != null ? originalName :
-                     (file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload.bin");
+        String name = originalName != null && !originalName.isBlank()
+                ? originalName
+                : file.getOriginalFilename();
         NormalizedDocument document = documentAccessService.ingestFromFile(
-                principalName(authentication), name, file.getBytes());
+                principalName(authentication), name, file);
         
         URI location = URI.create("/api/v1/documentProcess/documents/" + document.getId());
         return ResponseEntity.created(location).body(mapper.toIngestResponse(document));

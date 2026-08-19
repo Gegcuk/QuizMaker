@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.documentProcess.application;
 
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureFlatResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse;
@@ -12,7 +13,7 @@ public interface NormalizedDocumentAccessService {
 
     NormalizedDocument ingestFromText(String username, String originalName, String language, String text);
 
-    NormalizedDocument ingestFromFile(String username, String originalName, byte[] bytes);
+    NormalizedDocument ingestFromFile(String username, String originalName, MultipartFile file);
 
     NormalizedDocument getDocument(String username, UUID documentId);
 

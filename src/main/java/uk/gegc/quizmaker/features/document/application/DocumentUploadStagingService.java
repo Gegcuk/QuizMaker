@@ -14,6 +14,8 @@ public interface DocumentUploadStagingService {
 
     StagedDocumentUpload stage(MultipartFile file);
 
+    StagedDocumentUpload stage(MultipartFile file, String originalFilename);
+
     StagedDocumentUpload stage(InputStream source, String originalFilename, String declaredContentType, long declaredSize);
 
     Path promote(StagedDocumentUpload upload);

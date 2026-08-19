@@ -13,10 +13,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import uk.gegc.quizmaker.features.conversion.application.DocumentConversionService;
-import uk.gegc.quizmaker.features.conversion.application.MimeTypeDetector;
 import uk.gegc.quizmaker.features.conversion.domain.ConversionFailedException;
-import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
+import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.documentProcess.domain.NormalizationFailedException;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.DocumentView;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.ExtractResponse;
@@ -24,11 +22,11 @@ import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestRequest;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.IngestResponse;
 import uk.gegc.quizmaker.features.documentProcess.api.dto.TextSliceResponse;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
-import uk.gegc.quizmaker.features.documentProcess.application.NormalizationService;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.mapper.DocumentMapper;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.DocumentTypeMismatchException;
 import uk.gegc.quizmaker.testsupport.WebMvcSecurityTestConfig;
 
 import java.time.Instant;
@@ -60,15 +58,6 @@ class DocumentProcessControllerTest {
 
     @MockitoBean
     private DocumentMapper mapper;
-
-    @MockitoBean
-    private DocumentConversionService conversionService;
-
-    @MockitoBean
-    private MimeTypeDetector mimeTypeDetector;
-
-    @MockitoBean
-    private NormalizationService normalizationService;
 
     private UUID documentId;
     private NormalizedDocument testDocument;
@@ -106,15 +95,15 @@ class DocumentProcessControllerTest {
 
     @Test
     @WithMockUser(username = "owner")
-    @DisplayName("unsupportedFormat_returns415 - POST multipart .unknown → 415 with body 'Unsupported Format'")
-    void unsupportedFormat_returns415() throws Exception {
+    @DisplayName("Returns the shared 415 problem when content evidence and filename disagree")
+    void documentTypeMismatchReturns415() throws Exception {
         // Given
         MockMultipartFile file = new MockMultipartFile(
                 "file", "test.unknown", "application/octet-stream", "test content".getBytes()
         );
         
-        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
-                .thenThrow(new UnsupportedFormatException("Unsupported document format"));
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(MultipartFile.class)))
+                .thenThrow(new DocumentTypeMismatchException("mismatch"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
@@ -122,9 +111,9 @@ class DocumentProcessControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.status").value(415))
-                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
-                .andExpect(jsonPath("$.title").value("Unsupported Format"))
-                .andExpect(jsonPath("$.detail").value("Unsupported document format"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-type-mismatch"))
+                .andExpect(jsonPath("$.title").value("Unsupported Document Type"))
+                .andExpect(jsonPath("$.detail").value("The document type does not match supported content."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 
@@ -137,7 +126,7 @@ class DocumentProcessControllerTest {
                 "file", "test.pdf", "application/pdf", "test content".getBytes()
         );
         
-        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(MultipartFile.class)))
                 .thenThrow(new ConversionFailedException("Document conversion failed"));
 
         // When & Then
@@ -305,7 +294,7 @@ class DocumentProcessControllerTest {
                 "file", "test.txt", "text/plain", "Hello world".getBytes()
         );
         
-        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(MultipartFile.class)))
                 .thenReturn(testDocument);
         when(mapper.toIngestResponse(testDocument)).thenReturn(testIngestResponse);
 
@@ -317,6 +306,8 @@ class DocumentProcessControllerTest {
                 .andExpect(header().string("Location", "/api/v1/documentProcess/documents/" + documentId))
                 .andExpect(jsonPath("$.id").value(documentId.toString()))
                 .andExpect(jsonPath("$.status").value("NORMALIZED"));
+
+        verify(documentAccessService).ingestFromFile("user", "test.txt", file);
     }
 
     @Test
@@ -342,23 +333,23 @@ class DocumentProcessControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("postDocuments_multipart_filenameFallback_uploadBin - null original filename")
-    void postDocuments_multipart_filenameFallback_uploadBin() throws Exception {
+    @DisplayName("Rejects a multipart upload whose filename is missing")
+    void postDocumentsMultipartMissingFilenameReturns415() throws Exception {
         // Given
         MockMultipartFile file = new MockMultipartFile(
                 "file", null, "text/plain", "Hello world".getBytes()
         );
         
-        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
-                .thenReturn(testDocument);
-        when(mapper.toIngestResponse(testDocument)).thenReturn(testIngestResponse);
+        when(documentAccessService.ingestFromFile(
+                anyString(), org.mockito.ArgumentMatchers.nullable(String.class), any(MultipartFile.class)))
+                .thenThrow(new DocumentTypeMismatchException("missing filename"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(documentId.toString()));
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-type-mismatch"));
     }
 
     @Test
@@ -370,17 +361,17 @@ class DocumentProcessControllerTest {
                 "file", "test.xyz", "application/octet-stream", "test content".getBytes()
         );
         
-        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(byte[].class)))
-                .thenThrow(new UnsupportedFormatException("Unsupported document format"));
+        when(documentAccessService.ingestFromFile(anyString(), anyString(), any(MultipartFile.class)))
+                .thenThrow(new DocumentTypeMismatchException("mismatch"));
 
         // When & Then
         mockMvc.perform(multipart("/api/v1/documentProcess/documents")
                         .file(file)
                         .with(SecurityMockMvcRequestPostProcessors.csrf()))
                 .andExpect(status().isUnsupportedMediaType())
-                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/unsupported-format"))
-                .andExpect(jsonPath("$.title").value("Unsupported Format"))
-                .andExpect(jsonPath("$.detail").value("Unsupported document format"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/document-type-mismatch"))
+                .andExpect(jsonPath("$.title").value("Unsupported Document Type"))
+                .andExpect(jsonPath("$.detail").value("The document type does not match supported content."))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 

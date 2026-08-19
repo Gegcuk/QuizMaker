@@ -10,9 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
-import uk.gegc.quizmaker.features.conversion.application.DocumentConversionService;
-import uk.gegc.quizmaker.features.conversion.application.MimeTypeDetector;
-import uk.gegc.quizmaker.features.conversion.domain.UnsupportedFormatException;
 import uk.gegc.quizmaker.features.documentProcess.config.DocumentChunkingConfig;
 import uk.gegc.quizmaker.features.documentProcess.domain.ValidationErrorException;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
@@ -29,7 +26,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,13 +35,9 @@ class NormalizedDocumentPrivacyLoggingTest {
     private static final String CANARY = "CANARY_PRIVATE_DOCUMENT_VALUE";
 
     @Mock
-    private DocumentConversionService conversionService;
-    @Mock
     private NormalizationService normalizationService;
     @Mock
     private NormalizedDocumentRepository documentRepository;
-    @Mock
-    private MimeTypeDetector mimeTypeDetector;
     @Mock
     private DocumentNodeRepository nodeRepository;
     @Mock
@@ -71,25 +63,23 @@ class NormalizedDocumentPrivacyLoggingTest {
     }
 
     @Test
-    @DisplayName("conversion failure logs and client-safe error omit the original filename canary")
-    void conversionFailureOmitsFilenameAndProviderMessage() throws Exception {
+    @DisplayName("normalization failure logs omit the filename, source text, and failure detail")
+    void normalizationFailureOmitsPrivateValues() {
         capture(DocumentIngestionService.class);
         DocumentIngestionService service = new DocumentIngestionService(
-                conversionService, normalizationService, documentRepository, mimeTypeDetector
+                normalizationService, documentRepository
         );
         User owner = new User();
         owner.setUsername("owner");
-        when(conversionService.convert(eq(CANARY + ".secret"), any(byte[].class)))
-                .thenThrow(new UnsupportedFormatException("No converter for " + CANARY));
-        when(mimeTypeDetector.detectMimeType(CANARY + ".secret")).thenReturn("application/octet-stream");
+        when(normalizationService.normalize(CANARY + " source text"))
+                .thenThrow(new IllegalStateException(CANARY + " failure"));
         when(documentRepository.save(any(NormalizedDocument.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThatThrownBy(() -> service.ingestFromFile(owner, CANARY + ".secret", new byte[]{1}))
-                .isInstanceOf(UnsupportedFormatException.class)
-                .hasMessage("Unsupported document format")
-                .hasMessageNotContaining(CANARY);
+        NormalizedDocument result = service.ingestFromText(
+                owner, CANARY + ".txt", "en", CANARY + " source text");
 
+        assertThat(result.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.FAILED);
         assertCapturedLogsExcludeCanary();
     }
 
@@ -98,7 +88,7 @@ class NormalizedDocumentPrivacyLoggingTest {
     void successfulIngestionOmitsSourceValues() {
         capture(DocumentIngestionService.class);
         DocumentIngestionService service = new DocumentIngestionService(
-                conversionService, normalizationService, documentRepository, mimeTypeDetector
+                normalizationService, documentRepository
         );
         User owner = new User();
         owner.setUsername("owner");

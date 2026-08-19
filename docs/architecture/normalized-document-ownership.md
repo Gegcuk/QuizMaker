@@ -22,6 +22,12 @@ Nullability is intentional for rollout compatibility. Existing rows have no trus
 
 Physical user deletion sets `owner_id` to null, so retained document content becomes inaccessible. Soft-deleted and inactive owners are also denied. Deleting quarantined content requires a separately approved retention/backup procedure.
 
+## Bounded Multipart Ingestion
+
+Multipart uploads use the same `DocumentUploadStagingService` and singleton `DocumentParseExecutor` as `/api/documents`. Files are streamed to server-owned staging, checked against the shared size/type/resource limits, and parsed under the same global and per-owner admission budget. The controller never calls `MultipartFile.getBytes()`.
+
+Parsing and normalization run with transactions forbidden. Publication then re-locks the active owner and inserts the normalized document in one short transaction, so owner deletion cannot race an unowned row into the database. A parse or publication failure leaves no partial normalized row; staging cleanup is idempotent and eligible for the existing reconciliation policy.
+
 ## Concurrency
 
 Owner authorization uses a native MySQL `FOR SHARE` query that returns only owner username/active/deleted fields. It does not materialize normalized document text for a denied or length-only request. The lock remains held through the delegated read or structure operation. A concurrent owner update/deletion must therefore complete before authorization starts or wait until the authorized operation ends; the next operation sees the new owner state and denies access.
