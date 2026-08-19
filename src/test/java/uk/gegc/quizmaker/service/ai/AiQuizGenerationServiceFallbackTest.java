@@ -34,13 +34,18 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.FillGapHandler;
 import uk.gegc.quizmaker.features.question.infra.handler.McqSingleHandler;
 import uk.gegc.quizmaker.features.question.infra.handler.TrueFalseHandler;
+import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.testing.DirectAiProviderTaskScheduler;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -177,6 +182,30 @@ class AiQuizGenerationServiceFallbackTest {
         verify(questionContentShuffler).shuffleContent(anyString(), eq(QuestionType.FILL_GAP), any());
     }
 
+    @Test
+    @DisplayName("Public generation entry points reject invalid language before job work")
+    void generateQuizFromDocumentAsync_rejectsInvalidLanguageBeforeJobWork() {
+        GenerateQuizFromDocumentRequest request = new GenerateQuizFromDocumentRequest(
+                UUID.randomUUID(), QuizScope.ENTIRE_DOCUMENT, null, null, null,
+                "Biology", "A quiz", Map.of(QuestionType.MCQ_SINGLE, 1),
+                Difficulty.MEDIUM, 1, null, List.of(), "en-US");
+        QuizGenerationJob job = mock(QuizGenerationJob.class);
+
+        IllegalArgumentException byId = assertThrows(IllegalArgumentException.class,
+                () -> aiQuizGenerationService.generateQuizFromDocumentAsync(UUID.randomUUID(), request));
+        IllegalArgumentException byJob = assertThrows(IllegalArgumentException.class,
+                () -> aiQuizGenerationService.generateQuizFromDocumentAsync(job, request));
+        IllegalArgumentException byChunk = assertThrows(IllegalArgumentException.class,
+                () -> aiQuizGenerationService.generateQuestionsFromChunkWithJob(
+                        testChunk, Map.of(QuestionType.MCQ_SINGLE, 1), Difficulty.MEDIUM,
+                        UUID.randomUUID(), "en-US"));
+
+        assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, byId.getMessage());
+        assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, byJob.getMessage());
+        assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, byChunk.getMessage());
+        verifyNoInteractions(job, jobRepository, documentRepository, structuredAiClient);
+    }
+
     private void setupRateLimitConfig() {
         // Set up rate limit configuration for tests that need it
         lenient().when(rateLimitConfig.getMaxRetries()).thenReturn(3);
@@ -230,6 +259,23 @@ class AiQuizGenerationServiceFallbackTest {
     @Nested
     @DisplayName("Same-contract fallback strategies")
     class FallbackStrategiesTest {
+
+        @Test
+        @DisplayName("Invalid language fails before allocating a budget or calling the provider")
+        void generateQuestionsByTypeWithFallbacks_rejectsInvalidLanguageBeforeDispatch() throws Exception {
+            Method method = AiQuizGenerationServiceImpl.class.getDeclaredMethod(
+                    "generateQuestionsByTypeWithFallbacks", String.class, QuestionType.class, int.class,
+                    Difficulty.class, Integer.class, UUID.class, String.class);
+            method.setAccessible(true);
+
+            InvocationTargetException exception = assertThrows(InvocationTargetException.class,
+                    () -> method.invoke(aiQuizGenerationService, testChunk.getContent(), QuestionType.MCQ_SINGLE,
+                            2, Difficulty.MEDIUM, 1, UUID.randomUUID(), "en-US"));
+
+            IllegalArgumentException cause = assertInstanceOf(IllegalArgumentException.class, exception.getCause());
+            assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, cause.getMessage());
+            verifyNoInteractions(rateLimitConfig, structuredAiClient);
+        }
 
         private StructuredQuestionResponse createStructuredResponse(
                 int questionCount,

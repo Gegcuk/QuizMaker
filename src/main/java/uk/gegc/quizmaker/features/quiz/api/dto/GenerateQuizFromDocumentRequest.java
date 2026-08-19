@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.util.List;
 import java.util.Map;
@@ -57,14 +58,19 @@ public record GenerateQuizFromDocumentRequest(
         @Schema(description = "List of tag IDs for the quiz", example = "[\"a1b2c3d4-...\", \"e5f6g7h8-...\"]")
         List<UUID> tagIds,
 
-        @Schema(description = "Language for generated quiz content (ISO 639-1 code)", example = "en")
+        @Schema(
+                description = "Exact supported lowercase ISO 639-1 code; omit to default to en",
+                example = "en",
+                pattern = "^[a-z]{2}$",
+                defaultValue = "en"
+        )
         String language
 ) {
     public GenerateQuizFromDocumentRequest {
         // Set default values
         estimatedTimePerQuestion = (estimatedTimePerQuestion == null) ? 1 : estimatedTimePerQuestion;
         tagIds = (tagIds == null) ? List.of() : tagIds;
-        language = (language == null || language.isBlank()) ? "en" : language.trim();
+        language = GenerationLanguagePolicy.defaultIfAbsent(language);
         
         // Defensive fallback for difficulty (validation should catch null, but this prevents NPE)
         difficulty = (difficulty == null) ? Difficulty.MEDIUM : difficulty;

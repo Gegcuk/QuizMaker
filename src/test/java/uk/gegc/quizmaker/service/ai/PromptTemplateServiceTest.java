@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import uk.gegc.quizmaker.features.ai.application.impl.PromptTemplateServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -202,18 +203,13 @@ class PromptTemplateServiceTest {
     }
     
     @Test
-    void shouldDefaultToEnglishWhenLanguageIsBlank() throws IOException {
-        // Given
-        String chunkContent = "Test content";
-        setupMcqTemplatesOnly();
+    void shouldRejectBlankLanguageBeforeLoadingTemplates() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> promptTemplateService.buildPromptForChunk(
+                        "Test content", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "  "));
 
-        // When
-        String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "  "
-        );
-
-        // Then
-        assertTrue(result.contains("en"), "Should default to 'en' when language is blank");
+        assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, exception.getMessage());
+        verifyNoInteractions(resourceLoader);
     }
 
     @Test
@@ -499,18 +495,13 @@ class PromptTemplateServiceTest {
     }
     
     @Test
-    void shouldTrimLanguageValue() throws IOException {
-        // Given
-        String chunkContent = "Test content";
-        setupMcqTemplatesOnly();
+    void shouldRejectPaddedLanguageBeforeLoadingTemplates() {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> promptTemplateService.buildPromptForChunk(
+                        "Test content", QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "  fr  "));
 
-        // When
-        String result = promptTemplateService.buildPromptForChunk(
-                chunkContent, QuestionType.MCQ_SINGLE, 1, Difficulty.EASY, "  fr  "
-        );
-
-        // Then
-        assertTrue(result.contains("fr"), "Should trim whitespace from language");
+        assertEquals(GenerationLanguagePolicy.INVALID_LANGUAGE_MESSAGE, exception.getMessage());
+        verifyNoInteractions(resourceLoader);
     }
     
     @Test

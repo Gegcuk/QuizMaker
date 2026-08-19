@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromTextRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -77,7 +78,7 @@ public class QuizGenerationRequestCanonicalizer {
         command.put("estimatedTimePerQuestion", request.estimatedTimePerQuestion());
         command.put("categoryId", uuidString(request.categoryId()));
         command.put("tagIds", sortedUuids(request.tagIds()));
-        command.put("language", request.language().trim().toLowerCase(java.util.Locale.ROOT));
+        command.put("language", GenerationLanguagePolicy.requireSupportedOrDefault(request.language()));
         return command;
     }
 

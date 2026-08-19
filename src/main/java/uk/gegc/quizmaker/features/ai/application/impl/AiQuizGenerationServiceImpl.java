@@ -50,6 +50,7 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import uk.gegc.quizmaker.shared.exception.DocumentNotFoundException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -91,6 +92,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     @Override
     public void generateQuizFromDocumentAsync(UUID jobId, GenerateQuizFromDocumentRequest request) {
+        GenerationLanguagePolicy.requireSupportedOrDefault(request.language());
+
         QuizGenerationJob job;
         try {
             job = updateJobStatusToProcessing(jobId);
@@ -113,6 +116,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
     @Override
     public void generateQuizFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest request) {
+        GenerationLanguagePolicy.requireSupportedOrDefault(request.language());
+
         UUID jobId = job.getId();
         Instant startTime = Instant.now();
         log.info("Starting quiz generation for job {} with document {}", jobId, request.documentId());
@@ -398,10 +403,11 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage
     ) {
+        String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
+
         return aiProviderTaskScheduler.submit(() -> {
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
-            String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
 
             try {
                 throwIfJobCancelled(jobId);
@@ -562,7 +568,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             throw new IllegalArgumentException("Difficulty cannot be null");
         }
 
-        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
+        String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
 
         try {
             throwIfJobCancelled(jobId);
@@ -728,7 +734,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage
     ) {
-        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
+        String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
         ProviderAttemptBudget providerAttemptBudget =
                 new ProviderAttemptBudget(rateLimitConfig.getMaxAttemptsPerTask());
 
@@ -874,7 +880,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage) {
         
-        String language = (targetLanguage == null || targetLanguage.isBlank()) ? "en" : targetLanguage.trim();
+        String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
         
         // Find chunks that generated questions successfully (have more than average content)
         List<DocumentChunk> goodChunks = chunks.stream()
