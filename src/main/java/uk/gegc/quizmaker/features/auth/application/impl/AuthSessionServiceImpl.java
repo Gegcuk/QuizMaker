@@ -51,12 +51,25 @@ public class AuthSessionServiceImpl implements AuthSessionService {
     @Transactional
     public JwtResponse issueTokens(Authentication authentication) {
         User user = findUser(authentication.getName());
+        return issueTokensForResolvedUser(user, authentication.getName());
+    }
+
+    @Override
+    @Transactional
+    public JwtResponse issueTokensForUser(User user) {
+        if (user == null || user.getId() == null || user.getUsername() == null || user.getUsername().isBlank()) {
+            throw new UnauthorizedException("Invalid authenticated user");
+        }
+        return issueTokensForResolvedUser(user, user.getUsername());
+    }
+
+    private JwtResponse issueTokensForResolvedUser(User user, String subject) {
         UUID sessionId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.now(utcClock);
         LocalDateTime expiresAt = now.plus(Duration.ofMillis(jwtTokenService.getRefreshTokenValidityInMs()));
 
-        String accessToken = jwtTokenService.generateAccessToken(authentication, sessionId);
-        String refreshToken = jwtTokenService.generateRefreshToken(authentication, sessionId, toDate(expiresAt));
+        String accessToken = jwtTokenService.generateAccessToken(user, subject, sessionId);
+        String refreshToken = jwtTokenService.generateRefreshToken(user, subject, sessionId, toDate(expiresAt));
 
         authSessionRepository.save(new AuthSession(
                 sessionId,

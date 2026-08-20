@@ -18,6 +18,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
+import uk.gegc.quizmaker.features.auth.application.OAuthExchangeService;
 import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.domain.exception.AuthSessionStoreUnavailableException;
 import uk.gegc.quizmaker.shared.config.OpenApiConfig;
@@ -34,14 +35,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = AuthController.class)
+@WebMvcTest(controllers = {AuthController.class, OAuthCodeExchangeController.class})
 @Import({
         OpenApiConfig.class,
         OpenApiGroupConfig.class,
         SpringDocConfiguration.class,
         SpringDocWebMvcConfiguration.class,
         MultipleOpenApiSupportConfiguration.class,
-        AuthOpenApiContractTest.SpringDocTestConfig.class
+        AuthOpenApiContractTest.SpringDocTestConfig.class,
+        OAuthCodeExchangeWebConfiguration.class
 })
 class AuthOpenApiContractTest {
 
@@ -58,6 +60,9 @@ class AuthOpenApiContractTest {
 
     @MockitoBean
     private AuthService authService;
+
+    @MockitoBean
+    private OAuthExchangeService oauthExchangeService;
 
     @MockitoBean
     private RateLimitService rateLimitService;
@@ -97,6 +102,60 @@ class AuthOpenApiContractTest {
                 .contains("rolling", "four days", "ordinary API requests do not");
         assertThat(specification.at("/components/schemas/JwtResponse/properties/refreshExpiresInMs/example").asLong())
                 .isEqualTo(345_600_000L);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/v1/auth/oauth/exchange documents automatic one-time S256 exchange without URL credentials")
+    void oauthExchangeOpenApiContract() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/auth"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+
+        String operationPointer = "/paths/~1api~1v1~1auth~1oauth~1exchange/post";
+        JsonNode operation = specification.at(operationPointer);
+
+        assertThat(operation.isMissingNode()).isFalse();
+        assertThat(operation.path("description").asText())
+                .contains("two-minute", "single-use", "S256", "exact registered client", "no pagination")
+                .contains("no additional action from the user", "online", "restarts sign-in");
+        assertThat(operation.at("/security/0").isObject()).isTrue();
+        assertThat(operation.at("/security/0").size()).isZero();
+        assertThat(operation.at("/requestBody/content/application~1json/schema/$ref").asText())
+                .endsWith("/OAuthCodeExchangeRequest");
+        assertThat(operation.at("/responses/200/content/application~1json/schema/$ref").asText())
+                .endsWith("/JwtResponse");
+        for (String status : java.util.List.of("400", "401", "409", "429", "503")) {
+            assertResponseDocumented(specification, operationPointer + "/responses/" + status);
+        }
+
+        JsonNode requestSchema = specification.at("/components/schemas/OAuthCodeExchangeRequest");
+        java.util.List<String> requiredProperties = new java.util.ArrayList<>();
+        requestSchema.path("required").forEach(node -> requiredProperties.add(node.asText()));
+        assertThat(requiredProperties)
+                .containsExactlyInAnyOrder("code", "clientId", "redirectUri", "codeVerifier");
+        assertThat(requestSchema.at("/properties/code/minLength").asInt()).isEqualTo(43);
+        assertThat(requestSchema.at("/properties/code/maxLength").asInt()).isEqualTo(43);
+        assertThat(requestSchema.at("/properties/code/pattern").asText()).isEqualTo("[A-Za-z0-9_-]{43}");
+        assertThat(requestSchema.at("/properties/codeVerifier/minLength").asInt()).isEqualTo(43);
+        assertThat(requestSchema.at("/properties/codeVerifier/maxLength").asInt()).isEqualTo(128);
+        assertThat(requestSchema.at("/properties/codeVerifier/pattern").asText())
+                .isEqualTo("[A-Za-z0-9\\-._~]{43,128}");
+        assertThat(requestSchema.at("/properties/redirectUri/maxLength").asInt()).isEqualTo(2048);
+
+        assertThat(specification.at("/paths/~1api~1v1~1auth~1login/post/description").asText())
+                .contains(
+                        "Google or GitHub",
+                        "client_id=quizzence-web",
+                        "redirect_uri={exact-encoded-callback}",
+                        "code_challenge={S256-challenge}",
+                        "code_challenge_method=S256",
+                        "POST /api/v1/auth/oauth/exchange",
+                        "not placed in the redirect URL"
+                )
+                .doesNotContain("JWT tokens in the URL query parameters");
     }
 
     @Test

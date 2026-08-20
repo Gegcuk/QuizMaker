@@ -29,7 +29,7 @@ import java.time.LocalDateTime;
 
 @Tag(name = "Authentication", 
      description = "Endpoints for registering, logging in, refreshing tokens, logout, and fetching current user. " +
-                   "For OAuth social login (Google, GitHub, Facebook, Microsoft), see the 'OAuth Account Management' section.")
+                   "For current web OAuth login (Google and GitHub), see the 'OAuth Account Management' section.")
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -43,7 +43,7 @@ public class AuthController {
             summary = "Register a new user",
             description = "Creates a new user account with email and password. Returns the created user's details. " +
                          "<p><b>Alternative:</b> Users can also register instantly via OAuth social login " +
-                         "by redirecting to <code>/oauth2/authorization/{provider}</code> (google, github, facebook, microsoft).</p>"
+                         "through the browser-managed S256 flow documented under OAuth Account Management.</p>"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "User successfully registered"),
@@ -68,9 +68,13 @@ public class AuthController {
     @Operation(
             summary = "Log in",
             description = "Authenticates a user with email/username and password, returns access and refresh JWT tokens. " +
-                         "<p><b>Alternative - OAuth Social Login:</b> Users can login via Google, GitHub, Facebook, or Microsoft " +
-                         "by redirecting to <code>/oauth2/authorization/{provider}</code>. After OAuth authentication, " +
-                         "they'll be redirected back to your frontend with JWT tokens in the URL query parameters.</p>"
+                         "<p><b>Alternative - OAuth Social Login:</b> The web client can log in through Google or GitHub. " +
+                         "It automatically creates an S256 PKCE verifier and starts " +
+                         "<code>GET /oauth2/authorization/{provider}?client_id=quizzence-web&amp;" +
+                         "redirect_uri={exact-encoded-callback}&amp;code_challenge={S256-challenge}&amp;" +
+                         "code_challenge_method=S256</code>. After provider authentication, " +
+                         "the browser receives a short-lived one-time code and automatically exchanges it through " +
+                         "<code>POST /api/v1/auth/oauth/exchange</code>. JWT credentials are not placed in the redirect URL.</p>"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login successful"),

@@ -1,5 +1,9 @@
 package uk.gegc.quizmaker.features.auth.infra.security;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,318 +13,333 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.RedirectStrategy;
-import org.springframework.test.util.ReflectionTestUtils;
 import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.features.auth.application.OAuthExchangeMetricsService;
+import uk.gegc.quizmaker.features.auth.application.OAuthExchangeService;
+import uk.gegc.quizmaker.features.auth.application.OAuthLoginContext;
+import uk.gegc.quizmaker.features.auth.config.OAuth2ExchangeProperties;
+import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeStoreUnavailableException;
 
 import java.io.IOException;
-import java.util.Collections;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
-/**
- * Unit tests for OAuth2AuthenticationSuccessHandler
- */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("OAuth2AuthenticationSuccessHandler Unit Tests")
+@DisplayName("OAuth2 authentication success handler")
 class OAuth2AuthenticationSuccessHandlerTest {
+
+    private static final Instant NOW = Instant.parse("2026-08-20T12:00:00Z");
+    private static final String APP_CLIENT_ID = "quizzence-web";
+    private static final String APP_REDIRECT_URI = "https://app.example.com/oauth2/redirect";
+    private static final String LEGACY_REDIRECT_URI = "http://localhost:3000/oauth2/redirect";
+    private static final String CHALLENGE = "A".repeat(43);
+    private static final String CODE = "B".repeat(43);
 
     @Mock
     private AuthSessionService authSessionService;
-
     @Mock
-    private HttpServletRequest request;
-
+    private OAuthExchangeService oauthExchangeService;
     @Mock
-    private HttpServletResponse response;
-
+    private OAuthExchangeMetricsService metricsService;
     @Mock
     private Authentication authentication;
-
     @Mock
     private RedirectStrategy redirectStrategy;
 
+    private OAuth2ExchangeProperties properties;
     private OAuth2AuthenticationSuccessHandler handler;
-
-    private final String testRedirectUri = "http://localhost:3000/oauth2/redirect";
-    private final String testAccessToken = "test-access-token-jwt";
-    private final String testRefreshToken = "test-refresh-token-jwt";
+    private UUID userId;
 
     @BeforeEach
     void setUp() {
-        handler = new OAuth2AuthenticationSuccessHandler(authSessionService);
-        ReflectionTestUtils.setField(handler, "oauth2RedirectUri", testRedirectUri);
-        
-        // Set mock redirect strategy
+        properties = properties();
+        handler = new OAuth2AuthenticationSuccessHandler(
+                authSessionService,
+                oauthExchangeService,
+                metricsService,
+                properties,
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
         handler.setRedirectStrategy(redirectStrategy);
-
-        // Setup default mocks with lenient for optional usage
-        lenient().when(authSessionService.issueTokens(any(Authentication.class)))
-                .thenReturn(new JwtResponse(testAccessToken, testRefreshToken, 1L, 1L));
-        lenient().when(response.isCommitted()).thenReturn(false);
-        lenient().when(authentication.getName()).thenReturn("testuser");
+        userId = UUID.randomUUID();
     }
 
     @Test
-    @DisplayName("onAuthenticationSuccess: when successful then generates tokens and redirects")
-    void onAuthenticationSuccess_Successful_GeneratesTokensAndRedirects() throws IOException {
-        // When
+    @DisplayName("secure mode redirects only a one-time code and creates no JWT session yet")
+    void codeExchange_redirectsOnlyCode() throws IOException {
+        OAuthLoginContext context = codeContext();
+        MockHttpServletRequest request = callbackRequest(context);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        CustomOAuth2User principal = customPrincipal(userId);
+        when(authentication.getPrincipal()).thenReturn(principal);
+        when(oauthExchangeService.issueCode(userId, context)).thenReturn(CODE);
+
         handler.onAuthenticationSuccess(request, response, authentication);
 
-        // Then
-        verify(authSessionService).issueTokens(authentication);
-        
-        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(redirectStrategy).sendRedirect(eq(request), eq(response), urlCaptor.capture());
-        
-        String redirectUrl = urlCaptor.getValue();
-        assertThat(redirectUrl).startsWith(testRedirectUri);
-        assertThat(redirectUrl).contains("accessToken=" + testAccessToken);
-        assertThat(redirectUrl).contains("refreshToken=" + testRefreshToken);
+        String redirect = capturedRedirect();
+        assertThat(redirect).isEqualTo(APP_REDIRECT_URI + "?code=" + CODE);
+        assertThat(redirect).doesNotContain("accessToken", "refreshToken", "email");
+        verifyNoInteractions(authSessionService);
+        verify(metricsService, never()).recordLegacyRedirect();
+        assertPrivateRedirectHeaders(response);
     }
 
     @Test
-    @DisplayName("onAuthenticationSuccess: when response committed then skips redirect")
-    void onAuthenticationSuccess_ResponseCommitted_SkipsRedirect() throws IOException {
-        // Given
+    @DisplayName("production redirect strategy never DEBUG-logs the one-time code URL")
+    void codeExchange_productionRedirectDoesNotLogCode() throws IOException {
+        Logger springRedirectLogger = (Logger) LoggerFactory.getLogger(DefaultRedirectStrategy.class);
+        Level previousLevel = springRedirectLogger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        springRedirectLogger.setLevel(Level.DEBUG);
+        springRedirectLogger.addAppender(appender);
+        try {
+            OAuth2AuthenticationSuccessHandler productionHandler = new OAuth2AuthenticationSuccessHandler(
+                    authSessionService,
+                    oauthExchangeService,
+                    metricsService,
+                    properties,
+                    Clock.fixed(NOW, ZoneOffset.UTC)
+            );
+            OAuthLoginContext context = codeContext();
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            when(authentication.getPrincipal()).thenReturn(customPrincipal(userId));
+            when(oauthExchangeService.issueCode(userId, context)).thenReturn(CODE);
+
+            productionHandler.onAuthenticationSuccess(callbackRequest(context), response, authentication);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo(APP_REDIRECT_URI + "?code=" + CODE);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains(CODE));
+        } finally {
+            springRedirectLogger.detachAppender(appender);
+            springRedirectLogger.setLevel(previousLevel);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("a committed response is checked before any code or token write")
+    void committedResponse_performsNoCredentialWrite() throws IOException {
+        HttpServletRequest request = org.mockito.Mockito.mock(HttpServletRequest.class);
+        HttpServletResponse response = org.mockito.Mockito.mock(HttpServletResponse.class);
         when(response.isCommitted()).thenReturn(true);
 
-        // When
         handler.onAuthenticationSuccess(request, response, authentication);
 
-        // Then
-        verify(redirectStrategy, never()).sendRedirect(any(), any(), any());
-        verify(authSessionService).issueTokens(authentication);
+        verify(response).isCommitted();
+        verifyNoInteractions(oauthExchangeService, authSessionService, metricsService, redirectStrategy);
     }
 
     @Test
-    @DisplayName("determineTargetUrl: builds correct redirect URL with tokens")
-    void determineTargetUrl_BuildsCorrectRedirectUrl() {
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
+    @DisplayName("missing validated context fails closed without issuing any credential")
+    void missingContext_failsClosed() throws IOException {
+        MockHttpServletResponse response = new MockHttpServletResponse();
 
-        // Then
-        assertThat(targetUrl).isNotNull();
-        assertThat(targetUrl).startsWith(testRedirectUri);
-        assertThat(targetUrl).contains("?");
-        assertThat(targetUrl).contains("accessToken=" + testAccessToken);
-        assertThat(targetUrl).contains("refreshToken=" + testRefreshToken);
-        assertThat(targetUrl).contains("&");
+        handler.onAuthenticationSuccess(new MockHttpServletRequest(), response, authentication);
+
+        assertThat(capturedRedirect())
+                .isEqualTo(LEGACY_REDIRECT_URI + "?error=" + OAuth2AuthenticationSuccessHandler.ERROR_FLOW_INVALID);
+        verifyNoInteractions(oauthExchangeService, authSessionService, metricsService, authentication);
     }
 
     @Test
-    @DisplayName("determineTargetUrl: encodes special characters in URL")
-    void determineTargetUrl_EncodesSpecialCharacters() {
-        // Given - tokens with special characters that need encoding
-        String tokenWithSpecialChars = "token.with-special_chars+and/symbols";
-        when(authSessionService.issueTokens(any())).thenReturn(
-                new JwtResponse(tokenWithSpecialChars, tokenWithSpecialChars, 1L, 1L)
+    @DisplayName("unexpected principal type cannot mint a code and returns a bounded error")
+    void unexpectedPrincipal_failsClosed() throws IOException {
+        OAuthLoginContext context = codeContext();
+        when(authentication.getPrincipal()).thenReturn("provider-subject");
+
+        handler.onAuthenticationSuccess(
+                callbackRequest(context),
+                new MockHttpServletResponse(),
+                authentication
         );
 
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        assertThat(targetUrl).contains("accessToken=" + tokenWithSpecialChars);
-        assertThat(targetUrl).contains("refreshToken=" + tokenWithSpecialChars);
+        assertThat(capturedRedirect())
+                .isEqualTo(APP_REDIRECT_URI + "?error=" + OAuth2AuthenticationSuccessHandler.ERROR_LOGIN_FAILED);
+        verifyNoInteractions(oauthExchangeService, authSessionService, metricsService);
     }
 
     @Test
-    @DisplayName("determineTargetUrl: works with different redirect URIs")
-    void determineTargetUrl_WorksWithDifferentRedirectUris() {
-        // Given
-        String productionRedirectUri = "https://app.example.com/oauth/callback";
-        ReflectionTestUtils.setField(handler, "oauth2RedirectUri", productionRedirectUri);
+    @DisplayName("exchange-store failures expose no internal detail or credential")
+    void codeStoreFailure_returnsSafeTemporaryError() throws IOException {
+        OAuthLoginContext context = codeContext();
+        when(authentication.getPrincipal()).thenReturn(customPrincipal(userId));
+        when(oauthExchangeService.issueCode(userId, context))
+                .thenThrow(new OAuthExchangeStoreUnavailableException(
+                        new IllegalStateException("database-host-and-code")
+                ));
 
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        assertThat(targetUrl).startsWith(productionRedirectUri);
-        assertThat(targetUrl).contains("accessToken=" + testAccessToken);
-        assertThat(targetUrl).contains("refreshToken=" + testRefreshToken);
-    }
-
-    @Test
-    @DisplayName("determineTargetUrl: generates both access and refresh tokens")
-    void determineTargetUrl_GeneratesBothTokens() {
-        // When
-        handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        verify(authSessionService).issueTokens(authentication);
-    }
-
-    @Test
-    @DisplayName("onAuthenticationSuccess: clears authentication attributes")
-    void onAuthenticationSuccess_ClearsAuthenticationAttributes() throws IOException {
-        // When
-        handler.onAuthenticationSuccess(request, response, authentication);
-
-        // Then
-        // clearAuthenticationAttributes is called (inherited method)
-        verify(redirectStrategy).sendRedirect(any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("determineTargetUrl: does not read an authentication subject for logging")
-    void determineTargetUrl_DoesNotReadAuthenticationSubject() {
-        handler.determineTargetUrl(request, response, authentication);
-
-        verifyNoInteractions(authentication);
-    }
-
-    @Test
-    @DisplayName("onAuthenticationSuccess: with OAuth2User authentication")
-    void onAuthenticationSuccess_WithOAuth2UserAuthentication() throws IOException {
-        // Given
-        Map<String, Object> attributes = Map.of(
-                "sub", "google123",
-                "email", "user@gmail.com",
-                "name", "John Doe"
+        handler.onAuthenticationSuccess(
+                callbackRequest(context),
+                new MockHttpServletResponse(),
+                authentication
         );
-        DefaultOAuth2User oauth2User = new DefaultOAuth2User(
-                List.of(new SimpleGrantedAuthority("ROLE_USER")),
-                attributes,
+
+        assertThat(capturedRedirect())
+                .isEqualTo(APP_REDIRECT_URI + "?error="
+                        + OAuth2AuthenticationSuccessHandler.ERROR_TEMPORARILY_UNAVAILABLE)
+                .doesNotContain("database-host", CODE, "Token");
+        verifyNoInteractions(authSessionService, metricsService);
+    }
+
+    @Test
+    @DisplayName("legacy mode is honored only while its absolute deadline is still valid")
+    void legacyBeforeDeadline_issuesExistingTokenContract() throws IOException {
+        properties.getExchange().setLegacyTokenRedirectUntil(NOW.plusSeconds(60));
+        OAuthLoginContext context = OAuthLoginContext.legacy(LEGACY_REDIRECT_URI);
+        when(authSessionService.issueTokens(authentication))
+                .thenReturn(new JwtResponse("access-token", "refresh-token", 1L, 2L));
+
+        handler.onAuthenticationSuccess(
+                callbackRequest(context),
+                new MockHttpServletResponse(),
+                authentication
+        );
+
+        assertThat(capturedRedirect())
+                .isEqualTo(LEGACY_REDIRECT_URI
+                        + "?accessToken=access-token&refreshToken=refresh-token");
+        verify(metricsService).recordLegacyRedirect();
+        verifyNoInteractions(oauthExchangeService);
+    }
+
+    @Test
+    @DisplayName("a legacy metrics failure cannot strand an already-created authentication session")
+    void legacyMetricFailure_stillReturnsIssuedTokens() throws IOException {
+        properties.getExchange().setLegacyTokenRedirectUntil(NOW.plusSeconds(60));
+        OAuthLoginContext context = OAuthLoginContext.legacy(LEGACY_REDIRECT_URI);
+        when(authSessionService.issueTokens(authentication))
+                .thenReturn(new JwtResponse("access-token", "refresh-token", 1L, 2L));
+        org.mockito.Mockito.doThrow(new IllegalStateException("metrics backend"))
+                .when(metricsService).recordLegacyRedirect();
+
+        handler.onAuthenticationSuccess(
+                callbackRequest(context),
+                new MockHttpServletResponse(),
+                authentication
+        );
+
+        assertThat(capturedRedirect())
+                .isEqualTo(LEGACY_REDIRECT_URI
+                        + "?accessToken=access-token&refreshToken=refresh-token")
+                .doesNotContain("metrics");
+        verifyNoInteractions(oauthExchangeService);
+    }
+
+    @Test
+    @DisplayName("legacy mode is rechecked at callback and cannot issue after expiry")
+    void legacyAtDeadline_doesNotIssueTokens() throws IOException {
+        properties.getExchange().setLegacyTokenRedirectUntil(NOW);
+
+        handler.onAuthenticationSuccess(
+                callbackRequest(OAuthLoginContext.legacy(LEGACY_REDIRECT_URI)),
+                new MockHttpServletResponse(),
+                authentication
+        );
+
+        assertThat(capturedRedirect())
+                .isEqualTo(LEGACY_REDIRECT_URI + "?error="
+                        + OAuth2AuthenticationSuccessHandler.ERROR_LEGACY_EXPIRED);
+        verifyNoInteractions(authSessionService, oauthExchangeService, metricsService, authentication);
+    }
+
+    @Test
+    @DisplayName("the response commitment check precedes the one-time code write")
+    void codeExchange_checksResponseBeforeIssue() throws IOException {
+        OAuthLoginContext context = codeContext();
+        MockHttpServletResponse response = org.mockito.Mockito.spy(new MockHttpServletResponse());
+        when(authentication.getPrincipal()).thenReturn(customPrincipal(userId));
+        when(oauthExchangeService.issueCode(userId, context)).thenReturn(CODE);
+
+        handler.onAuthenticationSuccess(callbackRequest(context), response, authentication);
+
+        var order = inOrder(response, oauthExchangeService, redirectStrategy);
+        order.verify(response).isCommitted();
+        order.verify(oauthExchangeService).issueCode(userId, context);
+        order.verify(redirectStrategy).sendRedirect(any(), eq(response), any());
+    }
+
+    private String capturedRedirect() throws IOException {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(redirectStrategy).sendRedirect(any(), any(), captor.capture());
+        return captor.getValue();
+    }
+
+    private OAuth2ExchangeProperties properties() {
+        OAuth2ExchangeProperties configured = new OAuth2ExchangeProperties();
+        configured.setRedirectUri(LEGACY_REDIRECT_URI);
+        OAuth2ExchangeProperties.Client client = new OAuth2ExchangeProperties.Client();
+        client.setRedirectUri(APP_REDIRECT_URI);
+        configured.getExchange().getClients().put(APP_CLIENT_ID, client);
+        return configured;
+    }
+
+    private OAuthLoginContext codeContext() {
+        return OAuthLoginContext.codeExchange(APP_CLIENT_ID, APP_REDIRECT_URI, CHALLENGE);
+    }
+
+    private CustomOAuth2User customPrincipal(UUID id) {
+        DefaultOAuth2User delegate = new DefaultOAuth2User(
+                List.of(),
+                Map.of("sub", "provider-subject"),
                 "sub"
         );
-        
-        Authentication oauth2Authentication = mock(Authentication.class);
-        lenient().when(oauth2Authentication.getName()).thenReturn("johndoe");
-        lenient().when(oauth2Authentication.getPrincipal()).thenReturn(oauth2User);
-
-        // When
-        handler.onAuthenticationSuccess(request, response, oauth2Authentication);
-
-        // Then
-        verify(authSessionService).issueTokens(oauth2Authentication);
-        verify(redirectStrategy).sendRedirect(any(), any(), any());
+        return new CustomOAuth2User(delegate, id, "student", List.of());
     }
 
-    @Test
-    @DisplayName("determineTargetUrl: query parameters properly separated")
-    void determineTargetUrl_QueryParametersProperlyString() {
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        // Verify URL structure: base?accessToken=xxx&refreshToken=yyy
-        String[] parts = targetUrl.split("\\?");
-        assertThat(parts).hasSize(2);
-        assertThat(parts[0]).isEqualTo(testRedirectUri);
-        
-        String queryString = parts[1];
-        assertThat(queryString).contains("accessToken=");
-        assertThat(queryString).contains("refreshToken=");
-        assertThat(queryString).contains("&");
-    }
-
-    @Test
-    @DisplayName("onAuthenticationSuccess: does not require an authentication name to redirect")
-    void onAuthenticationSuccess_DoesNotRequireAuthenticationName() throws IOException {
-        handler.onAuthenticationSuccess(request, response, authentication);
-
-        verify(redirectStrategy).sendRedirect(any(), any(), any());
-        verifyNoInteractions(authentication);
-    }
-
-    @Test
-    @DisplayName("determineTargetUrl: uses configured redirect URI from properties")
-    void determineTargetUrl_UsesConfiguredRedirectUri() {
-        // Given - redirect URI already set in setUp()
-        
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        assertThat(targetUrl).startsWith(testRedirectUri);
-    }
-
-    @Test
-    @DisplayName("determineTargetUrl: preserves path in redirect URI")
-    void determineTargetUrl_PreservesPathInRedirectUri() {
-        // Given
-        String redirectUriWithPath = "http://localhost:3000/auth/oauth2/redirect";
-        ReflectionTestUtils.setField(handler, "oauth2RedirectUri", redirectUriWithPath);
-
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        assertThat(targetUrl).startsWith(redirectUriWithPath);
-        assertThat(targetUrl).contains("/auth/oauth2/redirect?");
-    }
-
-    @Test
-    @DisplayName("onAuthenticationSuccess: full flow executes in correct order")
-    void onAuthenticationSuccess_FullFlow_ExecutesInCorrectOrder() throws IOException {
-        // When
-        handler.onAuthenticationSuccess(request, response, authentication);
-
-        // Then - verify execution order
-        var inOrder = inOrder(authSessionService, response, redirectStrategy);
-        
-        inOrder.verify(authSessionService).issueTokens(authentication);
-        inOrder.verify(response).isCommitted();
-        inOrder.verify(redirectStrategy).sendRedirect(eq(request), eq(response), anyString());
-    }
-
-    @Test
-    @DisplayName("determineTargetUrl: tokens appear exactly once in URL")
-    void determineTargetUrl_TokensAppearExactlyOnce() {
-        // When
-        String targetUrl = handler.determineTargetUrl(request, response, authentication);
-
-        // Then
-        int accessTokenCount = targetUrl.split("accessToken=", -1).length - 1;
-        int refreshTokenCount = targetUrl.split("refreshToken=", -1).length - 1;
-        
-        assertThat(accessTokenCount).isEqualTo(1);
-        assertThat(refreshTokenCount).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("onAuthenticationSuccess: with CustomOAuth2User principal")
-    void onAuthenticationSuccess_WithCustomOAuth2User() throws IOException {
-        // Given
-        Map<String, Object> attributes = Map.of("sub", "google123");
-        DefaultOAuth2User oauth2User = new DefaultOAuth2User(
-                Collections.emptyList(),
-                attributes,
-                "sub"
+    private MockHttpServletRequest callbackRequest(OAuthLoginContext context) {
+        OAuth2AuthorizationRequestContextRepository repository =
+                new OAuth2AuthorizationRequestContextRepository();
+        MockHttpServletRequest initial = new MockHttpServletRequest();
+        repository.saveAuthorizationRequest(
+                OAuth2AuthorizationRequest.authorizationCode()
+                        .authorizationUri("https://provider.example.com/oauth/authorize")
+                        .clientId("provider-client")
+                        .redirectUri("https://backend.example.com/login/oauth2/code/google")
+                        .state("provider-state")
+                        .attributes(attributes -> attributes.put(
+                                OAuth2AuthorizationRequestContextRepository.AUTHORIZATION_CONTEXT_ATTRIBUTE,
+                                context
+                        ))
+                        .build(),
+                initial,
+                new MockHttpServletResponse()
         );
-        
-        CustomOAuth2User customOAuth2User = new CustomOAuth2User(
-                oauth2User,
-                java.util.UUID.randomUUID(),
-                "johndoe",
-                List.of(new SimpleGrantedAuthority("ROLE_USER"))
-        );
+        MockHttpServletRequest callback = new MockHttpServletRequest();
+        callback.setSession(initial.getSession(false));
+        callback.setParameter("state", "provider-state");
+        repository.removeAuthorizationRequest(callback, new MockHttpServletResponse());
+        return callback;
+    }
 
-        Authentication customAuth = mock(Authentication.class);
-        lenient().when(customAuth.getName()).thenReturn("johndoe");
-        lenient().when(customAuth.getPrincipal()).thenReturn(customOAuth2User);
-
-        // When
-        handler.onAuthenticationSuccess(request, response, customAuth);
-
-        // Then
-        verify(authSessionService).issueTokens(customAuth);
-        
-        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(redirectStrategy).sendRedirect(any(), any(), urlCaptor.capture());
-        
-        String redirectUrl = urlCaptor.getValue();
-        assertThat(redirectUrl).contains("accessToken=");
-        assertThat(redirectUrl).contains("refreshToken=");
+    private void assertPrivateRedirectHeaders(MockHttpServletResponse response) {
+        assertThat(response.getHeader(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
+        assertThat(response.getHeader(HttpHeaders.PRAGMA)).isEqualTo("no-cache");
+        assertThat(response.getHeader("Referrer-Policy")).isEqualTo("no-referrer");
     }
 }

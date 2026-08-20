@@ -34,6 +34,7 @@ class PublicApiRoutesTest {
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/logout"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/forgot-password"),
                 Arguments.of(HttpMethod.POST, "/api/v1/auth/reset-password"),
+                Arguments.of(HttpMethod.POST, "/api/v1/auth/oauth/exchange"),
                 Arguments.of(HttpMethod.GET, "/oauth2/authorization/google"),
                 Arguments.of(HttpMethod.POST, "/api/v1/bug-reports"),
                 Arguments.of(HttpMethod.POST, "/api/v1/billing/stripe/webhook"),
@@ -67,6 +68,8 @@ class PublicApiRoutesTest {
         return Stream.of(
                 Arguments.of(HttpMethod.GET, "/api/v1/articles"),
                 Arguments.of(HttpMethod.POST, "/api/v1/articles/public"),
+                Arguments.of(HttpMethod.GET, "/api/v1/auth/oauth/exchange"),
+                Arguments.of(HttpMethod.PUT, "/api/v1/auth/oauth/exchange"),
                 Arguments.of(HttpMethod.POST, "/api/v1/quizzes"),
                 Arguments.of(HttpMethod.GET, "/api/v1/quizzes/share-links"),
                 Arguments.of(HttpMethod.DELETE, "/api/v1/quizzes/shared/share-token"),

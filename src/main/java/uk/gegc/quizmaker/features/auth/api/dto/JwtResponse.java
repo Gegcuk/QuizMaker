@@ -20,4 +20,9 @@ public record JwtResponse(
         )
         long refreshExpiresInMs
 ) {
+    @Override
+    public String toString() {
+        return "JwtResponse[credentials=redacted, accessExpiresInMs=" + accessExpiresInMs
+                + ", refreshExpiresInMs=" + refreshExpiresInMs + "]";
+    }
 }

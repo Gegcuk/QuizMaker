@@ -64,8 +64,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String name = extractName(oauth2User);
         String profileImageUrl = extractProfileImageUrl(oauth2User, provider);
 
-        log.info("OAuth2 authentication: provider={}, providerUserId={}, email={}", 
-                provider, providerUserId, email);
+        log.info("OAuth2 provider profile accepted: provider={}", provider);
 
         // Find or create user based on OAuth account
         User user = processOAuthAuthentication(
@@ -113,8 +112,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 user.setEmailVerified(true);
                 user.setEmailVerifiedAt(LocalDateTime.now());
                 userRepository.save(user);
-                log.info("Auto-verified email for existing OAuth user: userId={}, provider={}", 
-                        user.getId(), provider);
+                log.info("Auto-verified an existing OAuth user's email: provider={}", provider);
             }
             
             return user;
@@ -130,13 +128,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     user.setEmailVerified(true);
                     user.setEmailVerifiedAt(LocalDateTime.now());
                     userRepository.save(user);
-                    log.info("Auto-verified email for user via OAuth: userId={}, provider={}", 
-                            user.getId(), provider);
+                    log.info("Auto-verified an OAuth-linked user's email: provider={}", provider);
                 }
                 // Link OAuth account to existing user
                 createOAuthAccount(user, provider, providerUserId, email, name, profileImageUrl, userRequest);
-                log.info("Linked OAuth account to existing user: userId={}, provider={}", 
-                        user.getId(), provider);
+                log.info("Linked an OAuth account to an existing user: provider={}", provider);
                 return user;
             }
         }
@@ -149,7 +145,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         // This avoids lock conflicts by running the bonus credit in a separate transaction after commit
         eventPublisher.publishEvent(new UserRegisteredEvent(this, newUser.getId()));
         
-        log.info("Created new user from OAuth: userId={}, provider={}", newUser.getId(), provider);
+        log.info("Created a new user through OAuth: provider={}", provider);
         
         return newUser;
     }

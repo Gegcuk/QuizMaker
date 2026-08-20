@@ -67,30 +67,46 @@ public class JwtTokenService {
     }
 
     public String generateAccessToken(Authentication authentication, UUID sessionId) {
+        User user = requireUser(authentication.getName());
+        return generateAccessToken(user, authentication.getName(), sessionId);
+    }
+
+    public String generateAccessToken(User user, UUID sessionId) {
+        return generateAccessToken(user, user == null ? null : user.getUsername(), sessionId);
+    }
+
+    public String generateAccessToken(User user, String subject, UUID sessionId) {
         Date now = Date.from(utcClock.instant());
         Date expiry = new Date(now.getTime() + accessTokenValidityInMs);
-        return generateToken(authentication, sessionId, ACCESS_TOKEN_TYPE, now, expiry);
+        return generateToken(requireTokenUser(user), requireSubject(subject), sessionId, ACCESS_TOKEN_TYPE, now, expiry);
     }
 
     public String generateRefreshToken(Authentication authentication, UUID sessionId, Date expiry) {
+        User user = requireUser(authentication.getName());
+        return generateRefreshToken(user, authentication.getName(), sessionId, expiry);
+    }
+
+    public String generateRefreshToken(User user, UUID sessionId, Date expiry) {
+        return generateRefreshToken(user, user == null ? null : user.getUsername(), sessionId, expiry);
+    }
+
+    public String generateRefreshToken(User user, String subject, UUID sessionId, Date expiry) {
         Date now = Date.from(utcClock.instant());
-        return generateToken(authentication, sessionId, REFRESH_TOKEN_TYPE, now, expiry);
+        return generateToken(requireTokenUser(user), requireSubject(subject), sessionId, REFRESH_TOKEN_TYPE, now, expiry);
     }
 
     private String generateToken(
-            Authentication authentication,
+            User user,
+            String subject,
             UUID sessionId,
             String tokenType,
             Date issuedAt,
             Date expiry
     ) {
-        User user = findUserByIdentifier(authentication.getName())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Cannot generate token for unknown user: " + authentication.getName()));
         long passwordChangedAtEpoch = toEpochMillis(user.getPasswordChangedAt());
         return Jwts.builder()
                 .id(UUID.randomUUID().toString())
-                .subject(authentication.getName())
+                .subject(subject)
                 .issuedAt(issuedAt)
                 .expiration(expiry)
                 .claim(TOKEN_TYPE_CLAIM, tokenType)
@@ -99,6 +115,27 @@ public class JwtTokenService {
                 .claim(SESSION_ID_CLAIM, sessionId.toString())
                 .signWith(key)
                 .compact();
+    }
+
+    private User requireUser(String identifier) {
+        return findUserByIdentifier(identifier)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Cannot generate token for unknown user: " + identifier));
+    }
+
+    private User requireTokenUser(User user) {
+        if (user == null || user.getId() == null || user.getUsername() == null || user.getUsername().isBlank()
+                || user.getPasswordChangedAt() == null) {
+            throw new IllegalStateException("Cannot generate token for an incomplete user identity");
+        }
+        return user;
+    }
+
+    private String requireSubject(String subject) {
+        if (subject == null || subject.isBlank()) {
+            throw new IllegalStateException("Cannot generate token without a subject");
+        }
+        return subject;
     }
 
     public Authentication getAuthentication(String token) {
