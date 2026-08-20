@@ -69,9 +69,14 @@ public class AuthSession {
         return revokedAt == null && expiresAt.isAfter(now);
     }
 
-    public void rotateRefreshToken(String nextRefreshTokenHash, LocalDateTime now) {
+    public void rotateRefreshToken(
+            String nextRefreshTokenHash,
+            LocalDateTime now,
+            LocalDateTime nextExpiresAt
+    ) {
         this.refreshTokenHash = nextRefreshTokenHash;
         this.refreshedAt = now;
+        this.expiresAt = nextExpiresAt;
     }
 
     public boolean revoke(LocalDateTime now, AuthSessionRevocationReason reason) {

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -26,6 +27,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @ActiveProfiles("test")
@@ -82,7 +84,12 @@ class AuthSessionRepositoryConcurrencyIntegrationTest {
             AuthSession session = authSessionRepository.findByIdForUpdate(sessionId).orElseThrow();
             firstLockAcquired.countDown();
             await(releaseFirstTransaction);
-            session.rotateRefreshToken("rotated-refresh-verifier", LocalDateTime.now());
+            LocalDateTime refreshedAt = LocalDateTime.now();
+            session.rotateRefreshToken(
+                    "rotated-refresh-verifier",
+                    refreshedAt,
+                    refreshedAt.plusDays(4)
+            );
             authSessionRepository.saveAndFlush(session);
             return null;
         }));
@@ -103,6 +110,27 @@ class AuthSessionRepositoryConcurrencyIntegrationTest {
 
         firstRefresh.get(5, TimeUnit.SECONDS);
         assertThat(secondRefresh.get(5, TimeUnit.SECONDS)).isEqualTo("rotated-refresh-verifier");
+    }
+
+    @Test
+    @DisplayName("A failure after flushing a renewal rolls back its verifier and inactivity deadline")
+    void rotateRefreshToken_failureAfterFlushRollsBackWholeRenewal() {
+        AuthSession before = transactionTemplate.execute(status ->
+                authSessionRepository.findById(sessionId).orElseThrow());
+
+        assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
+            AuthSession session = authSessionRepository.findByIdForUpdate(sessionId).orElseThrow();
+            LocalDateTime refreshedAt = LocalDateTime.now();
+            session.rotateRefreshToken("uncommitted-verifier", refreshedAt, refreshedAt.plusDays(4));
+            authSessionRepository.saveAndFlush(session);
+            throw new DataAccessResourceFailureException("simulated post-flush store failure");
+        })).isInstanceOf(DataAccessResourceFailureException.class);
+
+        AuthSession after = transactionTemplate.execute(status ->
+                authSessionRepository.findById(sessionId).orElseThrow());
+        assertThat(after.getRefreshTokenHash()).isEqualTo(before.getRefreshTokenHash());
+        assertThat(after.getRefreshedAt()).isEqualTo(before.getRefreshedAt());
+        assertThat(after.getExpiresAt()).isEqualTo(before.getExpiresAt());
     }
 
     private void await(CountDownLatch latch) {

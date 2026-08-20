@@ -93,6 +93,8 @@ public class AuthController {
     @Operation(
             summary = "Refresh tokens",
             description = "Exchanges a current `type=refresh` token for a new access and refresh token. "
+                    + "A successful exchange renews the rolling session-inactivity window for four days; "
+                    + "ordinary authenticated requests do not renew it. "
                     + "Refresh tokens are single-use: concurrent use or a replay revokes the whole session and requires "
                     + "login again. A temporary session-store failure returns `503` without claiming that revocation succeeded."
     )

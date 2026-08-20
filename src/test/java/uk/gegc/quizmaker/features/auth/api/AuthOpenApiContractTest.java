@@ -76,7 +76,7 @@ class AuthOpenApiContractTest {
                 .getContentAsString());
 
         assertThat(specification.at("/paths/~1api~1v1~1auth~1refresh/post/description").asText())
-                .contains("type=refresh", "single-use", "503");
+                .contains("type=refresh", "rolling", "four days", "single-use", "503");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1auth~1refresh/post/responses/401");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1auth~1refresh/post/responses/503");
         assertThat(specification.at("/paths/~1api~1v1~1auth~1logout/post/description").asText())
@@ -89,8 +89,14 @@ class AuthOpenApiContractTest {
         assertThat(specification.at("/paths/~1api~1v1~1auth~1logout/post/security/0").size()).isZero();
         assertThat(specification.at("/components/schemas/JwtResponse/properties/accessToken/description").asText())
                 .contains("type=access");
+        assertThat(specification.at("/components/schemas/JwtResponse/properties/accessExpiresInMs/example").asLong())
+                .isEqualTo(43_200_000L);
         assertThat(specification.at("/components/schemas/JwtResponse/properties/refreshToken/description").asText())
                 .contains("cannot authenticate protected endpoints");
+        assertThat(specification.at("/components/schemas/JwtResponse/properties/refreshExpiresInMs/description").asText())
+                .contains("rolling", "four days", "ordinary API requests do not");
+        assertThat(specification.at("/components/schemas/JwtResponse/properties/refreshExpiresInMs/example").asLong())
+                .isEqualTo(345_600_000L);
     }
 
     @Test

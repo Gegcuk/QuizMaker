@@ -62,20 +62,27 @@ public class AuthSessionRefreshServiceImpl implements AuthSessionRefreshService 
         }
 
         Authentication authentication = jwtTokenService.getAuthentication(refreshClaims);
+        LocalDateTime nextExpiresAt = now.plus(
+                Duration.ofMillis(jwtTokenService.getRefreshTokenValidityInMs())
+        );
         String nextAccessToken = jwtTokenService.generateAccessToken(authentication, session.getId());
         String nextRefreshToken = jwtTokenService.generateRefreshToken(
                 authentication,
                 session.getId(),
-                toDate(session.getExpiresAt())
+                toDate(nextExpiresAt)
         );
-        session.rotateRefreshToken(jwtTokenService.fingerprintRefreshToken(nextRefreshToken), now);
+        session.rotateRefreshToken(
+                jwtTokenService.fingerprintRefreshToken(nextRefreshToken),
+                now,
+                nextExpiresAt
+        );
         authSessionRepository.saveAndFlush(session);
 
         return RefreshResult.rotated(tokenResponse(
                 nextAccessToken,
                 nextRefreshToken,
                 now,
-                session.getExpiresAt()
+                nextExpiresAt
         ));
     }
 

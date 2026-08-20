@@ -29,6 +29,7 @@ import uk.gegc.quizmaker.features.auth.infra.security.JwtTokenService;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -152,10 +153,13 @@ class AuthSessionRefreshConcurrencyIntegrationTest {
         String replacementRefreshToken = replacement.path("refreshToken").asText();
 
         assertThat(replacementRefreshToken).isNotBlank().isNotEqualTo(issuedTokens.refreshToken());
+        assertThat(replacement.path("refreshExpiresInMs").asLong()).isEqualTo(345_600_000L);
         assertThat(objectMapper.readTree(replayedResult.getResponse().getContentAsString()).path("detail").asText())
                 .isEqualTo("Invalid refresh token");
 
         AuthSession persistedSession = authSessionRepository.findById(sessionId).orElseThrow();
+        assertThat(Duration.between(persistedSession.getRefreshedAt(), persistedSession.getExpiresAt()))
+                .isEqualTo(Duration.ofDays(4));
         assertThat(persistedSession.getRevokedAt()).isNotNull();
         assertThat(persistedSession.getRevocationReason())
                 .isEqualTo(AuthSessionRevocationReason.REFRESH_TOKEN_REPLAY);
