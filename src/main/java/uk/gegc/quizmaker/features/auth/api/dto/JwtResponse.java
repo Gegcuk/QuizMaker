@@ -10,10 +10,14 @@ public record JwtResponse(
         @Schema(description = "Single-use session-bound refresh token (JWT). It cannot authenticate protected endpoints.", example = "dGhpc2lzYXJlZnJlc2h0b2tlbg==")
         String refreshToken,
 
-        @Schema(description = "Access token validity in milliseconds", example = "3600000")
+        @Schema(description = "Access token validity in milliseconds", example = "43200000")
         long accessExpiresInMs,
 
-        @Schema(description = "Remaining refresh-session validity in milliseconds", example = "864000000")
+        @Schema(
+                description = "Remaining rolling session-inactivity window in milliseconds. "
+                        + "A successful refresh resets it to four days; ordinary API requests do not.",
+                example = "345600000"
+        )
         long refreshExpiresInMs
 ) {
 }

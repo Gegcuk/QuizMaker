@@ -88,7 +88,7 @@ class AuthSessionServiceImplTest {
         user.setId(userId);
         when(authentication.getName()).thenReturn("alice");
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
-        when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(604_800_000L);
+        when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(345_600_000L);
         when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(43_200_000L);
         when(jwtTokenService.generateAccessToken(eq(authentication), any(UUID.class))).thenReturn("access-token");
         when(jwtTokenService.generateRefreshToken(eq(authentication), any(UUID.class), any(Date.class)))
@@ -102,10 +102,18 @@ class AuthSessionServiceImplTest {
         AuthSession saved = sessionCaptor.getValue();
         assertThat(saved.getUserId()).isEqualTo(userId);
         assertThat(saved.getRefreshTokenHash()).isEqualTo("fingerprint").isNotEqualTo("refresh-token");
-        assertThat(saved.getExpiresAt()).isEqualTo(now.plusDays(7));
+        assertThat(saved.getExpiresAt()).isEqualTo(now.plusDays(4));
+
+        ArgumentCaptor<Date> expiryCaptor = ArgumentCaptor.forClass(Date.class);
+        verify(jwtTokenService).generateRefreshToken(
+                eq(authentication),
+                eq(saved.getId()),
+                expiryCaptor.capture()
+        );
+        assertThat(expiryCaptor.getValue().toInstant()).isEqualTo(NOW.plusSeconds(4 * 24 * 60 * 60));
         assertThat(result.accessToken()).isEqualTo("access-token");
         assertThat(result.refreshToken()).isEqualTo("refresh-token");
-        assertThat(result.refreshExpiresInMs()).isEqualTo(604_800_000L);
+        assertThat(result.refreshExpiresInMs()).isEqualTo(345_600_000L);
         verify(authSessionMetricsService).recordSessionIssued();
     }
 
@@ -190,6 +198,8 @@ class AuthSessionServiceImplTest {
         when(jwtTokenService.getAuthentication(claims)).thenReturn(authentication);
 
         assertThat(service.authenticateAccessToken("access-token")).isSameAs(authentication);
+        verify(authSessionRepository, never()).save(any(AuthSession.class));
+        verify(authSessionRepository, never()).saveAndFlush(any(AuthSession.class));
     }
 
     @Test

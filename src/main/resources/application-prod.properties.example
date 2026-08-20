@@ -15,7 +15,8 @@ logging.level.uk.gegc.quizmaker=INFO
 # JWT Configuration
 jwt.secret=${JWT_SECRET}
 jwt.access-expiration-ms=43200000
-jwt.refresh-expiration-ms=604800000
+# Successful refreshes renew this rolling inactivity window; ordinary requests do not.
+jwt.refresh-expiration-ms=345600000
 
 # OpenAI Configuration
 spring.ai.openai.api-key=${OPENAI_API_KEY}
