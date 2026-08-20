@@ -26,6 +26,7 @@ public final class PublicApiRoutes {
             anyMethod("/api/v1/auth/reset-password"),
             anyMethod("/api/v1/auth/2fa/setup"),
             anyMethod("/api/v1/auth/2fa/verify"),
+            route(HttpMethod.POST, "/api/v1/auth/oauth/exchange"),
             anyMethod("/oauth2/**"),
             anyMethod("/login/oauth2/**"),
             route(HttpMethod.POST, "/api/v1/bug-reports"),

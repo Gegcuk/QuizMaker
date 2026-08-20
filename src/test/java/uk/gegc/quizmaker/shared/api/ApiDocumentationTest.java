@@ -29,6 +29,8 @@ import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthorizationRequestContextRepository;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2LoginAuthorizationRequestResolver;
 import uk.gegc.quizmaker.features.question.api.QuestionController;
 import uk.gegc.quizmaker.features.question.application.QuestionSchemaService;
 import uk.gegc.quizmaker.features.question.application.QuestionService;
@@ -38,6 +40,7 @@ import uk.gegc.quizmaker.shared.api.docs.ApiDocumentationService;
 import uk.gegc.quizmaker.shared.config.OpenApiConfig;
 import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
 import uk.gegc.quizmaker.shared.config.SecurityConfig;
+import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import javax.sql.DataSource;
@@ -107,6 +110,9 @@ class ApiDocumentationTest {
     private TrustedProxyUtil trustedProxyUtil;
 
     @MockitoBean
+    private RateLimitService rateLimitService;
+
+    @MockitoBean
     private CustomOAuth2UserService customOAuth2UserService;
 
     @MockitoBean
@@ -114,6 +120,12 @@ class ApiDocumentationTest {
 
     @MockitoBean
     private OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
+
+    @MockitoBean
+    private OAuth2LoginAuthorizationRequestResolver oAuth2LoginAuthorizationRequestResolver;
+
+    @MockitoBean
+    private OAuth2AuthorizationRequestContextRepository oAuth2AuthorizationRequestContextRepository;
 
     @MockitoBean
     private ClientRegistrationRepository clientRegistrationRepository;

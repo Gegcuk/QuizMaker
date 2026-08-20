@@ -16,6 +16,8 @@ import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.auth.infra.security.CustomOAuth2UserService;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationFailureHandler;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSuccessHandler;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthorizationRequestContextRepository;
+import uk.gegc.quizmaker.features.auth.infra.security.OAuth2LoginAuthorizationRequestResolver;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
@@ -110,6 +112,12 @@ class QuizGenerationStatusSecurityTest {
 
     @MockitoBean
     private OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
+
+    @MockitoBean
+    private OAuth2LoginAuthorizationRequestResolver oAuth2LoginAuthorizationRequestResolver;
+
+    @MockitoBean
+    private OAuth2AuthorizationRequestContextRepository oAuth2AuthorizationRequestContextRepository;
 
     @MockitoBean
     private ClientRegistrationRepository clientRegistrationRepository;

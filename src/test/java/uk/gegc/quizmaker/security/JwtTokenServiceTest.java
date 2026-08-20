@@ -38,7 +38,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.SAME_THREAD)
@@ -135,6 +137,26 @@ public class JwtTokenServiceTest {
     }
 
     @Test
+    @DisplayName("authentication issuance preserves an email subject while reusing the resolved user identity")
+    void generateAccessToken_emailAuthentication_preservesOriginalSubject() {
+        String email = "alice@example.test";
+        uk.gegc.quizmaker.features.user.domain.model.User resolvedUser =
+                new uk.gegc.quizmaker.features.user.domain.model.User();
+        resolvedUser.setId(UUID.randomUUID());
+        resolvedUser.setUsername("alice");
+        resolvedUser.setPasswordChangedAt(LocalDateTime.now().minusMinutes(5));
+        when(userRepository.findByUsername(email)).thenReturn(java.util.Optional.empty());
+        when(userRepository.findByEmail(email)).thenReturn(java.util.Optional.of(resolvedUser));
+        Authentication authentication = new UsernamePasswordAuthenticationToken(email, null, List.of());
+
+        String token = jwtTokenService.generateAccessToken(authentication, UUID.randomUUID());
+
+        Claims claims = Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload();
+        assertThat(claims.getSubject()).isEqualTo(email);
+        assertThat(claims.get("uid", String.class)).isEqualTo(resolvedUser.getId().toString());
+    }
+
+    @Test
     @DisplayName("generateAccessToken: two calls at the same instant use distinct JWT IDs")
     void generateAccessToken_sameInstant_usesDistinctJwtIds() {
         Authentication authentication = new UsernamePasswordAuthenticationToken("Bob", null, List.of());
@@ -151,6 +173,31 @@ public class JwtTokenServiceTest {
         assertThat(claims2.getIssuedAt()).isEqualTo(claims1.getIssuedAt());
         assertThat(claims2.getExpiration()).isEqualTo(claims1.getExpiration());
         assertThat(claims2.getId()).isNotEqualTo(claims1.getId());
+    }
+
+    @Test
+    @DisplayName("resolved user issuance reuses identity without repository lookups")
+    void generateTokens_resolvedUser_doesNotReloadUser() {
+        uk.gegc.quizmaker.features.user.domain.model.User resolvedUser =
+                new uk.gegc.quizmaker.features.user.domain.model.User();
+        resolvedUser.setId(UUID.randomUUID());
+        resolvedUser.setUsername("ResolvedOAuthUser");
+        resolvedUser.setPasswordChangedAt(LocalDateTime.now().minusMinutes(5));
+        clearInvocations(userRepository);
+
+        UUID sessionId = UUID.randomUUID();
+        String accessToken = jwtTokenService.generateAccessToken(resolvedUser, sessionId);
+        String refreshToken = jwtTokenService.generateRefreshToken(resolvedUser, sessionId, refreshExpiry());
+
+        verifyNoInteractions(userRepository);
+        Claims accessClaims = Jwts.parser().verifyWith(secretKey).build()
+                .parseSignedClaims(accessToken).getPayload();
+        Claims refreshClaims = Jwts.parser().verifyWith(secretKey).build()
+                .parseSignedClaims(refreshToken).getPayload();
+        assertThat(accessClaims.getSubject()).isEqualTo("ResolvedOAuthUser");
+        assertThat(accessClaims.get("uid", String.class)).isEqualTo(resolvedUser.getId().toString());
+        assertThat(refreshClaims.getSubject()).isEqualTo("ResolvedOAuthUser");
+        assertThat(refreshClaims.get("sid", String.class)).isEqualTo(sessionId.toString());
     }
 
     @Test

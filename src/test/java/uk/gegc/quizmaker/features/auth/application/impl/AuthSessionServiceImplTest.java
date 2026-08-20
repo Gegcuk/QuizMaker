@@ -84,14 +84,19 @@ class AuthSessionServiceImplTest {
     @Test
     @DisplayName("issues a new session without persisting the raw refresh token")
     void issueTokens_persistsHashedRefreshVerifier() {
+        String emailSubject = "alice@example.test";
         User user = new User();
         user.setId(userId);
-        when(authentication.getName()).thenReturn("alice");
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(user));
+        user.setUsername("alice");
+        user.setPasswordChangedAt(now.minusDays(1));
+        when(authentication.getName()).thenReturn(emailSubject);
+        when(userRepository.findByUsername(emailSubject)).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(emailSubject)).thenReturn(Optional.of(user));
         when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(345_600_000L);
         when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(43_200_000L);
-        when(jwtTokenService.generateAccessToken(eq(authentication), any(UUID.class))).thenReturn("access-token");
-        when(jwtTokenService.generateRefreshToken(eq(authentication), any(UUID.class), any(Date.class)))
+        when(jwtTokenService.generateAccessToken(eq(user), eq(emailSubject), any(UUID.class)))
+                .thenReturn("access-token");
+        when(jwtTokenService.generateRefreshToken(eq(user), eq(emailSubject), any(UUID.class), any(Date.class)))
                 .thenReturn("refresh-token");
         when(jwtTokenService.fingerprintRefreshToken("refresh-token")).thenReturn("fingerprint");
 
@@ -106,7 +111,8 @@ class AuthSessionServiceImplTest {
 
         ArgumentCaptor<Date> expiryCaptor = ArgumentCaptor.forClass(Date.class);
         verify(jwtTokenService).generateRefreshToken(
-                eq(authentication),
+                eq(user),
+                eq(emailSubject),
                 eq(saved.getId()),
                 expiryCaptor.capture()
         );
@@ -115,6 +121,30 @@ class AuthSessionServiceImplTest {
         assertThat(result.refreshToken()).isEqualTo("refresh-token");
         assertThat(result.refreshExpiresInMs()).isEqualTo(345_600_000L);
         verify(authSessionMetricsService).recordSessionIssued();
+    }
+
+    @Test
+    @DisplayName("issues tokens for an already resolved OAuth user without another user lookup")
+    void issueTokensForUser_reusesResolvedIdentity() {
+        User user = new User();
+        user.setId(userId);
+        user.setUsername("oauth-user");
+        user.setPasswordChangedAt(now.minusDays(1));
+        when(jwtTokenService.getRefreshTokenValidityInMs()).thenReturn(345_600_000L);
+        when(jwtTokenService.getAccessTokenValidityInMs()).thenReturn(43_200_000L);
+        when(jwtTokenService.generateAccessToken(eq(user), eq("oauth-user"), any(UUID.class)))
+                .thenReturn("access-token");
+        when(jwtTokenService.generateRefreshToken(eq(user), eq("oauth-user"), any(UUID.class), any(Date.class)))
+                .thenReturn("refresh-token");
+        when(jwtTokenService.fingerprintRefreshToken("refresh-token")).thenReturn("fingerprint");
+
+        JwtResponse response = service.issueTokensForUser(user);
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        verify(userRepository, never()).findById(any());
+        verify(userRepository, never()).findByUsername(any());
+        verify(userRepository, never()).findByEmail(any());
+        verify(authSessionRepository).save(any(AuthSession.class));
     }
 
     @Test

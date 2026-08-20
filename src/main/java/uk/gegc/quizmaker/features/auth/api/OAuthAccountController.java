@@ -21,22 +21,24 @@ import uk.gegc.quizmaker.features.auth.application.OAuthAccountService;
  * Controller for managing OAuth account linking and unlinking.
  * 
  * <p><b>⚠️ IMPORTANT: OAuth Login Flow</b></p>
- * <p>To login with OAuth (Google, GitHub, Facebook, Microsoft), redirect users to:</p>
+ * <p>The web client creates and temporarily stores an S256 PKCE verifier, then starts either:</p>
  * <ul>
- *   <li><code>GET /oauth2/authorization/google</code> - Login with Google</li>
- *   <li><code>GET /oauth2/authorization/github</code> - Login with GitHub</li>
- *   <li><code>GET /oauth2/authorization/facebook</code> - Login with Facebook</li>
- *   <li><code>GET /oauth2/authorization/microsoft</code> - Login with Microsoft</li>
+ *   <li><code>GET /oauth2/authorization/google?client_id=quizzence-web&amp;redirect_uri={exact-encoded-callback}&amp;code_challenge={S256-challenge}&amp;code_challenge_method=S256</code></li>
+ *   <li><code>GET /oauth2/authorization/github?client_id=quizzence-web&amp;redirect_uri={exact-encoded-callback}&amp;code_challenge={S256-challenge}&amp;code_challenge_method=S256</code></li>
  * </ul>
  * 
- * <p>After successful OAuth authentication, users are redirected to your frontend with JWT tokens:</p>
- * <code>https://yourfrontend.com/oauth2/redirect?accessToken=xxx&refreshToken=yyy</code>
+ * <p>After successful OAuth authentication, users are redirected to the frontend with a short-lived code:</p>
+ * <code>https://yourfrontend.com/oauth2/redirect?code=opaque-one-time-code</code>
+ * <p>The frontend automatically exchanges that code with its PKCE verifier through
+ * <code>POST /api/v1/auth/oauth/exchange</code>. Users do not enter or copy the code.</p>
  * 
  * <p>The endpoints below are for <b>managing</b> OAuth accounts after authentication, not for logging in.</p>
  */
 @Tag(name = "OAuth Account Management", 
      description = "Manage linked OAuth social login accounts. " +
-                   "To login with OAuth, redirect to /oauth2/authorization/{provider} (google, github, facebook, microsoft). " +
+                   "For current web login with Google or GitHub, the frontend supplies client_id, the exact redirect_uri, " +
+                   "an S256 code_challenge, and code_challenge_method=S256 when opening /oauth2/authorization/{provider}. " +
+                   "It automatically exchanges the one-time callback code with its verifier. " +
                    "These endpoints are for viewing and unlinking OAuth accounts after authentication.")
 @RestController
 @RequestMapping("/api/v1/auth/oauth")
@@ -86,4 +88,3 @@ public class OAuthAccountController {
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 }
-

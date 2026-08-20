@@ -53,6 +53,10 @@ public final class ErrorTypes {
     public static final URI ACCESS_DENIED = URI.create(BASE_URL + "/access-denied");
     public static final URI DOCUMENT_ACCESS_DENIED = URI.create(BASE_URL + "/document-access-denied");
     public static final URI AUTH_SESSION_UNAVAILABLE = URI.create(BASE_URL + "/auth-session-unavailable");
+    public static final URI OAUTH_EXCHANGE_INVALID_REQUEST = URI.create(BASE_URL + "/oauth-exchange-invalid-request");
+    public static final URI OAUTH_EXCHANGE_INVALID = URI.create(BASE_URL + "/oauth-exchange-invalid");
+    public static final URI OAUTH_EXCHANGE_REPLAYED = URI.create(BASE_URL + "/oauth-exchange-replayed");
+    public static final URI OAUTH_EXCHANGE_UNAVAILABLE = URI.create(BASE_URL + "/oauth-exchange-unavailable");
 
     // ==================== State Errors ====================
     public static final URI ATTEMPT_NOT_COMPLETED = URI.create(BASE_URL + "/attempt-not-completed");
