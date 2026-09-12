@@ -111,7 +111,12 @@ class DocumentFilePathIndexMigrationTest {
     }
 
     private void dropArtifacts() {
-        jdbcTemplate.execute("DROP TABLE IF EXISTS " + MIGRATION_HISTORY_TABLE);
-        jdbcTemplate.execute("DROP TABLE IF EXISTS documents");
+        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0");
+        try {
+            jdbcTemplate.execute("DROP TABLE IF EXISTS " + MIGRATION_HISTORY_TABLE);
+            jdbcTemplate.execute("DROP TABLE IF EXISTS documents");
+        } finally {
+            jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1");
+        }
     }
 }
