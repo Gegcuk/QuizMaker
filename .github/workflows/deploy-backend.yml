@@ -7,7 +7,7 @@ on:
     types: [completed]
 
 permissions:
-  actions: read
+  actions: write
   contents: read
 
 concurrency:
@@ -303,3 +303,38 @@ jobs:
             trap - ERR
             docker image prune -f
             echo "Deployed CI-verified release ${RELEASE_SHA}"
+
+      - name: Delete consumed CI artifact
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          artifact_ids="$(
+            gh api --paginate \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_WORKFLOW_RUN_ID}/artifacts?name=quizmaker-backend-jar&per_page=100" \
+              --jq '.artifacts[] | select(.name == "quizmaker-backend-jar") | .id'
+          )" || {
+            echo "::warning::Could not look up quizmaker-backend-jar for source workflow run ${SOURCE_WORKFLOW_RUN_ID}; retaining it for normal artifact expiration."
+            exit 0
+          }
+
+          if [ -z "$artifact_ids" ]; then
+            echo "::warning::No quizmaker-backend-jar artifact was found for source workflow run ${SOURCE_WORKFLOW_RUN_ID}; retaining normal artifact expiration behavior."
+            exit 0
+          fi
+
+          artifact_count="$(printf '%s\n' "$artifact_ids" | wc -l | tr -d '[:space:]')"
+          if [ "$artifact_count" -ne 1 ]; then
+            echo "::warning::Expected one quizmaker-backend-jar artifact for source workflow run ${SOURCE_WORKFLOW_RUN_ID}, found ${artifact_count}; skipping cleanup."
+            exit 0
+          fi
+
+          if ! gh api --method DELETE \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_ids}"; then
+            echo "::warning::Could not delete quizmaker-backend-jar artifact ${artifact_ids}; retaining it for normal artifact expiration."
+            exit 0
+          fi
+
+          echo "Deleted quizmaker-backend-jar artifact ${artifact_ids} from source workflow run ${SOURCE_WORKFLOW_RUN_ID}."

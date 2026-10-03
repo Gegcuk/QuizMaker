@@ -7,7 +7,36 @@ on:
     branches: [ master, main ]
 
 jobs:
+  classify-changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is needed for the PR merge base and the complete file list.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect documentation-only pull request
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/pr_docs_only.py "$BASE_SHA" "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
+
   build-and-test:
+    needs: classify-changes
+    # Keep this check present for branch protection. Only a confirmed docs-only PR
+    # skips it; detector failures run tests, and pushes still build the deploy JAR.
+    if: >-
+      ${{ !cancelled() &&
+          (github.event_name != 'pull_request' ||
+           needs.classify-changes.result != 'success' ||
+           needs.classify-changes.outputs.docs_only != 'true') }}
     runs-on: ubuntu-latest
 
     env:
@@ -78,6 +107,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify PR change classification
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
