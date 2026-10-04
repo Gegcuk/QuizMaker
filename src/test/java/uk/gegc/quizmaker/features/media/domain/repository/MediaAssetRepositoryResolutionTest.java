@@ -32,7 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
+        // Other cached test contexts share this schema; fixtures roll back without dropping tables.
+        "spring.jpa.hibernate.ddl-auto=update",
         "spring.jpa.properties.hibernate.generate_statistics=true"
 })
 class MediaAssetRepositoryResolutionTest {
