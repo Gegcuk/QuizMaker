@@ -10,6 +10,8 @@ import uk.gegc.quizmaker.features.media.domain.model.MediaAsset;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAssetType;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,4 +36,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, UUID> {
     );
 
     Optional<MediaAsset> findByIdAndStatusNot(UUID id, MediaAssetStatus status);
+
+    List<MediaAsset> findAllByIdInAndStatusAndType(
+            Collection<UUID> ids, MediaAssetStatus status, MediaAssetType type);
 }

@@ -16,6 +16,8 @@ import uk.gegc.quizmaker.features.article.domain.repository.ArticleSpecification
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
 import uk.gegc.quizmaker.features.article.infra.mapping.ArticleMapper;
+import uk.gegc.quizmaker.features.media.api.dto.PublicImageRenditionDto;
+import uk.gegc.quizmaker.features.media.application.MediaAssetService;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -36,6 +38,7 @@ public class ArticleServiceImpl implements ArticleService {
     private final TagRepository tagRepository;
     private final ArticleMapper articleMapper;
     private final AppPermissionEvaluator permissionEvaluator;
+    private final MediaAssetService mediaAssetService;
 
     @Override
     @Transactional(readOnly = true)
@@ -47,8 +50,9 @@ public class ArticleServiceImpl implements ArticleService {
         if (effectiveCriteria.status() == ArticleStatus.DRAFT) {
             enforceDraftAccess(true);
         }
-        return articleRepository.findAll(ArticleSpecifications.build(effectiveCriteria), pageable)
-                .map(articleMapper::toListItem);
+        Page<Article> articles = articleRepository.findAll(ArticleSpecifications.build(effectiveCriteria), pageable);
+        Map<UUID, PublicImageRenditionDto> renditions = resolveHeroImages(articles.getContent());
+        return articles.map(article -> articleMapper.toListItem(article, renditions));
     }
 
     @Override
@@ -60,7 +64,7 @@ public class ArticleServiceImpl implements ArticleService {
         if (!includeDrafts && article.getStatus() != ArticleStatus.PUBLISHED) {
             throw new ResourceNotFoundException("Article " + articleId + " not found");
         }
-        return articleMapper.toDto(article);
+        return articleMapper.toDto(article, resolveHeroImages(List.of(article)));
     }
 
     @Override
@@ -75,7 +79,7 @@ public class ArticleServiceImpl implements ArticleService {
                 ? articleRepository.findBySlug(normalizedSlug)
                 : articleRepository.findBySlugAndStatus(normalizedSlug, ArticleStatus.PUBLISHED);
         Article article = articleOpt.orElseThrow(() -> new ResourceNotFoundException("Article with slug " + slug + " not found"));
-        return articleMapper.toDto(article);
+        return articleMapper.toDto(article, resolveHeroImages(List.of(article)));
     }
 
     @Override
@@ -85,12 +89,13 @@ public class ArticleServiceImpl implements ArticleService {
             return List.of();
         }
         List<Article> articles = articleRepository.findAllById(articleIds);
+        Map<UUID, PublicImageRenditionDto> renditions = resolveHeroImages(articles);
         Map<UUID, Article> byId = articles.stream()
                 .collect(Collectors.toMap(Article::getId, a -> a));
         return articleIds.stream()
                 .map(byId::get)
                 .filter(Objects::nonNull)
-                .map(articleMapper::toDto)
+                .map(article -> articleMapper.toDto(article, renditions))
                 .toList();
     }
 
@@ -206,6 +211,22 @@ public class ArticleServiceImpl implements ArticleService {
         return projections.stream()
                 .map(articleMapper::toSitemapEntry)
                 .toList();
+    }
+
+    private Map<UUID, PublicImageRenditionDto> resolveHeroImages(Collection<Article> articles) {
+        List<UUID> assetIds = articles.stream()
+                .map(Article::getHeroImageAssetId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (assetIds.isEmpty()) {
+            return Map.of();
+        }
+        return mediaAssetService.getByIdsForResolution(assetIds).entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> {
+                    var image = entry.getValue();
+                    return new PublicImageRenditionDto(image.cdnUrl(), image.width(), image.height(), image.mimeType());
+                }));
     }
 
     private void validateUpsert(ArticleUpsertRequest request) {

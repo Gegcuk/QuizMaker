@@ -31,12 +31,15 @@ import uk.gegc.quizmaker.features.media.domain.model.MediaAssetType;
 import uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository;
 import uk.gegc.quizmaker.features.media.infra.mapping.MediaAssetMapper;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
+import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +54,9 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class MediaAssetServiceImplTest {
@@ -179,6 +185,87 @@ class MediaAssetServiceImplTest {
         assertThatThrownBy(() -> service.getById(assetId, "writer"))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("You cannot access this media asset");
+    }
+
+    @Test
+    @DisplayName("Batch resolution returns stable public URLs and metadata without calling storage")
+    void getByIdsForResolution_returnsPublicMetadata() {
+        MediaAsset first = readyImage(UUID.randomUUID(), "writer");
+        first.setWidth(1280);
+        first.setHeight(720);
+        MediaAsset second = readyImage(UUID.randomUUID(), "another-writer");
+        second.setWidth(640);
+        second.setHeight(480);
+        List<UUID> ids = List.of(first.getId(), second.getId());
+        when(mediaAssetRepository.findAllByIdInAndStatusAndType(
+                ids, MediaAssetStatus.READY, MediaAssetType.IMAGE)).thenReturn(List.of(first, second));
+
+        Map<UUID, MediaRefDto> resolved = service.getByIdsForResolution(ids);
+
+        assertThat(resolved).containsOnlyKeys(first.getId(), second.getId());
+        assertThat(resolved.get(first.getId())).isEqualTo(new MediaRefDto(
+                first.getId(), "https://cdn.test.com/library/" + first.getId() + ".png",
+                null, null, 1280, 720, "image/png"));
+        assertThat(resolved.get(second.getId()).width()).isEqualTo(640);
+        verify(mediaAssetRepository).findAllByIdInAndStatusAndType(
+                ids, MediaAssetStatus.READY, MediaAssetType.IMAGE);
+        verifyNoMoreInteractions(mediaAssetRepository);
+        verifyNoInteractions(s3Client, presigner, permissionEvaluator);
+    }
+
+    @Test
+    @DisplayName("Batch resolution ignores nulls, deduplicates identifiers and omits absent assets")
+    void getByIdsForResolution_deduplicatesAndOmitsAbsentAssets() {
+        MediaAsset image = readyImage(UUID.randomUUID(), "writer");
+        UUID unavailableId = UUID.randomUUID();
+        List<UUID> distinctIds = List.of(image.getId(), unavailableId);
+        when(mediaAssetRepository.findAllByIdInAndStatusAndType(
+                distinctIds, MediaAssetStatus.READY, MediaAssetType.IMAGE)).thenReturn(List.of(image));
+
+        Map<UUID, MediaRefDto> resolved = service.getByIdsForResolution(
+                Arrays.asList(image.getId(), null, unavailableId, image.getId()));
+
+        assertThat(resolved).containsOnlyKeys(image.getId());
+        // Older records may not have dimensions; resolution keeps this metadata nullable.
+        assertThat(resolved.get(image.getId()).width()).isNull();
+        assertThat(resolved.get(image.getId()).height()).isNull();
+        verify(mediaAssetRepository).findAllByIdInAndStatusAndType(
+                distinctIds, MediaAssetStatus.READY, MediaAssetType.IMAGE);
+        verifyNoMoreInteractions(mediaAssetRepository);
+        verifyNoInteractions(s3Client, presigner);
+    }
+
+    @Test
+    @DisplayName("Batch resolution skips database access when there are no identifiers")
+    void getByIdsForResolution_skipsEmptyInput() {
+        assertThat(service.getByIdsForResolution(null)).isEmpty();
+        assertThat(service.getByIdsForResolution(List.of())).isEmpty();
+        assertThat(service.getByIdsForResolution(Arrays.asList(null, null))).isEmpty();
+
+        verifyNoInteractions(mediaAssetRepository, s3Client, presigner);
+    }
+
+    @Test
+    @DisplayName("Batch resolution bounds each query and resolves identifiers across batches")
+    void getByIdsForResolution_boundsLargeRequests() {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 101; i++) {
+            ids.add(UUID.randomUUID());
+        }
+        MediaAsset first = readyImage(ids.get(0), "writer");
+        MediaAsset last = readyImage(ids.get(100), "writer");
+        when(mediaAssetRepository.findAllByIdInAndStatusAndType(
+                ids.subList(0, 100), MediaAssetStatus.READY, MediaAssetType.IMAGE)).thenReturn(List.of(first));
+        when(mediaAssetRepository.findAllByIdInAndStatusAndType(
+                ids.subList(100, 101), MediaAssetStatus.READY, MediaAssetType.IMAGE)).thenReturn(List.of(last));
+
+        Map<UUID, MediaRefDto> resolved = service.getByIdsForResolution(ids);
+
+        assertThat(resolved).containsOnlyKeys(first.getId(), last.getId());
+        verify(mediaAssetRepository, times(2)).findAllByIdInAndStatusAndType(
+                any(), eq(MediaAssetStatus.READY), eq(MediaAssetType.IMAGE));
+        verifyNoMoreInteractions(mediaAssetRepository);
+        verifyNoInteractions(s3Client, presigner);
     }
 
     @Test
